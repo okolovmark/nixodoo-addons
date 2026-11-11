@@ -3,10 +3,10 @@ name: tests
 on:
   pull_request:
     branches:
-      - "16.0*"
+      - "20.0*"
   push:
     branches:
-      - "16.0"
+      - "20.0"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -29,11 +29,11 @@ jobs:
 
   test:
     runs-on: ubuntu-22.04
-    container: ghcr.io/oca/oca-ci/py3.10-odoo16.0:latest
-    name: test with Odoo 16.0
+    container: ghcr.io/oca/oca-ci/py3.12-odoo20.0:latest
+    name: test with Odoo 20.0
     services:
       postgres:
-        image: postgres:12
+        image: postgres:16
         env:
           POSTGRES_USER: odoo
           POSTGRES_PASSWORD: odoo

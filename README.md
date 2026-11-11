@@ -19,10 +19,10 @@ In the project's `addons.yaml`:
 ---
 ENV:
   DEFAULT_REPO_PATTERN: https://github.com/okolovmark/{}.git
-  ODOO_VERSION: 16.0
+  ODOO_VERSION: 20.0
 
 nixodoo-addons:
-  revision: <commit on the 16.0 branch>
+  revision: <commit on the 20.0 branch>
   modules:
     - "release_notes"
     - "project_software"
