@@ -1,0 +1,7 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_release_note_user,release.note.user,model_release_note,base.group_user,1,0,0,0
+access_release_note_manager,release.note.manager,model_release_note,group_release_note_manager,1,1,1,0
+access_release_note_system,release.note.system,model_release_note,base.group_system,1,1,1,1
+access_release_note_tag_user,release.note.tag.user,model_release_note_tag,base.group_user,1,0,0,0
+access_release_note_tag_manager,release.note.tag.manager,model_release_note_tag,group_release_note_manager,1,1,1,1
+access_ir_model_release_note_manager,ir.model.release.note.manager,base.model_ir_model,group_release_note_manager,1,0,0,0

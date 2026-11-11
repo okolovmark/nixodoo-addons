@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem id="release_note_menu_root" name="Release Notes" sequence="95"
+              web_icon="release_notes,static/description/icon.png"/>
+    <menuitem id="release_note_menu" name="Release Notes" parent="release_note_menu_root"
+              action="release_note_action" sequence="10"/>
+    <menuitem id="release_note_menu_configuration" name="Configuration" parent="release_note_menu_root"
+              groups="group_release_note_manager" sequence="90"/>
+    <menuitem id="release_note_tag_menu" name="Tags" parent="release_note_menu_configuration"
+              action="release_note_tag_action" sequence="10"/>
+</odoo>
