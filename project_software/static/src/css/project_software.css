@@ -1,0 +1,20 @@
+.task_progress {
+    width: 40%;
+    display: inline-block;
+    font-size: 10px;
+}
+
+.kanban_subtasks {
+    width: 55%;
+    display: inline-block;
+    font-size: 10px;
+}
+
+.kanban_subtasks ul {
+    -webkit-padding-start: 30px;
+}
+
+.o_field_html_autogrow .note-editable {
+    min-height: 50px;
+    height: auto; /* Let the height adjust */
+}
