@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <record id="release_note_tag_sales" model="release.note.tag">
+        <field name="name">Sales</field>
+        <field name="color">1</field>
+    </record>
+    <record id="release_note_tag_purchase_orders" model="release.note.tag">
+        <field name="name">Purchase Orders</field>
+        <field name="color">2</field>
+    </record>
+    <record id="release_note_tag_inventory" model="release.note.tag">
+        <field name="name">Inventory</field>
+        <field name="color">3</field>
+    </record>
+    <record id="release_note_tag_manufacturing" model="release.note.tag">
+        <field name="name">Manufacturing</field>
+        <field name="color">4</field>
+    </record>
+    <record id="release_note_tag_projects" model="release.note.tag">
+        <field name="name">Projects</field>
+        <field name="color">5</field>
+    </record>
+    <record id="release_note_tag_accounting" model="release.note.tag">
+        <field name="name">Accounting</field>
+        <field name="color">6</field>
+    </record>
+    <record id="release_note_tag_hr" model="release.note.tag">
+        <field name="name">HR</field>
+        <field name="color">7</field>
+    </record>
+    <record id="release_note_tag_maintenance" model="release.note.tag">
+        <field name="name">Maintenance</field>
+        <field name="color">8</field>
+    </record>
+    <record id="release_note_tag_quality" model="release.note.tag">
+        <field name="name">Quality</field>
+        <field name="color">9</field>
+    </record>
+    <record id="release_note_tag_shipping" model="release.note.tag">
+        <field name="name">Shipping</field>
+        <field name="color">10</field>
+    </record>
+    <record id="release_note_tag_crm" model="release.note.tag">
+        <field name="name">CRM</field>
+        <field name="color">11</field>
+    </record>
+</odoo>

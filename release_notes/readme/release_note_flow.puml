@@ -1,0 +1,60 @@
+@startuml release_note_flow
+' Flow: a release note from the pull request to the users' OdooBot chats.
+' Preview: Alt+D (PlantUML extension)
+
+skinparam shadowing false
+skinparam defaultFontName Helvetica
+
+title Release note - from pull request to users
+
+|Developer|
+start
+:Write notes/<key>.html in the holder module
+<prefix>_release_notes, in the pull request of the change
+(front matter: key, title, summary, tags, models;
+HTML body with /odoo/action-<module>.<xml_id> buttons);
+
+|Deploy|
+:Merge, then -u <prefix>_release_notes;
+:the holder's data file calls
+_load_release_notes("<prefix>_release_notes"),
+which reads the holder's notes/*.html;
+if (key already in Odoo?) then (yes)
+  :skip the file
+(the note is never overwritten);
+else (no)
+  :create release.note
+is_published = False
+(visible to managers only);
+endif
+:Deployed by is set
+= the user who ran the deploy;
+
+|Deployer|
+:open Release Notes > Unpublished,
+read the note, press each button,
+check Models;
+:press Publish;
+if (current user = Deployed by
+and at least one model?) then (yes)
+  :is_published, Published by,
+Published date set;
+  if (is_notified?) then (no)
+    |OdooBot|
+    :direct chat to each active internal user
+who can read one of the note's models
+(no email);
+    :is_notified = True (sent once);
+  else (yes)
+    :nothing is sent again;
+  endif
+else (no)
+  |Deployer|
+  :UserError, nothing published;
+endif
+
+|Users|
+:read the chat, open the note,
+filter / group Release Notes by tag;
+stop
+@enduml

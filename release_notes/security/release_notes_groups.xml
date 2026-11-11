@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="module_category_release_notes" model="ir.module.category">
+        <field name="name">Release Notes</field>
+        <field name="sequence">90</field>
+    </record>
+
+    <record id="res_groups_privilege_release_notes" model="res.groups.privilege">
+        <field name="name">Release Notes</field>
+        <field name="category_id" ref="module_category_release_notes"/>
+    </record>
+
+    <record id="group_release_note_manager" model="res.groups">
+        <field name="name">Manager</field>
+        <field name="privilege_id" ref="res_groups_privilege_release_notes"/>
+        <field name="implied_ids" eval="[Command.link(ref('base.group_user'))]"/>
+        <field name="implied_by_ids" eval="[Command.link(ref('base.group_system'))]"/>
+    </record>
+</odoo>
