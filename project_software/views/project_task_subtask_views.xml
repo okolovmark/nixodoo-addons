@@ -5,7 +5,9 @@
         <field name="model">project.task</field>
         <field name="inherit_id" ref="project.view_task_form2" />
         <field name="arch" type="xml">
-            <xpath expr="//page[@name='description_page']" position="before">
+            <!-- After Description, which stays the tab a task opens on, as in core.
+                 The Technical Solution and Test Cases pages anchor on this one. -->
+            <xpath expr="//page[@name='description_page']" position="after">
                 <page name="checklist" string="Checklist" groups="project.group_project_user">
                     <field name="subtask_ids" context="{'default_user_id': default_user}">
                         <list

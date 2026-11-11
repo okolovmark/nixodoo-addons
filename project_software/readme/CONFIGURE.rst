@@ -1,5 +1,5 @@
-* On a project, tick **Software Project** (*Settings* tab, at the top of the
-  *Visibility* section) to show the Technical Solution tab on its tasks.
+* On a project, switch on **Software Project** (*Settings* tab, *Tasks
+  Management*) to show the Technical Solution tab on its tasks.
 * Checklist items and test cases are managed by users with the **User**
   access of *Project* (Settings > Users, the *Access Rights* tab of a user).
   The Checklist, Test Cases and Technical Solution tabs are hidden from users

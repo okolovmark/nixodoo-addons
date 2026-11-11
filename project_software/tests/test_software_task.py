@@ -1,3 +1,5 @@
+from lxml import etree
+
 from ..models.project_task import TSHIRT_HOURS
 from .common import ProjectSoftwareCommon
 
@@ -53,3 +55,15 @@ class TestSoftwareTask(ProjectSoftwareCommon):
         task = self.env["project.task"].new({"name": "Estimated", "allocated_hours": 42, "tshirt_estimate": "xs"})
         task._onchange_tshirt_estimate()
         self.assertEqual(task.allocated_hours, 42)
+
+    def test_task_opens_on_description_and_the_module_pages_follow(self):
+        arch = etree.fromstring(self.env["project.task"].get_view(view_type="form")["arch"])
+        page_names = [page.get("name") for page in arch.xpath("//notebook/page")]
+        self.assertEqual(page_names[0], "description_page", "Core opens a task on Description")
+        module_pages = [name for name in page_names if name in ("checklist", "technical_solution", "test_cases")]
+        self.assertEqual(module_pages, ["checklist", "technical_solution", "test_cases"])
+
+    def test_software_project_is_a_tasks_management_setting(self):
+        arch = etree.fromstring(self.env["project.project"].get_view(view_type="form")["arch"])
+        settings = arch.xpath("//group[@name='group_tasks_managment']/setting[field[@name='is_software_project']]")
+        self.assertEqual(len(settings), 1)
