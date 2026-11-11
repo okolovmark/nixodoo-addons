@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="view_task_form2_testcase" model="ir.ui.view">
+        <field name="name">project.task.form</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project.view_task_form2" />
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='checklist']" position="after">
+                <page name="test_cases" string="Test Cases" groups="project.group_project_user">
+                    <group>
+                        <field name="tester_id" />
+                    </group>
+                    <field name="testcase_ids">
+                        <list
+                            decoration-danger="state == 'todo'"
+                            decoration-muted="state == 'cancelled'"
+                            decoration-success="state == 'done'"
+                            decoration-info="state == 'waiting'"
+                        >
+                            <field name="sequence" widget="handle" />
+                            <field name="name" />
+                            <field name="passed" />
+                            <field name="state" />
+                            <button
+                                name="change_state_done"
+                                title="Change state to DONE"
+                                type="object"
+                                icon="check"
+                                invisible="state in ['done', 'cancelled']"
+                            />
+                            <button
+                                name="change_state_todo"
+                                title="Change state to TODO"
+                                type="object"
+                                icon="arrow_circle_right"
+                                invisible="state == 'todo'"
+                            />
+                            <button
+                                name="change_state_waiting"
+                                type="object"
+                                title="Change state to Waiting"
+                                icon="pause"
+                                invisible="state == 'waiting'"
+                            />
+                            <button
+                                name="change_state_cancelled"
+                                type="object"
+                                title="Change state to CANCELLED"
+                                icon="block"
+                                invisible="state == 'cancelled'"
+                            />
+                        </list>
+                        <form>
+                            <group>
+                                <field name="name" />
+                                <field
+                                    name="steps_to_execute"
+                                    placeholder="Add a description..."
+                                    class="o_field_html_autogrow"
+                                />
+                                <field
+                                    name="expected_results"
+                                    placeholder="Add a description..."
+                                    class="o_field_html_autogrow"
+                                />
+                                <field
+                                    name="comments"
+                                    placeholder="Add a description..."
+                                    class="o_field_html_autogrow"
+                                />
+                            </group>
+                        </form>
+                    </field>
+                    <field
+                        name="testcase_general_comments"
+                        placeholder="Add a description..."
+                        class="o_field_html_autogrow"
+                    />
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_task_kanban_testcase" model="ir.ui.view">
+        <field name="name">project.task.kanban.testcase</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project.view_task_card" />
+        <field name="arch" type="xml">
+            <templates position="before">
+                <field name="testcase_completion_xml" />
+                <field name="kanban_testcases" />
+            </templates>
+            <xpath expr="//footer" position="before">
+                <div>
+                    <t t-out="record.testcase_completion_xml.raw_value" />
+                    <t t-out="record.kanban_testcases.raw_value" />
+                </div>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="project_task_testcase_view_form" model="ir.ui.view">
+        <field name="name">project.task.testcase.form</field>
+        <field name="model">project.task.testcase</field>
+        <field name="arch" type="xml">
+            <form string="Testcase">
+                <sheet>
+                    <group>
+                        <field name="name" />
+                        <field
+                            name="steps_to_execute"
+                            placeholder="Add a description..."
+                            class="o_field_html_autogrow"
+                        />
+                        <field
+                            name="expected_results"
+                            placeholder="Add a description..."
+                            class="o_field_html_autogrow"
+                        />
+                        <field
+                            name="comments"
+                            placeholder="Add a description..."
+                            class="o_field_html_autogrow"
+                        />
+                        <field name="state" readonly="1" />
+                        <field name="passed" />
+                        <field name="task_id" />
+                        <field name="task_state" />
+                        <field name="project_id" />
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="project_task_testcase_view_search" model="ir.ui.view">
+        <field name="name">project.task.testcase.filter</field>
+        <field name="model">project.task.testcase</field>
+        <field name="arch" type="xml">
+            <search string="Filter">
+                <field name="name" string="Description" />
+                <separator />
+                <filter string="TODO" domain="[('state','=','todo')]" name="done_testcase" />
+                <group>
+                    <filter string="Project" name="project" context="{'group_by':'project_id'}" />
+                    <filter string="Task" name="task" context="{'group_by':'task_id'}" />
+                    <filter string="state" name="state" context="{'group_by':'state'}" />
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="testcase_list_view" model="ir.ui.view">
+        <field name="name">testcase.list.form</field>
+        <field name="model">project.task.testcase</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name" />
+                <field name="passed" />
+                <field name="task_id" />
+                <field name="project_id" />
+                <field name="state" />
+                <field name="task_state" />
+            </list>
+        </field>
+    </record>
+
+    <record id="action_view_testcase" model="ir.actions.act_window">
+        <field name="name">Testcase</field>
+        <field name="res_model">project.task.testcase</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">
+            {
+                'search_default_done_testcase': 1,
+            }
+        </field>
+    </record>
+
+    <menuitem
+        name="Test Cases"
+        parent="project.menu_main_pm"
+        id="menu_action_view_testcase"
+        action="action_view_testcase"
+    />
+</odoo>

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="view_task_form2_common" model="ir.ui.view">
+        <field name="name">project.task.form</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project.view_task_form2" />
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='checklist']" position="after">
+                <page
+                    name="technical_solution"
+                    string="Technical Solution"
+                    invisible="not is_software_project"
+                    groups="project.group_project_user"
+                >
+                    <group>
+                        <field
+                            name="questions"
+                            placeholder="Add a description..."
+                            class="o_field_html_autogrow"
+                        />
+                        <field
+                            name="answers"
+                            placeholder="Add a description..."
+                            class="o_field_html_autogrow"
+                        />
+                        <field
+                            name="solution"
+                            placeholder="Add a description..."
+                            class="o_field_html_autogrow"
+                        />
+                    </group>
+                </page>
+            </xpath>
+            <xpath expr="//field[@name='tag_ids']" position="before">
+                <field name="priority_level" string="Priority" />
+                <field name="tshirt_estimate" string="T-shirt Estimate" />
+                <field name="task_type" string="Task Type" />
+                <field name="difficulty" />
+                <field name="knowledge_area_level" />
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_task_tree2" model="ir.ui.view">
+        <field name="name">project.task.inherit.view.tree</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project.view_task_tree2" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='tag_ids']" position="before">
+                <field name="task_type" string="Task Type" optional="show" />
+            </xpath>
+        </field>
+    </record>
+</odoo>
