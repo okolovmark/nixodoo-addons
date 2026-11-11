@@ -27,7 +27,11 @@ The engine loads nothing by itself. Add one module to the project, named
           </function>
       </odoo>
 
-* a ``notes/`` folder with one ``<key>.html`` file per note (see *Usage*).
+* a ``notes/`` folder with one ``<key>.html`` file per note (see *Usage*);
+* a test that parses every file of ``notes/`` with
+  ``release.note._parse_release_note_file`` and checks that no two share a
+  key and that each key is a release note: the loader only skips a file it
+  cannot read, the test fails on it.
 
 Install the holder; it brings the engine with it. Every later update of the
 holder (``-u acme_release_notes``) loads the note files whose key is new.
