@@ -1,0 +1,579 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils: https://docutils.sourceforge.io/" />
+<title>Release Notes</title>
+<style type="text/css">
+
+/*
+:Author: David Goodger (goodger@python.org)
+:Id: $Id: html4css1.css 9511 2024-01-13 09:50:07Z milde $
+:Copyright: This stylesheet has been placed in the public domain.
+
+Default cascading style sheet for the HTML output of Docutils.
+Despite the name, some widely supported CSS2 features are used.
+
+See https://docutils.sourceforge.io/docs/howto/html-stylesheets.html for how to
+customize this style sheet.
+*/
+
+/* used to remove borders from tables and images */
+.borderless, table.borderless td, table.borderless th {
+  border: 0 }
+
+table.borderless td, table.borderless th {
+  /* Override padding for "table.docutils td" with "! important".
+     The right padding separates the table cells. */
+  padding: 0 0.5em 0 0 ! important }
+
+.first {
+  /* Override more specific margin styles with "! important". */
+  margin-top: 0 ! important }
+
+.last, .with-subtitle {
+  margin-bottom: 0 ! important }
+
+.hidden {
+  display: none }
+
+.subscript {
+  vertical-align: sub;
+  font-size: smaller }
+
+.superscript {
+  vertical-align: super;
+  font-size: smaller }
+
+a.toc-backref {
+  text-decoration: none ;
+  color: black }
+
+blockquote.epigraph {
+  margin: 2em 5em ; }
+
+dl.docutils dd {
+  margin-bottom: 0.5em }
+
+object[type="image/svg+xml"], object[type="application/x-shockwave-flash"] {
+  overflow: hidden;
+}
+
+/* Uncomment (and remove this text!) to get bold-faced definition list terms
+dl.docutils dt {
+  font-weight: bold }
+*/
+
+div.abstract {
+  margin: 2em 5em }
+
+div.abstract p.topic-title {
+  font-weight: bold ;
+  text-align: center }
+
+div.admonition, div.attention, div.caution, div.danger, div.error,
+div.hint, div.important, div.note, div.tip, div.warning {
+  margin: 2em ;
+  border: medium outset ;
+  padding: 1em }
+
+div.admonition p.admonition-title, div.hint p.admonition-title,
+div.important p.admonition-title, div.note p.admonition-title,
+div.tip p.admonition-title {
+  font-weight: bold ;
+  font-family: sans-serif }
+
+div.attention p.admonition-title, div.caution p.admonition-title,
+div.danger p.admonition-title, div.error p.admonition-title,
+div.warning p.admonition-title, .code .error {
+  color: red ;
+  font-weight: bold ;
+  font-family: sans-serif }
+
+/* Uncomment (and remove this text!) to get reduced vertical space in
+   compound paragraphs.
+div.compound .compound-first, div.compound .compound-middle {
+  margin-bottom: 0.5em }
+
+div.compound .compound-last, div.compound .compound-middle {
+  margin-top: 0.5em }
+*/
+
+div.dedication {
+  margin: 2em 5em ;
+  text-align: center ;
+  font-style: italic }
+
+div.dedication p.topic-title {
+  font-weight: bold ;
+  font-style: normal }
+
+div.figure {
+  margin-left: 2em ;
+  margin-right: 2em }
+
+div.footer, div.header {
+  clear: both;
+  font-size: smaller }
+
+div.line-block {
+  display: block ;
+  margin-top: 1em ;
+  margin-bottom: 1em }
+
+div.line-block div.line-block {
+  margin-top: 0 ;
+  margin-bottom: 0 ;
+  margin-left: 1.5em }
+
+div.sidebar {
+  margin: 0 0 0.5em 1em ;
+  border: medium outset ;
+  padding: 1em ;
+  background-color: #ffffee ;
+  width: 40% ;
+  float: right ;
+  clear: right }
+
+div.sidebar p.rubric {
+  font-family: sans-serif ;
+  font-size: medium }
+
+div.system-messages {
+  margin: 5em }
+
+div.system-messages h1 {
+  color: red }
+
+div.system-message {
+  border: medium outset ;
+  padding: 1em }
+
+div.system-message p.system-message-title {
+  color: red ;
+  font-weight: bold }
+
+div.topic {
+  margin: 2em }
+
+h1.section-subtitle, h2.section-subtitle, h3.section-subtitle,
+h4.section-subtitle, h5.section-subtitle, h6.section-subtitle {
+  margin-top: 0.4em }
+
+h1.title {
+  text-align: center }
+
+h2.subtitle {
+  text-align: center }
+
+hr.docutils {
+  width: 75% }
+
+img.align-left, .figure.align-left, object.align-left, table.align-left {
+  clear: left ;
+  float: left ;
+  margin-right: 1em }
+
+img.align-right, .figure.align-right, object.align-right, table.align-right {
+  clear: right ;
+  float: right ;
+  margin-left: 1em }
+
+img.align-center, .figure.align-center, object.align-center {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+table.align-center {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.align-left {
+  text-align: left }
+
+.align-center {
+  clear: both ;
+  text-align: center }
+
+.align-right {
+  text-align: right }
+
+/* reset inner alignment in figures */
+div.align-right {
+  text-align: inherit }
+
+/* div.align-center * { */
+/*   text-align: left } */
+
+.align-top    {
+  vertical-align: top }
+
+.align-middle {
+  vertical-align: middle }
+
+.align-bottom {
+  vertical-align: bottom }
+
+ol.simple, ul.simple {
+  margin-bottom: 1em }
+
+ol.arabic {
+  list-style: decimal }
+
+ol.loweralpha {
+  list-style: lower-alpha }
+
+ol.upperalpha {
+  list-style: upper-alpha }
+
+ol.lowerroman {
+  list-style: lower-roman }
+
+ol.upperroman {
+  list-style: upper-roman }
+
+p.attribution {
+  text-align: right ;
+  margin-left: 50% }
+
+p.caption {
+  font-style: italic }
+
+p.credits {
+  font-style: italic ;
+  font-size: smaller }
+
+p.label {
+  white-space: nowrap }
+
+p.rubric {
+  font-weight: bold ;
+  font-size: larger ;
+  color: maroon ;
+  text-align: center }
+
+p.sidebar-title {
+  font-family: sans-serif ;
+  font-weight: bold ;
+  font-size: larger }
+
+p.sidebar-subtitle {
+  font-family: sans-serif ;
+  font-weight: bold }
+
+p.topic-title {
+  font-weight: bold }
+
+pre.address {
+  margin-bottom: 0 ;
+  margin-top: 0 ;
+  font: inherit }
+
+pre.literal-block, pre.doctest-block, pre.math, pre.code {
+  margin-left: 2em ;
+  margin-right: 2em }
+
+pre.code .ln { color: gray; } /* line numbers */
+pre.code, code { background-color: #eeeeee }
+pre.code .comment, code .comment { color: #5C6576 }
+pre.code .keyword, code .keyword { color: #3B0D06; font-weight: bold }
+pre.code .literal.string, code .literal.string { color: #0C5404 }
+pre.code .name.builtin, code .name.builtin { color: #352B84 }
+pre.code .deleted, code .deleted { background-color: #DEB0A1}
+pre.code .inserted, code .inserted { background-color: #A3D289}
+
+span.classifier {
+  font-family: sans-serif ;
+  font-style: oblique }
+
+span.classifier-delimiter {
+  font-family: sans-serif ;
+  font-weight: bold }
+
+span.interpreted {
+  font-family: sans-serif }
+
+span.option {
+  white-space: nowrap }
+
+span.pre {
+  white-space: pre }
+
+span.problematic, pre.problematic {
+  color: red }
+
+span.section-subtitle {
+  /* font-size relative to parent (h1..h6 element) */
+  font-size: 80% }
+
+table.citation {
+  border-left: solid 1px gray;
+  margin-left: 1px }
+
+table.docinfo {
+  margin: 2em 4em }
+
+table.docutils {
+  margin-top: 0.5em ;
+  margin-bottom: 0.5em }
+
+table.footnote {
+  border-left: solid 1px black;
+  margin-left: 1px }
+
+table.docutils td, table.docutils th,
+table.docinfo td, table.docinfo th {
+  padding-left: 0.5em ;
+  padding-right: 0.5em ;
+  vertical-align: top }
+
+table.docutils th.field-name, table.docinfo th.docinfo-name {
+  font-weight: bold ;
+  text-align: left ;
+  white-space: nowrap ;
+  padding-left: 0 }
+
+/* "booktabs" style (no vertical lines) */
+table.docutils.booktabs {
+  border: 0px;
+  border-top: 2px solid;
+  border-bottom: 2px solid;
+  border-collapse: collapse;
+}
+table.docutils.booktabs * {
+  border: 0px;
+}
+table.docutils.booktabs th {
+  border-bottom: thin solid;
+  text-align: left;
+}
+
+h1 tt.docutils, h2 tt.docutils, h3 tt.docutils,
+h4 tt.docutils, h5 tt.docutils, h6 tt.docutils {
+  font-size: 100% }
+
+ul.auto-toc {
+  list-style-type: none }
+
+</style>
+</head>
+<body>
+<div class="document" id="release-notes">
+<h1 class="title">Release Notes</h1>
+
+<!-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! This file is generated by oca-gen-addon-readme !!
+!! changes will be overwritten.                   !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! source digest: sha256:1459fc1ec02a3d3513772c2d3a8d48555de4e7b2eb11bfc1f8eaa07f24a2f0c8
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! -->
+<p><a class="reference external image-reference" href="https://odoo-community.org/page/development-status"><img alt="Beta" src="https://img.shields.io/badge/maturity-Beta-yellow.png" /></a> <a class="reference external image-reference" href="http://www.gnu.org/licenses/lgpl-3.0-standalone.html"><img alt="License: LGPL-3" src="https://img.shields.io/badge/license-LGPL--3-blue.png" /></a> <a class="reference external image-reference" href="https://github.com/okolovmark/nixodoo-addons/tree/20.0/release_notes"><img alt="okolovmark/nixodoo-addons" src="https://img.shields.io/badge/github-okolovmark%2Fnixodoo--addons-lightgray.png?logo=github" /></a></p>
+<p>Release notes shown to users inside Odoo: what a deployed change means for
+the people using it, in their words, with buttons that open the new screen.</p>
+<p>This module is the engine: the models, the access rules, the screens and the
+loader. It ships no notes of its own. A project adds a small holder module,
+<tt class="docutils literal">&lt;prefix&gt;_release_notes</tt>, that keeps the note files and asks the engine to
+load them (see <em>Configuration</em>).</p>
+<ul class="simple">
+<li>A <strong>Release Note</strong> (<tt class="docutils literal">release.note</tt>) has a key (usually the ticket, e.g.
+PROJ-123), a title, a one-line summary, an HTML body, tags and the business
+models the change is about.</li>
+<li>Notes are written as files in the holder module’s <tt class="docutils literal">notes/</tt> folder and
+loaded on every install or update of that module. The loader only creates
+notes; it never overwrites one that already exists.</li>
+<li>A loaded note starts unpublished and is visible to Release Notes managers
+only. Its <em>Deployed by</em> user publishes it.</li>
+<li>Publishing sends one OdooBot direct chat to every active internal user who
+can read at least one of the note’s models. No email is sent, and a note
+is announced once, however often it is unpublished and published again.</li>
+<li>Every internal user can open <em>Release Notes</em> to read the published notes,
+search them and filter or group them by tag.</li>
+</ul>
+<p>Why the notes live in a module of their own:</p>
+<ul class="simple">
+<li>The engine depends on <tt class="docutils literal">mail</tt> only and the holder on the engine only, so
+an update of the holder (<tt class="docutils literal"><span class="pre">-u</span> &lt;prefix&gt;_release_notes</tt>) touches no other
+module of the project.</li>
+<li>One loader call reads the whole <tt class="docutils literal">notes/</tt> folder, so a new note adds a file
+and no manifest entry - parallel pull requests do not conflict on the
+manifest.</li>
+<li>Buttons in a note are plain <tt class="docutils literal"><span class="pre">/odoo/action-&lt;module&gt;.&lt;xml_id&gt;</span></tt> links, so a
+note can point at any module’s screen without a dependency on it.</li>
+</ul>
+<p><tt class="docutils literal">readme/release_note_flow.puml</tt> shows the flow from the pull request to the
+users’ chats.</p>
+<p><strong>Table of contents</strong></p>
+<div class="contents local topic" id="contents">
+<ul class="simple">
+<li><a class="reference internal" href="#configuration" id="toc-entry-1">Configuration</a></li>
+<li><a class="reference internal" href="#usage" id="toc-entry-2">Usage</a></li>
+<li><a class="reference internal" href="#bug-tracker" id="toc-entry-3">Bug Tracker</a></li>
+<li><a class="reference internal" href="#credits" id="toc-entry-4">Credits</a><ul>
+<li><a class="reference internal" href="#authors" id="toc-entry-5">Authors</a></li>
+<li><a class="reference internal" href="#contributors" id="toc-entry-6">Contributors</a></li>
+<li><a class="reference internal" href="#maintainers" id="toc-entry-7">Maintainers</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="configuration">
+<h1><a class="toc-backref" href="#toc-entry-1">Configuration</a></h1>
+<p><strong>Holder module</strong></p>
+<p>The engine loads nothing by itself. Add one module to the project, named
+<tt class="docutils literal">&lt;prefix&gt;_release_notes</tt> (<tt class="docutils literal">acme_release_notes</tt> below), made of:</p>
+<ul>
+<li><p class="first"><tt class="docutils literal">__manifest__.py</tt>, depending on this module and loading one data file:</p>
+<pre class="literal-block">
+{
+    &quot;name&quot;: &quot;Acme Release Notes&quot;,
+    &quot;version&quot;: &quot;20.0.1.0.0&quot;,
+    &quot;author&quot;: &quot;Acme&quot;,
+    &quot;license&quot;: &quot;LGPL-3&quot;,
+    &quot;depends&quot;: [&quot;release_notes&quot;],
+    &quot;data&quot;: [&quot;data/release_note_load.xml&quot;],
+}
+</pre>
+<p>Keep <tt class="docutils literal">author</tt> and <tt class="docutils literal">license</tt>: Odoo logs a warning for a manifest that
+lacks either one.</p>
+</li>
+<li><p class="first">an empty <tt class="docutils literal">__init__.py</tt>;</p>
+</li>
+<li><p class="first"><tt class="docutils literal">data/release_note_load.xml</tt>, calling the loader with the holder’s own
+name:</p>
+<pre class="literal-block">
+&lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot;?&gt;
+&lt;odoo&gt;
+    &lt;function model=&quot;release.note&quot; name=&quot;_load_release_notes&quot;&gt;
+        &lt;value&gt;acme_release_notes&lt;/value&gt;
+    &lt;/function&gt;
+&lt;/odoo&gt;
+</pre>
+</li>
+<li><p class="first">a <tt class="docutils literal">notes/</tt> folder with one <tt class="docutils literal"><span class="pre">&lt;key&gt;.html</span></tt> file per note (see <em>Usage</em>).</p>
+</li>
+</ul>
+<p>Install the holder; it brings the engine with it. Every later update of the
+holder (<tt class="docutils literal"><span class="pre">-u</span> acme_release_notes</tt>) loads the note files whose key is new.</p>
+<p>Keep the <tt class="docutils literal">&lt;function&gt;</tt> out of a <tt class="docutils literal">noupdate</tt> block: there it would run on
+install only, and notes added later would never load.</p>
+<p><strong>Access groups</strong> (Settings &gt; Users, the <em>Access Rights</em> tab of a user,
+section <em>Release Notes</em>)</p>
+<ul class="simple">
+<li><strong>Internal users</strong> (no group to set) read published notes and their tags.
+Unpublished notes are hidden from them.</li>
+<li><strong>Manager</strong> sees every note, creates and edits notes, manages tags, sees
+the <em>Models</em> and <em>Notified</em> fields, can be a note’s <em>Deployed by</em> user and
+can publish and unpublish. Administrators (role <em>Administrator</em>) are
+managers through an implied group and are the only users who can delete a
+note. The group is not a light one: a user who holds it has the role
+<em>User</em>, not <em>Light</em>.</li>
+</ul>
+<p><strong>Deployed by</strong></p>
+<ul class="simple">
+<li>Only a Release Notes manager can be the <em>Deployed by</em> user.</li>
+<li>It is meant to be whoever ran the deploy. A deploy script can set it; in
+the form, a manager can set it only to themselves, and only while it is
+empty.</li>
+<li>Once it is set, only an administrator can change it.</li>
+</ul>
+<p><strong>Tags</strong> (Release Notes &gt; Configuration &gt; Tags, managers only)</p>
+<p>An editable list of name and colour. Sales, Purchase Orders, Inventory,
+Manufacturing, Projects, Accounting, HR, Maintenance, Quality, Shipping and
+CRM ship with the module. A tag named in a note file that does not exist yet
+is created by the loader; a tag is matched by name regardless of case.</p>
+</div>
+<div class="section" id="usage">
+<h1><a class="toc-backref" href="#toc-entry-2">Usage</a></h1>
+<p><strong>Write a note</strong> (in the pull request of the change): add
+<tt class="docutils literal"><span class="pre">notes/&lt;key&gt;.html</span></tt> to the project’s holder module (see <em>Configuration</em>) - a
+front-matter header between two <tt class="docutils literal"><span class="pre">---</span></tt> lines, then the HTML body:</p>
+<pre class="literal-block">
+---
+key: PROJ-123
+title: Release notes in Odoo
+summary: Updates now arrive as an OdooBot chat with a link to the details.
+tags: Projects
+models: purchase.order, sale.order
+---
+&lt;h2&gt;What changed&lt;/h2&gt;
+&lt;p&gt;...&lt;/p&gt;
+&lt;a class=&quot;btn btn-primary&quot; href=&quot;/odoo/action-purchase.purchase_rfq&quot;&gt;Open Requests for Quotation&lt;/a&gt;
+</pre>
+<ul class="simple">
+<li><tt class="docutils literal">key</tt> and <tt class="docutils literal">title</tt> are required; <tt class="docutils literal">summary</tt> is the line shown in the
+chat. <tt class="docutils literal">tags</tt> and <tt class="docutils literal">models</tt> are comma-separated; <tt class="docutils literal">models</tt> are technical
+model names, and a name not installed is skipped.</li>
+<li>Header names are case-insensitive. The file is read as UTF-8.</li>
+<li>A button is a link with <tt class="docutils literal"><span class="pre">class=&quot;btn</span> <span class="pre">btn-primary&quot;</span></tt> and
+<tt class="docutils literal"><span class="pre">href=&quot;/odoo/action-&lt;module&gt;.&lt;action</span> xml_id&gt;&quot;</tt>.</li>
+<li>A file the loader cannot read as a note (no header, no key or title, not
+UTF-8) is skipped and logged as an error, and so is a file declaring a key
+an earlier file already has. The other notes still load and the module
+update goes on: a note never stops a deploy.</li>
+<li>A key that already exists in Odoo is skipped: a later edit of the file does
+not reach that note. Edit the note in Odoo instead.</li>
+</ul>
+<p><strong>Load the notes</strong> (the deploy): update the holder module,
+<tt class="docutils literal"><span class="pre">-u</span> &lt;prefix&gt;_release_notes</tt>. Each file with a new key becomes an unpublished
+note.</p>
+<p><strong>Publish a note</strong> (the deployer, after the deploy):</p>
+<ol class="arabic simple">
+<li>Open <em>Release Notes</em>, filter <em>Unpublished</em> and open the note.</li>
+<li>Read it and check each button opens the right screen. A manager has the
+body in the text editor: a click on a button shows its link, and that link
+opens the screen.</li>
+<li>Check <em>Models</em>: they decide who is notified, and publishing needs at least
+one.</li>
+<li>Press <em>Publish</em>.</li>
+</ol>
+<p>Rules:</p>
+<ul class="simple">
+<li>Only the note’s <em>Deployed by</em> user can publish it - administrators
+included. A note without one cannot be published.</li>
+<li><em>Published</em>, <em>Published by</em>, <em>Published date</em> and <em>Notified</em> are set only
+by the buttons; writing them directly is refused.</li>
+<li>The key cannot be changed after the note is created.</li>
+<li>Any manager can <em>Unpublish</em>: the note is hidden from users again, the chats
+already sent stay, and publishing again sends nothing new.</li>
+</ul>
+<p><strong>Read notes</strong> (every internal user):</p>
+<ul class="simple">
+<li>OdooBot posts <em>New update: &lt;title&gt;</em>, the summary and an <em>Open release note</em>
+link in a direct chat with each recipient (Discuss).</li>
+<li><em>Release Notes</em> lists the published notes, newest first. Search by title,
+key or summary, filter by tag, or group by <em>Tags</em>.</li>
+</ul>
+</div>
+<div class="section" id="bug-tracker">
+<h1><a class="toc-backref" href="#toc-entry-3">Bug Tracker</a></h1>
+<p>Bugs are tracked on <a class="reference external" href="https://github.com/okolovmark/nixodoo-addons/issues">GitHub Issues</a>.
+In case of trouble, please check there if your issue has already been reported.
+If you spotted it first, help us to smash it by providing a detailed and welcomed
+<a class="reference external" href="https://github.com/okolovmark/nixodoo-addons/issues/new?body=module:%20release_notes%0Aversion:%2020.0%0A%0A**Steps%20to%20reproduce**%0A-%20...%0A%0A**Current%20behavior**%0A%0A**Expected%20behavior**">feedback</a>.</p>
+<p>Do not contact contributors directly about support or help with technical issues.</p>
+</div>
+<div class="section" id="credits">
+<h1><a class="toc-backref" href="#toc-entry-4">Credits</a></h1>
+<div class="section" id="authors">
+<h2><a class="toc-backref" href="#toc-entry-5">Authors</a></h2>
+<ul class="simple">
+<li>Kaertech</li>
+</ul>
+</div>
+<div class="section" id="contributors">
+<h2><a class="toc-backref" href="#toc-entry-6">Contributors</a></h2>
+<ul class="simple">
+<li>Kaertech &lt;<a class="reference external" href="https://www.kaertech.com">https://www.kaertech.com</a>&gt;</li>
+</ul>
+</div>
+<div class="section" id="maintainers">
+<h2><a class="toc-backref" href="#toc-entry-7">Maintainers</a></h2>
+<p>This module is part of the <a class="reference external" href="https://github.com/okolovmark/nixodoo-addons/tree/20.0/release_notes">okolovmark/nixodoo-addons</a> project on GitHub.</p>
+<p>You are welcome to contribute.</p>
+</div>
+</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="release_note_view_form" model="ir.ui.view">
+        <field name="name">release.note.view.form</field>
+        <field name="model">release.note</field>
+        <field name="arch" type="xml">
+            <form duplicate="0">
+                <header>
+                    <button name="action_publish" string="Publish" type="object" class="oe_highlight"
+                            groups="release_notes.group_release_note_manager"
+                            invisible="is_published"/>
+                    <button name="action_unpublish" string="Unpublish" type="object"
+                            groups="release_notes.group_release_note_manager"
+                            invisible="not is_published"/>
+                </header>
+                <sheet>
+                    <widget name="web_ribbon" title="Published" bg_color="text-bg-success"
+                            invisible="not is_published"/>
+                    <div class="oe_title">
+                        <h1><field name="name" placeholder="Title"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="key" readonly="id"/>
+                            <field name="summary"/>
+                            <field name="tag_ids" widget="many2many_tags" options="{'color_field': 'color', 'on_tag_click': 'edit_color'}"/>
+                            <field name="model_ids" widget="many2many_tags" groups="release_notes.group_release_note_manager"/>
+                        </group>
+                        <group>
+                            <field name="deployer_id" options="{'no_create': True}"/>
+                            <field name="published_by_id"/>
+                            <field name="published_date"/>
+                            <field name="is_notified" groups="release_notes.group_release_note_manager"/>
+                        </group>
+                    </group>
+                    <field name="body" nolabel="1"/>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="release_note_view_list" model="ir.ui.view">
+        <field name="name">release.note.view.list</field>
+        <field name="model">release.note</field>
+        <field name="arch" type="xml">
+            <list decoration-muted="not is_published">
+                <field name="name"/>
+                <field name="key"/>
+                <field name="tag_ids" widget="many2many_tags" options="{'color_field': 'color'}"/>
+                <field name="published_date"/>
+                <field name="is_published" widget="boolean_toggle" readonly="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="release_note_view_search" model="ir.ui.view">
+        <field name="name">release.note.view.search</field>
+        <field name="model">release.note</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name" filter_domain="['|', '|', ('name', 'ilike', self), ('key', 'ilike', self), ('summary', 'ilike', self)]"/>
+                <field name="tag_ids"/>
+                <filter string="Published" name="published" domain="[('is_published', '=', True)]"/>
+                <filter string="Unpublished" name="unpublished" domain="[('is_published', '=', False)]"/>
+                <group>
+                    <filter string="Tags" name="group_by_tags" context="{'group_by': 'tag_ids'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="release_note_action" model="ir.actions.act_window">
+        <field name="name">Release Notes</field>
+        <field name="res_model">release.note</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No release notes yet</p>
+            <p>Release notes are loaded from the notes folder of the project's release notes module on every update of it.</p>
+        </field>
+    </record>
+</odoo>
