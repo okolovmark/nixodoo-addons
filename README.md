@@ -2,7 +2,7 @@
 
 Odoo modules that the [nixodoo-copier-template](https://github.com/okolovmark/nixodoo-copier-template)
 workflow relies on. A project generated from the template pulls them through its
-`addons.yaml`, pinned to a commit, the same way it pulls an OCA repository.
+`addons.yaml`, the same way it pulls an OCA repository.
 
 One branch per Odoo version (`16.0`, `20.0`), modules at the repository root.
 
@@ -21,6 +21,14 @@ ENV:
   DEFAULT_REPO_PATTERN: https://github.com/okolovmark/{}.git
   ODOO_VERSION: 20.0
 
+nixodoo-addons:
+  - "release_notes"
+  - "project_software"
+```
+
+That tracks the `20.0` branch, which is what the template renders. To pin a commit instead:
+
+```yaml
 nixodoo-addons:
   revision: <commit on the 20.0 branch>
   modules:
