@@ -1,0 +1,87 @@
+line-length = 120
+target-version = "py310"
+
+[lint]
+select = [
+    "BLE",        # flake8-blind-except
+    "C",          # flake8-comprehensions
+    "COM",        # flake8-commas
+    "E",          # pycodestyle Error
+    "EM",         # flake8-errmsg
+    "EXE",        # flake8-executable
+    "F",          # Pyflakes
+    "FA",         # flake8-future-annotations
+    "FLY",        # flynt
+    "G",          # flake8-logging-format
+    "I",          # isort
+    "ICN",        # flake8-import-conventions
+    "INT",        # flake8-gettext
+    "ISC",        # flake8-implicit-str-concat
+    "LOG",        # flake8-logging
+    "PGH",        # pygrep-hooks
+    "PIE",        # flake8-pie
+    "PLC",        # Pylint Convention
+    "PLE",        # Pylint Error
+    "PLW",        # Pylint Warning
+    "PYI",        # flake8-pyi
+    "RET",        # flake8-return
+    "RUF",        # Ruff-specific rules
+    "SIM",        # flake8-simplify
+    "SLOT",       # flake8-slots
+    "T",          # flake8-print
+    "TC",         # flake8-type-checking
+    "TID",        # flake8-tidy-imports
+    "TRY",        # tryceratops
+    "UP",         # pyupgrade
+    "W",          # pycodestyle Warning
+    "YTT",        # flake8-2020
+]
+
+# Deliberate, permanent exemptions: each one is a decision, not debt.
+ignore = [
+    "C408",       # unnecessary-collection-call
+    "C420",       # unnecessary-dict-comprehension-for-iterable
+    "C901",       # complex-structure
+    "E266",       # multiple-leading-hashes-for-block-comment
+    "E501",       # line-too-long
+    "E713",       # not-in-test
+    "FA100",      # future-rewritable-type-annotation
+    "PGH003",     # blanket-type-ignore
+    "PIE790",     # unnecessary-placeholder
+    "PIE808",     # unnecessary-range-start
+    "PLC2701",    # import-private-name
+    "PLW2901",    # redefined-loop-name
+    "RUF001",     # ambiguous-unicode-character-string
+    "RUF002",     # ambiguous-unicode-character-docstring
+    "RUF003",     # ambiguous-unicode-character-comment
+    "RUF005",     # collection-literal-concatenation
+    "RUF012",     # mutable-class-default
+    "RUF100",     # unused-noqa
+    "SIM102",     # collapsible-if
+    "SIM108",     # if-else-block-instead-of-if-exp
+    "SIM117",     # multiple-with-statements
+    "TID252",     # relative-imports
+    "TRY003",     # raise-vanilla-args
+    "TRY300",     # try-consider-else
+    "TRY301",     # raise-within-try
+    "TRY400",     # error-instead-of-exception
+    "UP031",      # printf-string-formatting
+    "UP038",      # non-pep604-isinstance: deprecated by ruff itself
+
+    # ruff warns that this one fights `ruff format`, the authority on commas here.
+    "COM812",     # missing-trailing-comma
+
+    # `self = self.sudo()` / `.with_context(...)` is the Odoo recordset idiom.
+    "PLW0642",    # self-or-cls-assignment
+
+    # Hoisting the message to a local fights `raise UserError(_("..."))`.
+    "EM101",      # raw-string-in-exception
+]
+
+[lint.per-file-ignores]
+"**/__init__.py" = ["F401", "I"]
+
+[lint.isort]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+known-first-party = ["odoo"]
+known-local-folder = ["odoo.addons"]

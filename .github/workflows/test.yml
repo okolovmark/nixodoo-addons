@@ -1,0 +1,61 @@
+name: tests
+
+on:
+  pull_request:
+    branches:
+      - "16.0*"
+  push:
+    branches:
+      - "16.0"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    name: ruff
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v3
+        with:
+          version: "0.11.13"
+          args: "check"
+      - uses: astral-sh/ruff-action@v3
+        with:
+          version: "0.11.13"
+          args: "format --check"
+
+  test:
+    runs-on: ubuntu-22.04
+    container: ghcr.io/oca/oca-ci/py3.10-odoo16.0:latest
+    name: test with Odoo 16.0
+    services:
+      postgres:
+        image: postgres:12
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_PASSWORD: odoo
+          POSTGRES_DB: odoo
+        ports:
+          - 5432:5432
+    env:
+      OCA_ENABLE_CHECKLOG_ODOO: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Any module to test yet?
+        id: addons
+        run: |
+          if ls */__manifest__.py >/dev/null 2>&1; then echo "found=true" >> "$GITHUB_OUTPUT"; else echo "found=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Install addons and dependencies
+        if: steps.addons.outputs.found == 'true'
+        run: oca_install_addons
+      - name: Initialize test db
+        if: steps.addons.outputs.found == 'true'
+        run: oca_init_test_database
+      - name: Run tests
+        if: steps.addons.outputs.found == 'true'
+        run: oca_run_tests
