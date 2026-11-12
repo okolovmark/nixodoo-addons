@@ -1,6 +1,7 @@
 A database that has neither ``project_software`` nor
 ``kaertech_project_software`` installed needs nothing beyond installing the
-module.
+module. What a database that has ``project_task_pull_request`` installed
+needs on top of that is in the last part of this section.
 
 **Upgrading from project_software**
 
@@ -50,3 +51,66 @@ On a database from before the features were cut from
 ``kaertech_project_software``, where ``project_software`` was never
 installed, the hook takes over only what moved here and renames the flag the
 same way.
+
+**Coming from project_task_pull_request**
+
+This module declares ``pr_uri`` on the task and ``pr_required_states`` on
+the project and the task under the names, the column and the relation table
+of OCA ``project_task_pull_request``, and takes its place. The stages marked
+on each project stay marked, the tracking history of ``pr_uri`` stays on the
+field, and whatever reads ``pr_uri`` or writes a pull request link to it
+keeps working. ``pr_uri`` takes one pull request link and no other text: a
+tool that writes a note there for a task without a pull request sets
+``resolution`` instead.
+
+The text ``project_task_pull_request`` stored in ``pr_uri`` is converted
+when this module is updated to 16.0.2.1.0 (migration script) or installed
+(``post_init_hook``):
+
+.. list-table::
+   :header-rows: 1
+
+   * - Old value
+     - Becomes
+   * - one pull request link, whatever the case of its scheme and host, with
+       or without spaces around it and a closing slash
+     - a pull request on the task, Resolution Code
+   * - several pull request links
+     - one pull request per link, Resolution Code, old value kept
+   * - a pull request link without ``https://``
+     - a pull request with ``https://`` added, Resolution Code, old value
+       kept
+   * - a pull request link with more after the number (``/files``, a commit,
+       words) or an invisible character before it
+     - the pull request itself, Resolution Code, old value kept
+   * - a link that is not a pull request link (commit, branch, repository,
+       another site, no repository before ``/pull/N``, a number of more than
+       nine digits)
+     - no pull request, old value kept
+   * - a ``memory://`` reference or any other text
+     - no pull request, old value kept
+   * - empty
+     - nothing
+
+*Old value kept* means the whole text is in **PR (old value)**
+(``pr_legacy``). Nothing is guessed: a pull request created by the
+conversion has no state, one that already exists is linked as it is, and the
+Resolution is set to Code only where it is empty. The same link on several
+tasks gives one pull request. Afterwards ``pr_uri`` reads the task's first
+pull request, or is empty. Archived tasks are converted too. The tasks are
+written by SQL, so their last update date does not change, no tracking
+message is posted and no constraint runs. The log of the update gives the
+number of values of each kind; a second run converts nothing.
+
+This module does not depend on ``project_task_pull_request`` and does not
+uninstall it. A module that depended on it, or an administrator, uninstalls
+it once this version is installed, not before: the fields and the relation
+table stay only because this module declares them too. While it is
+installed, its constraint requires a non-empty ``pr_uri`` in the marked
+stages of every project, AI-driven or not, so a task without a pull request
+cannot enter them, whatever its Resolution.
+
+Its code leaves the addons path in the deploy that uninstalls it. While the
+code is there, the labels stored for the shared fields are its own, *PR URI*
+and *PR Required States*, and they stay until the first update after it is
+gone.

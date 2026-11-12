@@ -33,12 +33,37 @@
                     </group>
                 </page>
             </xpath>
+            <xpath expr="//page[@name='extra_info']" position="before">
+                <page
+                    string="Pull Requests"
+                    name="pull_requests"
+                    attrs="{'invisible': [('is_ai_driven', '=', False)]}"
+                >
+                    <group attrs="{'invisible': [('pr_legacy', '=', False)]}">
+                        <field name="pr_legacy" class="text-break" />
+                    </group>
+                    <field name="pull_request_ids" mode="tree,kanban">
+                        <tree>
+                            <field name="url" widget="url" />
+                            <field
+                                name="state"
+                                widget="badge"
+                                decoration-info="state == 'open'"
+                                decoration-success="state == 'merged'"
+                            />
+                            <field name="merge_date" />
+                            <field name="deploy_date" />
+                        </tree>
+                    </field>
+                </page>
+            </xpath>
             <xpath expr="//field[@name='tag_ids']" position="before">
                 <field name="priority_level" string="Priority" />
                 <field name="tshirt_estimate" string="T-shirt Estimate" />
                 <field name="task_type" string="Task Type" />
                 <field name="difficulty" />
                 <field name="knowledge_area_level" />
+                <field name="resolution" attrs="{'invisible': [('is_ai_driven', '=', False)]}" />
             </xpath>
         </field>
     </record>

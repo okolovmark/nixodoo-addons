@@ -7,6 +7,13 @@
         <field name="arch" type="xml">
             <xpath expr="//field[@name='privacy_visibility']" position="before">
                 <field name="is_ai_driven" />
+                <field
+                    name="pr_required_states"
+                    widget="many2many_tags"
+                    domain="[('project_ids', '=', id)]"
+                    options="{'no_create': True}"
+                    attrs="{'invisible': [('is_ai_driven', '=', False)]}"
+                />
             </xpath>
         </field>
     </record>

@@ -1,7 +1,7 @@
 {
     "name": "Project AI-driven",
-    "summary": "Task attributes, a checklist and test cases on the tasks of AI-driven projects",
-    "version": "16.0.2.0.0",
+    "summary": "Task attributes, a checklist, test cases and pull requests on the tasks of AI-driven projects",
+    "version": "16.0.2.1.0",
     "category": "Services/Project",
     "author": "Kaertech",
     "website": "https://github.com/okolovmark/nixodoo-addons",
@@ -12,6 +12,7 @@
         "data/mail_message_subtype_data.xml",
         "views/project_task_subtask_views.xml",
         "views/project_task_testcase_views.xml",
+        "views/project_pull_request_views.xml",
         "views/project_task_views.xml",
         "views/project_project_views.xml",
     ],
@@ -21,4 +22,5 @@
         ],
     },
     "pre_init_hook": "pre_init_hook",
+    "post_init_hook": "post_init_hook",
 }

@@ -23,6 +23,36 @@ from ..hooks import (
 
 EMPTY_ARCH = "<data/>"
 EXTENDED_MODELS = ("project.project", "project.task")
+# Added after the cut from the legacy module, which never held them.
+ADDED_FIELDS = (
+    ("project.project", "pr_required_states"),
+    ("project.task", "pr_legacy"),
+    ("project.task", "pr_required_states"),
+    ("project.task", "pr_uri"),
+    ("project.task", "pull_request_ids"),
+    ("project.task", "resolution"),
+)
+ADDED_RECORDS = (
+    ("ir.model", "model_project_pull_request"),
+    ("ir.model.constraint", "constraint_project_pull_request_url_unique"),
+    ("ir.model.access", "access_project_pull_request_internal"),
+    ("ir.model.access", "access_project_pull_request_user"),
+    ("ir.ui.view", "project_pull_request_view_form"),
+    ("ir.ui.view", "project_pull_request_view_tree"),
+    ("ir.ui.view", "project_pull_request_view_kanban"),
+    ("ir.ui.view", "project_pull_request_view_search"),
+    ("ir.actions.act_window", "project_pull_request_action"),
+    ("ir.ui.menu", "project_pull_request_menu"),
+    *(
+        ("ir.model.fields.selection", "selection__%s__%s" % (field, value))
+        for field, values in (
+            ("project_task__resolution", ("code", "data", "configuration", "no_change")),
+            ("project_pull_request__state", ("open", "merged", "closed")),
+        )
+        for value in values
+    ),
+)
+ADDED_CONSTRAINTS = ("project_pull_request%", "project_pr_required%")
 DELEGATING_MODULE = "delegating_module"
 DELEGATING_MODEL = "res.partner"
 REPLACED_MODULE = "replaced_module"
@@ -423,7 +453,11 @@ class TestTakeOverFromLegacyModule(PreInitHookCase):
         cls.split_views = cls.env["ir.ui.view"]
         for name in SPLIT_VIEWS:
             cls.split_views |= cls.env.ref("%s.%s" % (MODULE, name))
-        view_ids = [res_id for (model, _name), res_id in cls._external_ids(MODULE).items() if model == "ir.ui.view"]
+        view_ids = [
+            res_id
+            for record, res_id in cls._external_ids(MODULE).items()
+            if record[0] == "ir.ui.view" and record not in ADDED_RECORDS
+        ]
         cls.views = cls.env["ir.ui.view"].browse(view_ids)
 
     def _simulate_legacy_module(self):
@@ -445,19 +479,27 @@ class TestTakeOverFromLegacyModule(PreInitHookCase):
                )
                AND NOT (
                    imd.model = 'ir.model.fields'
-                   AND imd.res_id NOT IN (SELECT id FROM ir_model_fields WHERE model IN %(field_models)s)
+                   AND imd.res_id NOT IN (
+                       SELECT id
+                         FROM ir_model_fields
+                        WHERE model IN %(field_models)s
+                          AND (model, name) NOT IN %(added_fields)s
+                   )
                )
+               AND (imd.model, imd.name) NOT IN %(added_records)s
             """,
             {
                 "legacy": LEGACY_MODULE,
                 "module": MODULE,
                 "models": ADOPTED_MODELS,
                 "field_models": ADOPTED_MODELS + EXTENDED_MODELS,
+                "added_fields": ADDED_FIELDS,
+                "added_records": ADDED_RECORDS,
             },
         )
         self.env.cr.execute(
-            "UPDATE ir_model_constraint SET module = %s WHERE module = %s",
-            (self.legacy_module.id, self.module.id),
+            "UPDATE ir_model_constraint SET module = %s WHERE module = %s AND name NOT LIKE ALL(%s)",
+            (self.legacy_module.id, self.module.id, list(ADDED_CONSTRAINTS)),
         )
         self.env.cr.execute(
             "UPDATE ir_ui_view SET arch_fs = %s || substr(arch_fs, %s) WHERE id IN %s",
@@ -475,8 +517,8 @@ class TestTakeOverFromLegacyModule(PreInitHookCase):
         self._simulate_legacy_module()
         self.assertEqual(
             {(model, name) for model, name in self._external_ids(MODULE) if model != "ir.model.fields"},
-            {("ir.model", "model_project_project"), ("ir.model", "model_project_task")},
-            "every record changed hands but the two models this module only extends",
+            {("ir.model", "model_project_project"), ("ir.model", "model_project_task"), *ADDED_RECORDS},
+            "every record changed hands but the two models this module only extends and what it added later",
         )
 
         pre_init_hook(self.env.cr)

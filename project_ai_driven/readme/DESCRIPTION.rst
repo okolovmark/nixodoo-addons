@@ -1,6 +1,7 @@
 Additions to project tasks for AI-driven development: task attributes,
 clarifying questions with their answers and the technical solution, a
-checklist and test cases per task.
+checklist and test cases per task, pull requests as records, and a
+Resolution that a task needs to enter the stages its project marks.
 
 **Task attributes** (``project.task``)
 
@@ -44,6 +45,80 @@ Comments, a Passed flag and the same four states. The task carries a
 cases. The **Test Cases** menu opens filtered on the cases still in *TODO*;
 remove the *TODO* filter to see them all. Copying a task also copies its
 checklist items and test cases, keeping their states.
+
+**Pull requests** (``project.pull.request``)
+
+A pull request is a record of its own, shared by every task it belongs to:
+
+* **URL**, required and unique, stored in canonical form: scheme and host in
+  lower case, then the path as written, up to and including the number.
+  ``/files``, a query, a fragment or a closing slash after the number are
+  dropped.
+* **Repository** and **Number**, read from the URL. The record is named
+  ``<repository>#<number>``, for example ``owner/repo#12``, and is found by
+  that name or by a part of its URL.
+* **State**: Open, Merged or Closed. A new record is Open; one created by
+  the conversion described under *Installation* has no state.
+* **Merge Date**, **Deploy Date** and the **Tasks** it is linked to.
+
+A pull request link is an http(s) URL with a repository path followed by
+``/pull/N``, ``/merge_requests/N`` (also ``/-/merge_requests/N``),
+``/pull-requests/N`` or ``/pulls/N``, N being a number of at most nine
+digits.
+
+Internal users read pull requests; **Project / User** also creates and
+edits them. No access right allows deleting one, and portal users have no
+access.
+
+**Pull requests and Resolution on a task** (``project.task``)
+
+* **Pull Requests** (``pull_request_ids``): the pull requests of the task,
+  on a tab of their own on the tasks of an AI-driven project.
+* **Resolution** (``resolution``): how the task was closed: Code, Data,
+  Configuration or No change. It is shown on the tasks of an AI-driven
+  project, and its changes are tracked in the chatter.
+* **First Pull Request** (``pr_uri``) reads the link of the task's first
+  pull request, the one created first, and is empty when the task has none.
+  It is on no view of this module. It is stored, so it can be searched, its
+  changes are tracked in the chatter, and it is writable for the tools that
+  write it over RPC. Writing one pull request link finds the record with
+  that link or creates it, and adds it to the task; a link the task already
+  has changes nothing, and neither does an empty value. Anything that is not
+  exactly one pull request link (other text, a link without ``http(s)://``,
+  a commit or branch link, two links) is refused: a task closed without a
+  pull request takes the Resolution Data, Configuration or No change
+  instead.
+* **PR (old value)** (``pr_legacy``), read-only: the whole text ``pr_uri``
+  held before the conversion described under *Installation*, where that text
+  was anything but one plain pull request link.
+* A duplicated task starts without pull requests, Resolution and old value.
+  A copy that keeps the stage of its source, as every task and subtask of a
+  duplicated project does, takes the Resolution and the pull requests of its
+  source.
+
+**The closing rule**
+
+On an AI-driven project, **Stages Requiring a Resolution**
+(``pr_required_states``) marks stages. A task of that project enters a
+marked stage only with a Resolution:
+
+==============================  ============  ===============================
+Resolution                      Pull request  Result
+==============================  ============  ===============================
+empty                           none          refused: choose a Resolution
+empty                           present       let through, Resolution = Code
+Code                            none          refused: add a pull request
+Code                            present       let through
+Data, Configuration, No change  none          let through
+Data, Configuration, No change  present       let through, pull request kept
+==============================  ============  ===============================
+
+The rule is checked when the stage of the task changes: on creation, on a
+write of the stage and on a change of project that moves the task to another
+stage. The Resolution and the pull request may come in the same write as the
+stage. Any other stage, a project that is not flagged AI-driven and a write
+that leaves the stage as it is let everything through, so a task already
+sitting in a marked stage stays editable. No context key skips the rule.
 
 **Former names**
 
