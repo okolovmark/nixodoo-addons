@@ -377,8 +377,9 @@ class TestTakeOverFromFormerModule(PreInitHookCase):
                 "domain_force": new_texts["domain"],
             },
         )
+        # a filter of one user: Odoo strips the default_ keys from the context of a shared one
         favorite = self.env["ir.filters"].create(
-            {"name": "Flagged projects", "model_id": "project.project", **new_texts},
+            {"name": "Flagged projects", "model_id": "project.project", "user_id": self.env.uid, **new_texts},
         )
         action = self.env["ir.actions.act_window"].create(
             {
