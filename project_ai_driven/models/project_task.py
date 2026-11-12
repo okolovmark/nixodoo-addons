@@ -17,7 +17,7 @@ TSHIRT_HOURS = {
 class ProjectTask(models.Model):
     _inherit = "project.task"
 
-    is_software_project = fields.Boolean(related="project_id.is_software_project")
+    is_ai_driven = fields.Boolean(related="project_id.is_ai_driven")
     questions = fields.Html()
     answers = fields.Html()
     solution = fields.Html()
@@ -55,7 +55,7 @@ class ProjectTask(models.Model):
         ],
         default="improvement",
         tracking=True,
-        string="Software Task Type",
+        string="AI-driven Task Type",
     )
     tshirt_estimate = fields.Selection(
         [
@@ -242,7 +242,7 @@ class ProjectTask(models.Model):
             if subtask_state == "waiting":
                 state = '<span style="color:#b818ce">' + state + "</span>"
             partner_ids = []
-            subtype = "project_software.subtasks_subtype"
+            subtype = "project_ai_driven.subtasks_subtype"
             if user == self.env.user and reviewer == self.env.user:
                 body = Markup("<p><strong>" + state + "</strong>: ") + escape(subtask_name)
                 subtype = False

@@ -10,7 +10,7 @@ On the task form:
 * *Test Cases* tab: add ordered cases with steps and expected results, set
   the **Tester**, then move each case with the state icons. Marking a case
   Done ticks **Passed**; any other state, Cancelled included, clears it.
-* *Technical Solution* tab (software projects): record the Questions, the
+* *Technical Solution* tab (AI-driven projects): record the Questions, the
   Answers and the Solution.
 
 **Project > Checklist** lists the checklist items of all tasks, opened on

@@ -4,4 +4,4 @@ from odoo import fields, models
 class ProjectProject(models.Model):
     _inherit = "project.project"
 
-    is_software_project = fields.Boolean(string="Software Project")
+    is_ai_driven = fields.Boolean(string="AI-driven Project")

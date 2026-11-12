@@ -2,11 +2,11 @@ from odoo import Command
 from odoo.exceptions import UserError
 from odoo.tests.common import tagged
 
-from .common import ProjectSoftwareCommon
+from .common import ProjectAiDrivenCommon
 
 
 @tagged("post_install", "-at_install")
-class TestAssignmentNotification(ProjectSoftwareCommon):
+class TestAssignmentNotification(ProjectAiDrivenCommon):
     """Core project notifies a new assignee straight from create() and write(),
     without the mail_auto_subscribe_no_notify check mail.thread makes, so a user
     with no email cannot assign a task at all.
@@ -15,7 +15,7 @@ class TestAssignmentNotification(ProjectSoftwareCommon):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.user_no_email = cls._create_project_user("Service Account", "project_software_service", False)
+        cls.user_no_email = cls._create_project_user("Service Account", "project_ai_driven_service", False)
         cls.service_project = cls.env["project.project"].create(
             {"name": "Service Project", "user_id": cls.user_no_email.id},
         )

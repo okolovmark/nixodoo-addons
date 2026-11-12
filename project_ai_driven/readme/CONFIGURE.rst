@@ -1,4 +1,4 @@
-* On a project, tick **Software Project** (*Settings* tab, above
+* On a project, tick **AI-driven Project** (*Settings* tab, above
   *Visibility*) to show the Technical Solution tab on its tasks.
 * Checklist items and test cases are managed by **Project / User**. The
   Checklist, Test Cases and Technical Solution tabs are hidden from users
