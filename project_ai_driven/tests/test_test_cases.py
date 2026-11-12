@@ -1,11 +1,11 @@
 from odoo.exceptions import AccessError
 from odoo.tests.common import tagged
 
-from .common import ProjectSoftwareCommon
+from .common import ProjectAiDrivenCommon
 
 
 @tagged("post_install", "-at_install")
-class TestTestCases(ProjectSoftwareCommon):
+class TestTestCases(ProjectAiDrivenCommon):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -56,7 +56,7 @@ class TestTestCases(ProjectSoftwareCommon):
 
     def test_test_cases_need_project_user(self):
         self._new_case()
-        internal_user = self._create_user("Internal Only", "project_software_internal", "internal@example.com")
+        internal_user = self._create_user("Internal Only", "project_ai_driven_internal", "internal@example.com")
         self.assertTrue(self.Testcase.with_user(self.user_dev).search_count([("task_id", "=", self.task.id)]))
         with self.assertRaises(AccessError):
             self.Testcase.with_user(internal_user).search_count([])

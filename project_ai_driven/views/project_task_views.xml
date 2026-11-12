@@ -6,12 +6,12 @@
         <field name="inherit_id" ref="project.view_task_form2" />
         <field name="arch" type="xml">
             <xpath expr="//field[@name='project_id']" position="after">
-                <field name="is_software_project" invisible="1" />
+                <field name="is_ai_driven" invisible="1" />
             </xpath>
             <xpath expr="//page[2]" position="after">
                 <page
                     string="Technical Solution"
-                    attrs="{'invisible': [('is_software_project', '=', False)]}"
+                    attrs="{'invisible': [('is_ai_driven', '=', False)]}"
                     groups="project.group_project_user"
                 >
                     <group>

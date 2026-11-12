@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <odoo>
-    <record id="project_project_view_form_inherit_software" model="ir.ui.view">
-        <field name="name">project.project.view.form.inherit.project_software</field>
+    <record id="project_project_view_form_inherit_ai_driven" model="ir.ui.view">
+        <field name="name">project.project.view.form.inherit.project_ai_driven</field>
         <field name="model">project.project</field>
         <field name="inherit_id" ref="project.edit_project" />
         <field name="arch" type="xml">
             <xpath expr="//field[@name='privacy_visibility']" position="before">
-                <field name="is_software_project" />
+                <field name="is_ai_driven" />
             </xpath>
         </field>
     </record>
