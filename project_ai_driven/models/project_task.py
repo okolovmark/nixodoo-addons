@@ -272,6 +272,26 @@ class ProjectTask(models.Model):
             testcase.copy({"task_id": task.id, "state": testcase.state})
         return task
 
+    @api.model
+    def _create(self, data_list):
+        tasks = super()._create(data_list)
+        self.env["project.task.stage.log"]._log_created_tasks(tasks)
+        return tasks
+
+    def _write(self, vals):
+        """Every update of the stage column comes through here, from a write as
+        from a recomputation, and no context or sudo goes around it.
+
+        The user logged is the one this update leaves on the task as write_uid:
+        the last one who wrote it, when that changes, else the user of the
+        environment that flushes, which is all a recomputation has.
+        """
+        if "stage_id" in vals:
+            self.env["project.task.stage.log"]._log_moved_tasks(
+                self, vals["stage_id"], vals.get("write_uid") or self.env.uid
+            )
+        return super()._write(vals)
+
     def _with_closing_values(self, default):
         """Return default for a copy that keeps the stage of its source, as the
         duplicate of a project makes of each task and subtask: it also takes

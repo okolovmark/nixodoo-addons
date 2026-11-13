@@ -1,7 +1,9 @@
 A database that has neither ``project_software`` nor
 ``kaertech_project_software`` installed needs nothing beyond installing the
 module. What a database that has ``project_task_pull_request`` installed
-needs on top of that is in the last part of this section.
+needs on top of that is under *Coming from project_task_pull_request*. What
+the install and the update to 16.0.2.2.0 write to the stage log for the
+tasks that exist is under *Filling the stage log*.
 
 **Upgrading from project_software**
 
@@ -114,3 +116,51 @@ Its code leaves the addons path in the deploy that uninstalls it. While the
 code is there, the labels stored for the shared fields are its own, *PR URI*
 and *PR Required States*, and they stay until the first update after it is
 gone.
+
+**Filling the stage log**
+
+The tasks that exist get the past of their stages in the stage log when
+this module is updated to 16.0.2.2.0 (migration script) or installed
+(``post_init_hook``). One SQL statement inserts the rows of every task that
+has none, archived tasks included, and writes nothing on the tasks:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Task
+     - Rows
+   * - with stage changes of its own in the chatter
+     - the stage it was created in, then one row per tracked change, all
+       *From the chatter*
+   * - the same, when the last tracked change does not end at the stage the
+       task is in
+     - one more row: that stage, empty for a task that is in none, at the
+       last stage update, without a user, *From the last stage update*
+   * - in a stage, without such changes, last stage update 2 seconds or more
+       after its creation
+     - one row at the last stage update, without a user, *From the last
+       stage update*
+   * - in a stage, without such changes, otherwise
+     - one row at its creation, by its creator, *From the creation date*
+   * - without a stage and without such changes
+     - nothing
+
+The stage a task was created in is the old value of its first tracked
+change, when that is a stage. Its row is dated at the creation of the task,
+or at that first change when it is dated earlier, and its user is the
+creator of the task. A tracked change keeps the date of its message and the
+stage names the chatter tracked; its user is the user of the author of the
+message, the one with the lowest id when the author has several, none when
+the author has no user. The stage changes of a predecessor, which Odoo posts
+on the dependent tasks, are not changes of the task and are left out.
+
+Nothing is guessed. A tracked change that does not start where the one
+before ended stays as tracked. The row for the current stage is left out
+when the last stage update is missing or earlier than the last tracked
+change, and so is any row that would have no date. The fill writes one line
+to the server log with the number of rows of each case and of the rows left
+out; a second run inserts nothing.
+
+Run the update with the server stopped. A worker that still runs the
+previous code changes stages without writing a row, and the fill skips a
+task that has rows, so such a change stays out of the log.
