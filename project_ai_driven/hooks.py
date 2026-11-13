@@ -1,7 +1,10 @@
 import logging
 import re
+from collections import defaultdict
 
+from lxml import etree
 from psycopg2 import sql
+from psycopg2.extras import Json
 
 from odoo import SUPERUSER_ID, api
 from odoo.tools.sql import column_exists, rename_column
@@ -38,8 +41,6 @@ ADOPTED_FIELDS = (
     ("project.task", "questions"),
     ("project.task", "answers"),
     ("project.task", "solution"),
-    ("project.task", "difficulty"),
-    ("project.task", "knowledge_area_level"),
     ("project.task", "priority_level"),
     ("project.task", "task_type"),
     ("project.task", "tshirt_estimate"),
@@ -52,10 +53,8 @@ ADOPTED_FIELDS = (
     ("project.task", "testcase_completion"),
     ("project.task", "testcase_completion_xml"),
     ("project.task", "kanban_testcases"),
-    ("project.task", "tester_id"),
     ("project.task", "testcase_general_comments"),
 )
-ADOPTED_FOREIGN_KEYS = ("project_task_tester_id_fkey",)
 ADOPTED_RECORDS = (
     ("ir.model.access", "access_task_subtask"),
     ("ir.model.access", "access_task_testcase"),
@@ -81,6 +80,14 @@ ADOPTED_RECORDS = (
 )
 # These two also carried nodes that stayed in the legacy module.
 SPLIT_VIEWS = ("view_task_form2_common", "view_task_tree2")
+# Deleted from this module since. A database from before still holds them: taken over like the
+# rest, they go at the end of the update, as records this module no longer has.
+DROPPED_FIELDS = (
+    ("project.task", "difficulty"),
+    ("project.task", "knowledge_area_level"),
+    ("project.task", "tester_id"),
+)
+DROPPED_FOREIGN_KEYS = ("project_task_tester_id_fkey",)
 
 # An external id is unique per module: a name this module already holds is left alone.
 NAME_IS_FREE = """
@@ -244,6 +251,23 @@ RENAME_FLAG_IN_TEXT = sql.SQL(
      WHERE strpos({column}, %(former_flag)s) > 0
     """
 )
+
+MODULE_VIEWS = """
+    SELECT view.id, view.model, view.arch_db
+      FROM ir_ui_view view
+      JOIN ir_model_data imd ON imd.model = 'ir.ui.view' AND imd.res_id = view.id
+     WHERE imd.module = %(module)s
+       AND view.model IN %(models)s
+       AND view.arch_db IS NOT NULL
+"""
+FORGET_FOREIGN_KEYS = """
+    DELETE FROM ir_model_constraint con
+     USING ir_module_module holder
+     WHERE holder.id = con.module
+       AND holder.name = %(module)s
+       AND con.type = 'f'
+       AND con.name IN %(foreign_keys)s
+"""
 
 ONE_LINK = "one pull request link"
 SEVERAL_LINKS = "several pull request links"
@@ -427,6 +451,9 @@ def pre_init_hook(cr):
     fields, selection values, foreign keys and data records thus keep their
     database id, and the data files update them in place. A second run finds
     nothing left to move or rename.
+
+    The database is then where an update of this module finds it, the fields
+    deleted since included: see forget_dropped_fields.
     """
     if is_installed(cr, FORMER_MODULE):
         take_over_module(cr, FORMER_MODULE, MODULE)
@@ -436,6 +463,7 @@ def pre_init_hook(cr):
         return
     _rename_flag(cr)
     rename_external_ids(cr, MODULE, RENAMED_EXTERNAL_IDS)
+    forget_dropped_fields(cr)
     # external ids are cached per registry, and these changed behind the ORM
     api.Environment(cr, SUPERUSER_ID, {}).registry.clear_caches()
 
@@ -623,14 +651,17 @@ def _take_over_legacy_records(cr):
     view of the same form is loaded, before the data file writes the part that
     belongs here. The legacy module, or the module that replaces it, adds its
     own part back when its data files are loaded.
+
+    The fields in DROPPED_FIELDS and their foreign keys are adopted too. Left
+    with the legacy module, whether they go would depend on what replaces it.
     """
     params = {
         "module": MODULE,
         "legacy": LEGACY_MODULE,
         "models": ADOPTED_MODELS,
-        "fields": ADOPTED_FIELDS,
+        "fields": ADOPTED_FIELDS + DROPPED_FIELDS,
         "records": ADOPTED_RECORDS,
-        "foreign_keys": ADOPTED_FOREIGN_KEYS,
+        "foreign_keys": DROPPED_FOREIGN_KEYS,
     }
     for query in (REHOME_MODELS, REHOME_FIELDS, REHOME_SELECTIONS, REHOME_CONSTRAINTS):
         cr.execute(query, params)
@@ -666,6 +697,63 @@ def _rename_flag(cr):
             RENAME_FLAG_IN_TEXT.format(table=sql.Identifier(table), column=sql.Identifier(column)),
             params,
         )
+
+
+def forget_dropped_fields(cr):
+    """Clear what the database stores about the fields in DROPPED_FIELDS and
+    an update of this module trips on or leaves behind, before its data files
+    are loaded.
+
+    The update deletes the fields themselves, with their columns, at its end:
+    they are records of this module that it no longer has. Until then the
+    stored arch of a view of this module still names them, and it is validated
+    against the fields of the model as soon as another view of the same form is
+    loaded, before its own data file rewrites it. Their nodes are taken out of
+    every translation of the arch; emptying the arch, as for the views in
+    SPLIT_VIEWS, would lose the translated terms the database alone holds.
+
+    A foreign key goes with its column, but the row that registers it to this
+    module would stay.
+
+    A second run finds nothing left.
+    """
+    field_names = defaultdict(set)
+    for model, name in DROPPED_FIELDS:
+        field_names[model].add(name)
+    cr.execute(MODULE_VIEWS, {"module": MODULE, "models": tuple(field_names)})
+    cleared_view_ids = []
+    for view_id, model, archs in cr.fetchall():
+        cleared_archs = {lang: _remove_field_nodes(arch, field_names[model]) for lang, arch in archs.items()}
+        if cleared_archs != archs:
+            cr.execute("UPDATE ir_ui_view SET arch_db = %s WHERE id = %s", (Json(cleared_archs), view_id))
+            cleared_view_ids.append(view_id)
+    cr.execute(FORGET_FOREIGN_KEYS, {"module": MODULE, "foreign_keys": DROPPED_FOREIGN_KEYS})
+    forgotten_key_count = cr.rowcount
+    if cleared_view_ids or forgotten_key_count:
+        _logger.info(
+            "Dropped fields forgotten: taken out of %d views, %d foreign key registrations deleted",
+            len(cleared_view_ids),
+            forgotten_key_count,
+        )
+
+
+def _remove_field_nodes(arch, field_names):
+    """Return arch without the nodes of the fields in field_names.
+
+    A field inside a field is left alone: in the arches this module ships it
+    stands in the sub-view of a relation, a field of another model. An
+    extension written as <field name="..." position="..."> is not told apart
+    from that.
+    """
+    root = etree.fromstring(arch)
+    nodes = [
+        node
+        for node in root.iterdescendants("field")
+        if node.get("name") in field_names and next(node.iterancestors("field"), None) is None
+    ]
+    for node in nodes:
+        node.getparent().remove(node)
+    return etree.tostring(root, encoding="unicode") if nodes else arch
 
 
 def rename_external_ids(cr, module, renamed_names):

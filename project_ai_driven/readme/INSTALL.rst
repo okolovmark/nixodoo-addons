@@ -1,9 +1,17 @@
-A database that has neither ``project_software`` nor
-``kaertech_project_software`` installed needs nothing beyond installing the
+A database that has installed neither ``project_software`` nor the
+project-specific module it was cut from needs nothing beyond installing the
 module. What a database that has ``project_task_pull_request`` installed
 needs on top of that is under *Coming from project_task_pull_request*. What
 the install and the update to 16.0.2.2.0 write to the stage log for the
 tasks that exist is under *Filling the stage log*.
+
+The update to 16.0.2.3.0 deletes the fields ``difficulty``,
+``knowledge_area_level`` and ``tester_id`` of ``project.task`` with their
+columns and the values in them; the install that takes over
+``project_software`` or the project-specific module it was cut from deletes
+them too. Beforehand the three fields are taken out of the stored views of
+this module; a view outside this module that names one of them is not
+rewritten: change it by hand.
 
 **Upgrading from project_software**
 
@@ -47,12 +55,11 @@ A dependent module that is renamed as well can call three functions of
 * ``rename_external_ids(cr, module, renamed_names)``: renames external ids
   of ``module`` from a ``{former name: new name}`` dict.
 
-**Upgrading from kaertech_project_software**
+**Upgrading from the module it was cut from**
 
-On a database from before the features were cut from
-``kaertech_project_software``, where ``project_software`` was never
-installed, the hook takes over only what moved here and renames the flag the
-same way.
+On a database from before the features were cut from the project-specific
+module, where ``project_software`` was never installed, the hook takes over
+only what moved here and renames the flag the same way.
 
 **Coming from project_task_pull_request**
 
