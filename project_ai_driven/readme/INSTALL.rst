@@ -13,6 +13,18 @@ them too. Beforehand the three fields are taken out of the stored views of
 this module; a view outside this module that names one of them is not
 rewritten: change it by hand.
 
+The update to 16.0.2.4.0 sets the **Size** (``tshirt_estimate``) of every
+task, archived tasks included, to the size of its hours
+(``planned_hours``); the install that takes over ``project_software`` or the
+project-specific module it was cut from does it too. One SQL statement
+stores the sizes and writes nothing else on the tasks: the task type, the
+hours and the last update date stay as they are. A task without hours ends
+with no size, and a size that disagrees with the hours of its task is
+replaced by theirs; the former value is not kept. The server log gets one
+line with the number of tasks changed; a second run changes none. On a
+database that has neither module installed, the install computes the size of
+the tasks that exist through the ORM, which writes those tasks.
+
 **Upgrading from project_software**
 
 ``project_software`` remains for one release as an empty module that depends

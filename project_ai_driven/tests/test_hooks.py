@@ -52,6 +52,7 @@ OTHER_MODULE = "other_module"
 EXTENDED_MODELS = ("project.project", "project.task")
 # Added after the cut from the legacy module, which never held them.
 ADDED_FIELDS = (
+    ("project.project", "estimate_required_states"),
     ("project.project", "pr_required_states"),
     ("project.task", "pr_legacy"),
     ("project.task", "pr_required_states"),
@@ -72,6 +73,10 @@ ADDED_RECORDS = (
     ("ir.ui.menu", "project_pull_request_menu"),
     ("ir.model", "model_project_task_stage_log"),
     ("ir.model.access", "access_project_task_stage_log_system"),
+    ("ir.ui.view", "project_task_view_kanban_inherit_ai_driven"),
+    ("ir.ui.view", "project_task_view_calendar_inherit_ai_driven"),
+    # a model this module only extends, and did not extend at the cut
+    ("ir.model", "model_project_task_recurrence"),
     *(
         ("ir.model.fields.selection", "selection__%s__%s" % (field, value))
         for field, values in (
@@ -82,7 +87,12 @@ ADDED_RECORDS = (
         for value in values
     ),
 )
-ADDED_CONSTRAINTS = ("project_pull_request%", "project_pr_required%", "project_task_stage_log%")
+ADDED_CONSTRAINTS = (
+    "project_pull_request%",
+    "project_pr_required%",
+    "project_estimate_required%",
+    "project_task_stage_log%",
+)
 DELEGATING_MODULE = "delegating_module"
 DELEGATING_MODEL = "res.partner"
 REPLACED_MODULE = "replaced_module"

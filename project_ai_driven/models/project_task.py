@@ -6,14 +6,15 @@ from odoo.exceptions import ValidationError
 from .project_pull_request import parse_single_pull_request_link
 from .project_task_subtask import SUBTASK_STATES
 
-TSHIRT_HOURS = {
-    "xs": 1,
-    "s": 4,
-    "m": 8,
-    "l": 24,
-    "xl": 40,
-    "xxl": 80,
-}
+# The largest estimate in hours of each size. RECOMPUTE_TASK_SIZES of the hooks states the same in SQL.
+SIZE_BANDS = ((2, "xs"), (6, "s"), (12, "m"), (32, "l"), (60, "xl"), (float("inf"), "xxl"))
+
+
+def get_size(hours):
+    if not hours or hours <= 0:
+        return False
+    # The default is the ELSE of the SQL: a NaN is under no bound here and above every one there.
+    return next((size for max_hours, size in SIZE_BANDS if hours <= max_hours), SIZE_BANDS[-1][1])
 
 
 class ProjectTask(models.Model):
@@ -43,7 +44,6 @@ class ProjectTask(models.Model):
             ("support", "Support"),
             ("technical_debt", "Technical Debt"),
         ],
-        default="improvement",
         tracking=True,
         string="AI-driven Task Type",
     )
@@ -56,8 +56,11 @@ class ProjectTask(models.Model):
             ("xl", "XL"),
             ("xxl", "XXL"),
         ],
-        default="m",
-        help="T-shirt size estimate: XS = 1h or less, S = 4h, M = 1d, L = 3d, XL = 1w, XXL = 2w or more",
+        string="Size",
+        compute="_compute_tshirt_estimate",
+        store=True,
+        help="Follows the estimate in hours: XS up to 2 hours, S up to 6, M up to 12, L up to 32,"
+        " XL up to 60, XXL above. Empty while the task has no estimate.",
     )
     subtask_ids = fields.One2many("project.task.subtask", "task_id", groups="project.group_project_user")
     default_user = fields.Many2one("res.users", compute="_compute_default_user")
@@ -99,6 +102,11 @@ class ProjectTask(models.Model):
         copy=False,
         tracking=True,
     )
+
+    @api.depends("planned_hours")
+    def _compute_tshirt_estimate(self):
+        for record in self:
+            record.tshirt_estimate = get_size(record.planned_hours)
 
     @api.depends("user_ids", "create_uid")
     def _compute_default_user(self):
@@ -233,22 +241,20 @@ class ProjectTask(models.Model):
         with self.env.protecting([self._fields["pr_uri"]], self):
             self._compute_pr_uri()
 
-    @api.onchange("tshirt_estimate")
-    def _onchange_tshirt_estimate(self):
-        for record in self:
-            if record.tshirt_estimate and not record.planned_hours:
-                record.planned_hours = TSHIRT_HOURS.get(record.tshirt_estimate, 0)
-
     @api.model_create_multi
     def create(self, vals_list):
         tasks = super().create(vals_list)
         tasks._apply_closing_rule()
+        tasks._apply_estimate_rule()
         return tasks
 
     def write(self, vals):
+        vals = self._without_size(vals)
         former_stages = self._get_former_stages(vals)
         result = super().write(vals)
-        self._filter_moved_from(former_stages)._apply_closing_rule()
+        moved_tasks = self._filter_moved_from(former_stages)
+        moved_tasks._apply_closing_rule()
+        moved_tasks._apply_estimate_rule()
         return result
 
     def copy(self, default=None):
@@ -291,6 +297,19 @@ class ProjectTask(models.Model):
             default.setdefault("resolution", self.resolution)
             default.setdefault("pull_request_ids", [Command.set(self.pull_request_ids.ids)])
         return default
+
+    @api.model
+    def _without_size(self, vals):
+        """Return the vals of a write without a size: callers from before the
+        size was computed still send one, and a value written to the stored
+        field would stand in place of the size of the hours.
+
+        A create needs no such care: it computes a read-only field whatever
+        value was sent, or came as a default of the context.
+        """
+        if "tshirt_estimate" not in vals:
+            return vals
+        return {field_name: value for field_name, value in vals.items() if field_name != "tshirt_estimate"}
 
     def _get_former_stages(self, vals):
         """Return {task id: stage} when vals may move the tasks to another stage:
@@ -342,6 +361,40 @@ class ProjectTask(models.Model):
 
     def _set_resolution_of_pull_request(self):
         self.filtered(lambda record: not record.resolution and record.pull_request_ids).resolution = "code"
+
+    def _apply_estimate_rule(self):
+        """Run on tasks that just entered a stage. Sudo: a user can write a
+        task of a project they cannot read.
+        """
+        self.sudo()._filter_estimate_rule_tasks()._check_type_and_estimate()
+
+    def _filter_estimate_rule_tasks(self):
+        return self.filtered(
+            lambda record: record.project_id.is_ai_driven
+            and record.stage_id in record.project_id.estimate_required_states
+        )
+
+    def _check_type_and_estimate(self):
+        refusals = [
+            "%s\n%s" % (requirement, _("Tasks: %s") % ", ".join(tasks.mapped("display_name")))
+            for requirement, tasks in self._get_missing_type_and_estimate()
+            if tasks
+        ]
+        if refusals:
+            raise ValidationError("\n\n".join(refusals))
+
+    def _get_missing_type_and_estimate(self):
+        """Return [(what a task needs to enter the stage, the tasks without it)]."""
+        return [
+            (
+                _("Choose a Task Type: a task enters this stage only with one."),
+                self.filtered(lambda record: not record.task_type),
+            ),
+            (
+                _("Enter an Estimate above zero hours: a task enters this stage only with one."),
+                self.filtered(lambda record: record.planned_hours <= 0),
+            ),
+        ]
 
     def task_completion(self):
         user_task_ids = self.subtask_ids.filtered(lambda x: x.user_id.id == self.env.user.id and x.state != "cancelled")
