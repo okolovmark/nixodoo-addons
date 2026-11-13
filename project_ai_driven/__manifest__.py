@@ -1,7 +1,7 @@
 {
-    "name": "Project Software",
-    "summary": "Software task attributes, a checklist and test cases on project tasks",
-    "version": "20.0.1.0.0",
+    "name": "Project AI-driven",
+    "summary": "Task attributes, a checklist and test cases on the tasks of AI-driven projects",
+    "version": "20.0.2.0.0",
     "category": "Services/Project",
     "author": "Kaertech",
     "website": "https://github.com/okolovmark/nixodoo-addons",
@@ -17,7 +17,7 @@
     ],
     "assets": {
         "web.assets_backend": [
-            "project_software/static/src/css/project_software.css",
+            "project_ai_driven/static/src/css/project_ai_driven.css",
         ],
     },
 }

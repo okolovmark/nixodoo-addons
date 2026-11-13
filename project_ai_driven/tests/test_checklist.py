@@ -1,10 +1,10 @@
 from odoo import Command
 from odoo.exceptions import AccessError, UserError
 
-from .common import ProjectSoftwareCommon
+from .common import ProjectAiDrivenCommon
 
 
-class TestChecklist(ProjectSoftwareCommon):
+class TestChecklist(ProjectAiDrivenCommon):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -61,7 +61,7 @@ class TestChecklist(ProjectSoftwareCommon):
         item = self.QuietSubtask.with_user(self.user_lead).create(
             {"name": "Checklist item", "task_id": self.task.id, "user_id": self.user_dev.id},
         )
-        outsider = self._create_project_user("Outsider", "project_software_outsider", "outsider@example.com")
+        outsider = self._create_project_user("Outsider", "project_ai_driven_outsider", "outsider@example.com")
         with self.assertRaises(UserError):
             item.with_user(outsider).write({"state": "done"})
         item.with_user(self.user_dev).change_state_done()
@@ -93,20 +93,20 @@ class TestChecklist(ProjectSoftwareCommon):
 
     def test_checklist_needs_project_user(self):
         self._new_item()
-        internal_user = self._create_user("Internal Only", "project_software_internal", "internal@example.com")
+        internal_user = self._create_user("Internal Only", "project_ai_driven_internal", "internal@example.com")
         self.assertTrue(self.Subtask.with_user(self.user_dev).search_count([("task_id", "=", self.task.id)]))
         with self.assertRaises(AccessError):
             self.Subtask.with_user(internal_user).search_count([])
 
 
-class TestChecklistNotification(ProjectSoftwareCommon):
+class TestChecklistNotification(ProjectAiDrivenCommon):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.subtype = cls.env.ref("project_software.subtasks_subtype")
-        cls.project_subtype = cls.env.ref("project_software.all_subtask_subtype")
-        cls.user_no_email = cls._create_project_user("Service Account", "project_software_service", False)
-        cls.follower = cls._create_project_user("Follower", "project_software_follower", "follower@example.com")
+        cls.subtype = cls.env.ref("project_ai_driven.subtasks_subtype")
+        cls.project_subtype = cls.env.ref("project_ai_driven.all_subtask_subtype")
+        cls.user_no_email = cls._create_project_user("Service Account", "project_ai_driven_service", False)
+        cls.follower = cls._create_project_user("Follower", "project_ai_driven_follower", "follower@example.com")
         cls.project.message_subscribe(partner_ids=cls.follower.partner_id.ids)
         cls.task = cls.env["project.task"].create({"name": "Followed Task", "project_id": cls.project.id})
 

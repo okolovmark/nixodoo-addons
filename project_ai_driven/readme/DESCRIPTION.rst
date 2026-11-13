@@ -1,6 +1,6 @@
-Software-team additions to project tasks: task attributes, clarifying
-questions with their answers and the technical solution, a checklist and test
-cases per task.
+Additions to project tasks for AI-driven development: task attributes,
+clarifying questions with their answers and the technical solution, a
+checklist and test cases per task.
 
 **Task attributes** (``project.task``)
 
@@ -14,7 +14,7 @@ cases per task.
   value is saved with the task; the field is displayed once Timesheets is
   installed, on the tasks of a project that uses timesheets.
 * A **Technical Solution** tab with Questions, Answers and Solution, shown to
-  project users on the tasks of a project flagged **Software Project**.
+  project users on the tasks of a project flagged **AI-driven Project**.
 
 **Checklist** (``project.task.subtask``)
 

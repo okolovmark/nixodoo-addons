@@ -1,9 +1,9 @@
 from odoo import Command
 
-from .common import ProjectSoftwareCommon
+from .common import ProjectAiDrivenCommon
 
 
-class TestAssignmentNotification(ProjectSoftwareCommon):
+class TestAssignmentNotification(ProjectAiDrivenCommon):
     """An integration assigns tasks with mail_auto_subscribe_no_notify, often
     from an account that has no email address: nothing is notified then, and
     without the key the assignee is notified as usual.
@@ -12,7 +12,7 @@ class TestAssignmentNotification(ProjectSoftwareCommon):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.user_no_email = cls._create_project_user("Service Account", "project_software_service", False)
+        cls.user_no_email = cls._create_project_user("Service Account", "project_ai_driven_service", False)
         cls.service_project = cls.env["project.project"].create(
             {"name": "Service Project", "user_id": cls.user_no_email.id},
         )

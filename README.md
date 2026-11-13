@@ -9,7 +9,7 @@ One branch per Odoo version (`16.0`, `20.0`), modules at the repository root.
 | Module | What it gives | Template answer |
 |---|---|---|
 | `release_notes` | User-facing release notes kept in Odoo: loaded unpublished from the `notes/<key>.html` files of a project module, published by the person who deployed, announced by OdooBot to the users of the affected models | `use_release_notes` |
-| `project_software` | Software-team fields on a task (type, estimate, priority, difficulty, clarifying questions and answers, technical solution), test cases and a checklist per task | `task_software_fields` |
+| `project_ai_driven` | Fields for AI-driven development on a task (type, estimate, priority, difficulty, clarifying questions and answers, technical solution), test cases and a checklist per task | `task_ai_driven` |
 
 ## Using a module
 
@@ -23,7 +23,7 @@ ENV:
 
 nixodoo-addons:
   - "release_notes"
-  - "project_software"
+  - "project_ai_driven"
 ```
 
 That tracks the `20.0` branch, which is what the template renders. To pin a commit instead:
@@ -33,7 +33,7 @@ nixodoo-addons:
   revision: <commit on the 20.0 branch>
   modules:
     - "release_notes"
-    - "project_software"
+    - "project_ai_driven"
 ```
 
 Then `nix run .#update-repos`, and install the module.

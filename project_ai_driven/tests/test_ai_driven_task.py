@@ -1,20 +1,25 @@
 from lxml import etree
 
 from ..models.project_task import TSHIRT_HOURS
-from .common import ProjectSoftwareCommon
+from .common import ProjectAiDrivenCommon
 
 
-class TestSoftwareTask(ProjectSoftwareCommon):
+class TestAiDrivenTask(ProjectAiDrivenCommon):
     def _selection_values(self, field_name):
         return [value for value, _label in self.env["project.task"]._fields[field_name].selection]
 
-    def test_is_software_project_follows_the_project(self):
-        self.assertTrue(self.task.is_software_project)
+    def test_is_ai_driven_follows_the_project(self):
+        self.assertTrue(self.task.is_ai_driven)
         plain_project = self.env["project.project"].create({"name": "Plain Project"})
         plain_task = self.env["project.task"].create({"name": "Plain Task", "project_id": plain_project.id})
-        self.assertFalse(plain_task.is_software_project)
-        plain_project.is_software_project = True
-        self.assertTrue(plain_task.is_software_project)
+        self.assertFalse(plain_task.is_ai_driven)
+        plain_project.is_ai_driven = True
+        self.assertTrue(plain_task.is_ai_driven)
+
+    def test_is_ai_driven_label(self):
+        for model in ("project.project", "project.task"):
+            label = self.env[model].fields_get(["is_ai_driven"])["is_ai_driven"]["string"]
+            self.assertEqual(label, "AI-driven Project", model)
 
     def test_defaults(self):
         self.assertRecordValues(
@@ -63,7 +68,7 @@ class TestSoftwareTask(ProjectSoftwareCommon):
         module_pages = [name for name in page_names if name in ("checklist", "technical_solution", "test_cases")]
         self.assertEqual(module_pages, ["checklist", "technical_solution", "test_cases"])
 
-    def test_software_project_is_a_tasks_management_setting(self):
+    def test_ai_driven_project_is_a_tasks_management_setting(self):
         arch = etree.fromstring(self.env["project.project"].get_view(view_type="form")["arch"])
-        settings = arch.xpath("//group[@name='group_tasks_managment']/setting[field[@name='is_software_project']]")
+        settings = arch.xpath("//group[@name='group_tasks_managment']/setting[field[@name='is_ai_driven']]")
         self.assertEqual(len(settings), 1)

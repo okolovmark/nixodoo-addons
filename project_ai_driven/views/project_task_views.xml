@@ -9,7 +9,7 @@
                 <page
                     name="technical_solution"
                     string="Technical Solution"
-                    invisible="not is_software_project"
+                    invisible="not is_ai_driven"
                     groups="project.group_project_user"
                 >
                     <group>

@@ -1,4 +1,4 @@
-* On a project, switch on **Software Project** (*Settings* tab, *Tasks
+* On a project, switch on **AI-driven Project** (*Settings* tab, *Tasks
   Management*) to show the Technical Solution tab on its tasks.
 * Checklist items and test cases are managed by users with the **User**
   access of *Project* (Settings > Users, the *Access Rights* tab of a user).
