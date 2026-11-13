@@ -1,7 +1,11 @@
+from collections import defaultdict
+
 from markupsafe import Markup, escape
 
-from odoo import api, fields, models
+from odoo import Command, api, fields, models
+from odoo.exceptions import ValidationError
 
+from .project_pull_request import parse_single_pull_request_link
 from .project_task_subtask import SUBTASK_STATES
 
 TSHIRT_HOURS = {
@@ -80,6 +84,37 @@ class ProjectTask(models.Model):
     kanban_testcases = fields.Html(compute="_compute_kanban_testcases")
     tester_id = fields.Many2one("res.users", string="Tester")
     testcase_general_comments = fields.Html()
+    pull_request_ids = fields.Many2many(
+        "project.pull.request",
+        "project_pull_request_task_rel",
+        "task_id",
+        "pull_request_id",
+        string="Pull Requests",
+        copy=False,
+    )
+    pr_uri = fields.Char(
+        string="First Pull Request",
+        compute="_compute_pr_uri",
+        inverse="_inverse_pr_uri",
+        store=True,
+        readonly=False,
+        copy=False,
+        tracking=True,
+        help="The link of the pull request created first. Writing a link adds that pull request to the task.",
+    )
+    # Nothing writes it on this branch: it holds what a database upgraded from 16.0 kept there.
+    pr_legacy = fields.Char(string="PR (old value)", readonly=True, copy=False)
+    pr_required_states = fields.Many2many(related="project_id.pr_required_states")
+    resolution = fields.Selection(
+        [
+            ("code", "Code"),
+            ("data", "Data"),
+            ("configuration", "Configuration"),
+            ("no_change", "No change"),
+        ],
+        copy=False,
+        tracking=True,
+    )
 
     @api.depends("user_ids", "create_uid")
     def _compute_default_user(self):
@@ -188,11 +223,55 @@ class ProjectTask(models.Model):
                 '<div class="kanban_subtasks"><ul>' + result_string_td + result_string_wt + "</ul></div>"
             )
 
+    @api.depends("pull_request_ids.url")
+    def _compute_pr_uri(self):
+        for record in self:
+            # _origin: in a form the pull requests are new records, whose ids do not sort
+            record.pr_uri = record.pull_request_ids._origin.sorted("id")[:1].url
+
+    def _inverse_pr_uri(self):
+        for record in self:
+            if not record.pr_uri:
+                continue
+            link = parse_single_pull_request_link(record.pr_uri)
+            if not link:
+                raise ValidationError(
+                    self.env._(
+                        '"%s" is not a pull request link. A task closed without a pull request'
+                        " takes the Resolution Data, Configuration or No change instead.",
+                        record.pr_uri,
+                    )
+                )
+            pull_request = self.env["project.pull.request"]._find_or_create(link)
+            if pull_request not in record.pull_request_ids:
+                record.pull_request_ids = [Command.link(pull_request.id)]
+        # The value written names a pull request to add; the field goes on reading the first one.
+        with self.env.protecting([self._fields["pr_uri"]], self):
+            self._compute_pr_uri()
+
     @api.onchange("tshirt_estimate")
     def _onchange_tshirt_estimate(self):
         for record in self:
             if record.tshirt_estimate and not record.allocated_hours:
                 record.allocated_hours = TSHIRT_HOURS.get(record.tshirt_estimate, 0)
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        tasks = super().create(vals_list)
+        tasks._apply_closing_rule()
+        return tasks
+
+    def write(self, vals):
+        former_stages = self._get_former_stages(vals)
+        result = super().write(vals)
+        self._filter_moved_from(former_stages)._apply_closing_rule()
+        return result
+
+    def copy_data(self, default=None):
+        vals_list = super().copy_data(default=default)
+        for task, vals in zip(self, vals_list):
+            task._add_closing_values(vals)
+        return vals_list
 
     def copy(self, default=None):
         copied_tasks = super().copy(default)
@@ -202,6 +281,115 @@ class ProjectTask(models.Model):
             for testcase in task.testcase_ids:
                 testcase.copy({"task_id": copied_task.id, "state": testcase.state})
         return copied_tasks
+
+    @api.model
+    def _create(self, data_list):
+        tasks = super()._create(data_list)
+        self.env["project.task.stage.log"]._log_created_tasks(tasks)
+        return tasks
+
+    def _write_multi(self, vals_list):
+        """Every update of the stage column comes through here, with the values
+        of each task: from a write as from a recomputation, and no context or
+        sudo goes around it.
+        """
+        self._log_stage_moves(vals_list)
+        return super()._write_multi(vals_list)
+
+    def _log_stage_moves(self, vals_list):
+        """Log the tasks whose values carry a stage, before their rows are
+        updated, in one statement for those that go to the same stage with the
+        same user.
+
+        The user logged is the one this update leaves on the task as write_uid:
+        the last one who wrote it, when that changes, else the user of the
+        environment that flushes, which is all a recomputation has.
+        """
+        task_ids_by_move = defaultdict(list)
+        for task, vals in zip(self, vals_list):
+            if "stage_id" in vals:
+                move = (vals["stage_id"] or None, vals.get("write_uid") or self.env.uid)
+                task_ids_by_move[move].append(task.id)
+        for (stage_id, user_id), task_ids in task_ids_by_move.items():
+            self.env["project.task.stage.log"]._log_moved_tasks(self.browse(task_ids), stage_id, user_id)
+
+    def _add_closing_values(self, vals):
+        """Complete the values of a copy that keeps the stage of its source, as
+        a duplicate does unless told another stage: it also takes the Resolution
+        and the pull requests that let the source into that stage, unless the
+        values set them. Without them the closing rule refuses the copy.
+
+        A source without a stage hands nothing over: the values of its copy
+        hold an empty stage too, which is no stage kept.
+        """
+        self.ensure_one()
+        if self._is_stage_kept_in(vals):
+            vals.setdefault("resolution", self.resolution)
+            vals.setdefault("pull_request_ids", [Command.set(self.pull_request_ids.ids)])
+
+    def _remove_closing_values(self, vals):
+        """Take back what _add_closing_values added to the values of a copy
+        that was given another stage since, as the next occurrence of a
+        recurring task is.
+        """
+        self.ensure_one()
+        if not self._is_stage_kept_in(vals):
+            vals.pop("resolution", None)
+            vals.pop("pull_request_ids", None)
+
+    def _is_stage_kept_in(self, vals):
+        return bool(self.stage_id) and vals.get("stage_id") == self.stage_id.id
+
+    def _get_former_stages(self, vals):
+        """Return {task id: stage} when vals may move the tasks to another stage:
+        a project change recomputes the stage.
+        """
+        if "stage_id" not in vals and "project_id" not in vals:
+            return {}
+        return {record.id: record.stage_id for record in self}
+
+    def _filter_moved_from(self, former_stages):
+        return self.filtered(lambda record: record.id in former_stages and record.stage_id != former_stages[record.id])
+
+    def _apply_closing_rule(self):
+        """Run on tasks that just entered a stage. Sudo: a user can write a
+        task of a project they cannot read.
+        """
+        tasks = self.sudo()._filter_closing_rule_tasks()
+        tasks._check_resolution_chosen()
+        tasks._check_code_has_pull_request()
+        tasks._set_resolution_of_pull_request()
+
+    def _filter_closing_rule_tasks(self):
+        return self.filtered(
+            lambda record: record.project_id.is_ai_driven and record.stage_id in record.project_id.pr_required_states
+        )
+
+    def _check_resolution_chosen(self):
+        unresolved_tasks = self.filtered(lambda record: not record.resolution and not record.pull_request_ids)
+        if unresolved_tasks:
+            raise ValidationError(
+                self.env._(
+                    "Choose a Resolution: a task enters this stage only with one. Code needs a pull"
+                    " request on the task; Data, Configuration and No change do not.\nTasks: %s",
+                    ", ".join(unresolved_tasks.mapped("display_name")),
+                )
+            )
+
+    def _check_code_has_pull_request(self):
+        code_tasks = self.filtered(lambda record: record.resolution == "code" and not record.pull_request_ids)
+        if code_tasks:
+            raise ValidationError(
+                self.env._(
+                    "Add a pull request: a task with the Resolution Code enters this stage only with"
+                    " one. A task closed without a pull request takes Data, Configuration or No"
+                    " change.\nTasks: %s",
+                    ", ".join(code_tasks.mapped("display_name")),
+                )
+            )
+
+    def _set_resolution_of_pull_request(self):
+        self.filtered(lambda record: not record.resolution and record.pull_request_ids).resolution = "code"
 
     def task_completion(self):
         user_task_ids = self.subtask_ids.filtered(lambda x: x.user_id.id == self.env.user.id and x.state != "cancelled")

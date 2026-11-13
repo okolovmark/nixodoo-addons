@@ -9,9 +9,22 @@
                 <setting
                     class="col-lg-12"
                     id="ai_driven_project_setting"
-                    help="Show the Technical Solution tab on the tasks of this project"
+                    help="Show the Technical Solution and Pull Requests tabs and the Resolution on the tasks of this project"
                 >
                     <field name="is_ai_driven" />
+                </setting>
+                <setting
+                    class="col-lg-12"
+                    id="pr_required_states_setting"
+                    help="A task enters these stages only with a Resolution, and with a pull request when the Resolution is Code"
+                    invisible="not is_ai_driven"
+                >
+                    <field
+                        name="pr_required_states"
+                        widget="many2many_tags"
+                        domain="[('project_ids', '=', id)]"
+                        options="{'no_create': True}"
+                    />
                 </setting>
             </xpath>
         </field>
