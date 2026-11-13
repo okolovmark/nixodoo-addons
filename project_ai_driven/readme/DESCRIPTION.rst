@@ -154,5 +154,5 @@ search of the log first flushes the stage changes that are pending.
 
 ``project_software`` is the former name of this module and
 ``is_software_project`` the former name of its flag; the features were first
-cut from the module ``kaertech_project_software``. What a database that has
-either of them installed needs is under *Installation*.
+cut from a project-specific module. What a database that has
+``project_software`` or that module installed needs is under *Installation*.
