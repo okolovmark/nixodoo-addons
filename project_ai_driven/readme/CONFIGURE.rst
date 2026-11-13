@@ -10,6 +10,8 @@
   without that group.
 * Pull requests are read by every internal user and created and edited by
   **Project / User**. No access right allows deleting one.
+* The stage log is read by **Administration / Settings** only. No access
+  right allows creating, changing or deleting a row.
 * To be notified of checklist items that are neither assigned to you nor
   created by you, edit your follower subscription on the task or on the
   project and tick *All checklist updates*.

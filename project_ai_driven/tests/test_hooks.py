@@ -43,16 +43,19 @@ ADDED_RECORDS = (
     ("ir.ui.view", "project_pull_request_view_search"),
     ("ir.actions.act_window", "project_pull_request_action"),
     ("ir.ui.menu", "project_pull_request_menu"),
+    ("ir.model", "model_project_task_stage_log"),
+    ("ir.model.access", "access_project_task_stage_log_system"),
     *(
         ("ir.model.fields.selection", "selection__%s__%s" % (field, value))
         for field, values in (
             ("project_task__resolution", ("code", "data", "configuration", "no_change")),
             ("project_pull_request__state", ("open", "merged", "closed")),
+            ("project_task_stage_log__source", ("live", "tracking", "stage_date", "creation")),
         )
         for value in values
     ),
 )
-ADDED_CONSTRAINTS = ("project_pull_request%", "project_pr_required%")
+ADDED_CONSTRAINTS = ("project_pull_request%", "project_pr_required%", "project_task_stage_log%")
 DELEGATING_MODULE = "delegating_module"
 DELEGATING_MODEL = "res.partner"
 REPLACED_MODULE = "replaced_module"

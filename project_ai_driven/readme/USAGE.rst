@@ -35,3 +35,11 @@ A tool that writes over RPC sets ``pr_uri`` on the task to the link of the
 pull request, one link per write, or ``resolution`` to ``data``,
 ``configuration`` or ``no_change`` when there is none. A write of another
 link adds a second pull request to the task.
+
+The stage log has no view and no menu. A system administrator reads
+``project.task.stage.log`` over RPC: the rows come ordered by date, each
+with ``task_id``, ``previous_stage_id``, ``stage_id``, ``stage_name``,
+``date``, ``user_id`` and ``source`` (``live``, ``tracking``, ``stage_date``
+or ``creation``). The log holds the stages of every task, so code that
+shows it to other users reads it with ``sudo()``, for the tasks those users
+can read.

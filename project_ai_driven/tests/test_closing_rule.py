@@ -21,12 +21,6 @@ class TestClosingRule(ProjectAiDrivenCommon):
         cls.task.stage_id = cls.stage_progress
         cls.pull_request = cls.env["project.pull.request"].create({"url": "https://github.com/owner/repo/pull/1"})
 
-    @classmethod
-    def _create_stage(cls, name, sequence, project=None):
-        return cls.env["project.task.type"].create(
-            {"name": name, "sequence": sequence, "project_ids": [Command.link((project or cls.project).id)]},
-        )
-
     def _create_task(self, **values):
         return self.env["project.task"].create(
             {"name": "Task", "project_id": self.project.id, "stage_id": self.stage_progress.id, **values},

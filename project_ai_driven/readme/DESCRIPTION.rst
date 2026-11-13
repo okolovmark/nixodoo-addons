@@ -1,7 +1,8 @@
 Additions to project tasks for AI-driven development: task attributes,
 clarifying questions with their answers and the technical solution, a
 checklist and test cases per task, pull requests as records, and a
-Resolution that a task needs to enter the stages its project marks.
+Resolution that a task needs to enter the stages its project marks. The
+module also logs the stage changes of every task of the database.
 
 **Task attributes** (``project.task``)
 
@@ -119,6 +120,36 @@ stage. The Resolution and the pull request may come in the same write as the
 stage. Any other stage, a project that is not flagged AI-driven and a write
 that leaves the stage as it is let everything through, so a task already
 sitting in a marked stage stays editable. No context key skips the rule.
+
+**The stage log** (``project.task.stage.log``)
+
+One row when a task is created with a stage and one row on every change of
+its stored stage, for every task of the database, in an AI-driven project
+or not. The rows are written by SQL where the row of the task is written,
+so no context (``tracking_disable``, ``mail_notrack``,
+``mail_create_nolog``) and no ``sudo()`` goes around the log, and a stage
+recomputed by a change of project is logged too, on the task and on the
+subtasks moved with it.
+
+* **Task**, **Date** and **User**: the task, when its stage changed and who
+  changed it. The user is empty when it is not known. Deleting a task
+  deletes its rows.
+* **Stage** and **Stage Name**: the stage the task entered. The stage is
+  empty when the task left its stage, and when the stage was deleted since;
+  a deleted stage keeps its name.
+* **Previous Stage**: the stage the task left. It is empty when there was
+  none, when it is not known and when it was deleted since.
+* **Source**: *Recorded* for a row written with the change; *From the
+  chatter*, *From the last stage update* or *From the creation date* for a
+  row of the past, filled as described under *Installation*.
+
+A task created without a stage gets no row. A task that loses its stage
+gets a row with an empty stage. A write that carries the stage the task
+already has writes no row.
+
+Only system administrators read the log, and no access right allows
+creating, changing or deleting a row. The log has no view and no menu. A
+search of the log first flushes the stage changes that are pending.
 
 **Former names**
 
