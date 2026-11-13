@@ -5,6 +5,14 @@ needs on top of that is under *Coming from project_task_pull_request*. What
 the install and the update to 16.0.2.2.0 write to the stage log for the
 tasks that exist is under *Filling the stage log*.
 
+The update to 16.0.2.3.0 deletes the fields ``difficulty``,
+``knowledge_area_level`` and ``tester_id`` of ``project.task`` with their
+columns and the values in them; the install that takes over
+``project_software`` or ``kaertech_project_software`` deletes them too.
+Beforehand the three fields are taken out of the stored views of this
+module; a view outside this module that names one of them is not rewritten:
+change it by hand.
+
 **Upgrading from project_software**
 
 ``project_software`` remains for one release as an empty module that depends

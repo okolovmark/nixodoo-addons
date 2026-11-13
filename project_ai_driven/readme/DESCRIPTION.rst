@@ -7,11 +7,10 @@ module also logs the stage changes of every task of the database.
 **Task attributes** (``project.task``)
 
 * **Priority** (Highest to Lowest), **T-shirt Estimate** (XS = 1h or less, S
-  = 4h, M = 1d, L = 3d, XL = 1w, XXL = 2w or more), **Task Type** (Feature,
-  Bug, Improvement, Investigation, Milestone, Support, Technical Debt),
-  **Difficulty** and **Knowledge Area Level**, next to the tags on the task
-  form. The type is also a column of the task list; its tracking messages
-  name the field **AI-driven Task Type**.
+  = 4h, M = 1d, L = 3d, XL = 1w, XXL = 2w or more) and **Task Type**
+  (Feature, Bug, Improvement, Investigation, Milestone, Support, Technical
+  Debt), next to the tags on the task form. The type is also a column of the
+  task list; its tracking messages name the field **AI-driven Task Type**.
 * Picking a T-shirt estimate fills *Initially Planned Hours* while it is
   empty: 1, 4, 8, 24, 40 or 80 hours. The value is kept only where that field
   is on the task form, which is the case once Timesheets is installed.
@@ -41,11 +40,11 @@ are on by default); remove those filters to see all items.
 **Test cases** (``project.task.testcase``)
 
 Ordered test cases per task with Steps to execute, Expected results,
-Comments, a Passed flag and the same four states. The task carries a
-**Tester**, general comments and a completion percentage over non-cancelled
-cases. The **Test Cases** menu opens filtered on the cases still in *TODO*;
-remove the *TODO* filter to see them all. Copying a task also copies its
-checklist items and test cases, keeping their states.
+Comments, a Passed flag and the same four states. The task carries general
+comments and a completion percentage over non-cancelled cases. The **Test
+Cases** menu opens filtered on the cases still in *TODO*; remove the *TODO*
+filter to see them all. Copying a task also copies its checklist items and
+test cases, keeping their states.
 
 **Pull requests** (``project.pull.request``)
 
