@@ -18,7 +18,8 @@ every task of the database.
   60, XXL above; empty while the estimate is not above zero. A size sent in
   a write is dropped and one sent at creation is recomputed from the hours;
   neither call is refused. With Timesheets installed, its tab on the task
-  shows the same field as *Allocated Hours*.
+  shows the same field as *Allocated Hours* (*Allocated Days* where the
+  company encodes timesheets in days).
 * The core priority star is hidden on the tasks of a project flagged
   **AI-driven Project**: on the form, the kanban card, the task list, the
   *Sub-tasks* and *Blocked By* lists of the form and the calendar popover.

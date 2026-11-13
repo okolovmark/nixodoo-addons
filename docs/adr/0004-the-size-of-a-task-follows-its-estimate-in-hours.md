@@ -24,7 +24,7 @@ Rejected: filling the hours of existing tasks from their size. A size says less 
 - A task created straight into a marked stage needs its type and its hours in the same create. What cannot supply them is refused there: the kanban quick create, a mail alias, a task created from a sales order line, a task copied by a project duplication from a source that sat in the stage without them. A next occurrence of a recurring task carries the type of its source.
 - A stage listed for a Resolution and for a type and an estimate refuses for the Resolution first.
 - A task whose stage is recomputed through its parent, and the other occurrences a recurrence write moves along, are not checked, as with the closing rule.
-- With Timesheets installed the same hours also show on its tab as Allocated Hours; the two inputs are one field.
+- With Timesheets installed the same hours also show on its tab as Allocated Hours (Allocated Days where the company encodes timesheets in days); the two inputs are one field.
 - The star hidden on a task still orders the lists core sorts by it, and core's High Priority and Low Priority filters remain.
 - A module installed on a database that has tasks and no size column computes the size through the ORM, which writes those tasks once.
 - The 20.0 branch gets the same change with `allocated_hours` in place of `planned_hours` when this work is forward-ported to it.

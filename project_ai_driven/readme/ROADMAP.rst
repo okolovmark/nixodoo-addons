@@ -19,7 +19,8 @@
   Resolution, a pull request, a task type or an estimate. Such a task stops
   the duplication of its project until it gets it.
 * The priority star is hidden on the views the description lists. The
-  project sharing views of the portal keep it.
+  portal keeps it: the project sharing views, the task list and the task
+  page.
 * A row of the stage log is written when the change of stage is flushed to
   the database. Several changes of a task's stage within one flush are one
   row, from the stored stage to the last one, and a change undone within one
