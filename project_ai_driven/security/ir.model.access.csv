@@ -1,3 +1,5 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_task_subtask,project.task.subtask,model_project_task_subtask,project.group_project_user,1,1,1,1
 access_task_testcase,project.task.testcase,model_project_task_testcase,project.group_project_user,1,1,1,1
+access_project_pull_request_internal,project.pull.request.internal,model_project_pull_request,base.group_user,1,0,0,0
+access_project_pull_request_user,project.pull.request.user,model_project_pull_request,project.group_project_user,1,1,1,0

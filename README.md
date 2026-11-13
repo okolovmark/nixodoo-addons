@@ -9,7 +9,7 @@ One branch per Odoo version (`16.0`, `20.0`), modules at the repository root.
 | Module | What it gives | Template answer |
 |---|---|---|
 | `release_notes` | User-facing release notes kept in Odoo: loaded unpublished from the `notes/<key>.html` files of a project module, published by the person who deployed, announced by OdooBot to the users of the affected models | `use_release_notes` |
-| `project_ai_driven` | Fields for AI-driven development on a task (type, estimate, priority, difficulty, clarifying questions and answers, technical solution), test cases and a checklist per task | `task_ai_driven` |
+| `project_ai_driven` | Fields for AI-driven development on a task (type, estimate, priority, difficulty, clarifying questions and answers, technical solution), test cases and a checklist per task, pull requests as records with a Resolution and a closing rule on the stages a project marks | `task_ai_driven` |
 | `project_software` | Transitional: the former name of `project_ai_driven`, an empty module that depends on it. Removed in the next release | - |
 
 ## Using a module

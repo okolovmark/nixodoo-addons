@@ -1,8 +1,15 @@
 * On a project, tick **AI-driven Project** (*Settings* tab, above
-  *Visibility*) to show the Technical Solution tab on its tasks.
+  *Visibility*) to show the Technical Solution and Pull Requests tabs and
+  the Resolution on its tasks.
+* Below it, on an AI-driven project, **Stages Requiring a Resolution** lists
+  the stages a task enters only with a Resolution, and with a pull request
+  when the Resolution is Code. Only stages of the project can be picked.
+  Leave it empty to switch the closing rule off.
 * Checklist items and test cases are managed by **Project / User**. The
   Checklist, Test Cases and Technical Solution tabs are hidden from users
   without that group.
+* Pull requests are read by every internal user and created and edited by
+  **Project / User**. No access right allows deleting one.
 * To be notified of checklist items that are neither assigned to you nor
   created by you, edit your follower subscription on the task or on the
   project and tick *All checklist updates*.
