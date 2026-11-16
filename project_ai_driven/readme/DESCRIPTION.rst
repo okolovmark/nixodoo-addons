@@ -25,7 +25,8 @@ every task of the database.
   lists, the kanban card, the task list and the calendar popover. Its stored
   value is not touched: core still orders tasks by it, and the *Priority*
   filters of the search still search on it. The tasks of other projects keep
-  the star, also in the same list.
+  the star, also in the same list. The task list of a flagged project opened
+  from the project has no *Priority* column at all.
 * A **Technical Solution** tab with Questions, Answers and Solution, shown to
   project users on the tasks of a project flagged **AI-driven Project**.
 
@@ -112,6 +113,9 @@ and portal users have no access.
   and meets the closing rule as a new task: in a marked stage it is refused.
   A project template with a task sitting in a marked stage cannot be used
   until that task is moved. A plain Duplicate still takes both.
+* A project template made from a project keeps no Resolution and no pull
+  request of its tasks; the tasks of the project keep theirs. A task
+  converted to a template keeps its own.
 
 **The closing rule**
 
@@ -139,6 +143,9 @@ sitting in a marked stage stays editable. The ``state`` of a task (Done,
 Cancelled) is not part of the rule: a task set Done outside the marked
 stages needs no Resolution. No context key skips the rule.
 
+Templates are outside the rule: a task template, its sub-tasks and the
+tasks of a project template enter a marked stage without a Resolution.
+
 **The estimate rule**
 
 On an AI-driven project, **Stages Requiring a Type and an Estimate**
@@ -155,6 +162,7 @@ creation. Any other stage, a project that is not flagged AI-driven and a
 write that leaves the stage as it is let everything through, so a task
 already sitting in a marked stage stays editable. No context key skips the
 rule. A stage marked for both rules refuses for the Resolution first.
+Templates are outside this rule too.
 
 The next occurrence of a recurring task is a copy of the task, so it
 carries its task type and its estimate.

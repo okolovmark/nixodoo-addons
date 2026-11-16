@@ -24,6 +24,21 @@
 * The priority star is hidden on the views the description lists. The
   portal keeps it: the project sharing views, the task list and the task
   page.
+* The task list of a flagged project drops its *Priority* column only when
+  opened from the project, which tells it the project is flagged. Reloaded
+  from its address, reached back from an embedded action or opened from a
+  milestone, it shows the column with the stars hidden, as core shows its
+  *Milestone* column there. A task opened from that list passes the flag
+  on, whatever its own project: the *Sub-tasks*, *Dependent Tasks*, *Tasks in
+  Recurrence* and parent task it opens have no *Priority* column, tasks of
+  other projects included. The same task opened from another list passes
+  nothing.
+* Leaving template status is not a change of stage: a task template undone,
+  a project template turned back into a project or a template task moved to
+  another project keeps its stage unchecked by either rule.
+* A sub-task that sits in a marked stage without what the stage requires
+  stops a project template being made from its project, as it stops the
+  duplication of the project: core creates its copy in that project first.
 * The sizes stored by an earlier 20.0 version of the module stay as they
   are until the hours of their task change: this branch has no migration
   that recomputes them.

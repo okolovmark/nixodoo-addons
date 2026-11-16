@@ -1,5 +1,12 @@
 The module has no install hook and no migration. Installing it is all a
-database needs, with one exception.
+database needs, but for the two cases below.
+
+**A database that has an earlier 20.0 version installed**
+
+Updating the module deletes the fields **Difficulty**, **Knowledge Area
+Level** and **Tester** of the tasks, with their values. Export them first
+if they are needed. The sizes the tasks have stored stay as they are until
+their hours change.
 
 **A database that has the 20.0 project_software installed**
 
