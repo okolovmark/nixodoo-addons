@@ -53,6 +53,64 @@ translation; the update and the install that takes over would otherwise fail
 validating the task form. A view outside this module that names one of them
 is not rewritten: change it by hand.
 
+The update to 16.0.2.6.0 renames the checklist model ``project.task.subtask``
+to ``project.task.checklist.item``, its table to
+``project_task_checklist_item``, and the task fields ``subtask_ids`` and
+``kanban_subtasks`` to ``checklist_item_ids`` and ``kanban_checklist``. The
+task field ``default_user`` is deleted. The former names are not kept: a
+client that names the former model gets *Object project.task.subtask doesn't
+exist*. The install that takes over ``project_software`` or the
+project-specific module it was cut from renames too. Before the data files
+are loaded, SQL renames, in every module:
+
+* the table with its sequence, constraints and indexes, and the
+  registrations of the constraints;
+* the model and its fields, and the relations, related paths and
+  dependencies that name them, the copies of the fields on a model that
+  delegates to the task included;
+* the model name where a record stores one (messages, followers,
+  activities, attachments, views, actions, filters, export and mail
+  templates, every stored Many2oneReference) and in the values of stored
+  Reference fields;
+* the external ids of the model, its fields and their selection values;
+* as whole words, the fields in the stored arch of the views of the
+  checklist and of the models holding the fields, in every translation, and
+  the fields and the model in record rule domains, filters and window
+  actions;
+* the file recorded on the views loaded from the renamed view file.
+
+The checklist records of this module take these external ids:
+
+====================================  ===========================================
+Former external id                    External id
+====================================  ===========================================
+``access_task_subtask``               ``access_task_checklist_item``
+``subtasks_subtype``                  ``checklist_subtype``
+``all_subtask_subtype``               ``project_checklist_subtype``
+``view_task_kanban_subtasks``         ``view_task_kanban_checklist``
+``project_task_subtask_view_form``    ``project_task_checklist_item_view_form``
+``project_task_subtask_view_search``  ``project_task_checklist_item_view_search``
+``subtask_list_view``                 ``project_task_checklist_item_view_tree``
+``action_view_subtask``               ``action_view_checklist_item``
+``menu_action_view_subtask``          ``menu_action_view_checklist_item``
+====================================  ===========================================
+
+``default_user`` is taken out of the stored views of this module. Every
+record keeps its database id, so the items, their activities and the
+follower subscriptions to *All checklist updates* stay as they are. The server log
+gets one line with the count of each kind of rename; a second run changes
+nothing.
+
+Not rewritten: the code of server actions and scheduled actions, the bodies
+of mail templates, the field paths of export lines, the views of other
+models, and a context that turns on the search filters of the checklist by
+their former names, ``my_subtask`` and ``done_subtask``, now ``my`` and
+``todo``. Change them by hand.
+
+Run the update with the server stopped: renaming the table locks it, and
+running code reads the former names. Every client, RPC scripts and modules
+that name the checklist, moves to the new names in the same deploy.
+
 **Upgrading from project_software**
 
 ``project_software`` remains for one release as an empty module that depends

@@ -1,5 +1,6 @@
 import importlib.util
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from odoo.tests.common import Form, tagged
@@ -27,6 +28,7 @@ SIZES_OF_HOURS = (
 )
 HOURS_WITHOUT_SIZE = (0, -1, None)
 TASKS_BESIDE_THEIR_SIZE = "SELECT id, task_type, planned_hours, write_date, write_uid FROM project_task ORDER BY id"
+EARLIER_WRITE_DATE = datetime(2026, 3, 2, 9, 0)
 
 
 @tagged("post_install", "-at_install")
@@ -129,11 +131,17 @@ class TestRecomputeTaskSizes(ProjectAiDrivenCommon):
         return changed_count, logs.records[0].getMessage()
 
     def _create_task(self, hours, **values):
-        """Hours stored by SQL leave the task the size the ORM gave it: none."""
+        """Hours stored by SQL leave the task the size the ORM gave it: none.
+        The last write is another user's, before this transaction: a write
+        of this one would leave both as they are.
+        """
         task = self.env["project.task"].create({"name": "Old Task", "project_id": self.project.id, **values})
         self.env.flush_all()
-        self.env.cr.execute("UPDATE project_task SET planned_hours = %s WHERE id = %s", (hours, task.id))
-        task.invalidate_recordset(["planned_hours"])
+        self.env.cr.execute(
+            "UPDATE project_task SET planned_hours = %s, write_date = %s, write_uid = %s WHERE id = %s",
+            (hours, EARLIER_WRITE_DATE, self.user_dev.id, task.id),
+        )
+        task.invalidate_recordset(["planned_hours", "write_date", "write_uid"])
         return task
 
     def _store_size(self, tasks, size):

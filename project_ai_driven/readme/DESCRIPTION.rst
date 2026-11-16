@@ -32,18 +32,30 @@ every task of the database.
   context, so an account without an email address (an RPC service account)
   can assign tasks without failing.
 
-**Checklist** (``project.task.subtask``)
+**Checklist** (``project.task.checklist.item``)
 
-Task-level checklist items with a description, an **Assigned to** user, a
-**Reviewer** (the creator), a deadline and a state: TODO, Waiting, Done,
-Cancelled. Only the reviewer and the assignee may change an item's state or
-description. Every creation, state, name or assignee change posts a message
-to the task addressed to the reviewer and/or the assignee, under the internal
-*All checklist updates* subtype (a change on an item whose reviewer and
-assignee are both the current user is a plain note instead). The subtype is
-not subscribed by default: other followers receive these posts only after
-opting into *All checklist updates* on the task or on its project. The same
-context key silences these posts for an account without an email address.
+Task-level checklist items, the **Checklist** of the task
+(``checklist_item_ids``), each with a description, an **Assigned to** user,
+a **Reviewer**, a deadline and a state: TODO, Waiting, Done, Cancelled. A new
+item's assignee and reviewer default to the user who creates it, on the form
+and over RPC; the reviewer is read-only on the form.
+
+Only the assignee or the reviewer of an item changes its state or
+description. The check runs before the write, against the assignee and the
+reviewer the item has then, so taking over an item and changing its state in
+one write is refused. Any **Project / User** can change the assignee and the
+deadline.
+
+A creation and a change of state, description or assignee make one post per
+item on the task, addressed to the item's assignee and reviewer other than
+the user making the change, under the internal *All checklist updates*
+subtype. When that user is both, the post is a note addressed to no one. A
+change of description shows the former description under the former state.
+The subtype is not subscribed by default: other followers receive the posts
+of others only after opting into *All checklist updates* on the task or on
+its project. The same context key silences these posts for an account
+without an email address.
+
 The task's kanban card shows the current user's completion percentage over
 their non-cancelled items and the number of their TODO and Waiting items. The
 **Checklist** menu opens on your own TODO items (the *My* and *TODO* filters
@@ -206,3 +218,8 @@ search of the log first flushes the stage changes that are pending.
 ``is_software_project`` the former name of its flag; the features were first
 cut from a project-specific module. What a database that has
 ``project_software`` or that module installed needs is under *Installation*.
+
+``project.task.subtask`` is the former name of the checklist model, and
+``subtask_ids`` and ``kanban_subtasks`` those of the task fields
+``checklist_item_ids`` and ``kanban_checklist``. What the update to
+16.0.2.6.0 renames is under *Installation*.

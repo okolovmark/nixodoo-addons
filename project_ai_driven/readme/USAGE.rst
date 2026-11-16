@@ -2,8 +2,9 @@ On the task form:
 
 * Set **Priority**, **Estimate** (in hours) and **Task Type** next to the
   tags. **Size** shows the size of the estimate and cannot be edited.
-* *Checklist* tab: add items, each with an **Assigned to** user and an
-  optional deadline. The assignee or the reviewer moves an item with the
+* *Checklist* tab: add items, each with an **Assigned to** user, yourself
+  unless you pick another, and an optional deadline. You are the reviewer of
+  the items you add. The assignee or the reviewer moves an item with the
   state icons (TODO, Waiting, Done, Cancelled). The task's kanban card shows
   your own completion percentage, only when you have non-cancelled items
   assigned to you.
@@ -34,7 +35,8 @@ your own TODO items.
 **Project > Test Cases** lists the test cases of all tasks, opened on the
 ones Not run: a list, cards on a phone. Filter on Not run or Failed, group
 by project, task, status or verification. The header of a case's form
-gives it its result with the same buttons, next to its status bar.
+gives it its result with the same buttons, next to its status bar: Not run,
+Passed and Failed, and the status of the case when it is another.
 
 **Project > Pull Requests** lists the pull requests of all tasks, the newest
 first: a list, cards on a phone. Search by URL, repository or task, filter
@@ -49,6 +51,12 @@ link adds a second pull request to the task. The estimate is written to
 ``planned_hours`` and the type to ``task_type``; a ``tshirt_estimate`` sent
 with them is ignored. The estimate is a finite number: a NaN or an infinity
 is refused, in any project.
+
+A tool that keeps a checklist over RPC creates ``project.task.checklist.item``
+records with ``task_id``, ``name`` and ``user_id``, which defaults to the
+tool's own user, and reads the items of a task from ``checklist_item_ids``.
+It moves an item by writing ``state`` (``todo``, ``waiting``, ``done`` or
+``cancelled``) as the item's assignee or reviewer.
 
 A tool that gives test case results over RPC writes ``state`` on
 ``project.task.testcase``: ``not_run``, ``passed``, ``failed``, ``waiting``

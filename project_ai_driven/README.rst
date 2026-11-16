@@ -56,18 +56,30 @@ every task of the database.
   context, so an account without an email address (an RPC service account)
   can assign tasks without failing.
 
-**Checklist** (``project.task.subtask``)
+**Checklist** (``project.task.checklist.item``)
 
-Task-level checklist items with a description, an **Assigned to** user, a
-**Reviewer** (the creator), a deadline and a state: TODO, Waiting, Done,
-Cancelled. Only the reviewer and the assignee may change an item's state or
-description. Every creation, state, name or assignee change posts a message
-to the task addressed to the reviewer and/or the assignee, under the internal
-*All checklist updates* subtype (a change on an item whose reviewer and
-assignee are both the current user is a plain note instead). The subtype is
-not subscribed by default: other followers receive these posts only after
-opting into *All checklist updates* on the task or on its project. The same
-context key silences these posts for an account without an email address.
+Task-level checklist items, the **Checklist** of the task
+(``checklist_item_ids``), each with a description, an **Assigned to** user,
+a **Reviewer**, a deadline and a state: TODO, Waiting, Done, Cancelled. A new
+item's assignee and reviewer default to the user who creates it, on the form
+and over RPC; the reviewer is read-only on the form.
+
+Only the assignee or the reviewer of an item changes its state or
+description. The check runs before the write, against the assignee and the
+reviewer the item has then, so taking over an item and changing its state in
+one write is refused. Any **Project / User** can change the assignee and the
+deadline.
+
+A creation and a change of state, description or assignee make one post per
+item on the task, addressed to the item's assignee and reviewer other than
+the user making the change, under the internal *All checklist updates*
+subtype. When that user is both, the post is a note addressed to no one. A
+change of description shows the former description under the former state.
+The subtype is not subscribed by default: other followers receive the posts
+of others only after opting into *All checklist updates* on the task or on
+its project. The same context key silences these posts for an account
+without an email address.
+
 The task's kanban card shows the current user's completion percentage over
 their non-cancelled items and the number of their TODO and Waiting items. The
 **Checklist** menu opens on your own TODO items (the *My* and *TODO* filters
@@ -231,6 +243,11 @@ search of the log first flushes the stage changes that are pending.
 cut from a project-specific module. What a database that has
 ``project_software`` or that module installed needs is under *Installation*.
 
+``project.task.subtask`` is the former name of the checklist model, and
+``subtask_ids`` and ``kanban_subtasks`` those of the task fields
+``checklist_item_ids`` and ``kanban_checklist``. What the update to
+16.0.2.6.0 renames is under *Installation*.
+
 **Table of contents**
 
 .. contents::
@@ -293,6 +310,64 @@ out of the test case list of the stored task form of this module, in every
 translation; the update and the install that takes over would otherwise fail
 validating the task form. A view outside this module that names one of them
 is not rewritten: change it by hand.
+
+The update to 16.0.2.6.0 renames the checklist model ``project.task.subtask``
+to ``project.task.checklist.item``, its table to
+``project_task_checklist_item``, and the task fields ``subtask_ids`` and
+``kanban_subtasks`` to ``checklist_item_ids`` and ``kanban_checklist``. The
+task field ``default_user`` is deleted. The former names are not kept: a
+client that names the former model gets *Object project.task.subtask doesn't
+exist*. The install that takes over ``project_software`` or the
+project-specific module it was cut from renames too. Before the data files
+are loaded, SQL renames, in every module:
+
+* the table with its sequence, constraints and indexes, and the
+  registrations of the constraints;
+* the model and its fields, and the relations, related paths and
+  dependencies that name them, the copies of the fields on a model that
+  delegates to the task included;
+* the model name where a record stores one (messages, followers,
+  activities, attachments, views, actions, filters, export and mail
+  templates, every stored Many2oneReference) and in the values of stored
+  Reference fields;
+* the external ids of the model, its fields and their selection values;
+* as whole words, the fields in the stored arch of the views of the
+  checklist and of the models holding the fields, in every translation, and
+  the fields and the model in record rule domains, filters and window
+  actions;
+* the file recorded on the views loaded from the renamed view file.
+
+The checklist records of this module take these external ids:
+
+====================================  ===========================================
+Former external id                    External id
+====================================  ===========================================
+``access_task_subtask``               ``access_task_checklist_item``
+``subtasks_subtype``                  ``checklist_subtype``
+``all_subtask_subtype``               ``project_checklist_subtype``
+``view_task_kanban_subtasks``         ``view_task_kanban_checklist``
+``project_task_subtask_view_form``    ``project_task_checklist_item_view_form``
+``project_task_subtask_view_search``  ``project_task_checklist_item_view_search``
+``subtask_list_view``                 ``project_task_checklist_item_view_tree``
+``action_view_subtask``               ``action_view_checklist_item``
+``menu_action_view_subtask``          ``menu_action_view_checklist_item``
+====================================  ===========================================
+
+``default_user`` is taken out of the stored views of this module. Every
+record keeps its database id, so the items, their activities and the
+follower subscriptions to *All checklist updates* stay as they are. The server log
+gets one line with the count of each kind of rename; a second run changes
+nothing.
+
+Not rewritten: the code of server actions and scheduled actions, the bodies
+of mail templates, the field paths of export lines, the views of other
+models, and a context that turns on the search filters of the checklist by
+their former names, ``my_subtask`` and ``done_subtask``, now ``my`` and
+``todo``. Change them by hand.
+
+Run the update with the server stopped: renaming the table locks it, and
+running code reads the former names. Every client, RPC scripts and modules
+that name the checklist, moves to the new names in the same deploy.
 
 **Upgrading from project_software**
 
@@ -481,8 +556,8 @@ Configuration
   **Project / User**. No access right allows deleting one.
 * The stage log is read by **Administration / Settings** only. No access
   right allows creating, changing or deleting a row.
-* To be notified of checklist items that are neither assigned to you nor
-  created by you, edit your follower subscription on the task or on the
+* To be notified of checklist items of which you are neither the assignee
+  nor the reviewer, edit your follower subscription on the task or on the
   project and tick *All checklist updates*.
 * An integration that writes tasks or checklist items with an account that
   has no email address passes ``mail_auto_subscribe_no_notify`` in the
@@ -496,8 +571,9 @@ On the task form:
 
 * Set **Priority**, **Estimate** (in hours) and **Task Type** next to the
   tags. **Size** shows the size of the estimate and cannot be edited.
-* *Checklist* tab: add items, each with an **Assigned to** user and an
-  optional deadline. The assignee or the reviewer moves an item with the
+* *Checklist* tab: add items, each with an **Assigned to** user, yourself
+  unless you pick another, and an optional deadline. You are the reviewer of
+  the items you add. The assignee or the reviewer moves an item with the
   state icons (TODO, Waiting, Done, Cancelled). The task's kanban card shows
   your own completion percentage, only when you have non-cancelled items
   assigned to you.
@@ -528,7 +604,8 @@ your own TODO items.
 **Project > Test Cases** lists the test cases of all tasks, opened on the
 ones Not run: a list, cards on a phone. Filter on Not run or Failed, group
 by project, task, status or verification. The header of a case's form
-gives it its result with the same buttons, next to its status bar.
+gives it its result with the same buttons, next to its status bar: Not run,
+Passed and Failed, and the status of the case when it is another.
 
 **Project > Pull Requests** lists the pull requests of all tasks, the newest
 first: a list, cards on a phone. Search by URL, repository or task, filter
@@ -543,6 +620,12 @@ link adds a second pull request to the task. The estimate is written to
 ``planned_hours`` and the type to ``task_type``; a ``tshirt_estimate`` sent
 with them is ignored. The estimate is a finite number: a NaN or an infinity
 is refused, in any project.
+
+A tool that keeps a checklist over RPC creates ``project.task.checklist.item``
+records with ``task_id``, ``name`` and ``user_id``, which defaults to the
+tool's own user, and reads the items of a task from ``checklist_item_ids``.
+It moves an item by writing ``state`` (``todo``, ``waiting``, ``done`` or
+``cancelled``) as the item's assignee or reviewer.
 
 A tool that gives test case results over RPC writes ``state`` on
 ``project.task.testcase``: ``not_run``, ``passed``, ``failed``, ``waiting``

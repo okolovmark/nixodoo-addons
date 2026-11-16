@@ -413,6 +413,11 @@ class TestTestCases(ProjectAiDrivenCommon):
         self.assertEqual(state_node.getparent().tag, "header")
         self.assertEqual(state_node.get("widget"), "statusbar")
         self.assertNotIn("clickable", state_node.get("options", ""))
+        self.assertEqual(
+            state_node.get("statusbar_visible"),
+            "not_run,passed,failed",
+            "waiting and not applicable show only on the case that has them",
+        )
 
     def test_the_menu_offers_cards_for_a_phone(self):
         action = self.env.ref("%s.action_view_testcase" % MODULE)
