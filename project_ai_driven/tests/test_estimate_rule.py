@@ -286,6 +286,26 @@ class TestEstimateRule(ProjectAiDrivenCommon):
         with self.assertRefused(NO_TYPE, NO_ESTIMATE, self.task.name):
             self.project.copy()
 
+    def test_template_tasks_enter_a_marked_stage_without_type_or_estimate(self):
+        project_template = self.env["project.project"].create(
+            {
+                "name": "AI-driven Project Template",
+                "is_template": True,
+                "is_ai_driven": True,
+                "type_ids": [Command.set((self.stage_backlog | self.stage_progress).ids)],
+                "estimate_required_states": [Command.set(self.stage_progress.ids)],
+            },
+        )
+        template_tasks = self._create_template_tasks(self.stage_progress, project_template)
+
+        template_tasks.stage_id = self.stage_backlog
+        template_tasks.stage_id = self.stage_progress
+
+        self.assertRecordValues(
+            template_tasks,
+            [{"stage_id": self.stage_progress.id, "task_type": False, "allocated_hours": 0}] * 3,
+        )
+
     def test_project_form_shows_the_stages_on_flagged_projects_only(self):
         # never saved: the project form may require fields of other modules
         project_form = Form(self.project)

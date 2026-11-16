@@ -25,3 +25,15 @@ class ProjectProject(models.Model):
         help="A task of an AI-driven project enters these stages only with a task type"
         " and an estimate above zero hours.",
     )
+
+    def map_tasks(self, new_project_id):
+        """A project template made from a project keeps no Resolution and no
+        pull request of its tasks. They go once the tasks are copied: core
+        creates the copy of a sub-task in this project and moves it after, and
+        until then the closing rule needs them.
+        """
+        result = super().map_tasks(new_project_id)
+        new_project = self.browse(new_project_id)
+        if new_project.is_template and not self.is_template:
+            new_project.with_context(active_test=False).tasks._clear_closing_values()
+        return result

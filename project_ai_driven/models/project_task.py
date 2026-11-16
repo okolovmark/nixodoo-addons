@@ -352,6 +352,9 @@ class ProjectTask(models.Model):
             vals.pop("resolution", None)
             vals.pop("pull_request_ids", None)
 
+    def _clear_closing_values(self):
+        self.write({"resolution": False, "pull_request_ids": [Command.clear()]})
+
     def _is_stage_kept_in(self, vals):
         return bool(self.stage_id) and vals.get("stage_id") == self.stage_id.id
 
@@ -387,9 +390,20 @@ class ProjectTask(models.Model):
         tasks._check_code_has_pull_request()
         tasks._set_resolution_of_pull_request()
 
-    def _filter_closing_rule_tasks(self):
+    def _filter_rule_tasks(self):
+        """Return the tasks of flagged projects, without the templates: core
+        keeps a task under a task template or in a project template out of its
+        task lists and reports.
+        """
         return self.filtered(
-            lambda record: record.project_id.is_ai_driven and record.stage_id in record.project_id.pr_required_states
+            lambda record: record.project_id.is_ai_driven
+            and not record.has_template_ancestor
+            and not record.has_project_template
+        )
+
+    def _filter_closing_rule_tasks(self):
+        return self._filter_rule_tasks().filtered(
+            lambda record: record.stage_id in record.project_id.pr_required_states
         )
 
     def _check_resolution_chosen(self):
@@ -425,9 +439,8 @@ class ProjectTask(models.Model):
         self.sudo()._filter_estimate_rule_tasks()._check_type_and_estimate()
 
     def _filter_estimate_rule_tasks(self):
-        return self.filtered(
-            lambda record: record.project_id.is_ai_driven
-            and record.stage_id in record.project_id.estimate_required_states
+        return self._filter_rule_tasks().filtered(
+            lambda record: record.stage_id in record.project_id.estimate_required_states
         )
 
     def _check_type_and_estimate(self):

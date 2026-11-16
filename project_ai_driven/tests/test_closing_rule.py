@@ -414,6 +414,98 @@ class TestClosingRule(ProjectAiDrivenCommon):
         with self.assertRefused("Choose a Resolution"):
             project_template.action_create_from_template({"name": "Project From Template"})
 
+    def test_template_tasks_enter_a_marked_stage_without_resolution(self):
+        template_tasks = self._create_template_tasks(self.stage_done, self._create_project_template())
+
+        template_tasks.stage_id = self.stage_progress
+        template_tasks.stage_id = self.stage_done
+
+        self.assertRecordValues(
+            template_tasks,
+            [{"stage_id": self.stage_done.id, "resolution": False, "pull_request_ids": []}] * 3,
+        )
+
+    def test_task_leaving_template_status_with_its_stage_meets_the_rule(self):
+        """The exemption is read after the write: a write that ends template
+        status and moves the stage is checked.
+        """
+        task_template, _subtask, project_template_task = self._create_template_tasks(
+            self.stage_progress, self._create_project_template()
+        )
+        leaving_writes = (
+            (task_template, {"is_template": False, "stage_id": self.stage_done.id}),
+            (project_template_task, {"project_id": self.project.id, "stage_id": self.stage_done.id}),
+        )
+        for task, values in leaving_writes:
+            with self.subTest(task=task.name), self.assertRefused("Choose a Resolution"):
+                task.write(values)
+
+    def test_template_created_from_a_project_takes_no_resolution_and_no_pull_request(self):
+        # in the stage before the project marked it
+        self.project.pr_required_states = False
+        self.task.stage_id = self.stage_done
+        self.project.pr_required_states = self.stage_done
+        closed_task = self._create_closed_task(name="Closed Task")
+        closed_subtask = self._create_closed_task(name="Closed Subtask", parent_id=closed_task.id)
+        self._create_closed_task(name="Archived Task").active = False
+
+        action = self.project.action_create_template_from_project()
+
+        project_template = self.env["project.project"].browse(action["params"]["project_id"])
+        copied_tasks = project_template.with_context(active_test=False).tasks
+        self.assertEqual(
+            sorted(copied_tasks.mapped("name")),
+            sorted([self.task.name, "Closed Task", "Closed Subtask", "Archived Task"]),
+        )
+        self.assertRecordValues(
+            copied_tasks,
+            [
+                {
+                    "has_project_template": True,
+                    "stage_id": self.stage_done.id,
+                    "resolution": False,
+                    "pull_request_ids": [],
+                    "pr_uri": False,
+                },
+            ]
+            * 4,
+        )
+        self.assertRecordValues(
+            closed_task | closed_subtask,
+            [{"resolution": "code", "pull_request_ids": self.pull_request.ids}] * 2,
+        )
+        with self.assertRefused("Choose a Resolution"):
+            project_template.action_create_from_template({"name": "Project From Template"})
+
+    def test_duplicated_project_template_keeps_what_closed_its_tasks(self):
+        project_template = self._create_project_template()
+        self._create_closed_task(project_id=project_template.id)
+
+        duplicated_template = project_template.copy()
+
+        self.assertRecordValues(
+            duplicated_template.tasks,
+            [{"has_project_template": True, "resolution": "code", "pull_request_ids": self.pull_request.ids}],
+        )
+
+    def test_task_converted_to_a_template_keeps_its_resolution_and_pull_request(self):
+        closed_task = self._create_closed_task()
+
+        closed_task.action_convert_to_template()
+
+        self.assertRecordValues(
+            closed_task,
+            [
+                {
+                    "is_template": True,
+                    "stage_id": self.stage_done.id,
+                    "resolution": "code",
+                    "pull_request_ids": self.pull_request.ids,
+                    "pr_uri": self.pull_request.url,
+                },
+            ],
+        )
+
     def test_next_occurrence_of_a_recurring_task_is_a_new_task_to_the_rule(self):
         closed_task = self._create_recurring_task(self.stage_done)
 
