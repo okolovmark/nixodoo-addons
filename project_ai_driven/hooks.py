@@ -10,6 +10,7 @@ from odoo import SUPERUSER_ID, api
 from odoo.tools.sql import column_exists, rename_column
 
 from .models.project_pull_request import parse_pull_request_links
+from .models.project_task_testcase import OLD_STATES
 
 _logger = logging.getLogger(__name__)
 
@@ -88,6 +89,8 @@ DROPPED_FIELDS = (
     ("project.task", "tester_id"),
 )
 DROPPED_FOREIGN_KEYS = ("project_task_tester_id_fkey",)
+# Deleted from the test case model since; the checklist model still has methods of these names.
+DROPPED_TEST_CASE_BUTTONS = ("change_state_done", "change_state_todo", "change_state_waiting", "change_state_cancelled")
 
 # An external id is unique per module: a name this module already holds is left alone.
 NAME_IS_FREE = """
@@ -456,6 +459,23 @@ RECOMPUTE_TASK_SIZES = """
        AND project_task.tshirt_estimate IS DISTINCT FROM sized.size
 """
 
+# Takes the translation as a JSON object of old value to new value: OLD_STATES of the test case model.
+CONVERT_TEST_CASE_STATES = """
+    WITH converted AS (
+        UPDATE project_task_testcase testcase
+           SET state = translation.new_state
+          FROM jsonb_each_text(%s::jsonb) AS translation(old_state, new_state)
+         WHERE testcase.state = translation.old_state
+     RETURNING translation.old_state
+    )
+    SELECT old_state, count(*) FROM converted GROUP BY old_state
+"""
+CORRECT_PASSED_FLAGS = """
+    UPDATE project_task_testcase
+       SET passed = (state = 'passed')
+     WHERE passed IS DISTINCT FROM (state = 'passed')
+"""
+
 
 def pre_init_hook(cr):
     """Take over what this module held under its former names.
@@ -482,7 +502,8 @@ def pre_init_hook(cr):
     nothing left to move or rename.
 
     The database is then where an update of this module finds it, the fields
-    deleted since included: see forget_dropped_fields.
+    and the buttons deleted since included: see forget_dropped_fields and
+    forget_dropped_test_case_buttons.
     """
     if is_installed(cr, FORMER_MODULE):
         take_over_module(cr, FORMER_MODULE, MODULE)
@@ -493,6 +514,7 @@ def pre_init_hook(cr):
     _rename_flag(cr)
     rename_external_ids(cr, MODULE, RENAMED_EXTERNAL_IDS)
     forget_dropped_fields(cr)
+    forget_dropped_test_case_buttons(cr)
     # external ids are cached per registry, and these changed behind the ORM
     api.Environment(cr, SUPERUSER_ID, {}).registry.clear_caches()
 
@@ -502,13 +524,15 @@ def post_init_hook(cr, registry):
     may hold the values project_task_pull_request stored in it. The tasks
     that exist already have a past to log, too, and the column of their size
     may hold sizes from before the size followed the hours, and hours that
-    are not a number.
+    are not a number. Their test cases may hold the states of the old
+    selection, and a passed flag set apart from the state.
     """
     env = api.Environment(cr, SUPERUSER_ID, {})
     convert_old_pr_uri_values(env)
     fill_stage_log(env)
     clear_estimates_that_are_not_numbers(cr)
     recompute_task_sizes(cr)
+    convert_test_case_states(cr)
 
 
 def clear_estimates_that_are_not_numbers(cr):
@@ -548,6 +572,34 @@ def recompute_task_sizes(cr):
     env["project.task"].invalidate_model(["tshirt_estimate"])
     _logger.info("Task sizes recomputed from the hours: %d tasks changed", changed_count)
     return changed_count
+
+
+def convert_test_case_states(cr):
+    """Give every test case stored with a state of the old selection its new
+    value, and every passed flag the value its state computes; return the
+    cases converted per old value and the count of flags corrected.
+
+    An update only reflects the new selection and deletes the rows of the old
+    values at its end: the cases keep the values they hold. The flag column is
+    older than its compute, which an update does not run on the rows that
+    exist. The cases are written by SQL: they are not results given anew, so
+    no write date and no verification stamp. A second run finds nothing left
+    to change.
+    """
+    env = api.Environment(cr, SUPERUSER_ID, {})
+    env.flush_all()
+    cr.execute(CONVERT_TEST_CASE_STATES, [Json(OLD_STATES)])
+    converted_counts = dict.fromkeys(OLD_STATES, 0)
+    converted_counts.update(cr.fetchall())
+    cr.execute(CORRECT_PASSED_FLAGS)
+    corrected_flag_count = cr.rowcount
+    env["project.task.testcase"].invalidate_model(["state", "passed"])
+    _logger.info(
+        "Test case states converted: %s; %d passed flags corrected",
+        ", ".join("%d %s to %s" % (count, old, OLD_STATES[old]) for old, count in converted_counts.items()),
+        corrected_flag_count,
+    )
+    return converted_counts, corrected_flag_count
 
 
 def fill_stage_log(env):
@@ -792,13 +844,9 @@ def forget_dropped_fields(cr):
     field_names = defaultdict(set)
     for model, name in DROPPED_FIELDS:
         field_names[model].add(name)
-    cr.execute(MODULE_VIEWS, {"module": MODULE, "models": tuple(field_names)})
-    cleared_view_ids = []
-    for view_id, model, archs in cr.fetchall():
-        cleared_archs = {lang: _remove_field_nodes(arch, field_names[model]) for lang, arch in archs.items()}
-        if cleared_archs != archs:
-            cr.execute("UPDATE ir_ui_view SET arch_db = %s WHERE id = %s", (Json(cleared_archs), view_id))
-            cleared_view_ids.append(view_id)
+    cleared_view_ids = _rewrite_module_views(
+        cr, field_names, lambda model, arch: _remove_field_nodes(arch, field_names[model])
+    )
     cr.execute(FORGET_FOREIGN_KEYS, {"module": MODULE, "foreign_keys": DROPPED_FOREIGN_KEYS})
     forgotten_key_count = cr.rowcount
     if cleared_view_ids or forgotten_key_count:
@@ -826,6 +874,64 @@ def _remove_field_nodes(arch, field_names):
     for node in nodes:
         node.getparent().remove(node)
     return etree.tostring(root, encoding="unicode") if nodes else arch
+
+
+def forget_dropped_test_case_buttons(cr):
+    """Take the buttons of the methods in DROPPED_TEST_CASE_BUTTONS out of the
+    sub-view of the task's test cases, in every translation of the stored arch
+    of this module's views, before its data files are loaded.
+
+    Such a button fails the validation of the task form as soon as another
+    view of it is loaded, as a field in DROPPED_FIELDS does: see
+    forget_dropped_fields. A view taken over from the legacy module has no
+    file of this module to be read from instead, even in dev mode. The buttons
+    of the same names in the checklist sub-view stay: the checklist model
+    still has their methods.
+
+    A second run finds nothing left.
+    """
+    cleared_view_ids = _rewrite_module_views(
+        cr,
+        ("project.task",),
+        lambda _model, arch: _remove_sub_view_buttons(arch, "testcase_ids", DROPPED_TEST_CASE_BUTTONS),
+    )
+    if cleared_view_ids:
+        _logger.info("Dropped test case buttons forgotten: taken out of %d views", len(cleared_view_ids))
+
+
+def _remove_sub_view_buttons(arch, field_name, button_names):
+    """Return arch without the buttons in button_names whose closest enclosing
+    field is field_name: the buttons of its sub-views.
+
+    An extension written as <field name="..." position="after"> counts as that
+    field, so a button it places next to the field goes too. A button added
+    through <xpath expr="//field[@name='...']/tree" position="inside"> has no
+    field ancestor and stays.
+    """
+    root = etree.fromstring(arch)
+    nodes = [
+        node
+        for node in root.iterdescendants("button")
+        if node.get("name") in button_names and node.xpath("ancestor::field[1]/@name") == [field_name]
+    ]
+    for node in nodes:
+        node.getparent().remove(node)
+    return etree.tostring(root, encoding="unicode") if nodes else arch
+
+
+def _rewrite_module_views(cr, models, rewrite_arch):
+    """Pass every translation of the stored arch of this module's views of
+    models through rewrite_arch(model, arch); return the ids of the views it
+    changed.
+    """
+    cr.execute(MODULE_VIEWS, {"module": MODULE, "models": tuple(models)})
+    rewritten_view_ids = []
+    for view_id, model, archs in cr.fetchall():
+        rewritten_archs = {lang: rewrite_arch(model, arch) for lang, arch in archs.items()}
+        if rewritten_archs != archs:
+            cr.execute("UPDATE ir_ui_view SET arch_db = %s WHERE id = %s", (Json(rewritten_archs), view_id))
+            rewritten_view_ids.append(view_id)
+    return rewritten_view_ids
 
 
 def rename_external_ids(cr, module, renamed_names):

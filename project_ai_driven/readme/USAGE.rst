@@ -8,8 +8,12 @@ On the task form:
   your own completion percentage, only when you have non-cancelled items
   assigned to you.
 * *Test Cases* tab: add ordered cases with steps and expected results, then
-  move each case with the state icons. Marking a case Done ticks **Passed**;
-  any other state, Cancelled included, clears it.
+  give each case its result with the icons of its row; a row offers the
+  states other than its own (Passed, Failed, Not run, Waiting, Not
+  applicable). **Verified by** and **Verified on** show who gave the last
+  Passed or Failed. On a phone the tab shows cards with the same buttons.
+  Set **Verification** to Automated test or Demo, and the **Automated test
+  reference**, on the form of the case.
 * *Technical Solution* tab (AI-driven projects): record the Questions, the
   Answers and the Solution.
 * *Pull Requests* tab (AI-driven projects): add the pull requests of the
@@ -25,8 +29,12 @@ On the task form:
   missing.
 
 **Project > Checklist** lists the checklist items of all tasks, opened on
-your own TODO items. **Project > Test Cases** lists the test cases of all
-tasks, opened on the ones still in TODO.
+your own TODO items.
+
+**Project > Test Cases** lists the test cases of all tasks, opened on the
+ones Not run: a list, cards on a phone. Filter on Not run or Failed, group
+by project, task, status or verification. The header of a case's form
+gives it its result with the same buttons, next to its status bar.
 
 **Project > Pull Requests** lists the pull requests of all tasks, the newest
 first: a list, cards on a phone. Search by URL, repository or task, filter
@@ -41,6 +49,17 @@ link adds a second pull request to the task. The estimate is written to
 ``planned_hours`` and the type to ``task_type``; a ``tshirt_estimate`` sent
 with them is ignored. The estimate is a finite number: a NaN or an infinity
 is refused, in any project.
+
+A tool that gives test case results over RPC writes ``state`` on
+``project.task.testcase``: ``not_run``, ``passed``, ``failed``, ``waiting``
+or ``not_applicable``. A create or write of ``passed`` or ``failed`` fills
+``verified_by_id`` and ``verified_on`` unless it sends them. It sends
+``verification_kind`` (``manual``, ``automated`` or ``demo``) and
+``test_reference`` with the result: only the buttons set ``manual`` by
+themselves. The former values ``todo``, ``done`` and ``cancelled`` are taken
+as ``not_run``, ``passed`` and ``not_applicable``. ``passed`` is read, not
+written: a value sent for it is dropped, and ``passed`` true without a
+``state`` gives ``passed``.
 
 The stage log has no view and no menu. A system administrator reads
 ``project.task.stage.log`` over RPC: the rows come ordered by date, each

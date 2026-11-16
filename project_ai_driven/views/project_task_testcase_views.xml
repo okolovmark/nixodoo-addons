@@ -9,44 +9,116 @@
                 <page string="Test Cases" groups="project.group_project_user">
                     <field name="testcase_ids">
                         <tree
-                            decoration-danger="state == 'todo'"
-                            decoration-muted="state == 'cancelled'"
-                            decoration-success="state == 'done'"
+                            decoration-danger="state == 'failed'"
+                            decoration-success="state == 'passed'"
                             decoration-info="state == 'waiting'"
+                            decoration-muted="state == 'not_applicable'"
                         >
                             <field name="sequence" widget="handle" />
                             <field name="name" />
-                            <field name="passed" />
                             <field name="state" />
+                            <field name="verified_by_id" optional="show" />
+                            <field name="verified_on" optional="show" />
+                            <field name="verification_kind" optional="hide" />
                             <button
-                                name="change_state_done"
-                                title="Change state to DONE"
+                                name="action_set_passed"
+                                title="Mark as Passed"
                                 type="object"
                                 icon="fa-check"
-                                attrs="{'invisible': [('state', 'in',['done', 'cancelled'])]}"
+                                attrs="{'invisible': [('state', '=', 'passed')]}"
                             />
                             <button
-                                name="change_state_todo"
-                                title="Change state to TODO"
+                                name="action_set_failed"
+                                title="Mark as Failed"
                                 type="object"
-                                icon="fa-caret-square-o-right"
-                                attrs="{'invisible': [('state', '=', 'todo')]}"
+                                icon="fa-times"
+                                attrs="{'invisible': [('state', '=', 'failed')]}"
                             />
                             <button
-                                name="change_state_waiting"
+                                name="action_set_not_run"
+                                title="Mark as Not run"
                                 type="object"
-                                title="Change state to Waiting"
+                                icon="fa-undo"
+                                attrs="{'invisible': [('state', '=', 'not_run')]}"
+                            />
+                            <button
+                                name="action_set_waiting"
+                                title="Mark as Waiting"
+                                type="object"
                                 icon="fa-pause"
                                 attrs="{'invisible': [('state', '=', 'waiting')]}"
                             />
                             <button
-                                name="change_state_cancelled"
+                                name="action_set_not_applicable"
+                                title="Mark as Not applicable"
                                 type="object"
-                                title="Change state to CANCELLED"
                                 icon="fa-ban"
-                                attrs="{'invisible': [('state', '=', 'cancelled')]}"
+                                attrs="{'invisible': [('state', '=', 'not_applicable')]}"
                             />
                         </tree>
+                        <!-- the phone gets cards: the list does not fit its width -->
+                        <kanban>
+                            <field name="state" />
+                            <field name="verified_by_id" />
+                            <field name="verified_on" />
+                            <templates>
+                                <t t-name="kanban-box">
+                                    <div class="oe_kanban_global_click">
+                                        <div class="o_kanban_record_top mb-1">
+                                            <div class="o_kanban_record_headings">
+                                                <strong class="o_kanban_record_title"><field name="name" /></strong>
+                                            </div>
+                                            <field
+                                                name="state"
+                                                widget="badge"
+                                                decoration-danger="state == 'failed'"
+                                                decoration-success="state == 'passed'"
+                                                decoration-info="state == 'waiting'"
+                                                decoration-muted="state == 'not_applicable'"
+                                            />
+                                        </div>
+                                        <div
+                                            t-if="record.verified_by_id.raw_value and record.verified_on.raw_value"
+                                            class="text-muted small mb-2"
+                                        >
+                                            <field name="verified_by_id" /> - <field name="verified_on" />
+                                        </div>
+                                        <div class="d-flex flex-wrap gap-1">
+                                            <button
+                                                t-if="record.state.raw_value != 'passed'"
+                                                name="action_set_passed"
+                                                type="object"
+                                                class="btn btn-sm btn-secondary"
+                                            ><i class="fa fa-check me-1" />Passed</button>
+                                            <button
+                                                t-if="record.state.raw_value != 'failed'"
+                                                name="action_set_failed"
+                                                type="object"
+                                                class="btn btn-sm btn-secondary"
+                                            ><i class="fa fa-times me-1" />Failed</button>
+                                            <button
+                                                t-if="record.state.raw_value != 'not_run'"
+                                                name="action_set_not_run"
+                                                type="object"
+                                                class="btn btn-sm btn-secondary"
+                                            ><i class="fa fa-undo me-1" />Not run</button>
+                                            <button
+                                                t-if="record.state.raw_value != 'waiting'"
+                                                name="action_set_waiting"
+                                                type="object"
+                                                class="btn btn-sm btn-secondary"
+                                            ><i class="fa fa-pause me-1" />Waiting</button>
+                                            <button
+                                                t-if="record.state.raw_value != 'not_applicable'"
+                                                name="action_set_not_applicable"
+                                                type="object"
+                                                class="btn btn-sm btn-secondary"
+                                            ><i class="fa fa-ban me-1" />Not applicable</button>
+                                        </div>
+                                    </div>
+                                </t>
+                            </templates>
+                        </kanban>
                         <form>
                             <group>
                                 <field name="name" />
@@ -65,6 +137,18 @@
                                     placeholder="Add a description..."
                                     class="o_field_html_autogrow"
                                 />
+                            </group>
+                            <group string="Result" name="result">
+                                <group>
+                                    <field name="state" readonly="1" />
+                                    <field name="verified_by_id" readonly="1" />
+                                    <field name="verified_on" readonly="1" />
+                                </group>
+                                <group>
+                                    <field name="verification_kind" />
+                                    <field name="test_reference" />
+                                    <field name="passed" />
+                                </group>
                             </group>
                         </form>
                     </field>
@@ -103,6 +187,44 @@
         <field name="model">project.task.testcase</field>
         <field name="arch" type="xml">
             <form string="Testcase">
+                <header>
+                    <button
+                        name="action_set_passed"
+                        string="Passed"
+                        type="object"
+                        icon="fa-check"
+                        attrs="{'invisible': [('state', '=', 'passed')]}"
+                    />
+                    <button
+                        name="action_set_failed"
+                        string="Failed"
+                        type="object"
+                        icon="fa-times"
+                        attrs="{'invisible': [('state', '=', 'failed')]}"
+                    />
+                    <button
+                        name="action_set_not_run"
+                        string="Not run"
+                        type="object"
+                        icon="fa-undo"
+                        attrs="{'invisible': [('state', '=', 'not_run')]}"
+                    />
+                    <button
+                        name="action_set_waiting"
+                        string="Waiting"
+                        type="object"
+                        icon="fa-pause"
+                        attrs="{'invisible': [('state', '=', 'waiting')]}"
+                    />
+                    <button
+                        name="action_set_not_applicable"
+                        string="Not applicable"
+                        type="object"
+                        icon="fa-ban"
+                        attrs="{'invisible': [('state', '=', 'not_applicable')]}"
+                    />
+                    <field name="state" widget="statusbar" readonly="1" />
+                </header>
                 <sheet>
                     <group>
                         <field name="name" />
@@ -121,7 +243,10 @@
                             placeholder="Add a description..."
                             class="o_field_html_autogrow"
                         />
-                        <field name="state" readonly="1" />
+                        <field name="verified_by_id" readonly="1" />
+                        <field name="verified_on" readonly="1" />
+                        <field name="verification_kind" />
+                        <field name="test_reference" />
                         <field name="passed" />
                         <field name="task_id" />
                         <field name="task_state" />
@@ -139,11 +264,17 @@
             <search string="Filter">
                 <field name="name" string="Description" />
                 <separator />
-                <filter string="TODO" domain="[('state','=','todo')]" name="done_testcase" />
+                <filter string="Not run" name="not_run" domain="[('state', '=', 'not_run')]" />
+                <filter string="Failed" name="failed" domain="[('state', '=', 'failed')]" />
                 <group expand="0" string="Group By">
                     <filter string="Project" name="project" context="{'group_by':'project_id'}" />
                     <filter string="Task" name="task" context="{'group_by':'task_id'}" />
-                    <filter string="state" name="state" context="{'group_by':'state'}" />
+                    <filter string="Status" name="state" context="{'group_by':'state'}" />
+                    <filter
+                        string="Verification"
+                        name="verification_kind"
+                        context="{'group_by': 'verification_kind'}"
+                    />
                 </group>
             </search>
         </field>
@@ -153,24 +284,69 @@
         <field name="name">testcase.list.form</field>
         <field name="model">project.task.testcase</field>
         <field name="arch" type="xml">
-            <tree>
+            <tree
+                decoration-danger="state == 'failed'"
+                decoration-success="state == 'passed'"
+                decoration-info="state == 'waiting'"
+                decoration-muted="state == 'not_applicable'"
+            >
                 <field name="name" />
-                <field name="passed" />
                 <field name="task_id" />
                 <field name="project_id" />
                 <field name="state" />
+                <field name="verified_by_id" optional="show" />
+                <field name="verified_on" optional="show" />
+                <field name="verification_kind" optional="hide" />
                 <field name="task_state" />
             </tree>
+        </field>
+    </record>
+
+    <record id="project_task_testcase_view_kanban" model="ir.ui.view">
+        <field name="name">project.task.testcase.kanban</field>
+        <field name="model">project.task.testcase</field>
+        <field name="arch" type="xml">
+            <kanban class="o_kanban_mobile">
+                <field name="state" />
+                <field name="verified_by_id" />
+                <field name="verified_on" />
+                <templates>
+                    <t t-name="kanban-box">
+                        <div class="oe_kanban_global_click">
+                            <div class="o_kanban_record_top mb-1">
+                                <div class="o_kanban_record_headings">
+                                    <strong class="o_kanban_record_title"><field name="name" /></strong>
+                                    <span class="o_kanban_record_subtitle"><field name="task_id" /></span>
+                                </div>
+                                <field
+                                    name="state"
+                                    widget="badge"
+                                    decoration-danger="state == 'failed'"
+                                    decoration-success="state == 'passed'"
+                                    decoration-info="state == 'waiting'"
+                                    decoration-muted="state == 'not_applicable'"
+                                />
+                            </div>
+                            <div
+                                t-if="record.verified_by_id.raw_value and record.verified_on.raw_value"
+                                class="text-muted small"
+                            >
+                                <field name="verified_by_id" /> - <field name="verified_on" />
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
         </field>
     </record>
 
     <record id="action_view_testcase" model="ir.actions.act_window">
         <field name="name">Testcase</field>
         <field name="res_model">project.task.testcase</field>
-        <field name="view_mode">tree,form</field>
+        <field name="view_mode">tree,kanban,form</field>
         <field name="context">
             {
-                'search_default_done_testcase': 1,
+                'search_default_not_run': 1,
             }
         </field>
     </record>

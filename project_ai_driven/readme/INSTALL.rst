@@ -34,6 +34,25 @@ recur. No tracking message is posted; the recompute stamps the last update
 date of those tasks. The server log gets the number of tasks changed. The
 install does the same.
 
+The update to 16.0.2.5.0 converts the **Status** of every test case: TODO
+becomes Not run, Done Passed, Cancelled Not applicable, and Waiting stays.
+**Passed** (``passed``) is then set from the status wherever it disagrees:
+set for Passed, cleared for any other status. The install that takes over
+``project_software`` or the project-specific module it was cut from does it
+too. SQL statements store the values and write nothing else on the cases:
+the last update date stays, and **Verified by**, **Verified on** and
+**Verification** stay empty on a converted case. The server log gets the
+number of cases converted per former value and of flags corrected; a second
+run changes none. Odoo deletes the former values of the selection at the end
+of the update. A saved filter, a default or a server action that names a
+former value is not rewritten: change it by hand.
+
+Beforehand the buttons of the former states (``change_state_*``) are taken
+out of the test case list of the stored task form of this module, in every
+translation; the update and the install that takes over would otherwise fail
+validating the task form. A view outside this module that names one of them
+is not rewritten: change it by hand.
+
 **Upgrading from project_software**
 
 ``project_software`` remains for one release as an empty module that depends
