@@ -6,6 +6,8 @@ from odoo import Command
 from odoo.exceptions import ValidationError
 from odoo.tests.common import TransactionCase, new_test_user
 
+MODULE = "project_ai_driven"
+
 
 class ProjectAiDrivenCommon(TransactionCase):
     @classmethod
@@ -48,6 +50,28 @@ class ProjectAiDrivenCommon(TransactionCase):
             {"name": name, "sequence": sequence, "project_ids": [Command.link((project or cls.project).id)], **values},
         )
 
+    def _create_template_tasks(self, stage, project_template):
+        """Return the three templates core keeps out of its task lists, in
+        stage: a task template, a sub-task of it, a task of project_template.
+        """
+        task_values = {"project_id": self.project.id, "stage_id": stage.id}
+        task_template = self.env["project.task"].create({**task_values, "name": "Task Template", "is_template": True})
+        template_tasks = task_template | self.env["project.task"].create(
+            [
+                {**task_values, "name": "Sub-task of the Task Template", "parent_id": task_template.id},
+                {**task_values, "name": "Task of the Project Template", "project_id": project_template.id},
+            ],
+        )
+        self.assertRecordValues(
+            template_tasks,
+            [
+                {"is_template": True, "has_template_ancestor": True, "has_project_template": False},
+                {"is_template": False, "has_template_ancestor": True, "has_project_template": False},
+                {"is_template": False, "has_template_ancestor": False, "has_project_template": True},
+            ],
+        )
+        return template_tasks
+
     def _flush_tracking(self):
         self.env.flush_all()
         self.env.cr.precommit.run()
@@ -65,7 +89,7 @@ class ProjectAiDrivenCommon(TransactionCase):
 
     @contextmanager
     def assertRefused(self, *message_parts):
-        # assertRaises rolls the refused write back; assertRaisesRegex leaves it in the cache
+        # each part as plain text, in any order: assertRaisesRegex takes one pattern
         with self.assertRaises(ValidationError) as refusal:
             yield
         for message_part in message_parts:

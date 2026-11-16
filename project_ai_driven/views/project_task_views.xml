@@ -56,11 +56,24 @@
             </xpath>
             <xpath expr="//field[@name='tag_ids']" position="before">
                 <field name="priority_level" string="Priority" />
-                <field name="tshirt_estimate" string="T-shirt Estimate" />
+                <field name="allocated_hours" string="Estimate" widget="float_time" />
+                <field name="tshirt_estimate" />
                 <field name="task_type" string="Task Type" />
-                <field name="difficulty" />
-                <field name="knowledge_area_level" />
                 <field name="resolution" invisible="not is_ai_driven" />
+            </xpath>
+            <!-- the two stars of the form itself, wherever in the sheet another module puts them -->
+            <xpath expr="//sheet//field[@name='priority'][not(ancestor::field)]" position="attributes">
+                <attribute name="invisible">is_ai_driven</attribute>
+            </xpath>
+            <xpath expr="(//sheet//field[@name='priority'][not(ancestor::field)])[2]" position="attributes">
+                <attribute name="invisible">is_ai_driven</attribute>
+            </xpath>
+            <!-- row by row: a sub-task or a blocking task may belong to another project -->
+            <xpath expr="//field[@name='child_ids']/list/field[@name='priority']" position="attributes">
+                <attribute name="invisible">is_ai_driven</attribute>
+            </xpath>
+            <xpath expr="//field[@name='depend_on_ids']/list/field[@name='priority']" position="attributes">
+                <attribute name="invisible">is_ai_driven</attribute>
             </xpath>
         </field>
     </record>
@@ -72,6 +85,41 @@
         <field name="arch" type="xml">
             <xpath expr="//field[@name='tag_ids']" position="before">
                 <field name="task_type" string="Task Type" optional="show" />
+            </xpath>
+        </field>
+    </record>
+
+    <record id="project_task_view_tree_base_inherit_ai_driven" model="ir.ui.view">
+        <field name="name">project.task.view.list.base.inherit.project_ai_driven</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project.project_task_view_tree_base" />
+        <field name="arch" type="xml">
+            <!-- the column for the list of a flagged project, the rows for a list that mixes projects -->
+            <xpath expr="//list/field[@name='priority']" position="attributes">
+                <attribute name="invisible">is_ai_driven</attribute>
+                <attribute name="column_invisible">context.get('ai_driven')</attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="project_task_view_card_inherit_ai_driven" model="ir.ui.view">
+        <field name="name">project.task.view.card.inherit.project_ai_driven</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project.view_task_card" />
+        <field name="arch" type="xml">
+            <xpath expr="//footer/field[@name='priority']" position="attributes">
+                <attribute name="invisible">is_ai_driven</attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="project_task_view_calendar_inherit_ai_driven" model="ir.ui.view">
+        <field name="name">project.task.view.calendar.inherit.project_ai_driven</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project.view_task_calendar" />
+        <field name="arch" type="xml">
+            <xpath expr="//calendar/field[@name='priority']" position="attributes">
+                <attribute name="invisible">is_ai_driven</attribute>
             </xpath>
         </field>
     </record>

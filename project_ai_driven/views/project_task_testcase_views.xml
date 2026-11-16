@@ -4,12 +4,11 @@
         <field name="name">project.task.form</field>
         <field name="model">project.task</field>
         <field name="inherit_id" ref="project.view_task_form2" />
+        <!-- Above the Checklist view (16), whose page this one follows; below the common view (20) -->
+        <field name="priority">18</field>
         <field name="arch" type="xml">
             <xpath expr="//page[@name='checklist']" position="after">
                 <page name="test_cases" string="Test Cases" groups="project.group_project_user">
-                    <group>
-                        <field name="tester_id" />
-                    </group>
                     <field name="testcase_ids">
                         <list
                             decoration-danger="state == 'todo'"

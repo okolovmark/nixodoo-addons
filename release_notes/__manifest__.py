@@ -6,7 +6,7 @@
     "their deployer and announced to the users of the affected models in an OdooBot chat.",
     "category": "Productivity",
     "website": "https://github.com/okolovmark/nixodoo-addons",
-    "author": "Kaertech",
+    "author": "Mark Okolov",
     "license": "LGPL-3",
     "depends": ["mail"],
     "data": [

@@ -3,18 +3,45 @@
   with and without ``/-/``) are two records.
 * Nothing reads a pull request from its host: **State**, **Merge Date** and
   **Deploy Date** are set by hand or over RPC.
-* The pull requests of a task are tracked only through ``pr_uri``: one that
-  is added without becoming the task's first leaves no trace in the chatter.
-* The closing rule is checked on the tasks of a write that names their stage
-  or their project. A stage recomputed for another reason is not checked, as
-  for a subtask whose parent changes project.
+* The closing rule and the estimate rule are checked on the tasks of a write
+  that names their stage or their project. A stage recomputed for another
+  reason is not checked, as for a subtask whose parent changes project.
 * A module that writes a task's new project on its own, before the other
-  values of the same write, runs the closing rule before the Resolution of
-  that write arrives. Setting the Resolution in an earlier write avoids it.
-* The closing rule is not run when a stage gets marked or a project gets
-  flagged, so a task can sit in a marked stage with neither a Resolution nor
-  a pull request. Such a task cannot be duplicated, and it stops the
-  duplication of its project, until it gets one.
+  values of the same write, runs both rules before the Resolution, the task
+  type and the estimate of that write arrive. Setting them in an earlier
+  write avoids it.
+* Neither rule is run when a stage gets marked or a project gets flagged, so
+  a task can sit in a marked stage without what the stage requires: a
+  Resolution, a pull request, a task type or an estimate. Such a task cannot
+  be duplicated, and it stops the duplication of its project, until it gets
+  it.
+* A recurring task cannot be set Done or Cancelled while the first stage of
+  its AI-driven project is marked for the closing rule, unless the task sits
+  in that stage: its next occurrence enters that stage without a
+  Resolution, and the refusal takes the change of state with it. The same
+  holds where that stage is marked for the estimate rule and the task has no
+  task type or no estimate.
+* The priority star is hidden on the views the description lists. The
+  portal keeps it: the project sharing views, the task list and the task
+  page.
+* The task list of a flagged project drops its *Priority* column only when
+  opened from the project, which tells it the project is flagged. Reloaded
+  from its address, reached back from an embedded action or opened from a
+  milestone, it shows the column with the stars hidden, as core shows its
+  *Milestone* column there. A task opened from that list passes the flag
+  on, whatever its own project: the *Sub-tasks*, *Dependent Tasks*, *Tasks in
+  Recurrence* and parent task it opens have no *Priority* column, tasks of
+  other projects included. The same task opened from another list passes
+  nothing.
+* Leaving template status is not a change of stage: a task template undone,
+  a project template turned back into a project or a template task moved to
+  another project keeps its stage unchecked by either rule.
+* A sub-task that sits in a marked stage without what the stage requires
+  stops a project template being made from its project, as it stops the
+  duplication of the project: core creates its copy in that project first.
+* The sizes stored by an earlier 20.0 version of the module stay as they
+  are until the hours of their task change: this branch has no migration
+  that recomputes them.
 * The stage log starts when the module is installed: the stages a task went
   through before that are not in it.
 * A row of the stage log is written when the change of stage is flushed to
