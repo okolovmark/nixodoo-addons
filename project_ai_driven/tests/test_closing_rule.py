@@ -1,6 +1,7 @@
 from unittest import SkipTest
 
 from odoo import Command
+from odoo.exceptions import AccessError
 from odoo.tests.common import Form, tagged
 
 from .common import PULL_REQUEST_MODULE, ProjectAiDrivenCommon
@@ -213,11 +214,18 @@ class TestClosingRule(ProjectAiDrivenCommon):
         self.project.pr_required_states = False
         self.task.stage_id = self.stage_done
         self.project.write({"pr_required_states": self.stage_done.ids, "privacy_visibility": "followers"})
+        self.task.user_ids = self.user_dev
         task = self.task.with_user(self.user_dev)
+        task.check_access_rule("write")
+        with self.assertRaises(AccessError):
+            task.project_id.check_access_rule("read")
 
+        # read again as the user: what the test itself read is in a cache he shares
+        self.env.invalidate_all()
         with self.assertRefused("Choose a Resolution"):
             task._apply_closing_rule()
         self.task.pull_request_ids = self.pull_request
+        self.env.invalidate_all()
         task._apply_closing_rule()
 
         self.assertEqual(self.task.resolution, "code")
