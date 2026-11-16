@@ -1,3 +1,4 @@
+import math
 from collections import defaultdict
 
 from markupsafe import Markup, escape
@@ -8,14 +9,15 @@ from odoo.exceptions import ValidationError
 from .project_pull_request import parse_single_pull_request_link
 from .project_task_subtask import SUBTASK_STATES
 
-TSHIRT_HOURS = {
-    "xs": 1,
-    "s": 4,
-    "m": 8,
-    "l": 24,
-    "xl": 40,
-    "xxl": 80,
-}
+# The largest estimate in hours of each size.
+SIZE_BANDS = ((2, "xs"), (6, "s"), (12, "m"), (32, "l"), (60, "xl"), (float("inf"), "xxl"))
+
+
+def get_size(hours):
+    if not hours or hours <= 0:
+        return False
+    # a NaN, which only SQL can store, is under no bound
+    return next((size for max_hours, size in SIZE_BANDS if hours <= max_hours), SIZE_BANDS[-1][1])
 
 
 class ProjectTask(models.Model):
@@ -25,18 +27,6 @@ class ProjectTask(models.Model):
     questions = fields.Html()
     answers = fields.Html()
     solution = fields.Html()
-    difficulty = fields.Selection(
-        [("easy", "Easy"), ("medium", "Medium"), ("hard", "Hard")],
-        default="easy",
-    )
-    knowledge_area_level = fields.Selection(
-        [
-            ("basic", "Basic"),
-            ("intermediate", "Intermediate"),
-            ("advanced", "Advanced"),
-        ],
-        default="basic",
-    )
     priority_level = fields.Selection(
         [
             ("4", "Highest"),
@@ -57,7 +47,6 @@ class ProjectTask(models.Model):
             ("support", "Support"),
             ("technical_debt", "Technical Debt"),
         ],
-        default="improvement",
         tracking=True,
         string="AI-driven Task Type",
     )
@@ -70,8 +59,11 @@ class ProjectTask(models.Model):
             ("xl", "XL"),
             ("xxl", "XXL"),
         ],
-        default="m",
-        help="T-shirt size estimate: XS = 1h or less, S = 4h, M = 1d, L = 3d, XL = 1w, XXL = 2w or more",
+        string="Size",
+        compute="_compute_tshirt_estimate",
+        store=True,
+        help="Follows the estimate in hours: XS up to 2 hours, S up to 6, M up to 12, L up to 32,"
+        " XL up to 60, XXL above. Empty while the task has no estimate.",
     )
     subtask_ids = fields.One2many("project.task.subtask", "task_id", groups="project.group_project_user")
     default_user = fields.Many2one("res.users", compute="_compute_default_user")
@@ -82,7 +74,6 @@ class ProjectTask(models.Model):
     testcase_completion = fields.Integer(compute="_compute_testcase_completion")
     testcase_completion_xml = fields.Html(compute="_compute_testcase_completion")
     kanban_testcases = fields.Html(compute="_compute_kanban_testcases")
-    tester_id = fields.Many2one("res.users", string="Tester")
     testcase_general_comments = fields.Html()
     pull_request_ids = fields.Many2many(
         "project.pull.request",
@@ -91,6 +82,7 @@ class ProjectTask(models.Model):
         "pull_request_id",
         string="Pull Requests",
         copy=False,
+        tracking=True,
     )
     pr_uri = fields.Char(
         string="First Pull Request",
@@ -115,6 +107,11 @@ class ProjectTask(models.Model):
         copy=False,
         tracking=True,
     )
+
+    @api.depends("allocated_hours")
+    def _compute_tshirt_estimate(self):
+        for record in self:
+            record.tshirt_estimate = get_size(record.allocated_hours)
 
     @api.depends("user_ids", "create_uid")
     def _compute_default_user(self):
@@ -249,28 +246,46 @@ class ProjectTask(models.Model):
         with self.env.protecting([self._fields["pr_uri"]], self):
             self._compute_pr_uri()
 
-    @api.onchange("tshirt_estimate")
-    def _onchange_tshirt_estimate(self):
-        for record in self:
-            if record.tshirt_estimate and not record.allocated_hours:
-                record.allocated_hours = TSHIRT_HOURS.get(record.tshirt_estimate, 0)
+    @api.constrains("allocated_hours")
+    def _check_estimate_is_a_number(self):
+        """A NaN passes no comparison of the rules, the JSON the web client
+        receives would carry a NaN or an infinity bare, which is not JSON, and
+        the tracking of the Allocated Time cannot format either.
+        """
+        tasks = self.filtered(lambda record: not math.isfinite(record.allocated_hours))
+        if tasks:
+            raise ValidationError(
+                self.env._(
+                    "The Estimate is a finite number of hours: NaN and infinity are refused.\nTasks: %s",
+                    ", ".join(tasks.mapped("display_name")),
+                )
+            )
 
     @api.model_create_multi
     def create(self, vals_list):
         tasks = super().create(vals_list)
         tasks._apply_closing_rule()
+        tasks._apply_estimate_rule()
         return tasks
 
     def write(self, vals):
+        vals = self._without_size(vals)
         former_stages = self._get_former_stages(vals)
         result = super().write(vals)
-        self._filter_moved_from(former_stages)._apply_closing_rule()
+        moved_tasks = self._filter_moved_from(former_stages)
+        moved_tasks._apply_closing_rule()
+        moved_tasks._apply_estimate_rule()
         return result
 
     def copy_data(self, default=None):
+        """A task created from a template, or in a project created from one, is
+        a new task to the closing rule: it takes no Resolution and no pull
+        request of its source.
+        """
         vals_list = super().copy_data(default=default)
-        for task, vals in zip(self, vals_list):
-            task._add_closing_values(vals)
+        if not self.env.context.get("copy_from_template"):
+            for task, vals in zip(self, vals_list):
+                task._add_closing_values(vals)
         return vals_list
 
     def copy(self, default=None):
@@ -340,6 +355,18 @@ class ProjectTask(models.Model):
     def _is_stage_kept_in(self, vals):
         return bool(self.stage_id) and vals.get("stage_id") == self.stage_id.id
 
+    @api.model
+    def _without_size(self, vals):
+        """Return the vals of a write without a size: a value written to the
+        stored field would stand in place of the size of the hours.
+
+        A create needs no such care: it computes a read-only field whatever
+        value was sent, or came as a default of the context.
+        """
+        if "tshirt_estimate" not in vals:
+            return vals
+        return {field_name: value for field_name, value in vals.items() if field_name != "tshirt_estimate"}
+
     def _get_former_stages(self, vals):
         """Return {task id: stage} when vals may move the tasks to another stage:
         a project change recomputes the stage.
@@ -390,6 +417,41 @@ class ProjectTask(models.Model):
 
     def _set_resolution_of_pull_request(self):
         self.filtered(lambda record: not record.resolution and record.pull_request_ids).resolution = "code"
+
+    def _apply_estimate_rule(self):
+        """Run on tasks that just entered a stage. Sudo: a user can write a
+        task of a project they cannot read.
+        """
+        self.sudo()._filter_estimate_rule_tasks()._check_type_and_estimate()
+
+    def _filter_estimate_rule_tasks(self):
+        return self.filtered(
+            lambda record: record.project_id.is_ai_driven
+            and record.stage_id in record.project_id.estimate_required_states
+        )
+
+    def _check_type_and_estimate(self):
+        refusals = [
+            "%s\n%s" % (requirement, self.env._("Tasks: %s", ", ".join(tasks.mapped("display_name"))))
+            for requirement, tasks in self._get_missing_type_and_estimate()
+            if tasks
+        ]
+        if refusals:
+            raise ValidationError("\n\n".join(refusals))
+
+    def _get_missing_type_and_estimate(self):
+        """Return [(what a task needs to enter the stage, the tasks without it)]."""
+        return [
+            (
+                self.env._("Choose a Task Type: a task enters this stage only with one."),
+                self.filtered(lambda record: not record.task_type),
+            ),
+            (
+                self.env._("Enter an Estimate above zero hours: a task enters this stage only with one."),
+                # not above zero: a NaN is neither above nor below it
+                self.filtered(lambda record: not record.allocated_hours > 0),
+            ),
+        ]
 
     def task_completion(self):
         user_task_ids = self.subtask_ids.filtered(lambda x: x.user_id.id == self.env.user.id and x.state != "cancelled")

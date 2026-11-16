@@ -6,6 +6,8 @@ from odoo import Command
 from odoo.exceptions import ValidationError
 from odoo.tests.common import TransactionCase, new_test_user
 
+MODULE = "project_ai_driven"
+
 
 class ProjectAiDrivenCommon(TransactionCase):
     @classmethod

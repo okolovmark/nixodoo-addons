@@ -334,7 +334,25 @@ class TestPullRequest(ProjectAiDrivenCommon):
     def test_pr_uri_is_tracked(self):
         self._flush_tracking()
         self.task.pr_uri = URL + "/files"
-        self.assertEqual(self._tracking_texts(self.task), ["None → %s (First Pull Request)" % URL])
+        # one message of two lines, which text_content joins without a space
+        self.assertEqual(
+            self._tracking_texts(self.task),
+            ["None → %s (First Pull Request)" % URL + "None → owner/repo#12 (Pull Requests)"],
+        )
+
+    def test_pull_request_added_to_a_task_that_has_one_is_tracked(self):
+        self.task.pull_request_ids = self.pull_request
+        second_pull_request = self.env["project.pull.request"].create({"url": "https://github.com/owner/repo/pull/13"})
+        former_tracking_texts = self._tracking_texts(self.task)
+
+        self.task.pull_request_ids = [Command.link(second_pull_request.id)]
+
+        tracking_texts = self._tracking_texts(self.task)
+        self.assertEqual(tracking_texts[: len(former_tracking_texts)], former_tracking_texts)
+        self.assertEqual(
+            tracking_texts[len(former_tracking_texts) :],
+            ["owner/repo#12 → owner/repo#12, owner/repo#13 (Pull Requests)"],
+        )
 
     def test_copy_in_another_stage_starts_without_pull_requests(self):
         stage = self._create_stage("Stage", 1)
