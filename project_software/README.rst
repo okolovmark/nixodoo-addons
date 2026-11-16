@@ -50,7 +50,7 @@ Credits
 Authors
 ~~~~~~~
 
-* Kaertech
+* Mark Okolov
 
 Maintainers
 ~~~~~~~~~~~

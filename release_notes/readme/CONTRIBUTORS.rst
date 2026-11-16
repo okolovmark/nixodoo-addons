@@ -1,1 +1,1 @@
-* Kaertech <https://www.kaertech.com>
+* Mark Okolov <https://github.com/okolovmark>
