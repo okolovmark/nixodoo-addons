@@ -149,9 +149,10 @@ something else.
    * - both lists alone, as many lists on each side, as many items in each
        pair of lists
      - a row per pair of items, Answered, or Open where the answer item is
-       blank; a pair of two blank items gives no row, and when the items of a
-       pair of lists with a heading are all blank (every pair blank, too) the
-       task is kept whole, so that no heading is lost
+       blank; a pair of two blank items gives no row. The task is kept whole
+       where a heading would be in no row: when the items of a pair of lists
+       with a heading are all blank (every pair blank, too), or the answers
+       under a heading other than the round of their questions are all blank
    * - anything else on both sides
      - one row of both as they are, Answered
    * - questions alone, lists alone
@@ -184,6 +185,24 @@ them with their columns, unless a module updated in the same run declares
 them: that module keeps the fields and their columns. Without them, the
 content is in the rows only. An update that finds the columns missing logs a
 warning and converts nothing.
+
+The update to 16.0.2.8.0 gives every message of a task its **Task**
+(``task_id``), archived tasks included, and every internal note of a task
+its **Category** (``note_category``); the install does the same. Before Odoo
+sets up the fields, SQL creates their two columns in ``mail_message`` where
+they are missing, with the partial indexes Odoo looks for, so that Odoo
+computes neither field over the messages of the database. SQL then fills
+the columns by the rule of the fields, clears any value a message should not
+hold, and writes nothing else on the messages. The two columns are analyzed
+last, so that the query planner has their statistics from the start. The
+server log gets one line with the number of messages given a task and
+cleared, and of notes given each category and cleared; a second run changes
+nothing.
+
+Odoo then adds the foreign key of ``task_id``, which reads the message table
+once. Making the columns and the key locks the message table until the
+module is loaded, and a running server waits on it meanwhile: on a large
+database, run the update or the install with the server stopped.
 
 **Upgrading from project_software**
 

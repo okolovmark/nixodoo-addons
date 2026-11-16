@@ -508,6 +508,15 @@ class TestQuestionConversion(ProjectAiDrivenCommon):
         self.assertEqual(self._rows(open_task), [(False, questions, False, "open")])
         self.assertEqual(self._rows(headless_task), [(False, "Q1", False, "open")], "no heading, no text lost")
 
+    def test_an_answer_heading_over_blank_answers_alone_keeps_the_task_whole(self):
+        empty_answers = ("<p>R1</p><ol><li>Q1</li></ol>", "<p>Later</p><ol><li></li></ol>")
+        break_answers = ("<p>R1</p><ol><li>Q1</li></ol>", "<p>Later</p><ol><li><br></li></ol>")
+        empty_task = self._store(empty_answers)
+        break_task = self._store(break_answers)
+        self._convert()
+        self.assertEqual(self._rows(empty_task), [(False, *empty_answers, "answered")])
+        self.assertEqual(self._rows(break_task), [(False, *break_answers, "answered")])
+
     def test_the_heading_of_an_answer_list_opens_each_of_its_answers(self):
         same_round = ("<p>Round one</p><ol><li>Scope?</li></ol>", "<p>Round one</p><ol><li>As agreed</li></ol>")
         other_round = (

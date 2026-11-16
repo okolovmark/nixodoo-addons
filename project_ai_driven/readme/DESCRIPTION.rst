@@ -1,9 +1,9 @@
 Additions to project tasks for AI-driven development: task attributes,
 clarifying questions as rows with their answers, the technical solution, a
-checklist and test cases per task, pull requests as records, and two rules
-on the stages a project marks: a Resolution to enter some, a task type and
-an estimate to enter others. The module also logs the stage changes of
-every task of the database.
+checklist and test cases per task, pull requests as records, the internal
+notes of tasks by category, and two rules on the stages a project marks: a
+Resolution to enter some, a task type and an estimate to enter others. The
+module also logs the stage changes of every task of the database.
 
 **Task attributes** (``project.task``)
 
@@ -245,6 +245,44 @@ already has writes no row.
 Only system administrators read the log, and no access right allows
 creating, changing or deleting a row. The log has no view and no menu. A
 search of the log first flushes the stage changes that are pending.
+
+**Task notes** (``mail.message``)
+
+* **Task** (``task_id``): the task a message is posted on, empty for a
+  message of another model and for one whose task no longer exists. It is
+  stored, set from the model and the record of the message, and emptied
+  when the task is deleted.
+* **Category** (``note_category``): Requirement Change, Design Decision,
+  Bug Fix, Review Fix, User Feedback, Progress, Revised or Deploy, given to
+  an internal note of a task whose body opens with it in bold. It is stored,
+  and read again when the body, the record or the subtype of the message
+  changes, as when a note is edited.
+* ``is_task_readable``, not stored: whether the current user, in the
+  companies they selected, can read the task of the message, archived tasks
+  included. It is searched as SQL, with ``=`` or ``!=`` and a boolean
+  (``True`` / ``False`` or ``1`` / ``0``), so that a page of a list holds only
+  messages of readable tasks.
+
+The category of a note:
+
+* An internal note is a message of the *Note* subtype, of any message type.
+  A message to the followers, a message on another model and a message that
+  tracks changed fields get no category, whatever their body.
+* The body opens with the bold text (``<b>`` or ``<strong>``): only white
+  space, ``&nbsp;`` and at most one opening paragraph come before it.
+* The bold text opens with the category, in any letter case, and ends there
+  or goes on after a dash, a colon, a slash, a plus or an opening
+  parenthesis: ``<b>Bug Fix</b>: the total``, ``<b>Progress: 2/2</b>``,
+  ``<b>Bug Fix (round 2)</b>``. Bold text naming two categories gets the
+  first. ``<b>Progress report</b>`` and ``<b>Deploy notes</b>`` get none.
+
+Odoo lets only administrators group messages. A project user also groups
+them on a domain that filters on ``is_task_readable``, as the **Task Notes**
+list does: the groups and their counts hold only messages of tasks the user
+can read, and a group opens on the user's own domain with the condition of
+the group. The group-by fields are category, task, author, date, model,
+message type and subtype; any other group-by, and any other grouped read of
+messages, stays refused to users who are not administrators.
 
 **Former names**
 

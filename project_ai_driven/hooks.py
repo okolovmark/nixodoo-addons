@@ -10,8 +10,9 @@ from psycopg2 import sql
 from psycopg2.extras import Json
 
 from odoo import SUPERUSER_ID, api
-from odoo.tools.sql import column_exists, rename_column, table_exists
+from odoo.tools.sql import column_exists, create_column, create_index, rename_column, table_exists
 
+from .models.mail_message import NOTE_CATEGORIES, NOTE_CATEGORY_PATTERNS, NOTE_MODEL, NOTE_SUBTYPE
 from .models.project_pull_request import parse_pull_request_links
 from .models.project_task_question import get_visible_text, has_content, has_media, is_blank_html, parse_html
 from .models.project_task_testcase import OLD_STATES
@@ -700,9 +701,58 @@ INSERT_QUESTION_ROWS = """
   ORDER BY question_row.position
 """
 
+TASK_MESSAGE_TABLE = "mail_message"
+# column: its type, its comment and the name Odoo gives the index of the field, so that it finds it made
+TASK_MESSAGE_COLUMNS = {
+    "task_id": ("int4", "Task", "mail_message_task_id_index"),
+    "note_category": ("varchar", "Category", "mail_message_note_category_index"),
+}
+# The messages with a value now, by their partial index, and those that are to have one.
+FILL_TASK_IDS = """
+    WITH computed AS (
+        SELECT message.id, task.id AS task_id
+          FROM mail_message message
+          LEFT JOIN project_task task ON message.model = %(model)s AND task.id = message.res_id
+         WHERE message.model = %(model)s OR message.task_id IS NOT NULL
+    ), filled AS (
+        UPDATE mail_message message
+           SET task_id = computed.task_id
+          FROM computed
+         WHERE message.id = computed.id AND message.task_id IS DISTINCT FROM computed.task_id
+     RETURNING computed.task_id IS NOT NULL AS is_given
+    )
+    SELECT is_given, count(*) FROM filled GROUP BY is_given
+"""
+FILL_NOTE_CATEGORIES = """
+    WITH computed AS (
+        SELECT message.id,
+               CASE WHEN message.model = %(model)s AND message.subtype_id = %(subtype_id)s
+                         AND NOT EXISTS (SELECT FROM mail_tracking_value WHERE mail_message_id = message.id)
+                    THEN (SELECT rule.category
+                            FROM unnest(%(categories)s::varchar[], %(patterns)s::varchar[]) WITH ORDINALITY
+                                 AS rule(category, pattern, position)
+                           WHERE message.body ~ rule.pattern
+                           ORDER BY rule.position
+                           LIMIT 1)
+               END AS category
+          FROM mail_message message
+         WHERE (message.model = %(model)s AND message.subtype_id = %(subtype_id)s)
+            OR message.note_category IS NOT NULL
+    ), filled AS (
+        UPDATE mail_message message
+           SET note_category = computed.category
+          FROM computed
+         WHERE message.id = computed.id AND message.note_category IS DISTINCT FROM computed.category
+     RETURNING computed.category
+    )
+    SELECT category, count(*) FROM filled GROUP BY category
+"""
+
 
 def pre_init_hook(cr):
-    """Take over what this module held under its former names.
+    """Give the messages of tasks their task and the internal notes their
+    category, see fill_task_messages, and take over what this module held
+    under its former names.
 
     A database can come here in three states.
 
@@ -717,7 +767,7 @@ def pre_init_hook(cr):
     module this one was cut from, on a database from before the cut. Only what
     moved here is taken over, see _take_over_legacy_records.
 
-    Neither is installed: the database is left untouched.
+    Neither is installed: nothing is taken over.
 
     In the first two states the flag and the external ids that changed name
     are then renamed where the database stores them, see _rename_flag. Models,
@@ -731,6 +781,7 @@ def pre_init_hook(cr):
     forget_dropped_test_case_buttons, rename_checklist and
     forget_checklist_activities.
     """
+    fill_task_messages(cr)
     if is_installed(cr, FORMER_MODULE):
         take_over_module(cr, FORMER_MODULE, MODULE)
     elif is_installed(cr, LEGACY_MODULE):
@@ -762,6 +813,56 @@ def post_init_hook(cr, registry):
     recompute_task_sizes(cr)
     convert_test_case_states(cr)
     convert_questions_to_rows(cr)
+
+
+def fill_task_messages(cr):
+    """Give every message of a task its task, and every internal note of a
+    task the category of its body, by SQL. Return the messages given a task
+    and those whose task was cleared, and the notes given each category, the
+    category False for those whose category was cleared. The columns and
+    their indexes are created first where they are missing.
+
+    mail_message holds every message of the database: on a column it creates,
+    an install or an update computes the field over all of them. Made before
+    the fields are set up, the columns are not computed. The SQL gives every
+    message what the computes give, whatever its columns held, the patterns
+    of NOTE_CATEGORY_PATTERNS included; a second run changes nothing. The
+    columns are analyzed last.
+    """
+    for column, (column_type, comment, index_name) in TASK_MESSAGE_COLUMNS.items():
+        if not column_exists(cr, TASK_MESSAGE_TABLE, column):
+            create_column(cr, TASK_MESSAGE_TABLE, column, column_type, comment)
+        column_expression = '"%s"' % column
+        create_index(
+            cr, index_name, TASK_MESSAGE_TABLE, [column_expression], where="%s IS NOT NULL" % column_expression
+        )
+    env = api.Environment(cr, SUPERUSER_ID, {})
+    env.flush_all()
+    params = {
+        "model": NOTE_MODEL,
+        "subtype_id": env["ir.model.data"]._xmlid_to_res_id(NOTE_SUBTYPE),
+        "categories": list(NOTE_CATEGORY_PATTERNS),
+        "patterns": list(NOTE_CATEGORY_PATTERNS.values()),
+    }
+    cr.execute(FILL_TASK_IDS, params)
+    task_counts = dict.fromkeys(("given", "cleared"), 0)
+    task_counts.update(("given" if is_given else "cleared", count) for is_given, count in cr.fetchall())
+    cr.execute(FILL_NOTE_CATEGORIES, params)
+    category_counts = dict.fromkeys((*NOTE_CATEGORIES, False), 0)
+    category_counts.update((category or False, count) for category, count in cr.fetchall())
+    # autovacuum analyzes after a tenth of the table changed: until then the planner, blind to the
+    # new columns, reads every note to list those of a task
+    cr.execute("ANALYZE %s (%s)" % (TASK_MESSAGE_TABLE, ", ".join(TASK_MESSAGE_COLUMNS)))
+    env.invalidate_all()
+    _logger.info(
+        "Task messages given their task: %d, their task cleared: %d; task notes given a category: %s,"
+        " their category cleared: %d",
+        task_counts["given"],
+        task_counts["cleared"],
+        ", ".join("%d %s" % (category_counts[category], label) for category, label in NOTE_CATEGORIES.items()),
+        category_counts[False],
+    )
+    return task_counts, category_counts
 
 
 def clear_estimates_that_are_not_numbers(cr):
@@ -854,7 +955,8 @@ def convert_questions_to_rows(cr, is_update=False):
 
     Blank items give no row, so the heading of a list of blank items alone
     would be in none: where a pair of lists, or a list of questions alone,
-    has a heading and blank items only, the Html is kept whole as when it is
+    has a heading and blank items only, or an answer list a heading other than
+    its round over blank answers only, the Html is kept whole as when it is
     not lists alone. Lists whose pairs are all blank, or questions whose items
     are all blank, are such Html: what they show is in their headings.
 
@@ -952,6 +1054,8 @@ def _pair_rounds(question_rounds, answer_rounds):
         if len(questions) != len(answers):
             return None
         answer_opening = answer_heading if answer_round_name not in (None, round_name) else ""
+        if answer_opening and not any(answers):
+            return None
         round_rows = [
             (round_name, question, answer_opening + answer if answer else None, "answered" if answer else "open")
             for question, answer in zip(questions, answers)
