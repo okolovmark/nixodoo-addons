@@ -1,7 +1,7 @@
 {
     "name": "Project AI-driven",
     "summary": "Task attributes, a checklist, test cases and pull requests for AI-driven projects, a stage log of every task",
-    "version": "16.0.2.2.0",
+    "version": "16.0.2.3.0",
     "category": "Services/Project",
     "author": "Kaertech",
     "website": "https://github.com/okolovmark/nixodoo-addons",

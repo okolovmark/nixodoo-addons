@@ -7,9 +7,6 @@
         <field name="arch" type="xml">
             <xpath expr="//page[2]" position="after">
                 <page string="Test Cases" groups="project.group_project_user">
-                    <group>
-                        <field name="tester_id" />
-                    </group>
                     <field name="testcase_ids">
                         <tree
                             decoration-danger="state == 'todo'"

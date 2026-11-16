@@ -23,18 +23,6 @@ class ProjectTask(models.Model):
     questions = fields.Html()
     answers = fields.Html()
     solution = fields.Html()
-    difficulty = fields.Selection(
-        [("easy", "Easy"), ("medium", "Medium"), ("hard", "Hard")],
-        default="easy",
-    )
-    knowledge_area_level = fields.Selection(
-        [
-            ("basic", "Basic"),
-            ("intermediate", "Intermediate"),
-            ("advanced", "Advanced"),
-        ],
-        default="basic",
-    )
     priority_level = fields.Selection(
         [
             ("4", "Highest"),
@@ -80,7 +68,6 @@ class ProjectTask(models.Model):
     testcase_completion = fields.Integer(compute="_compute_testcase_completion")
     testcase_completion_xml = fields.Html(compute="_compute_testcase_completion")
     kanban_testcases = fields.Html(compute="_compute_kanban_testcases")
-    tester_id = fields.Many2one("res.users", string="Tester")
     testcase_general_comments = fields.Html()
     pull_request_ids = fields.Many2many(
         "project.pull.request",

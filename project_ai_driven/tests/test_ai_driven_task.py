@@ -1,13 +1,32 @@
 from odoo.tests.common import tagged
 
+from ..hooks import MODULE
 from ..models.project_task import TSHIRT_HOURS
 from .common import ProjectAiDrivenCommon
+
+DELETED_FIELDS = ("difficulty", "knowledge_area_level", "tester_id")
 
 
 @tagged("post_install", "-at_install")
 class TestAiDrivenTask(ProjectAiDrivenCommon):
     def _selection_values(self, field_name):
         return [value for value, _label in self.env["project.task"]._fields[field_name].selection]
+
+    def _task_views(self):
+        external_ids = self.env["ir.model.data"].search([("module", "=", MODULE), ("model", "=", "ir.ui.view")])
+        views = self.env["ir.ui.view"].browse(external_ids.mapped("res_id"))
+        return views.filtered(lambda view: view.model == "project.task")
+
+    def test_deleted_fields_are_not_on_the_model(self):
+        self.assertFalse(set(DELETED_FIELDS) & set(self.env["project.task"]._fields))
+
+    def test_no_task_view_names_a_deleted_field(self):
+        views = self._task_views()
+        self.assertTrue(views)
+        for view in views:
+            # the whole form or list the view extends, as the web client gets it
+            names = {node.get("name") for node in view._get_combined_arch().iter("field")}
+            self.assertFalse(names & set(DELETED_FIELDS), view.xml_id)
 
     def test_is_ai_driven_follows_the_project(self):
         self.assertTrue(self.task.is_ai_driven)
@@ -29,8 +48,6 @@ class TestAiDrivenTask(ProjectAiDrivenCommon):
                 {
                     "task_type": "improvement",
                     "priority_level": "1",
-                    "difficulty": "easy",
-                    "knowledge_area_level": "basic",
                     "tshirt_estimate": "m",
                 },
             ],
@@ -40,8 +57,6 @@ class TestAiDrivenTask(ProjectAiDrivenCommon):
         expected_values = {
             "task_type": ["feature", "bug", "improvement", "investigation", "milestone", "support", "technical_debt"],
             "priority_level": ["4", "3", "2", "1", "0"],
-            "difficulty": ["easy", "medium", "hard"],
-            "knowledge_area_level": ["basic", "intermediate", "advanced"],
             "tshirt_estimate": ["xs", "s", "m", "l", "xl", "xxl"],
         }
         for field_name, values in expected_values.items():

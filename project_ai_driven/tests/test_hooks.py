@@ -1,11 +1,16 @@
+from lxml import etree
 from psycopg2 import sql
+from psycopg2.extras import Json
 
 from odoo import Command
+from odoo.exceptions import ValidationError
 from odoo.tests.common import TransactionCase, tagged
 from odoo.tools.sql import column_exists, rename_column
 
 from ..hooks import (
     ADOPTED_MODELS,
+    DROPPED_FIELDS,
+    DROPPED_FOREIGN_KEYS,
     FIELD_NAMING_COLUMNS,
     FLAG,
     FLAG_TABLE,
@@ -16,12 +21,34 @@ from ..hooks import (
     OWNERSHIP_TABLES,
     RENAMED_EXTERNAL_IDS,
     SPLIT_VIEWS,
+    forget_dropped_fields,
     pre_init_hook,
     rename_external_ids,
     take_over_module,
 )
 
 EMPTY_ARCH = "<data/>"
+# The nodes that named the fields in DROPPED_FIELDS in the two task form views that had them,
+# cut down to one arch; the page title is its translated term.
+OLD_ARCH = (
+    "<data>"
+    '<xpath expr="//page[2]" position="after">'
+    '<page string="%s"><group><field name="tester_id"/></group><field name="testcase_ids"/></page>'
+    "</xpath>"
+    """<xpath expr="//field[@name='tag_ids']" position="before">"""
+    '<field name="difficulty"/><field name="knowledge_area_level"/><field name="task_type"/>'
+    "</xpath>"
+    "</data>"
+)
+KEPT_FIELDS = ["testcase_ids", "task_type"]
+SUB_VIEW_ARCH = (
+    "<data>"
+    '<xpath expr="//page[2]" position="after">'
+    '<page string="Test Cases"><field name="testcase_ids"><tree><field name="tester_id"/></tree></field></page>'
+    "</xpath>"
+    "</data>"
+)
+OTHER_MODULE = "other_module"
 EXTENDED_MODELS = ("project.project", "project.task")
 # Added after the cut from the legacy module, which never held them.
 ADDED_FIELDS = (
@@ -127,6 +154,33 @@ class PreInitHookCase(TransactionCase):
     def assertDatabaseState(self, expected_state):
         for name, rows in self._database_state().items():
             self.assertEqual(rows, expected_state[name], name)
+
+    def _store_arch(self, view, **archs):
+        """Put an arch per language in the database behind the ORM, as a
+        database from before the fields in DROPPED_FIELDS were deleted has it.
+        """
+        self.env.flush_all()
+        # without its file, a server in dev mode reads the stored arch too
+        self.env.cr.execute("UPDATE ir_ui_view SET arch_db = %s, arch_fs = NULL WHERE id = %s", (Json(archs), view.id))
+        self.env.invalidate_all()
+
+    def _stored_archs(self, view):
+        self.env.cr.execute("SELECT arch_db FROM ir_ui_view WHERE id = %s", (view.id,))
+        return self.env.cr.fetchone()[0]
+
+    def _stored_field_names(self, view):
+        return {
+            lang: [node.get("name") for node in etree.fromstring(arch).iter("field")]
+            for lang, arch in self._stored_archs(view).items()
+        }
+
+    def _register_foreign_keys(self, module):
+        task_model_id = self.env["ir.model"]._get_id("project.task")
+        registrations = self.env["ir.model.constraint"].create(
+            [{"name": name, "model": task_model_id, "module": module.id, "type": "f"} for name in DROPPED_FOREIGN_KEYS],
+        )
+        self.env.flush_all()
+        return registrations
 
     def _put_back_former_names(self):
         """Undo by SQL what the hook renames. The registry keeps the new names,
@@ -277,8 +331,8 @@ class TestTakeOverFromFormerModule(PreInitHookCase):
         )
         held_constraint = self.env["ir.model.constraint"].create(
             {
-                "name": "project_task_tester_id_fkey",
-                "model": task_model_id,
+                "name": "project_task_testcase_task_id_fkey",
+                "model": self.env["ir.model"]._get_id("project.task.testcase"),
                 "module": self.module.id,
                 "type": "f",
             },
@@ -293,6 +347,17 @@ class TestTakeOverFromFormerModule(PreInitHookCase):
         self.assertIn(held_constraint.id, constraints)
         self.assertEqual(sorted(constraints.values()), sorted(owned_constraints.values()))
         self.assertFalse(self._owned_rows("ir_model_constraint", self.former_module))
+
+    def test_forgets_the_fields_deleted_since(self):
+        view = self.env.ref("%s.view_task_form2_testcase" % MODULE)
+        self._store_arch(view, en_US=OLD_ARCH % "Test Cases")
+        registrations = self._register_foreign_keys(self.module)
+        self._simulate_former_module()
+
+        pre_init_hook(self.env.cr)
+
+        self.assertEqual(self._stored_field_names(view), {"en_US": KEPT_FIELDS})
+        self.assertFalse(registrations.exists())
 
     def test_followers_of_the_checklist_subtypes_stay_subscribed(self):
         task_subtype = self.env.ref("%s.subtasks_subtype" % MODULE)
@@ -532,6 +597,50 @@ class TestTakeOverFromLegacyModule(PreInitHookCase):
         self.assertTrue(column_exists(self.env.cr, FLAG_TABLE, FLAG))
         self.assertFalse(column_exists(self.env.cr, FLAG_TABLE, FORMER_FLAG))
 
+    def _create_deleted_fields(self):
+        """The fields in DROPPED_FIELDS as a database from before the cut has
+        them: held by the legacy module. Returns {external id name: field id}.
+        """
+        field_ids = {}
+        for model, name in DROPPED_FIELDS:
+            self.env.cr.execute(
+                """
+                INSERT INTO ir_model_fields (model, model_id, name, field_description, ttype, state, store)
+                SELECT model, id, %s, jsonb_build_object('en_US', 'Deleted Field'), 'char', 'base', false
+                  FROM ir_model
+                 WHERE model = %s
+             RETURNING id
+                """,
+                (name, model),
+            )
+            (field_ids["field_%s__%s" % (model.replace(".", "_"), name)],) = self.env.cr.fetchone()
+        self.env["ir.model.data"].create(
+            [
+                {"module": LEGACY_MODULE, "name": name, "model": "ir.model.fields", "res_id": field_id}
+                for name, field_id in field_ids.items()
+            ],
+        )
+        self.env.flush_all()
+        return field_ids
+
+    def test_takes_over_the_fields_deleted_since(self):
+        field_ids = self._create_deleted_fields()
+        registrations = self._register_foreign_keys(self.legacy_module)
+        view = self.env.ref("%s.view_task_form2_testcase" % MODULE)
+        self._store_arch(view, en_US=OLD_ARCH % "Test Cases")
+        self._simulate_legacy_module()
+
+        pre_init_hook(self.env.cr)
+
+        external_ids = self._external_ids(MODULE)
+        self.assertEqual(
+            {name: external_ids.get(("ir.model.fields", name)) for name in field_ids},
+            field_ids,
+            "held by this module, they are deleted when it is loaded without them",
+        )
+        self.assertEqual(self._stored_field_names(view), {"en_US": KEPT_FIELDS})
+        self.assertFalse(registrations.exists())
+
     def test_the_former_module_comes_first(self):
         self._simulate_legacy_module()
         handed_over_records = self._legacy_records()
@@ -638,6 +747,74 @@ class TestNoModuleToTakeOverFrom(PreInitHookCase):
         pre_init_hook(self.env.cr)
 
         self.assertDatabaseState(state_before)
+
+
+@tagged("post_install", "-at_install")
+class TestForgetDroppedFields(PreInitHookCase):
+    """forget_dropped_fields on a database that already holds everything under
+    this module, as its update runs it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.view = cls.env.ref("%s.view_task_form2_testcase" % MODULE)
+
+    def test_a_view_that_names_them_no_longer_blocks_the_views_of_its_form(self):
+        other_view = self.env.ref("%s.view_task_form2" % MODULE)
+        self._store_arch(self.view, en_US=OLD_ARCH % "Test Cases")
+        with self.assertRaises(ValidationError) as refusal:
+            other_view.write({"arch": other_view.arch})
+        self.assertIn('Field "difficulty" does not exist', refusal.exception.args[0])
+
+        forget_dropped_fields(self.env.cr)
+
+        self.env.invalidate_all()
+        other_view.write({"arch": other_view.arch})
+
+    def test_takes_them_out_of_every_translation_of_a_view(self):
+        self._store_arch(self.view, en_US=OLD_ARCH % "Test Cases", fr_FR=OLD_ARCH % "Cas de test")
+
+        forget_dropped_fields(self.env.cr)
+
+        self.assertEqual(self._stored_field_names(self.view), {"en_US": KEPT_FIELDS, "fr_FR": KEPT_FIELDS})
+        self.assertIn('string="Cas de test"', self._stored_archs(self.view)["fr_FR"])
+
+    def test_leaves_the_field_of_a_sub_view_alone(self):
+        self._store_arch(self.view, en_US=SUB_VIEW_ARCH)
+
+        forget_dropped_fields(self.env.cr)
+
+        self.assertEqual(self._stored_archs(self.view), {"en_US": SUB_VIEW_ARCH})
+
+    def test_leaves_the_views_of_other_modules_alone(self):
+        self.env.cr.execute(
+            "UPDATE ir_model_data SET module = %s WHERE model = 'ir.ui.view' AND res_id = %s",
+            (OTHER_MODULE, self.view.id),
+        )
+        self._store_arch(self.view, en_US=OLD_ARCH % "Test Cases")
+
+        forget_dropped_fields(self.env.cr)
+
+        self.assertEqual(self._stored_archs(self.view), {"en_US": OLD_ARCH % "Test Cases"})
+
+    def test_deletes_the_registration_of_their_foreign_keys_to_this_module(self):
+        other_module = self._get_module(OTHER_MODULE)
+        registrations = self._register_foreign_keys(self.module) | self._register_foreign_keys(other_module)
+
+        forget_dropped_fields(self.env.cr)
+
+        self.assertEqual(registrations.exists().mapped("module"), other_module)
+
+    def test_second_run_changes_nothing(self):
+        self._store_arch(self.view, en_US=OLD_ARCH % "Test Cases")
+        self._register_foreign_keys(self.module)
+        forget_dropped_fields(self.env.cr)
+        state_after_first_run = self._database_state()
+
+        forget_dropped_fields(self.env.cr)
+
+        self.assertDatabaseState(state_after_first_run)
 
 
 @tagged("post_install", "-at_install")
