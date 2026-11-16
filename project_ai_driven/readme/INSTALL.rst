@@ -149,13 +149,15 @@ something else.
    * - both lists alone, as many lists on each side, as many items in each
        pair of lists
      - a row per pair of items, Answered, or Open where the answer item is
-       blank; a pair of two blank items gives no row, and when every pair is
-       blank the task is kept whole
+       blank; a pair of two blank items gives no row, and when the items of a
+       pair of lists with a heading are all blank (every pair blank, too) the
+       task is kept whole, so that no heading is lost
    * - anything else on both sides
      - one row of both as they are, Answered
    * - questions alone, lists alone
      - a row per item that is not blank, Open; one row of the questions as
-       they are when every item is blank
+       they are when the items of a list with a heading are all blank (every
+       item blank, too), so that no heading is lost
    * - questions alone, anything else
      - one row of the questions as they are, Open
    * - answers alone

@@ -844,12 +844,19 @@ def convert_questions_to_rows(cr, is_update=False):
 
     - Questions and answers are both lists alone, list by list of the same
       length: a row per pair of items, Answered, or Open where the answer item
-      is blank. The heading of an answer list other than the round of its
-      questions opens each of its answers: it says who answered and when.
+      is blank; a pair of two blank items gives no row. The heading of an
+      answer list other than the round of its questions opens each of its
+      answers: it says who answered and when.
     - Both hold something else: one row of each whole, Answered.
     - Questions alone: a row per item that is not blank, Open, or one row of
       the whole when they are not lists alone.
     - Answers alone: one row of the whole without a question, Answered.
+
+    Blank items give no row, so the heading of a list of blank items alone
+    would be in none: where a pair of lists, or a list of questions alone,
+    has a heading and blank items only, the Html is kept whole as when it is
+    not lists alone. Lists whose pairs are all blank, or questions whose items
+    are all blank, are such Html: what they show is in their headings.
 
     Names and dates in the answers are not read: no row says who answered or
     when. The rows are inserted by SQL as the superuser. Without the two
@@ -909,35 +916,50 @@ def _get_question_rows(questions, answers):
         return ("answers_only", [(None, None, answers, "answered")]) if has_answers else ("blank", [])
     question_rounds = _split_into_rounds(questions)
     if not has_answers:
-        listed_rows = [
-            (round_name, question, None, "open")
-            for round_name, _heading, items in question_rounds or []
-            for question in items
-            if question
-        ]
-        return "open_questions", listed_rows or [(None, questions, None, "open")]
+        open_rows = _list_open_questions(question_rounds)
+        return "open_questions", [(None, questions, None, "open")] if open_rows is None else open_rows
     paired_rows = _pair_rounds(question_rounds, _split_into_rounds(answers))
-    if not paired_rows:
+    if paired_rows is None:
         return "kept_whole", [(None, questions, answers, "answered")]
     return "paired_lists", paired_rows
 
 
+def _list_open_questions(question_rounds):
+    """Return a row per item that is not blank, or None when the questions are
+    not lists alone or a heading would be in no row.
+    """
+    if question_rounds is None:
+        return None
+    open_rows = []
+    for round_name, heading, questions in question_rounds:
+        round_rows = [(round_name, question, None, "open") for question in questions if question]
+        if heading is not None and not round_rows:
+            return None
+        open_rows += round_rows
+    return open_rows
+
+
 def _pair_rounds(question_rounds, answer_rounds):
-    """Return the rows of the items paired list by list, or None when the lists do not pair."""
+    """Return the rows of the items paired list by list, or None when the lists
+    do not pair or a heading would be in no row.
+    """
     if question_rounds is None or answer_rounds is None or len(question_rounds) != len(answer_rounds):
         return None
     paired_rows = []
-    for (round_name, _heading, questions), (answer_round_name, answer_heading, answers) in zip(
+    for (round_name, heading, questions), (answer_round_name, answer_heading, answers) in zip(
         question_rounds, answer_rounds
     ):
         if len(questions) != len(answers):
             return None
         answer_opening = answer_heading if answer_round_name not in (None, round_name) else ""
-        paired_rows += [
+        round_rows = [
             (round_name, question, answer_opening + answer if answer else None, "answered" if answer else "open")
             for question, answer in zip(questions, answers)
             if question or answer
         ]
+        if (heading is not None or answer_heading is not None) and not round_rows:
+            return None
+        paired_rows += round_rows
     return paired_rows
 
 
