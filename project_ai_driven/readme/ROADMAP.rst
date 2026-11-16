@@ -1,3 +1,16 @@
+* This module does not keep the former Html ``questions`` and ``answers`` of
+  the task: without another module that declares them, the update to
+  16.0.2.7.0 deletes them with their columns, and their content is in the
+  question rows only.
+* The conversion pairs list items by position: two lists of as many items
+  pair the first question with the first answer, also where an answer was
+  written for another question.
+* A row kept whole holds every question and answer of its task: split it by
+  hand.
+* The round of a converted row is the text of a heading, without its
+  formatting.
+* Question rows have no chatter: a change of status or answer leaves no
+  trace but **Answered by** and **Answered on**.
 * The test case flag ``passed`` and the translation of the former state
   values (``todo``, ``done``, ``cancelled``) at create and write serve
   clients written for the former selection, until a later version removes

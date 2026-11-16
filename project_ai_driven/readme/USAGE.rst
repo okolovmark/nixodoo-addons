@@ -16,8 +16,13 @@ On the task form:
   Passed or Failed. On a phone the tab shows cards with the same buttons.
   Set **Verification** to Automated test or Demo, and the **Automated test
   reference**, on the form of the case.
-* *Technical Solution* tab (AI-driven projects): record the Questions, the
-  Answers and the Solution.
+* *Technical Solution* tab (AI-driven projects): the **Questions** list,
+  then the **Solution**. Add a row per question, with its round and the user
+  it is addressed to, and drag the rows into order. Give a row its answer and
+  it becomes Answered, stamped with your name and the time; the status of a
+  new row follows its answer. Once the row is saved, set it back to Open to
+  ask again, or to Dropped when it no longer applies. The Answer column is
+  hidden in the list until you show it. On a phone the list shows cards.
 * *Pull Requests* tab (AI-driven projects): add the pull requests of the
   task, each with its link, state, merge date and deploy date. A pull
   request already recorded for another task is picked from the list instead
@@ -61,6 +66,15 @@ It moves an item by writing ``state`` (``todo``, ``waiting``, ``done`` or
 ``cancelled``) as the item's assignee or reviewer. It reaches only the items
 of the tasks its user can read; without ``allowed_company_ids`` in the
 context, those of all the user's companies.
+
+A tool that keeps the questions of a task over RPC creates
+``project.task.question`` records with ``task_id`` and ``question``, and
+``round``, ``addressed_to_id`` and ``answer`` when it has them, and reads the
+rows of a task from ``question_ids``. It answers a row by writing
+``answer``; ``state`` takes ``open``, ``answered`` or ``dropped``. A create or
+write that makes a row Answered fills ``answered_by_id`` and ``answered_on``
+unless it sends them. It reaches only the rows of the tasks its user can
+read.
 
 A tool that gives test case results over RPC writes ``state`` on
 ``project.task.testcase``: ``not_run``, ``passed``, ``failed``, ``waiting``

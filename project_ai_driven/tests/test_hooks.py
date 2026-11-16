@@ -64,6 +64,19 @@ OLD_ARCH = (
     "</data>"
 )
 KEPT_FIELDS = ["testcase_ids", "task_type"]
+# The Technical Solution page before its questions and answers became rows; the page title is its translated term.
+OLD_QUESTIONS_ARCH = (
+    "<data>"
+    '<xpath expr="//page[2]" position="after">'
+    '<page string="%s"><group><field name="questions"/><field name="answers"/><field name="solution"/></group></page>'
+    "</xpath>"
+    "</data>"
+)
+OLD_QUESTIONS_ARCHS = {
+    "en_US": OLD_QUESTIONS_ARCH % "Technical Solution",
+    "fr_FR": OLD_QUESTIONS_ARCH % "Solution technique",
+}
+KEPT_QUESTION_PAGE_FIELDS = ["solution"]
 SUB_VIEW_ARCH = (
     "<data>"
     '<xpath expr="//page[2]" position="after">'
@@ -102,6 +115,7 @@ KEPT_BUTTONS = [("testcase_ids", "action_set_passed")] + [
 BUTTONS_MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.5.0" / "pre-migration.py"
 CHECKLIST_MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.6.0" / "pre-migration.py"
 ACTIVITIES_MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.6.1" / "pre-migration.py"
+QUESTIONS_MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.7.0" / "pre-migration.py"
 CHECKLIST_LIST_NODE = '<field name="checklist_item_ids">'
 # How the checklist page of the task form named its list, and the default assignee of a new line.
 FORMER_CHECKLIST_LIST_NODE = '<field name="subtask_ids">'
@@ -160,6 +174,7 @@ ADDED_FIELDS = (
     ("project.task", "pr_required_states"),
     ("project.task", "pr_uri"),
     ("project.task", "pull_request_ids"),
+    ("project.task", "question_ids"),
     ("project.task", "resolution"),
     ("project.task.testcase", "verified_by_id"),
     ("project.task.testcase", "verified_on"),
@@ -182,6 +197,9 @@ ADDED_RECORDS = (
     ("ir.ui.view", "project_task_view_kanban_inherit_ai_driven"),
     ("ir.ui.view", "project_task_view_calendar_inherit_ai_driven"),
     ("ir.ui.view", "project_task_testcase_view_kanban"),
+    ("ir.model", "model_project_task_access_mixin"),
+    ("ir.model", "model_project_task_question"),
+    ("ir.model.access", "access_task_question"),
     # a model this module only extends, and did not extend at the cut
     ("ir.model", "model_project_task_recurrence"),
     *(
@@ -192,6 +210,7 @@ ADDED_RECORDS = (
             ("project_task_stage_log__source", ("live", "tracking", "stage_date", "creation")),
             ("project_task_testcase__state", ("not_run", "passed", "failed", "not_applicable")),
             ("project_task_testcase__verification_kind", ("manual", "automated", "demo")),
+            ("project_task_question__state", ("open", "answered", "dropped")),
         )
         for value in values
     ),
@@ -201,7 +220,10 @@ ADDED_CONSTRAINTS = (
     "project_pr_required%",
     "project_estimate_required%",
     "project_task_stage_log%",
+    "project_task_question%",
 )
+# Fields of the legacy module that this module leaves to whatever replaces it.
+LEGACY_QUESTION_FIELDS = (("project.task", "questions"), ("project.task", "answers"))
 DELEGATING_MODULE = "delegating_module"
 DELEGATING_MODEL = "res.partner"
 REPLACED_MODULE = "replaced_module"
@@ -651,6 +673,15 @@ class TestTakeOverFromFormerModule(PreInitHookCase):
         self.assertEqual(self._stored_field_names(view), {"en_US": KEPT_FIELDS})
         self.assertFalse(registrations.exists())
 
+    def test_forgets_the_questions_and_answers_it_left(self):
+        view = self.env.ref("%s.view_task_form2_common" % MODULE)
+        self._store_arch(view, **OLD_QUESTIONS_ARCHS)
+        self._simulate_former_module()
+
+        pre_init_hook(self.env.cr)
+
+        self.assertEqual(self._stored_field_names(view), dict.fromkeys(OLD_QUESTIONS_ARCHS, KEPT_QUESTION_PAGE_FIELDS))
+
     def test_followers_of_the_checklist_subtypes_stay_subscribed(self):
         task_subtype = self.env.ref("%s.checklist_subtype" % MODULE)
         project_subtype = self.env.ref("%s.project_checklist_subtype" % MODULE)
@@ -1039,6 +1070,49 @@ class TestTakeOverFromLegacyModule(PreInitHookCase):
         self.assertEqual(legacy_external_ids.get(("ir.model.fields", "field_kept")), kept_field.id)
         self.assertEqual(legacy_external_ids.get(("ir.ui.view", "view_kept")), kept_view.id)
 
+    def _create_legacy_question_fields(self):
+        """The questions and answers of the task held by the legacy module, the
+        field rows inserted where this database has none. Returns {external id name: field id}.
+        """
+        field_ids = {}
+        for model, name in LEGACY_QUESTION_FIELDS:
+            field_id = self.env["ir.model.fields"]._get(model, name).id
+            if not field_id:
+                self.env.cr.execute(
+                    """
+                    INSERT INTO ir_model_fields (model, model_id, name, field_description, ttype, state, store)
+                    SELECT model, id, %s, jsonb_build_object('en_US', 'Legacy Field'), 'html', 'base', true
+                      FROM ir_model
+                     WHERE model = %s
+                 RETURNING id
+                    """,
+                    (name, model),
+                )
+                (field_id,) = self.env.cr.fetchone()
+            field_ids["field_%s__%s" % (model.replace(".", "_"), name)] = field_id
+        self.env["ir.model.data"].create(
+            [
+                {"module": LEGACY_MODULE, "name": name, "model": "ir.model.fields", "res_id": field_id}
+                for name, field_id in field_ids.items()
+            ],
+        )
+        self.env.flush_all()
+        return field_ids
+
+    def test_leaves_the_questions_and_answers_to_the_legacy_module(self):
+        field_ids = self._create_legacy_question_fields()
+        self._simulate_legacy_module()
+
+        pre_init_hook(self.env.cr)
+
+        legacy_external_ids = self._external_ids(LEGACY_MODULE)
+        self.assertEqual(
+            {name: legacy_external_ids.get(("ir.model.fields", name)) for name in field_ids},
+            field_ids,
+            "taken by the module that replaces the legacy one, which keeps them",
+        )
+        self.assertFalse(set(field_ids) & {name for _model, name in self._external_ids(MODULE)})
+
 
 @tagged("post_install", "-at_install")
 class TestNoModuleToTakeOverFrom(PreInitHookCase):
@@ -1087,6 +1161,28 @@ class TestForgetDroppedFields(PreInitHookCase):
 
         self.assertEqual(self._stored_field_names(self.view), {"en_US": KEPT_FIELDS, "fr_FR": KEPT_FIELDS})
         self.assertIn('string="Cas de test"', self._stored_archs(self.view)["fr_FR"])
+
+    def test_takes_the_questions_and_answers_out_of_every_translation_of_a_view(self):
+        view = self.env.ref("%s.view_task_form2_common" % MODULE)
+        self._store_arch(view, **OLD_QUESTIONS_ARCHS)
+
+        forget_dropped_fields(self.env.cr)
+
+        self.assertEqual(self._stored_field_names(view), dict.fromkeys(OLD_QUESTIONS_ARCHS, KEPT_QUESTION_PAGE_FIELDS))
+        self.assertIn('string="Solution technique"', self._stored_archs(view)["fr_FR"])
+
+    def test_migration_script_forgets_the_questions_and_answers_on_update_only(self):
+        spec = importlib.util.spec_from_file_location("pre_migration", QUESTIONS_MIGRATION_SCRIPT)
+        script = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(script)
+        view = self.env.ref("%s.view_task_form2_common" % MODULE)
+        self._store_arch(view, **OLD_QUESTIONS_ARCHS)
+
+        script.migrate(self.env.cr, None)
+        self.assertEqual(self._stored_archs(view), OLD_QUESTIONS_ARCHS)
+
+        script.migrate(self.env.cr, "16.0.2.6.1")
+        self.assertEqual(self._stored_field_names(view), dict.fromkeys(OLD_QUESTIONS_ARCHS, KEPT_QUESTION_PAGE_FIELDS))
 
     def test_leaves_the_field_of_a_sub_view_alone(self):
         self._store_arch(self.view, en_US=SUB_VIEW_ARCH)

@@ -2,7 +2,6 @@ from markupsafe import Markup, escape
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
-from odoo.osv import expression
 
 STATE_COLORS = {"done": "#080", "todo": "#A00", "cancelled": "#777", "waiting": "#b818ce"}
 NOTIFIED_FIELDS = ("state", "name", "user_id")
@@ -12,6 +11,7 @@ GUARDED_FIELDS = ("state", "name", "user_id")
 class ProjectTaskChecklistItem(models.Model):
     _name = "project.task.checklist.item"
     _description = "Checklist Item"
+    _inherit = ["project.task.access.mixin"]
 
     state = fields.Selection(
         selection=[("done", "Done"), ("todo", "TODO"), ("waiting", "Waiting"), ("cancelled", "Cancelled")],
@@ -61,26 +61,6 @@ class ProjectTaskChecklistItem(models.Model):
         if any(field_name in vals for field_name in NOTIFIED_FIELDS):
             self._notify_checklist_item_change(former_values, former_assignees)
         return result
-
-    def _apply_ir_rules(self, query, mode="read"):
-        """check_access_rule does not come through here: see _filter_access_rules_python."""
-        super()._apply_ir_rules(query, mode)
-        if self.env.su:
-            return
-        # not an ir.rule, so _flush_search does not flush the field it filters on
-        self.flush_model(["task_id"])
-        readable_tasks = self.env["project.task"].with_context(active_test=False)._search([], order="id")
-        expression.expression([("task_id", "in", readable_tasks)], self.sudo(), self._table, query)
-
-    def _filter_access_rules_python(self, operation):
-        allowed_items = super()._filter_access_rules_python(operation)
-        if self.env.su:
-            return allowed_items
-        # the task of an item deleted meanwhile cannot be read; core lets such an item through
-        existing_items = allowed_items.exists()
-        tasks = self.env["project.task"].browse(existing_items.task_id.ids)
-        readable_task_ids = set(tasks._filter_access_rules_python("read").ids)
-        return allowed_items - existing_items.filtered(lambda item: item.task_id.id not in readable_task_ids)
 
     def change_state_done(self):
         for record in self:

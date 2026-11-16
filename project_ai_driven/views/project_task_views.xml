@@ -11,20 +11,89 @@
             <xpath expr="//page[2]" position="after">
                 <page
                     string="Technical Solution"
+                    name="technical_solution"
                     attrs="{'invisible': [('is_ai_driven', '=', False)]}"
                     groups="project.group_project_user"
                 >
+                    <separator string="Questions" />
+                    <field name="question_ids" mode="tree,kanban">
+                        <tree decoration-muted="state == 'dropped'">
+                            <field name="sequence" widget="handle" />
+                            <field name="round" optional="show" />
+                            <field name="question" />
+                            <field name="answer" optional="hide" />
+                            <field name="addressed_to_id" widget="many2one_avatar_user" optional="show" />
+                            <field
+                                name="state"
+                                width="100px"
+                                widget="badge"
+                                decoration-info="state == 'open'"
+                                decoration-success="state == 'answered'"
+                                decoration-muted="state == 'dropped'"
+                            />
+                            <field name="answered_by_id" widget="many2one_avatar_user" optional="show" />
+                            <field name="answered_on" optional="show" />
+                        </tree>
+                        <!-- the phone gets cards: the list does not fit its width -->
+                        <kanban>
+                            <field name="state" />
+                            <field name="addressed_to_id" />
+                            <field name="answered_by_id" />
+                            <field name="answered_on" />
+                            <templates>
+                                <t t-name="kanban-box">
+                                    <div class="oe_kanban_global_click">
+                                        <div class="o_kanban_record_top mb-1">
+                                            <div class="o_kanban_record_headings text-muted small">
+                                                <field name="round" />
+                                            </div>
+                                            <field
+                                                name="state"
+                                                widget="badge"
+                                                decoration-info="state == 'open'"
+                                                decoration-success="state == 'answered'"
+                                                decoration-muted="state == 'dropped'"
+                                            />
+                                        </div>
+                                        <field name="question" />
+                                        <div t-if="record.addressed_to_id.raw_value" class="text-muted small">
+                                            Addressed to <field name="addressed_to_id" />
+                                        </div>
+                                        <div
+                                            t-if="record.answered_by_id.raw_value and record.answered_on.raw_value"
+                                            class="text-muted small"
+                                        >
+                                            <field name="answered_by_id" /> - <field name="answered_on" />
+                                        </div>
+                                    </div>
+                                </t>
+                            </templates>
+                        </kanban>
+                        <form>
+                            <group>
+                                <group>
+                                    <field name="round" placeholder="A name or a date" />
+                                    <field name="addressed_to_id" />
+                                </group>
+                                <group>
+                                    <!-- a new row is Open, or Answered once it is given an answer -->
+                                    <field
+                                        name="state"
+                                        widget="radio"
+                                        options="{'horizontal': true}"
+                                        attrs="{'readonly': [('id', '=', False)]}"
+                                    />
+                                    <field name="answered_by_id" readonly="1" />
+                                    <field name="answered_on" readonly="1" />
+                                </group>
+                            </group>
+                            <group>
+                                <field name="question" class="o_field_html_autogrow" />
+                                <field name="answer" class="o_field_html_autogrow" />
+                            </group>
+                        </form>
+                    </field>
                     <group>
-                        <field
-                            name="questions"
-                            placeholder="Add a description..."
-                            class="o_field_html_autogrow"
-                        />
-                        <field
-                            name="answers"
-                            placeholder="Add a description..."
-                            class="o_field_html_autogrow"
-                        />
                         <field
                             name="solution"
                             placeholder="Add a description..."

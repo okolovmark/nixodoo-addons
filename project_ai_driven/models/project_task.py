@@ -26,8 +26,6 @@ class ProjectTask(models.Model):
     _inherit = "project.task"
 
     is_ai_driven = fields.Boolean(related="project_id.is_ai_driven")
-    questions = fields.Html()
-    answers = fields.Html()
     solution = fields.Html()
     priority_level = fields.Selection(
         [
@@ -74,6 +72,9 @@ class ProjectTask(models.Model):
     completion_xml = fields.Html(compute="_compute_completion_xml")
     kanban_checklist = fields.Html(compute="_compute_kanban_checklist")
     testcase_ids = fields.One2many("project.task.testcase", "task_id", groups="project.group_project_user")
+    question_ids = fields.One2many(
+        "project.task.question", "task_id", string="Questions", groups="project.group_project_user"
+    )
     testcase_completion = fields.Integer(compute="_compute_testcase_completion")
     testcase_completion_xml = fields.Html(compute="_compute_testcase_completion")
     kanban_testcases = fields.Html(compute="_compute_kanban_testcases")
@@ -258,6 +259,8 @@ class ProjectTask(models.Model):
             item.copy({"task_id": task.id, "state": item.state})
         for testcase in self.testcase_ids:
             testcase.copy({"task_id": task.id, **testcase._get_result_values()})
+        for question in self.question_ids:
+            question.copy({"task_id": task.id, "state": question.state})
         return task
 
     @api.model

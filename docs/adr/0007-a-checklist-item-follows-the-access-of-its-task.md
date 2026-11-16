@@ -16,6 +16,7 @@ Rejected: following the user's companies instead of the selected ones. The Check
 - A user who narrows the company switcher sees fewer items, as with tasks. An RPC call without `allowed_company_ids` reaches the items of the tasks of all the user's companies.
 - The items of a task the user cannot read are not found, counted or grouped, in the menu and in name searches. Reading, writing or deleting one, or creating one on such a task, raises an access error.
 - A rule any module adds to `project.task` applies to the items without a change here.
+  - 2026-11-17: 16.0.2.7.0 moves the two overrides into `project.task.access.mixin`; question rows (`project.task.question`, ADR 0008) follow the access of their task through it too.
 - An item already deleted passes the check, as core lets a missing record through: two users deleting the same line from an open task form do not fail.
 - A search of items carries a subquery of the tasks the user can read.
 

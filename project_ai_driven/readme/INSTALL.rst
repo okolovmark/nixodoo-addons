@@ -128,6 +128,58 @@ a company that is not selected. Only the assignee or the reviewer of an item
 gives it another assignee; a reassignment by another user is refused. The
 deploy is one update of the module, with nothing else to run.
 
+The update to 16.0.2.7.0 turns the questions and answers of every task,
+archived tasks included, from the Html fields ``questions`` and ``answers``
+of the task into question rows. The install that takes over
+``project_software`` or the project-specific module it was cut from does it
+too. Html that shows no text, image, video, embedded frame or icon is blank.
+*Lists alone* is Html of top-level numbered or bulleted lists, each after at
+most one block of text, its heading, with nothing else: no other text, no
+image or list in a heading, no list inside another block. The heading gives
+the round of the rows of its list, as plain text. A list nested in a list
+belongs to the item before it; a list nested before any item makes the Html
+something else.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Questions and answers
+     - Rows
+   * - both lists alone, as many lists on each side, as many items in each
+       pair of lists
+     - a row per pair of items, Answered, or Open where the answer item is
+       blank
+   * - anything else on both sides
+     - one row of both as they are, Answered
+   * - questions alone, lists alone
+     - a row per item that is not blank, Open
+   * - questions alone, anything else
+     - one row of the questions as they are, Open
+   * - answers alone
+     - one row of the answers as they are, without a question, Answered
+   * - both blank
+     - none
+
+Where an answer list has a heading other than the round of its questions,
+the heading is put in front of each of its answers, so that a name or a date
+it gives stays with them. Names and dates in the answers are not read: a
+converted row has no Answered by and no Answered on. SQL inserts the rows,
+in the order of the Html, as the superuser, and writes nothing on the tasks.
+A task that already has rows is skipped, so a second run inserts nothing.
+The server log gets one line with the number of tasks of each case and of
+rows inserted per status.
+
+Before the data files are loaded, the two fields are taken out of the stored
+views of this module, in every translation; the update would otherwise fail
+validating the task form. A view outside this module that names one of them
+is not rewritten: change it by hand.
+
+This module does not declare the two fields. At its end the update deletes
+them with their columns, unless a module updated in the same run declares
+them: that module keeps the fields and their columns. Without them, the
+content is in the rows only. An update that finds the columns missing logs a
+warning and converts nothing.
+
 **Upgrading from project_software**
 
 ``project_software`` remains for one release as an empty module that depends
