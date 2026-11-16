@@ -2,25 +2,19 @@ from markupsafe import Markup, escape
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+from odoo.osv import expression
 
-CHECKLIST_ITEM_STATES = {
-    "done": "Done",
-    "todo": "TODO",
-    "waiting": "Waiting",
-    "cancelled": "Cancelled",
-}
 STATE_COLORS = {"done": "#080", "todo": "#A00", "cancelled": "#777", "waiting": "#b818ce"}
 NOTIFIED_FIELDS = ("state", "name", "user_id")
-GUARDED_FIELDS = ("state", "name")
+GUARDED_FIELDS = ("state", "name", "user_id")
 
 
 class ProjectTaskChecklistItem(models.Model):
     _name = "project.task.checklist.item"
     _description = "Checklist Item"
-    _inherit = ["mail.activity.mixin"]
 
     state = fields.Selection(
-        selection=list(CHECKLIST_ITEM_STATES.items()),
+        selection=[("done", "Done"), ("todo", "TODO"), ("waiting", "Waiting"), ("cancelled", "Cancelled")],
         string="Status",
         required=True,
         copy=False,
@@ -52,10 +46,6 @@ class ProjectTaskChecklistItem(models.Model):
             else:
                 record.recolor = False
 
-    def _compute_reviewer_id(self):
-        for record in self:
-            record.reviewer_id = record.create_uid
-
     @api.model_create_multi
     def create(self, vals_list):
         items = super().create(vals_list)
@@ -66,10 +56,31 @@ class ProjectTaskChecklistItem(models.Model):
         if any(field_name in vals for field_name in GUARDED_FIELDS):
             self._check_change_allowed()
         former_values = {record.id: (record.name, record.state) for record in self} if "name" in vals else {}
+        former_assignees = {record.id: record.user_id for record in self} if "user_id" in vals else {}
         result = super().write(vals)
         if any(field_name in vals for field_name in NOTIFIED_FIELDS):
-            self._notify_checklist_item_change(former_values)
+            self._notify_checklist_item_change(former_values, former_assignees)
         return result
+
+    def _apply_ir_rules(self, query, mode="read"):
+        """check_access_rule does not come through here: see _filter_access_rules_python."""
+        super()._apply_ir_rules(query, mode)
+        if self.env.su:
+            return
+        # not an ir.rule, so _flush_search does not flush the field it filters on
+        self.flush_model(["task_id"])
+        readable_tasks = self.env["project.task"].with_context(active_test=False)._search([], order="id")
+        expression.expression([("task_id", "in", readable_tasks)], self.sudo(), self._table, query)
+
+    def _filter_access_rules_python(self, operation):
+        allowed_items = super()._filter_access_rules_python(operation)
+        if self.env.su:
+            return allowed_items
+        # the task of an item deleted meanwhile cannot be read; core lets such an item through
+        existing_items = allowed_items.exists()
+        tasks = self.env["project.task"].browse(existing_items.task_id.ids)
+        readable_task_ids = set(tasks._filter_access_rules_python("read").ids)
+        return allowed_items - existing_items.filtered(lambda item: item.task_id.id not in readable_task_ids)
 
     def change_state_done(self):
         for record in self:
@@ -89,14 +100,18 @@ class ProjectTaskChecklistItem(models.Model):
 
     def _check_change_allowed(self):
         if self.filtered(lambda record: self.env.user not in record.user_id | record.reviewer_id):
-            raise UserError(_("Only the assignee or the reviewer of a checklist item can change its state or name."))
+            raise UserError(
+                _("Only the assignee or the reviewer of a checklist item can change its state, name or assignee.")
+            )
 
-    def _notify_checklist_item_change(self, former_values=None):
+    def _notify_checklist_item_change(self, former_values=None, former_assignees=None):
         """Post each item on its task to its assignee and its reviewer, but not
         to the user making the change: a change of one's own item is a note to
         no one. Followers of the task who opted into the checklist subtype get
         the posts of others. former_values, {item id: (name, state)}, adds the
-        name an item had before, under the state it had then.
+        name an item had before, under the state it had then;
+        former_assignees, {item id: res.users}, adds the assignee it had before
+        to its recipients.
 
         Honours mail_auto_subscribe_no_notify, as _task_message_auto_subscribe_notify
         of the task does: the post needs the author's email, and an author
@@ -106,7 +121,8 @@ class ProjectTaskChecklistItem(models.Model):
         if self.env.context.get("mail_auto_subscribe_no_notify"):
             return
         for record in self:
-            recipients = (record.user_id | record.reviewer_id) - self.env.user
+            former_assignee = (former_assignees or {}).get(record.id, self.env["res.users"])
+            recipients = (record.user_id | record.reviewer_id | former_assignee) - self.env.user
             record.task_id.message_post(
                 message_type="comment",
                 body=record._get_change_body(recipients, (former_values or {}).get(record.id)),
@@ -120,12 +136,12 @@ class ProjectTaskChecklistItem(models.Model):
             body += (
                 Markup(", ").join(recipients.mapped("name")) + Markup(", ") + self._get_change_intro() + Markup("<br>")
             )
-        body += _get_state_label(self.state) + escape(self.name)
+        body += self._get_state_label(self.state) + escape(self.name)
         if former_values:
             former_name, former_state = former_values
             body += (
-                Markup('<br><em style="color:#999">Updated from</em><br>')
-                + _get_state_label(former_state)
+                Markup('<br><em style="color:#999">%s</em><br>') % _("Updated from")
+                + self._get_state_label(former_state)
                 + escape(former_name)
             )
         return body + Markup("</p>")
@@ -134,15 +150,14 @@ class ProjectTaskChecklistItem(models.Model):
         if self.env.user == self.reviewer_id:
             return Markup()
         if self.env.user == self.user_id:
-            return Markup('<em style="color:#999">I updated checklist item assigned to me:</em> ')
-        return (
-            Markup('<em style="color:#999">I updated checklist item, now its assigned to %s: </em> ')
-            % self.user_id.name
+            intro = _("I updated checklist item assigned to me:")
+        else:
+            intro = _("I updated checklist item, now it is assigned to %s:", self.user_id.name)
+        return Markup('<em style="color:#999">%s</em> ') % intro
+
+    def _get_state_label(self, state):
+        state_labels = dict(self._fields["state"]._description_selection(self.env))
+        return Markup('<strong><span style="color:%s">%s</span></strong>: ') % (
+            STATE_COLORS[state],
+            state_labels[state],
         )
-
-
-def _get_state_label(state):
-    return Markup('<strong><span style="color:%s">%s</span></strong>: ') % (
-        STATE_COLORS[state],
-        CHECKLIST_ITEM_STATES[state],
-    )

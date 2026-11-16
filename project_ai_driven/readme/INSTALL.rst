@@ -97,9 +97,9 @@ Former external id                    External id
 
 ``default_user`` is taken out of the stored views of this module. Every
 record keeps its database id, so the items, their activities and the
-follower subscriptions to *All checklist updates* stay as they are. The server log
-gets one line with the count of each kind of rename; a second run changes
-nothing.
+follower subscriptions to *All checklist updates* stay as they are; the
+update to 16.0.2.6.1 then deletes the activities. The server log gets one
+line with the count of each kind of rename; a second run changes nothing.
 
 Not rewritten: the code of server actions and scheduled actions, the bodies
 of mail templates, the field paths of export lines, the views of other
@@ -110,6 +110,23 @@ their former names, ``my_subtask`` and ``done_subtask``, now ``my`` and
 Run the update with the server stopped: renaming the table locks it, and
 running code reads the former names. Every client, RPC scripts and modules
 that name the checklist, moves to the new names in the same deploy.
+
+The update to 16.0.2.6.1 removes the activities of the checklist: the model
+no longer has activity fields. Before the data files are loaded, SQL
+deletes the activities of checklist items, the external ids ``mail`` holds
+on the selection values of those fields and the external ids other modules
+hold on the fields; at its end the update deletes the fields, which have no
+column. The install that takes over ``project_software`` or the
+project-specific module it was cut from does it too. The server log gets
+one line with the count of activities and of external ids deleted; a second
+run deletes nothing.
+
+From 16.0.2.6.1 a checklist item follows the access of its task, the
+companies selected in the company switcher included: the **Checklist** menu
+no longer lists the items of a task the user cannot read, nor of a task in
+a company that is not selected. Only the assignee or the reviewer of an item
+gives it another assignee; a reassignment by another user is refused. The
+deploy is one update of the module, with nothing else to run.
 
 **Upgrading from project_software**
 

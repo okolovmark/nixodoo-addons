@@ -5,7 +5,8 @@ On the task form:
 * *Checklist* tab: add items, each with an **Assigned to** user, yourself
   unless you pick another, and an optional deadline. You are the reviewer of
   the items you add. The assignee or the reviewer moves an item with the
-  state icons (TODO, Waiting, Done, Cancelled). The task's kanban card shows
+  state icons (TODO, Waiting, Done, Cancelled), changes its description or
+  gives it another assignee. The task's kanban card shows
   your own completion percentage, only when you have non-cancelled items
   assigned to you.
 * *Test Cases* tab: add ordered cases with steps and expected results, then
@@ -29,8 +30,9 @@ On the task form:
   moving the task to a stage that requires them. The refusal names what is
   missing.
 
-**Project > Checklist** lists the checklist items of all tasks, opened on
-your own TODO items.
+**Project > Checklist** lists the checklist items of the tasks you can read
+in the selected companies, opened on your own TODO items. Group by project,
+task, user or status.
 
 **Project > Test Cases** lists the test cases of all tasks, opened on the
 ones Not run: a list, cards on a phone. Filter on Not run or Failed, group
@@ -56,7 +58,9 @@ A tool that keeps a checklist over RPC creates ``project.task.checklist.item``
 records with ``task_id``, ``name`` and ``user_id``, which defaults to the
 tool's own user, and reads the items of a task from ``checklist_item_ids``.
 It moves an item by writing ``state`` (``todo``, ``waiting``, ``done`` or
-``cancelled``) as the item's assignee or reviewer.
+``cancelled``) as the item's assignee or reviewer. It reaches only the items
+of the tasks its user can read; without ``allowed_company_ids`` in the
+context, those of all the user's companies.
 
 A tool that gives test case results over RPC writes ``state`` on
 ``project.task.testcase``: ``not_run``, ``passed``, ``failed``, ``waiting``
