@@ -206,12 +206,12 @@ Credits
 Authors
 ~~~~~~~
 
-* Kaertech
+* Mark Okolov
 
 Contributors
 ~~~~~~~~~~~~
 
-* Kaertech <https://www.kaertech.com>
+* Mark Okolov <https://github.com/okolovmark>
 
 Maintainers
 ~~~~~~~~~~~
