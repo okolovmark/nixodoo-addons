@@ -59,9 +59,26 @@
             </xpath>
             <xpath expr="//field[@name='tag_ids']" position="before">
                 <field name="priority_level" string="Priority" />
-                <field name="tshirt_estimate" string="T-shirt Estimate" />
+                <field name="planned_hours" string="Estimate" widget="float_time" />
+                <field name="tshirt_estimate" />
                 <field name="task_type" string="Task Type" />
                 <field name="resolution" attrs="{'invisible': [('is_ai_driven', '=', False)]}" />
+            </xpath>
+            <!-- the star of the form itself, wherever in the sheet another module puts it -->
+            <xpath expr="//sheet//field[@name='priority'][not(ancestor::field)]" position="attributes">
+                <attribute name="attrs">{'invisible': [('is_ai_driven', '=', True)]}</attribute>
+            </xpath>
+            <xpath expr="//field[@name='child_ids']/tree/field[@name='priority']" position="attributes">
+                <attribute name="attrs">{'invisible': [('is_ai_driven', '=', True)]}</attribute>
+            </xpath>
+            <xpath expr="//field[@name='child_ids']/tree/field[@name='priority']" position="after">
+                <field name="is_ai_driven" invisible="1" />
+            </xpath>
+            <xpath expr="//field[@name='depend_on_ids']/tree/field[@name='priority']" position="attributes">
+                <attribute name="attrs">{'invisible': [('is_ai_driven', '=', True)]}</attribute>
+            </xpath>
+            <xpath expr="//field[@name='depend_on_ids']/tree/field[@name='priority']" position="after">
+                <field name="is_ai_driven" invisible="1" />
             </xpath>
         </field>
     </record>
@@ -73,6 +90,40 @@
         <field name="arch" type="xml">
             <xpath expr="//field[@name='tag_ids']" position="before">
                 <field name="task_type" string="Task Type" optional="show" />
+            </xpath>
+            <xpath expr="//tree/field[@name='priority']" position="attributes">
+                <attribute name="attrs">{'invisible': [('is_ai_driven', '=', True)]}</attribute>
+            </xpath>
+            <xpath expr="//tree/field[@name='priority']" position="after">
+                <field name="is_ai_driven" invisible="1" />
+            </xpath>
+        </field>
+    </record>
+
+    <record id="project_task_view_kanban_inherit_ai_driven" model="ir.ui.view">
+        <field name="name">project.task.view.kanban.inherit.project_ai_driven</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project.view_task_kanban" />
+        <field name="arch" type="xml">
+            <xpath expr="//kanban/field[@name='priority']" position="after">
+                <field name="is_ai_driven" />
+            </xpath>
+            <xpath expr="//div[hasclass('oe_kanban_bottom_left')]/field[@name='priority']" position="attributes">
+                <attribute name="attrs">{'invisible': [('is_ai_driven', '=', True)]}</attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="project_task_view_calendar_inherit_ai_driven" model="ir.ui.view">
+        <field name="name">project.task.view.calendar.inherit.project_ai_driven</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project.view_task_calendar" />
+        <field name="arch" type="xml">
+            <xpath expr="//calendar/field[@name='priority']" position="attributes">
+                <attribute name="attrs">{'invisible': [('is_ai_driven', '=', True)]}</attribute>
+            </xpath>
+            <xpath expr="//calendar/field[@name='priority']" position="after">
+                <field name="is_ai_driven" invisible="1" />
             </xpath>
         </field>
     </record>

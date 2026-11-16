@@ -14,6 +14,13 @@
                     options="{'no_create': True}"
                     attrs="{'invisible': [('is_ai_driven', '=', False)]}"
                 />
+                <field
+                    name="estimate_required_states"
+                    widget="many2many_tags"
+                    domain="[('project_ids', '=', id)]"
+                    options="{'no_create': True}"
+                    attrs="{'invisible': [('is_ai_driven', '=', False)]}"
+                />
             </xpath>
         </field>
     </record>

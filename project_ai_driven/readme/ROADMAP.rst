@@ -6,16 +6,21 @@
 * The pull requests of a task are tracked only through ``pr_uri``: one that
   is added without becoming the task's first leaves no trace in the chatter.
   Odoo 16 tracks no many2many field.
-* The closing rule is checked on the tasks of a write that names their stage
-  or their project. A stage recomputed for another reason is not checked, as
-  for a subtask whose parent changes project.
+* The closing rule and the estimate rule are checked on the tasks of a write
+  that names their stage or their project. A stage recomputed for another
+  reason is not checked, as for a subtask whose parent changes project, and
+  neither are the other tasks of a recurrence that the write is extended to.
 * A module that writes a task's new project on its own, before the other
-  values of the same write, runs the closing rule before the Resolution of
-  that write arrives. Setting the Resolution in an earlier write avoids it.
-* The closing rule is not run when a stage gets marked or a project gets
-  flagged, so a task can sit in a marked stage with neither a Resolution nor
-  a pull request. Such a task stops the duplication of its project until it
-  gets one.
+  values of the same write, runs both rules before the Resolution, the task
+  type and the estimate of that write arrive. Setting them in an earlier
+  write avoids it.
+* Neither rule is run when a stage gets marked or a project gets flagged, so
+  a task can sit in a marked stage without what the stage requires: a
+  Resolution, a pull request, a task type or an estimate. Such a task stops
+  the duplication of its project until it gets it.
+* The priority star is hidden on the views the description lists. The
+  portal keeps it: the project sharing views, the task list and the task
+  page.
 * A row of the stage log is written when the change of stage is flushed to
   the database. Several changes of a task's stage within one flush are one
   row, from the stored stage to the last one, and a change undone within one

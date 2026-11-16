@@ -1,7 +1,7 @@
 from odoo.tests.common import tagged
 
 from ..hooks import MODULE
-from ..models.project_task import TSHIRT_HOURS
+from ..models.project_task import SIZE_BANDS
 from .common import ProjectAiDrivenCommon
 
 DELETED_FIELDS = ("difficulty", "knowledge_area_level", "tester_id")
@@ -41,14 +41,15 @@ class TestAiDrivenTask(ProjectAiDrivenCommon):
             label = self.env[model].fields_get(["is_ai_driven"])["is_ai_driven"]["string"]
             self.assertEqual(label, "AI-driven Project", model)
 
-    def test_defaults(self):
+    def test_new_task_has_no_type_estimate_or_size(self):
         self.assertRecordValues(
             self.task,
             [
                 {
-                    "task_type": "improvement",
+                    "task_type": False,
                     "priority_level": "1",
-                    "tshirt_estimate": "m",
+                    "planned_hours": 0,
+                    "tshirt_estimate": False,
                 },
             ],
         )
@@ -57,7 +58,6 @@ class TestAiDrivenTask(ProjectAiDrivenCommon):
         expected_values = {
             "task_type": ["feature", "bug", "improvement", "investigation", "milestone", "support", "technical_debt"],
             "priority_level": ["4", "3", "2", "1", "0"],
-            "tshirt_estimate": ["xs", "s", "m", "l", "xl", "xxl"],
         }
         for field_name, values in expected_values.items():
             self.assertEqual(self._selection_values(field_name), values, field_name)
@@ -65,14 +65,7 @@ class TestAiDrivenTask(ProjectAiDrivenCommon):
                 self.task.write({field_name: value})
                 self.assertEqual(self.task[field_name], value)
 
-    def test_tshirt_estimate_fills_empty_planned_hours(self):
-        self.assertEqual(set(TSHIRT_HOURS), set(self._selection_values("tshirt_estimate")))
-        for size, hours in TSHIRT_HOURS.items():
-            task = self.env["project.task"].new({"name": "Estimated", "tshirt_estimate": size})
-            task._onchange_tshirt_estimate()
-            self.assertEqual(task.planned_hours, hours, size)
-
-    def test_tshirt_estimate_keeps_planned_hours_already_set(self):
-        task = self.env["project.task"].new({"name": "Estimated", "planned_hours": 42, "tshirt_estimate": "xs"})
-        task._onchange_tshirt_estimate()
-        self.assertEqual(task.planned_hours, 42)
+    def test_sizes_are_the_ones_of_the_bands(self):
+        sizes = ["xs", "s", "m", "l", "xl", "xxl"]
+        self.assertEqual(self._selection_values("tshirt_estimate"), sizes)
+        self.assertEqual([size for _max_hours, size in SIZE_BANDS], sizes)

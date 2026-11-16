@@ -427,6 +427,27 @@ FILL_STAGE_LOG = """
     SELECT 'undated', count(*) FROM past WHERE date IS NULL
 """
 
+# The CASE states SIZE_BANDS of the task model.
+RECOMPUTE_TASK_SIZES = """
+    UPDATE project_task
+       SET tshirt_estimate = sized.size
+      FROM (
+            SELECT id,
+                   CASE
+                       WHEN COALESCE(planned_hours, 0) <= 0 THEN NULL
+                       WHEN planned_hours <= 2 THEN 'xs'
+                       WHEN planned_hours <= 6 THEN 's'
+                       WHEN planned_hours <= 12 THEN 'm'
+                       WHEN planned_hours <= 32 THEN 'l'
+                       WHEN planned_hours <= 60 THEN 'xl'
+                       ELSE 'xxl'
+                   END AS size
+              FROM project_task
+           ) AS sized
+     WHERE sized.id = project_task.id
+       AND project_task.tshirt_estimate IS DISTINCT FROM sized.size
+"""
+
 
 def pre_init_hook(cr):
     """Take over what this module held under its former names.
@@ -471,11 +492,30 @@ def pre_init_hook(cr):
 def post_init_hook(cr, registry):
     """Migration scripts do not run on an install, and the column of pr_uri
     may hold the values project_task_pull_request stored in it. The tasks
-    that exist already have a past to log, too.
+    that exist already have a past to log, too, and the column of their size
+    may hold sizes from before the size followed the hours.
     """
     env = api.Environment(cr, SUPERUSER_ID, {})
     convert_old_pr_uri_values(env)
     fill_stage_log(env)
+    recompute_task_sizes(cr)
+
+
+def recompute_task_sizes(cr):
+    """Give every task whose stored size is not the size of its hours that
+    size, and return how many tasks changed.
+
+    The column is older than the compute, which an update does not run on the
+    rows that exist. The rows are written by SQL: they are not edits of the
+    tasks, so no write date. A second run finds nothing left to change.
+    """
+    env = api.Environment(cr, SUPERUSER_ID, {})
+    env.flush_all()
+    cr.execute(RECOMPUTE_TASK_SIZES)
+    changed_count = cr.rowcount
+    env["project.task"].invalidate_model(["tshirt_estimate"])
+    _logger.info("Task sizes recomputed from the hours: %d tasks changed", changed_count)
+    return changed_count
 
 
 def fill_stage_log(env):

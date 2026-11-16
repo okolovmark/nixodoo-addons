@@ -1,19 +1,31 @@
 Additions to project tasks for AI-driven development: task attributes,
 clarifying questions with their answers and the technical solution, a
-checklist and test cases per task, pull requests as records, and a
-Resolution that a task needs to enter the stages its project marks. The
-module also logs the stage changes of every task of the database.
+checklist and test cases per task, pull requests as records, and two rules
+on the stages a project marks: a Resolution to enter some, a task type and
+an estimate to enter others. The module also logs the stage changes of
+every task of the database.
 
 **Task attributes** (``project.task``)
 
-* **Priority** (Highest to Lowest), **T-shirt Estimate** (XS = 1h or less, S
-  = 4h, M = 1d, L = 3d, XL = 1w, XXL = 2w or more) and **Task Type**
+* **Priority** (Highest to Lowest), **Estimate**, **Size** and **Task Type**
   (Feature, Bug, Improvement, Investigation, Milestone, Support, Technical
   Debt), next to the tags on the task form. The type is also a column of the
   task list; its tracking messages name the field **AI-driven Task Type**.
-* Picking a T-shirt estimate fills *Initially Planned Hours* while it is
-  empty: 1, 4, 8, 24, 40 or 80 hours. The value is kept only where that field
-  is on the task form, which is the case once Timesheets is installed.
+  Neither the type nor the estimate has a default value.
+* **Estimate** is the core field ``planned_hours`` (*Initially Planned
+  Hours*), in hours. **Size** (``tshirt_estimate``) is stored, read-only and
+  follows it: XS up to 2 hours, S up to 6, M up to 12, L up to 32, XL up to
+  60, XXL above; empty while the estimate is not above zero. A size sent in
+  a write is dropped and one sent at creation is recomputed from the hours;
+  neither call is refused. With Timesheets installed, its tab on the task
+  shows the same field as *Allocated Hours* (*Allocated Days* where the
+  company encodes timesheets in days).
+* The core priority star is hidden on the tasks of a project flagged
+  **AI-driven Project**: on the form, the kanban card, the task list, the
+  *Sub-tasks* and *Blocked By* lists of the form and the calendar popover.
+  Its stored value is not touched: core still orders tasks by it, and the
+  filters *High Priority* and *Low Priority* still search on it. The tasks
+  of other projects keep the star.
 * A **Technical Solution** tab with Questions, Answers and Solution, shown to
   project users on the tasks of a project flagged **AI-driven Project**.
 * Assignment notifications honour the ``mail_auto_subscribe_no_notify``
@@ -119,6 +131,26 @@ stage. The Resolution and the pull request may come in the same write as the
 stage. Any other stage, a project that is not flagged AI-driven and a write
 that leaves the stage as it is let everything through, so a task already
 sitting in a marked stage stays editable. No context key skips the rule.
+
+**The estimate rule**
+
+On an AI-driven project, **Stages Requiring a Type and an Estimate**
+(``estimate_required_states``) marks stages. A task of that project enters a
+marked stage only with a **Task Type** and an **Estimate** above zero hours.
+The refusal names what is missing, the type, the estimate or both, each with
+the tasks that lack it.
+
+The rule is checked where the closing rule is: on creation, on a write of
+the stage and on a change of project that moves the task to another stage.
+The type and the estimate may come in the same write as the stage, and a
+task created straight into a marked stage needs both in the values of its
+creation. Any other stage, a project that is not flagged AI-driven and a
+write that leaves the stage as it is let everything through, so a task
+already sitting in a marked stage stays editable. No context key skips the
+rule. A stage marked for both rules refuses for the Resolution first.
+
+The next task of a recurrence takes the task type of the last one, as it
+takes its estimate.
 
 **The stage log** (``project.task.stage.log``)
 
