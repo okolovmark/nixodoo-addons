@@ -427,6 +427,14 @@ FILL_STAGE_LOG = """
     SELECT 'undated', count(*) FROM past WHERE date IS NULL
 """
 
+# PostgreSQL holds a NaN equal to itself, so IN finds it.
+CLEAR_ESTIMATES_THAT_ARE_NOT_NUMBERS = """
+    UPDATE project_task
+       SET planned_hours = 0
+     WHERE planned_hours IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)
+ RETURNING id
+"""
+
 # The CASE states SIZE_BANDS of the task model.
 RECOMPUTE_TASK_SIZES = """
     UPDATE project_task
@@ -493,12 +501,36 @@ def post_init_hook(cr, registry):
     """Migration scripts do not run on an install, and the column of pr_uri
     may hold the values project_task_pull_request stored in it. The tasks
     that exist already have a past to log, too, and the column of their size
-    may hold sizes from before the size followed the hours.
+    may hold sizes from before the size followed the hours, and hours that
+    are not a number.
     """
     env = api.Environment(cr, SUPERUSER_ID, {})
     convert_old_pr_uri_values(env)
     fill_stage_log(env)
+    clear_estimates_that_are_not_numbers(cr)
     recompute_task_sizes(cr)
+
+
+def clear_estimates_that_are_not_numbers(cr):
+    """Set to zero the hours of every task that holds a NaN or an infinity,
+    and return how many tasks changed.
+
+    A write refuses such hours since 16.0.2.4.1, so a task holding them could
+    no longer be copied or recur; the web client cannot load it either. The
+    hours are set by SQL, without tracking; the stored fields computed from
+    them (the size, and the remaining hours of hr_timesheet) are recomputed
+    through the ORM, which stamps the last update of those tasks.
+    """
+    env = api.Environment(cr, SUPERUSER_ID, {})
+    env.flush_all()
+    cr.execute(CLEAR_ESTIMATES_THAT_ARE_NOT_NUMBERS)
+    tasks = env["project.task"].browse(row[0] for row in cr.fetchall())
+    # the whole record: a value in the cache equal to the recomputed one would not be written
+    tasks.invalidate_recordset()
+    tasks.modified(["planned_hours"])
+    env.flush_all()
+    _logger.info("Estimates that were not a number set to zero: %d tasks", len(tasks))
+    return len(tasks)
 
 
 def recompute_task_sizes(cr):

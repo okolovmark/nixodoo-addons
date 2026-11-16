@@ -6,6 +6,7 @@ from .common import ProjectAiDrivenCommon
 
 NO_TYPE = "Choose a Task Type"
 NO_ESTIMATE = "Enter an Estimate above zero hours"
+NOT_A_NUMBER = "The Estimate is a finite number of hours"
 
 
 @tagged("post_install", "-at_install")
@@ -73,6 +74,26 @@ class TestEstimateRule(ProjectAiDrivenCommon):
             self.task.planned_hours = hours
             with self.assertRefused(NO_ESTIMATE, self.task.name):
                 self.task.stage_id = self.stage_progress
+
+    def test_estimate_stored_as_nan_is_refused(self):
+        """Stored by SQL, as before the Estimate had to be a number: a NaN is not above zero."""
+        self.task.task_type = "bug"
+        self.env.flush_all()
+        self.env.cr.execute("UPDATE project_task SET planned_hours = 'NaN' WHERE id = %s", (self.task.id,))
+        self.task.invalidate_recordset(["planned_hours"])
+        with self.assertRefused(NO_ESTIMATE, self.task.name):
+            self.task.stage_id = self.stage_progress
+
+    def test_estimate_must_be_a_number_in_any_project(self):
+        plain_project = self.env["project.project"].create({"name": "Plain Project", "type_ids": [Command.clear()]})
+        for hours in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(hours=hours):
+                with self.assertRefused(NOT_A_NUMBER, self.task.name):
+                    self.task.planned_hours = hours
+                with self.assertRefused(NOT_A_NUMBER, "Plain Task"):
+                    self.env["project.task"].create(
+                        {"name": "Plain Task", "project_id": plain_project.id, "planned_hours": hours},
+                    )
 
     def test_type_and_estimate_arrive_with_the_stage(self):
         with self.assertRefused(NO_TYPE):
@@ -200,6 +221,7 @@ class TestEstimateRule(ProjectAiDrivenCommon):
         self.project.privacy_visibility = "followers"
         self.task.user_ids = self.user_dev
         task = self.task.with_user(self.user_dev)
+        task.check_access_rights("write")
         task.check_access_rule("write")
         with self.assertRaises(AccessError):
             task.project_id.check_access_rule("read")

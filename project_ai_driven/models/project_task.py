@@ -1,3 +1,5 @@
+import math
+
 from markupsafe import Markup, escape
 
 from odoo import Command, _, api, fields, models
@@ -241,6 +243,18 @@ class ProjectTask(models.Model):
         with self.env.protecting([self._fields["pr_uri"]], self):
             self._compute_pr_uri()
 
+    @api.constrains("planned_hours")
+    def _check_estimate_is_a_number(self):
+        """A NaN passes no comparison of the rules, and the JSON the web client
+        receives would carry a NaN or an infinity bare, which is not JSON.
+        """
+        tasks = self.filtered(lambda record: not math.isfinite(record.planned_hours))
+        if tasks:
+            raise ValidationError(
+                _("The Estimate is a finite number of hours: NaN and infinity are refused.\nTasks: %s")
+                % ", ".join(tasks.mapped("display_name"))
+            )
+
     @api.model_create_multi
     def create(self, vals_list):
         tasks = super().create(vals_list)
@@ -392,7 +406,8 @@ class ProjectTask(models.Model):
             ),
             (
                 _("Enter an Estimate above zero hours: a task enters this stage only with one."),
-                self.filtered(lambda record: record.planned_hours <= 0),
+                # not above zero: a NaN is neither above nor below it
+                self.filtered(lambda record: not record.planned_hours > 0),
             ),
         ]
 

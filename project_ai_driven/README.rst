@@ -248,6 +248,15 @@ line with the number of tasks changed; a second run changes none. On a
 database that has neither module installed, the install computes the size of
 the tasks that exist through the ORM, which writes those tasks.
 
+The update to 16.0.2.4.1 sets to zero the hours (``planned_hours``) of
+every task that holds a NaN or an infinity, archived tasks included, and
+recomputes what is computed from them: the size, none for zero hours, and
+with ``hr_timesheet`` the remaining hours. From this version a write
+refuses such hours, so a task holding them could no longer be copied or
+recur. No tracking message is posted; the recompute stamps the last update
+date of those tasks. The server log gets the number of tasks changed. The
+install does the same.
+
 **Upgrading from project_software**
 
 ``project_software`` remains for one release as an empty module that depends
@@ -487,7 +496,8 @@ pull request, one link per write, or ``resolution`` to ``data``,
 ``configuration`` or ``no_change`` when there is none. A write of another
 link adds a second pull request to the task. The estimate is written to
 ``planned_hours`` and the type to ``task_type``; a ``tshirt_estimate`` sent
-with them is ignored.
+with them is ignored. The estimate is a finite number: a NaN or an infinity
+is refused, in any project.
 
 The stage log has no view and no menu. A system administrator reads
 ``project.task.stage.log`` over RPC: the rows come ordered by date, each
