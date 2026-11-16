@@ -18,5 +18,6 @@ Rejected: `project.task.checklist` and `checklist_ids`. A record is one item of 
 - The update runs with the server stopped: renaming the table takes an exclusive lock on it, and running code reads the former names.
 - Not rewritten: the code of server actions and scheduled actions, the bodies of mail templates, the field paths of export lines, the views of other models, and a context that turns on a search filter by its former name. None ships with the module.
 - Items, their activities and the subscriptions to All checklist updates keep their ids and stay as they are.
+  - 2026-11-16: 16.0.2.6.1 removes the activities (activities could not be scheduled on an item).
 
 Reversal cost: a rename of the same shape back, `rename_checklist` with the names swapped, and every client moved again in one deploy. `default_user` would have to be written again.
