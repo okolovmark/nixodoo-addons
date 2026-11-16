@@ -67,7 +67,7 @@ class ProjectAiDrivenCommon(TransactionCase):
 
     @contextmanager
     def assertRefused(self, *message_parts):
-        # assertRaises rolls the refused write back; assertRaisesRegex leaves it in the cache
+        # each part as plain text, in any order: assertRaisesRegex takes one pattern
         with self.assertRaises(ValidationError) as refusal:
             yield
         for message_part in message_parts:
