@@ -106,8 +106,8 @@ are rows in an order of their own:
 * **Addressed to**: the internal user the question is for.
 * **Status**: Open, Answered or Dropped. A row is Open until it gets an
   answer that shows something: text, an image, a video or an icon. A create
-  or a write that gives such an answer to an Open row makes it Answered; a
-  Dropped row stays Dropped. An answer of spaces, empty paragraphs or empty
+  or a write that gives such an answer to an Open row makes it Answered,
+  unless the same call sets the status; a Dropped row stays Dropped. An answer of spaces, empty paragraphs or empty
   list items leaves the row Open.
 * **Answered by** and **Answered on**: who made the row Answered, and when. A
   create or write that makes a row Answered fills them with the user who

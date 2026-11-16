@@ -135,7 +135,8 @@ of the task into question rows. The install that takes over
 too. Html that shows no text, image, video, embedded frame or icon is blank.
 *Lists alone* is Html of top-level numbered or bulleted lists, each after at
 most one block of text, its heading, with nothing else: no other text, no
-image or list in a heading, no list inside another block. The heading gives
+image, video, embedded frame, icon or list in a heading, no list inside
+another block. The heading gives
 the round of the rows of its list, as plain text. A list nested in a list
 belongs to the item before it; a list nested before any item makes the Html
 something else.
@@ -148,11 +149,13 @@ something else.
    * - both lists alone, as many lists on each side, as many items in each
        pair of lists
      - a row per pair of items, Answered, or Open where the answer item is
-       blank
+       blank; a pair of two blank items gives no row, and when every pair is
+       blank the task is kept whole
    * - anything else on both sides
      - one row of both as they are, Answered
    * - questions alone, lists alone
-     - a row per item that is not blank, Open
+     - a row per item that is not blank, Open; one row of the questions as
+       they are when every item is blank
    * - questions alone, anything else
      - one row of the questions as they are, Open
    * - answers alone
