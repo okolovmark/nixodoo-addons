@@ -1,5 +1,5 @@
 Additions to project tasks for AI-driven development: task attributes,
-clarifying questions with their answers and the technical solution, a
+clarifying questions as rows with their answers, the technical solution, a
 checklist and test cases per task, pull requests as records, and two rules
 on the stages a project marks: a Resolution to enter some, a task type and
 an estimate to enter others. The module also logs the stage changes of
@@ -26,8 +26,9 @@ every task of the database.
   Its stored value is not touched: core still orders tasks by it, and the
   filters *High Priority* and *Low Priority* still search on it. The tasks
   of other projects keep the star.
-* A **Technical Solution** tab with Questions, Answers and Solution, shown to
-  project users on the tasks of a project flagged **AI-driven Project**.
+* A **Technical Solution** tab with the Questions list and the Solution,
+  shown to project users on the tasks of a project flagged **AI-driven
+  Project**.
 * Assignment notifications honour the ``mail_auto_subscribe_no_notify``
   context, so an account without an email address (an RPC service account)
   can assign tasks without failing.
@@ -94,6 +95,32 @@ filtered on the cases Not run; remove the *Not run* filter to see them all.
 Copying a task also copies its checklist items, keeping their states, and
 its test cases, keeping their status, Verified by, Verified on,
 Verification and Automated test reference.
+
+**Questions** (``project.task.question``)
+
+The clarifying questions of a task, its **Questions** (``question_ids``),
+are rows in an order of their own:
+
+* **Round**: the round of questions the row was asked in, a name or a date.
+* **Question** and **Answer**: rich text.
+* **Addressed to**: the internal user the question is for.
+* **Status**: Open, Answered or Dropped. A row is Open until it gets an
+  answer that shows something: text, an image, a video or an icon. A create
+  or a write that gives such an answer to an Open row makes it Answered,
+  unless the same call sets the status; a Dropped row stays Dropped. An answer of spaces, empty paragraphs or empty
+  list items leaves the row Open.
+* **Answered by** and **Answered on**: who made the row Answered, and when. A
+  create or write that makes a row Answered fills them with the user who
+  makes it, also under ``sudo()``, and the current time; a value the same
+  call gives is kept. A row already Answered keeps them when it is set
+  Answered again or gets another answer. Open clears them and keeps the
+  answer; Dropped leaves them.
+
+A row is named by the text of its question, cut at 80 characters, or of its
+answer when the question is blank, or else by its task. A row is found,
+read, changed, deleted and created by the users who can read its task, as a
+checklist item is. Copying a task copies its rows with all their values,
+the status, Answered by and Answered on included.
 
 **Pull requests** (``project.pull.request``)
 
@@ -230,3 +257,7 @@ cut from a project-specific module. What a database that has
 ``subtask_ids`` and ``kanban_subtasks`` those of the task fields
 ``checklist_item_ids`` and ``kanban_checklist``. What the update to
 16.0.2.6.0 renames is under *Installation*.
+
+``questions`` and ``answers``, two Html fields of the task, are the former
+form of the question rows; this module does not declare them. What the
+update to 16.0.2.7.0 makes of them is under *Installation*.

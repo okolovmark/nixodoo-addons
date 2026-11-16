@@ -16,10 +16,10 @@
   The duplicate of a project copies each task with its type and its
   estimate, so it is refused only where a task sits in such a stage without
   them.
-* Checklist items and test cases are managed by **Project / User**, a
-  checklist item only by a user who can read its task. The Checklist, Test
-  Cases and Technical Solution tabs are hidden from users without that
-  group.
+* Checklist items, question rows and test cases are managed by **Project /
+  User**, a checklist item and a question row only by a user who can read
+  its task. The Checklist, Test Cases and Technical Solution tabs are hidden
+  from users without that group.
 * Pull requests are read by every internal user and created and edited by
   **Project / User**. No access right allows deleting one.
 * The stage log is read by **Administration / Settings** only. No access

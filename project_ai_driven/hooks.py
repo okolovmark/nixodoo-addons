@@ -1,8 +1,11 @@
+import copy
+import html
 import logging
 import re
 from collections import defaultdict
 
 from lxml import etree
+from lxml import html as lxml_html
 from psycopg2 import sql
 from psycopg2.extras import Json
 
@@ -10,6 +13,7 @@ from odoo import SUPERUSER_ID, api
 from odoo.tools.sql import column_exists, rename_column, table_exists
 
 from .models.project_pull_request import parse_pull_request_links
+from .models.project_task_question import get_visible_text, has_content, has_media, is_blank_html, parse_html
 from .models.project_task_testcase import OLD_STATES
 
 _logger = logging.getLogger(__name__)
@@ -34,13 +38,12 @@ FIELD_NAMING_COLUMNS = (
     ("ir_act_window", "context"),
 )
 
-# What the legacy module holds, under the names it knows.
+# What the legacy module holds, under the names it knows. Not its questions and answers: their
+# content became question rows, and the fields stay with whatever replaces the legacy module.
 ADOPTED_MODELS = ("project.task.subtask", "project.task.testcase")
 ADOPTED_FIELDS = (
     ("project.project", "is_software_project"),
     ("project.task", "is_software_project"),
-    ("project.task", "questions"),
-    ("project.task", "answers"),
     ("project.task", "solution"),
     ("project.task", "priority_level"),
     ("project.task", "task_type"),
@@ -89,6 +92,9 @@ DROPPED_FIELDS = (
     ("project.task", "tester_id"),
 )
 DROPPED_FOREIGN_KEYS = ("project_task_tester_id_fkey",)
+# Deleted from this module since, and declared anew by the module that replaces the legacy one, which
+# keeps them: only their nodes go from the views of this module.
+MOVED_FIELDS = (("project.task", "questions"), ("project.task", "answers"))
 # Deleted from the test case model since; the checklist model still has methods of these names.
 DROPPED_TEST_CASE_BUTTONS = ("change_state_done", "change_state_todo", "change_state_waiting", "change_state_cancelled")
 
@@ -661,6 +667,39 @@ CORRECT_PASSED_FLAGS = """
      WHERE passed IS DISTINCT FROM (state = 'passed')
 """
 
+QUESTION_COLUMNS = ("questions", "answers")
+LIST_TAGS = ("ol", "ul")
+# The cases of convert_questions_to_rows, in the words of its log line.
+QUESTION_CASES = {
+    "paired_lists": "tasks with lists paired item by item",
+    "kept_whole": "tasks with questions and answers kept whole",
+    "open_questions": "tasks with questions and no answers",
+    "answers_only": "tasks with answers and no questions",
+    "blank": "tasks with blank questions and answers",
+    "has_rows": "tasks skipped for the rows they have",
+}
+CONVERTED_STATES = ("answered", "open")
+TASK_QUESTIONS_AND_ANSWERS = """
+    SELECT task.id, task.questions, task.answers,
+           EXISTS (SELECT 1 FROM project_task_question question WHERE question.task_id = task.id)
+      FROM project_task task
+     WHERE task.questions IS NOT NULL OR task.answers IS NOT NULL
+  ORDER BY task.id
+"""
+# Every row of a task under the default sequence: the id keeps their order, and a row added later comes last.
+INSERT_QUESTION_ROWS = """
+    INSERT INTO project_task_question
+           (task_id, project_id, sequence, round, question, answer, state,
+            create_uid, create_date, write_uid, write_date)
+    SELECT question_row.task_id, task.project_id, %(sequence)s, question_row.round, question_row.question,
+           question_row.answer, question_row.state, %(uid)s, %(now)s, %(uid)s, %(now)s
+      FROM unnest(%(task_ids)s::integer[], %(rounds)s::varchar[], %(questions)s::text[], %(answers)s::text[],
+                  %(states)s::varchar[])
+           WITH ORDINALITY AS question_row(task_id, round, question, answer, state, position)
+      JOIN project_task task ON task.id = question_row.task_id
+  ORDER BY question_row.position
+"""
+
 
 def pre_init_hook(cr):
     """Take over what this module held under its former names.
@@ -713,7 +752,8 @@ def post_init_hook(cr, registry):
     that exist already have a past to log, too, and the column of their size
     may hold sizes from before the size followed the hours, and hours that
     are not a number. Their test cases may hold the states of the old
-    selection, and a passed flag set apart from the state.
+    selection, and a passed flag set apart from the state. Their questions
+    and answers may still be the two Html columns of the legacy module.
     """
     env = api.Environment(cr, SUPERUSER_ID, {})
     convert_old_pr_uri_values(env)
@@ -721,6 +761,7 @@ def post_init_hook(cr, registry):
     clear_estimates_that_are_not_numbers(cr)
     recompute_task_sizes(cr)
     convert_test_case_states(cr)
+    convert_questions_to_rows(cr)
 
 
 def clear_estimates_that_are_not_numbers(cr):
@@ -788,6 +829,202 @@ def convert_test_case_states(cr):
         corrected_flag_count,
     )
     return converted_counts, corrected_flag_count
+
+
+def convert_questions_to_rows(cr, is_update=False):
+    """Turn the questions and answers of every task, archived ones included,
+    from the two Html columns of the task into question rows, and return the
+    tasks of each case of QUESTION_CASES and the rows inserted per state.
+
+    Lists are the top-level <ol> and <ul> of the Html; the one block of text
+    right before a list, if any, is its heading and names its round. A list
+    nested in a list, as the editor puts it in an item of its own, belongs to
+    the item before it; nested before any item, the list is not split. Html
+    showing neither text, media nor an icon is blank.
+
+    - Questions and answers are both lists alone, list by list of the same
+      length: a row per pair of items, Answered, or Open where the answer item
+      is blank. The heading of an answer list other than the round of its
+      questions opens each of its answers: it says who answered and when.
+    - Both hold something else: one row of each whole, Answered.
+    - Questions alone: a row per item that is not blank, Open, or one row of
+      the whole when they are not lists alone.
+    - Answers alone: one row of the whole without a question, Answered.
+
+    Names and dates in the answers are not read: no row says who answered or
+    when. The rows are inserted by SQL as the superuser. Without the two
+    columns, as on a fresh database, nothing is done; an update from a version
+    that declared them always has them, so there their absence is a warning.
+    A task that has rows is skipped, so a second run inserts nothing.
+    """
+    case_counts = dict.fromkeys(QUESTION_CASES, 0)
+    state_counts = dict.fromkeys(CONVERTED_STATES, 0)
+    missing_columns = [column for column in QUESTION_COLUMNS if not column_exists(cr, "project_task", column)]
+    if missing_columns:
+        if is_update:
+            _logger.warning(
+                "Questions and answers not converted to question rows: project_task has no column %s",
+                ", ".join(missing_columns),
+            )
+        return case_counts, state_counts
+    env = api.Environment(cr, SUPERUSER_ID, {})
+    env.flush_all()
+    cr.execute(TASK_QUESTIONS_AND_ANSWERS)
+    question_rows = []
+    for task_id, questions, answers, has_rows in cr.fetchall():
+        case, task_rows = ("has_rows", []) if has_rows else _get_question_rows(questions, answers)
+        case_counts[case] += 1
+        question_rows += [(task_id, *row) for row in task_rows]
+    if question_rows:
+        task_ids, rounds, question_texts, answer_texts, states = (list(column) for column in zip(*question_rows))
+        cr.execute(
+            INSERT_QUESTION_ROWS,
+            {
+                "task_ids": task_ids,
+                "rounds": rounds,
+                "questions": question_texts,
+                "answers": answer_texts,
+                "states": states,
+                "sequence": env["project.task.question"].default_get(["sequence"])["sequence"],
+                "uid": SUPERUSER_ID,
+                "now": cr.now(),
+            },
+        )
+        for state in states:
+            state_counts[state] += 1
+    env.invalidate_all()
+    _logger.info(
+        "Questions and answers converted to question rows: %s; rows inserted: %s",
+        ", ".join("%d %s" % (case_counts[case], label) for case, label in QUESTION_CASES.items()),
+        ", ".join("%d %s" % (state_counts[state], state) for state in CONVERTED_STATES),
+    )
+    return case_counts, state_counts
+
+
+def _get_question_rows(questions, answers):
+    """Return the case of QUESTION_CASES of one task and its rows as (round, question, answer, state)."""
+    has_questions = not is_blank_html(questions)
+    has_answers = not is_blank_html(answers)
+    if not has_questions:
+        return ("answers_only", [(None, None, answers, "answered")]) if has_answers else ("blank", [])
+    question_rounds = _split_into_rounds(questions)
+    if not has_answers:
+        listed_rows = [
+            (round_name, question, None, "open")
+            for round_name, _heading, items in question_rounds or []
+            for question in items
+            if question
+        ]
+        return "open_questions", listed_rows or [(None, questions, None, "open")]
+    paired_rows = _pair_rounds(question_rounds, _split_into_rounds(answers))
+    if not paired_rows:
+        return "kept_whole", [(None, questions, answers, "answered")]
+    return "paired_lists", paired_rows
+
+
+def _pair_rounds(question_rounds, answer_rounds):
+    """Return the rows of the items paired list by list, or None when the lists do not pair."""
+    if question_rounds is None or answer_rounds is None or len(question_rounds) != len(answer_rounds):
+        return None
+    paired_rows = []
+    for (round_name, _heading, questions), (answer_round_name, answer_heading, answers) in zip(
+        question_rounds, answer_rounds
+    ):
+        if len(questions) != len(answers):
+            return None
+        answer_opening = answer_heading if answer_round_name not in (None, round_name) else ""
+        paired_rows += [
+            (round_name, question, answer_opening + answer if answer else None, "answered" if answer else "open")
+            for question, answer in zip(questions, answers)
+            if question or answer
+        ]
+    return paired_rows
+
+
+def _split_into_rounds(html_content):
+    """Return [(round name or None, its heading Html or None, [inner Html of
+    each item, None where blank])] when html_content holds lists alone, each
+    after at most one block of text, its heading; else None.
+    """
+    root = parse_html(html_content)
+    if root is None or _plain_text(root.text):
+        return None
+    rounds = []
+    heading = None
+    for element in root:
+        if _plain_text(element.tail):
+            return None
+        if not isinstance(element.tag, str):
+            continue
+        if element.tag in LIST_TAGS:
+            items = _get_list_items(element)
+            if items is None:
+                return None
+            rounds.append((*_get_round(heading), items))
+            heading = None
+        elif has_content(element):
+            # a second block, media or a list would be lost with the name of the round
+            if heading is not None or has_media(element) or element.xpath(".//ol | .//ul"):
+                return None
+            heading = element
+    return rounds if rounds and heading is None else None
+
+
+def _get_round(heading):
+    if heading is None:
+        return None, None
+    return get_visible_text(heading), lxml_html.tostring(heading, encoding="unicode", with_tail=False)
+
+
+def _get_list_items(list_element):
+    if _plain_text(list_element.text):
+        return None
+    items = []
+    for child in list_element:
+        if _plain_text(child.tail):
+            return None
+        if not isinstance(child.tag, str):
+            continue
+        if _is_nested_list(child):
+            if not items:
+                return None
+            if has_content(child):
+                items[-1] = (items[-1] or "") + _nested_list_html(child)
+        elif child.tag == "li":
+            items.append(_inner_html(child) if has_content(child) else None)
+        elif has_content(child):
+            return None
+    return items
+
+
+def _is_nested_list(element):
+    """Whether a child of a list is a list put right in it, or an item holding
+    lists and nothing else to see: the editor nests a list so, class
+    oe-nested.
+    """
+    if element.tag in LIST_TAGS:
+        return True
+    if element.tag != "li" or not element.xpath("./ol | ./ul"):
+        return False
+    own_content = copy.deepcopy(element)
+    for nested_list in own_content.xpath("./ol | ./ul"):
+        nested_list.drop_tree()
+    return not has_content(own_content)
+
+
+def _nested_list_html(element):
+    if element.tag == "li":
+        return _inner_html(element)
+    return lxml_html.tostring(element, encoding="unicode", with_tail=False)
+
+
+def _inner_html(element):
+    children_html = "".join(lxml_html.tostring(child, encoding="unicode") for child in element)
+    return (html.escape(element.text or "", quote=False) + children_html).strip()
+
+
+def _plain_text(text):
+    return " ".join((text or "").split())
 
 
 def fill_stage_log(env):
@@ -1013,16 +1250,19 @@ def _rename_flag(cr):
 
 def forget_dropped_fields(cr):
     """Clear what the database stores about the fields in DROPPED_FIELDS and
-    an update of this module trips on or leaves behind, before its data files
-    are loaded.
+    MOVED_FIELDS and an update of this module trips on or leaves behind,
+    before its data files are loaded.
 
-    The update deletes the fields themselves, with their columns, at its end:
-    they are records of this module that it no longer has. Until then the
-    stored arch of a view of this module still names them, and it is validated
-    against the fields of the model as soon as another view of the same form is
-    loaded, before its own data file rewrites it. Their nodes are taken out of
-    every translation of the arch; emptying the arch, as for the views in
-    SPLIT_VIEWS, would lose the translated terms the database alone holds.
+    The update deletes the fields in DROPPED_FIELDS themselves, with their
+    columns, at its end: they are records of this module that it no longer
+    has. A module declaring a field in MOVED_FIELDS loads after this one, so
+    the field is not one of the model while this module loads either. Until
+    then the stored arch of a view of this module still names them, and it is
+    validated against the fields of the model as soon as another view of the
+    same form is loaded, before its own data file rewrites it. Their nodes are
+    taken out of every translation of the arch; emptying the arch, as for the
+    views in SPLIT_VIEWS, would lose the translated terms the database alone
+    holds.
 
     A foreign key goes with its column, but the row that registers it to this
     module would stay.
@@ -1030,7 +1270,7 @@ def forget_dropped_fields(cr):
     A second run finds nothing left.
     """
     field_names = defaultdict(set)
-    for model, name in DROPPED_FIELDS:
+    for model, name in DROPPED_FIELDS + MOVED_FIELDS:
         field_names[model].add(name)
     cleared_view_ids = _rewrite_module_views(
         cr, field_names, lambda model, arch: _remove_field_nodes(arch, field_names[model])
