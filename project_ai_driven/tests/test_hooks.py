@@ -1,3 +1,7 @@
+import importlib.util
+import logging
+from pathlib import Path
+
 from lxml import etree
 from psycopg2 import sql
 from psycopg2.extras import Json
@@ -11,6 +15,7 @@ from ..hooks import (
     ADOPTED_MODELS,
     DROPPED_FIELDS,
     DROPPED_FOREIGN_KEYS,
+    DROPPED_TEST_CASE_BUTTONS,
     FIELD_NAMING_COLUMNS,
     FLAG,
     FLAG_TABLE,
@@ -22,6 +27,7 @@ from ..hooks import (
     RENAMED_EXTERNAL_IDS,
     SPLIT_VIEWS,
     forget_dropped_fields,
+    forget_dropped_test_case_buttons,
     pre_init_hook,
     rename_external_ids,
     take_over_module,
@@ -48,6 +54,34 @@ SUB_VIEW_ARCH = (
     "</xpath>"
     "</data>"
 )
+OLD_BUTTONS = "".join(
+    '<button name="%s" type="object" icon="fa-check" title="Change state"/>' % name
+    for name in DROPPED_TEST_CASE_BUTTONS
+)
+# The buttons in DROPPED_TEST_CASE_BUTTONS in the cases' sub-view of a task form view, next to the checklist
+# sub-view with buttons of the same names; the page titles are its translated terms.
+OLD_BUTTONS_ARCH = (
+    "<data>"
+    '<xpath expr="//page[2]" position="after">'
+    '<page string="%(cases)s"><field name="testcase_ids"><tree><field name="name"/>'
+    + OLD_BUTTONS
+    + '<button name="action_set_passed" type="object" icon="fa-check" title="Passed"/>'
+    "</tree></field></page>"
+    "</xpath>"
+    '<xpath expr="//page[1]" position="before">'
+    '<page string="%(checklist)s"><field name="subtask_ids"><tree><field name="name"/>'
+    + OLD_BUTTONS
+    + "</tree></field></page>"
+    "</xpath>"
+    "</data>"
+)
+OLD_BUTTONS_ARCHS = {
+    "en_US": OLD_BUTTONS_ARCH % {"cases": "Test Cases", "checklist": "Checklist"},
+    "fr_FR": OLD_BUTTONS_ARCH % {"cases": "Cas de test", "checklist": "Liste de contrôle"},
+}
+KEPT_BUTTONS = [("testcase_ids", "action_set_passed")] + [("subtask_ids", name) for name in DROPPED_TEST_CASE_BUTTONS]
+BUTTONS_MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.5.0" / "pre-migration.py"
+HOOKS_LOGGER = "odoo.addons.%s.hooks" % MODULE
 OTHER_MODULE = "other_module"
 EXTENDED_MODELS = ("project.project", "project.task")
 # Added after the cut from the legacy module, which never held them.
@@ -59,6 +93,10 @@ ADDED_FIELDS = (
     ("project.task", "pr_uri"),
     ("project.task", "pull_request_ids"),
     ("project.task", "resolution"),
+    ("project.task.testcase", "verified_by_id"),
+    ("project.task.testcase", "verified_on"),
+    ("project.task.testcase", "verification_kind"),
+    ("project.task.testcase", "test_reference"),
 )
 ADDED_RECORDS = (
     ("ir.model", "model_project_pull_request"),
@@ -75,6 +113,7 @@ ADDED_RECORDS = (
     ("ir.model.access", "access_project_task_stage_log_system"),
     ("ir.ui.view", "project_task_view_kanban_inherit_ai_driven"),
     ("ir.ui.view", "project_task_view_calendar_inherit_ai_driven"),
+    ("ir.ui.view", "project_task_testcase_view_kanban"),
     # a model this module only extends, and did not extend at the cut
     ("ir.model", "model_project_task_recurrence"),
     *(
@@ -83,6 +122,8 @@ ADDED_RECORDS = (
             ("project_task__resolution", ("code", "data", "configuration", "no_change")),
             ("project_pull_request__state", ("open", "merged", "closed")),
             ("project_task_stage_log__source", ("live", "tracking", "stage_date", "creation")),
+            ("project_task_testcase__state", ("not_run", "passed", "failed", "not_applicable")),
+            ("project_task_testcase__verification_kind", ("manual", "automated", "demo")),
         )
         for value in values
     ),
@@ -167,7 +208,8 @@ class PreInitHookCase(TransactionCase):
 
     def _store_arch(self, view, **archs):
         """Put an arch per language in the database behind the ORM, as a
-        database from before the fields in DROPPED_FIELDS were deleted has it.
+        database from before the fields in DROPPED_FIELDS or the buttons in
+        DROPPED_TEST_CASE_BUTTONS were deleted has it.
         """
         self.env.flush_all()
         # without its file, a server in dev mode reads the stored arch too
@@ -181,6 +223,16 @@ class PreInitHookCase(TransactionCase):
     def _stored_field_names(self, view):
         return {
             lang: [node.get("name") for node in etree.fromstring(arch).iter("field")]
+            for lang, arch in self._stored_archs(view).items()
+        }
+
+    def _stored_buttons(self, view):
+        """The buttons of each translation, as (field of their sub-view, name)."""
+        return {
+            lang: [
+                (node.xpath("ancestor::field[1]/@name")[0], node.get("name"))
+                for node in etree.fromstring(arch).iter("button")
+            ]
             for lang, arch in self._stored_archs(view).items()
         }
 
@@ -651,6 +703,15 @@ class TestTakeOverFromLegacyModule(PreInitHookCase):
         self.assertEqual(self._stored_field_names(view), {"en_US": KEPT_FIELDS})
         self.assertFalse(registrations.exists())
 
+    def test_forgets_the_test_case_buttons_deleted_since(self):
+        view = self.env.ref("%s.view_task_form2_testcase" % MODULE)
+        self._store_arch(view, **OLD_BUTTONS_ARCHS)
+        self._simulate_legacy_module()
+
+        pre_init_hook(self.env.cr)
+
+        self.assertEqual(self._stored_buttons(view), dict.fromkeys(OLD_BUTTONS_ARCHS, KEPT_BUTTONS))
+
     def test_the_former_module_comes_first(self):
         self._simulate_legacy_module()
         handed_over_records = self._legacy_records()
@@ -825,6 +886,82 @@ class TestForgetDroppedFields(PreInitHookCase):
         forget_dropped_fields(self.env.cr)
 
         self.assertDatabaseState(state_after_first_run)
+
+
+@tagged("post_install", "-at_install")
+class TestForgetDroppedTestCaseButtons(PreInitHookCase):
+    """forget_dropped_test_case_buttons on a database that already holds
+    everything under this module, as its update runs it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.view = cls.env.ref("%s.view_task_form2_testcase" % MODULE)
+
+    def test_a_view_that_names_them_no_longer_blocks_the_views_of_its_form(self):
+        other_view = self.env.ref("%s.view_task_form2" % MODULE)
+        self._store_arch(self.view, en_US=OLD_BUTTONS_ARCHS["en_US"])
+        with self.assertRaises(ValidationError) as refusal:
+            other_view.write({"arch": other_view.arch})
+        self.assertIn("change_state_done is not a valid action on project.task.testcase", refusal.exception.args[0])
+
+        forget_dropped_test_case_buttons(self.env.cr)
+
+        self.env.invalidate_all()
+        other_view.write({"arch": other_view.arch})
+
+    def test_takes_them_out_of_the_cases_sub_view_in_every_translation(self):
+        checklist_view = self.env.ref("%s.view_task_form2" % MODULE)
+        checklist_archs = self._stored_archs(checklist_view)
+        self.assertIn('name="change_state_done"', checklist_archs["en_US"])
+        self._store_arch(self.view, **OLD_BUTTONS_ARCHS)
+
+        with self.assertLogs(HOOKS_LOGGER, level=logging.INFO) as logs:
+            forget_dropped_test_case_buttons(self.env.cr)
+
+        self.assertEqual(
+            [record.getMessage() for record in logs.records],
+            ["Dropped test case buttons forgotten: taken out of 1 views"],
+        )
+        self.assertEqual(self._stored_buttons(self.view), dict.fromkeys(OLD_BUTTONS_ARCHS, KEPT_BUTTONS))
+        cleared_archs = self._stored_archs(self.view)
+        self.assertIn('string="Cas de test"', cleared_archs["fr_FR"])
+        self.assertIn('string="Liste de contrôle"', cleared_archs["fr_FR"])
+        self.assertEqual(self._stored_archs(checklist_view), checklist_archs)
+
+    def test_leaves_the_views_of_other_modules_alone(self):
+        self.env.cr.execute(
+            "UPDATE ir_model_data SET module = %s WHERE model = 'ir.ui.view' AND res_id = %s",
+            (OTHER_MODULE, self.view.id),
+        )
+        self._store_arch(self.view, **OLD_BUTTONS_ARCHS)
+
+        forget_dropped_test_case_buttons(self.env.cr)
+
+        self.assertEqual(self._stored_archs(self.view), OLD_BUTTONS_ARCHS)
+
+    def test_second_run_changes_nothing(self):
+        self._store_arch(self.view, **OLD_BUTTONS_ARCHS)
+        forget_dropped_test_case_buttons(self.env.cr)
+        state_after_first_run = self._database_state()
+
+        with self.assertNoLogs(HOOKS_LOGGER, level=logging.INFO):
+            forget_dropped_test_case_buttons(self.env.cr)
+
+        self.assertDatabaseState(state_after_first_run)
+
+    def test_migration_script_forgets_them_on_update_only(self):
+        spec = importlib.util.spec_from_file_location("pre_migration", BUTTONS_MIGRATION_SCRIPT)
+        script = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(script)
+        self._store_arch(self.view, **OLD_BUTTONS_ARCHS)
+
+        script.migrate(self.env.cr, None)
+        self.assertEqual(self._stored_archs(self.view), OLD_BUTTONS_ARCHS)
+
+        script.migrate(self.env.cr, "16.0.2.4.1")
+        self.assertEqual(self._stored_buttons(self.view), dict.fromkeys(OLD_BUTTONS_ARCHS, KEPT_BUTTONS))
 
 
 @tagged("post_install", "-at_install")

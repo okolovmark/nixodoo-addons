@@ -51,12 +51,30 @@ are on by default); remove those filters to see all items.
 
 **Test cases** (``project.task.testcase``)
 
-Ordered test cases per task with Steps to execute, Expected results,
-Comments, a Passed flag and the same four states. The task carries general
-comments and a completion percentage over non-cancelled cases. The **Test
-Cases** menu opens filtered on the cases still in *TODO*; remove the *TODO*
-filter to see them all. Copying a task also copies its checklist items and
-test cases, keeping their states.
+Ordered test cases per task with Steps to execute, Expected results and
+Comments. The **Status** of a case is its result: Not run (the default),
+Passed, Failed, Waiting or Not applicable.
+
+* **Verified by** and **Verified on**: who gave the last Passed or Failed,
+  and when. A create or write that sets Passed or Failed fills them with the
+  user who makes it, also under ``sudo()``, and the current time; a value
+  the same call gives is kept. Passed or Failed given again is a new
+  verification. Not run clears them and **Verification**; Waiting and Not
+  applicable leave them.
+* **Verification**: Manual, Automated test or Demo. A result button other
+  than Not run sets it to Manual when it is empty.
+* **Automated test reference**: the automated test that verifies the case,
+  such as a test selector. Not run leaves it.
+* **Passed** (``passed``) is stored, read-only and follows the status: set
+  for Passed only.
+
+The task carries general comments and a completion percentage: its Passed
+cases over all its cases but the Not applicable ones. Its kanban card counts
+the cases Not run, Failed and Waiting. The **Test Cases** menu opens
+filtered on the cases Not run; remove the *Not run* filter to see them all.
+Copying a task also copies its checklist items, keeping their states, and
+its test cases, keeping their status, Verified by, Verified on,
+Verification and Automated test reference.
 
 **Pull requests** (``project.pull.request``)
 
