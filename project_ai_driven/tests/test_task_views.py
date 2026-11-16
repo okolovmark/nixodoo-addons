@@ -32,6 +32,7 @@ PROJECT_SHARING_VIEWS = (
 # of the sharing form names it, and that field shows its own inline list
 PROJECT_SHARING_VIEW_HIDING_THE_STAR = "project.open_view_blocked_by_list_view"
 HIDDEN_ON_FLAGGED_PROJECTS = "is_ai_driven"
+PRIORITY_COLUMN_FLAG = "ai_driven"
 
 
 class TestTaskViews(TransactionCase):
@@ -67,6 +68,22 @@ class TestTaskViews(TransactionCase):
             flagged_views = {self._view_node(flag) for flag in arch.xpath("//field[@name='is_ai_driven']")}
             for star in stars:
                 self.assertIn(self._view_node(star), flagged_views, xmlid)
+
+    def test_task_list_of_a_flagged_project_has_no_priority_column(self):
+        """As the web client gets it: the list of the action the project opens,
+        with the context of that action.
+        """
+        projects = self.env["project.project"].create(
+            [{"name": "AI-driven Project", "is_ai_driven": True}, {"name": "Plain Project"}],
+        )
+        actions = [project.action_view_tasks() for project in projects]
+        self.assertEqual([action["context"].get(PRIORITY_COLUMN_FLAG) for action in actions], [True, False])
+
+        list_view_id = {view_type: view_id for view_id, view_type in actions[0]["views"]}["list"]
+        list_arch = etree.fromstring(self.env["project.task"].get_view(list_view_id, "list")["arch"])
+        star = list_arch.xpath("/list/field[@name='priority']")[0]
+        self.assertEqual(star.get("column_invisible"), "context.get('%s')" % PRIORITY_COLUMN_FLAG)
+        self.assertEqual(star.get("invisible"), HIDDEN_ON_FLAGGED_PROJECTS, "row by row in lists that mix projects")
 
     def test_project_sharing_views_keep_the_star(self):
         for xmlid in PROJECT_SHARING_VIEWS:

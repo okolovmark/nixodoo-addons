@@ -26,6 +26,12 @@ class ProjectProject(models.Model):
         " and an estimate above zero hours.",
     )
 
+    def action_view_tasks(self):
+        action = super().action_view_tasks()
+        # read by the column_invisible of the list's Priority column, as allow_milestones is for the Milestone one
+        action["context"]["ai_driven"] = self.is_ai_driven
+        return action
+
     def map_tasks(self, new_project_id):
         """A project template made from a project keeps no Resolution and no
         pull request of its tasks. They go once the tasks are copied: core

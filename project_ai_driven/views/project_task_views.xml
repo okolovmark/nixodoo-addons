@@ -94,8 +94,10 @@
         <field name="model">project.task</field>
         <field name="inherit_id" ref="project.project_task_view_tree_base" />
         <field name="arch" type="xml">
+            <!-- the column for the list of a flagged project, the rows for a list that mixes projects -->
             <xpath expr="//list/field[@name='priority']" position="attributes">
                 <attribute name="invisible">is_ai_driven</attribute>
+                <attribute name="column_invisible">context.get('ai_driven')</attribute>
             </xpath>
         </field>
     </record>
