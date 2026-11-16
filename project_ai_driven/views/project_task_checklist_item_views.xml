@@ -7,8 +7,7 @@
         <field name="arch" type="xml">
             <xpath expr="//page[1]" position="before">
                 <page string="Checklist" groups="project.group_project_user">
-                    <field name="default_user" invisible='True' />
-                    <field name="subtask_ids" context="{'default_user_id': default_user}">
+                    <field name="checklist_item_ids">
                         <tree
                             editable="bottom"
                             decoration-danger="recolor == True"
@@ -58,31 +57,31 @@
         </field>
     </record>
 
-    <record id="view_task_kanban_subtasks" model="ir.ui.view">
-        <field name="name">project.task.kanban.subtasks</field>
+    <record id="view_task_kanban_checklist" model="ir.ui.view">
+        <field name="name">project.task.kanban.checklist</field>
         <field name="model">project.task</field>
         <field name="inherit_id" ref="project.view_task_kanban" />
         <field name="arch" type="xml">
             <xpath expr="//field[@name ='tag_ids']" position="after">
                 <field name="completion" invisible="1" />
-                <field name="subtask_ids" invisible="1" />
-                <field name="kanban_subtasks" invisible="1" />
+                <field name="checklist_item_ids" invisible="1" />
+                <field name="kanban_checklist" invisible="1" />
                 <field name="completion_xml" invisible="1" />
             </xpath>
             <xpath expr="//div[hasclass('o_kanban_record_bottom')]" position="before">
                 <div>
                     <t t-raw="record.completion_xml.raw_value" />
-                    <t t-raw="record.kanban_subtasks.raw_value" />
+                    <t t-raw="record.kanban_checklist.raw_value" />
                 </div>
             </xpath>
         </field>
     </record>
 
-    <record id="project_task_subtask_view_form" model="ir.ui.view">
-        <field name="name">project.task.subtask</field>
-        <field name="model">project.task.subtask</field>
+    <record id="project_task_checklist_item_view_form" model="ir.ui.view">
+        <field name="name">project.task.checklist.item.view.form</field>
+        <field name="model">project.task.checklist.item</field>
         <field name="arch" type="xml">
-            <form string="Subtask Message">
+            <form string="Checklist Item">
                 <sheet>
                     <group>
                         <field name="name" />
@@ -95,15 +94,15 @@
         </field>
     </record>
 
-    <record id="project_task_subtask_view_search" model="ir.ui.view">
-        <field name="name">project.task.subtask.filter</field>
-        <field name="model">project.task.subtask</field>
+    <record id="project_task_checklist_item_view_search" model="ir.ui.view">
+        <field name="name">project.task.checklist.item.view.search</field>
+        <field name="model">project.task.checklist.item</field>
         <field name="arch" type="xml">
             <search string="Filter">
                 <field name="name" string="Description" />
-                <filter string="My" domain="[('user_id','=',uid)]" name="my_subtask" />
+                <filter string="My" domain="[('user_id','=',uid)]" name="my" />
                 <separator />
-                <filter string="TODO" domain="[('state','=','todo')]" name="done_subtask" />
+                <filter string="TODO" domain="[('state','=','todo')]" name="todo" />
                 <group expand="0" string="Group By">
                     <filter string="Project" name="project" context="{'group_by':'project_id'}" />
                     <filter string="Task" name="task" context="{'group_by':'task_id'}" />
@@ -114,9 +113,9 @@
         </field>
     </record>
 
-    <record id="subtask_list_view" model="ir.ui.view">
-        <field name="name">subtask.list.form</field>
-        <field name="model">project.task.subtask</field>
+    <record id="project_task_checklist_item_view_tree" model="ir.ui.view">
+        <field name="name">project.task.checklist.item.view.tree</field>
+        <field name="model">project.task.checklist.item</field>
         <field name="arch" type="xml">
             <tree>
                 <field name="name" />
@@ -129,14 +128,14 @@
         </field>
     </record>
 
-    <record id="action_view_subtask" model="ir.actions.act_window">
+    <record id="action_view_checklist_item" model="ir.actions.act_window">
         <field name="name">Checklist</field>
-        <field name="res_model">project.task.subtask</field>
+        <field name="res_model">project.task.checklist.item</field>
         <field name="view_mode">tree,form</field>
         <field name="context">
             {
-                'search_default_my_subtask': 1,
-                'search_default_done_subtask': 1,
+                'search_default_my': 1,
+                'search_default_todo': 1,
             }
         </field>
     </record>
@@ -144,7 +143,7 @@
     <menuitem
         name="Checklist"
         parent="project.menu_main_pm"
-        id="menu_action_view_subtask"
-        action="action_view_subtask"
+        id="menu_action_view_checklist_item"
+        action="action_view_checklist_item"
     />
 </odoo>

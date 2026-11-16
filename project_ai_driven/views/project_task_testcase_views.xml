@@ -223,7 +223,7 @@
                         icon="fa-ban"
                         attrs="{'invisible': [('state', '=', 'not_applicable')]}"
                     />
-                    <field name="state" widget="statusbar" readonly="1" />
+                    <field name="state" widget="statusbar" statusbar_visible="not_run,passed,failed" readonly="1" />
                 </header>
                 <sheet>
                     <group>

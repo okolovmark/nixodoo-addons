@@ -23,8 +23,8 @@
   **Project / User**. No access right allows deleting one.
 * The stage log is read by **Administration / Settings** only. No access
   right allows creating, changing or deleting a row.
-* To be notified of checklist items that are neither assigned to you nor
-  created by you, edit your follower subscription on the task or on the
+* To be notified of checklist items of which you are neither the assignee
+  nor the reviewer, edit your follower subscription on the task or on the
   project and tick *All checklist updates*.
 * An integration that writes tasks or checklist items with an account that
   has no email address passes ``mail_auto_subscribe_no_notify`` in the

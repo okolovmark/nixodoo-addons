@@ -7,31 +7,47 @@ from psycopg2 import sql
 from psycopg2.extras import Json
 
 from odoo import Command
-from odoo.exceptions import ValidationError
+from odoo.exceptions import MissingError, ValidationError
 from odoo.tests.common import TransactionCase, tagged
-from odoo.tools.sql import column_exists, rename_column
+from odoo.tools import convert_file
+from odoo.tools.sql import column_exists, rename_column, table_exists
 
 from ..hooks import (
     ADOPTED_MODELS,
+    CHECKLIST_MODEL,
+    CHECKLIST_TABLE,
+    CHECKLIST_VIEW_FILE,
+    DROPPED_CHECKLIST_FIELD,
     DROPPED_FIELDS,
     DROPPED_FOREIGN_KEYS,
     DROPPED_TEST_CASE_BUTTONS,
     FIELD_NAMING_COLUMNS,
     FLAG,
     FLAG_TABLE,
+    FORMER_CHECKLIST_MODEL,
+    FORMER_CHECKLIST_TABLE,
+    FORMER_CHECKLIST_VIEW_FILE,
     FORMER_FLAG,
     FORMER_MODULE,
     LEGACY_MODULE,
     MODULE,
     OWNERSHIP_TABLES,
+    RENAMED_CHECKLIST_EXTERNAL_IDS,
+    RENAMED_CHECKLIST_FIELDS,
     RENAMED_EXTERNAL_IDS,
     SPLIT_VIEWS,
+    _model_name_columns,
+    _reference_columns,
+    _remove_sub_view_buttons,
+    _rewrite_module_views,
     forget_dropped_fields,
     forget_dropped_test_case_buttons,
     pre_init_hook,
+    rename_checklist,
     rename_external_ids,
     take_over_module,
 )
+from odoo.addons.base.models.ir_model import selection_xmlid
 
 EMPTY_ARCH = "<data/>"
 # The nodes that named the fields in DROPPED_FIELDS in the two task form views that had them,
@@ -69,7 +85,7 @@ OLD_BUTTONS_ARCH = (
     "</tree></field></page>"
     "</xpath>"
     '<xpath expr="//page[1]" position="before">'
-    '<page string="%(checklist)s"><field name="subtask_ids"><tree><field name="name"/>'
+    '<page string="%(checklist)s"><field name="checklist_item_ids"><tree><field name="name"/>'
     + OLD_BUTTONS
     + "</tree></field></page>"
     "</xpath>"
@@ -79,8 +95,51 @@ OLD_BUTTONS_ARCHS = {
     "en_US": OLD_BUTTONS_ARCH % {"cases": "Test Cases", "checklist": "Checklist"},
     "fr_FR": OLD_BUTTONS_ARCH % {"cases": "Cas de test", "checklist": "Liste de contrôle"},
 }
-KEPT_BUTTONS = [("testcase_ids", "action_set_passed")] + [("subtask_ids", name) for name in DROPPED_TEST_CASE_BUTTONS]
+KEPT_BUTTONS = [("testcase_ids", "action_set_passed")] + [
+    ("checklist_item_ids", name) for name in DROPPED_TEST_CASE_BUTTONS
+]
 BUTTONS_MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.5.0" / "pre-migration.py"
+CHECKLIST_MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.6.0" / "pre-migration.py"
+CHECKLIST_LIST_NODE = '<field name="checklist_item_ids">'
+# How the checklist page of the task form named its list, and the default assignee of a new line.
+FORMER_CHECKLIST_LIST_NODE = '<field name="subtask_ids">'
+FORMER_CHECKLIST_NODES = (
+    '<field name="default_user" invisible="True"/>'
+    '<field name="subtask_ids" context="{\'default_user_id\': default_user}">'
+)
+NESTED_BUTTONS_ARCH = (
+    "<data>"
+    '<xpath expr="//page[2]" position="after">'
+    '<field name="testcase_ids"><form>'
+    '<button name="change_state_done" type="object"/>'
+    '<field name="attachment_ids"><tree><button name="change_state_todo" type="object"/></tree></field>'
+    "</form></field>"
+    "</xpath>"
+    "</data>"
+)
+# A record of each, naming the checklist model.
+MODEL_NAME_RECORDS = {
+    "mail.message": ("mail_message", "model"),
+    "mail.followers": ("mail_followers", "res_model"),
+    "mail.activity": ("mail_activity", "res_model"),
+    "ir.attachment": ("ir_attachment", "res_model"),
+    "ir.filters": ("ir_filters", "model_id"),
+    "ir.actions.act_window": ("ir_act_window", "res_model"),
+}
+# Written out, not taken from the hooks: _put_back_former_checklist_names uses the functions under test.
+REQUIRED_MODEL_NAME_COLUMNS = (
+    ("ir_model_data", "model"),
+    ("ir_ui_view", "model"),
+    ("ir_act_window", "res_model"),
+    ("ir_filters", "model_id"),
+    ("mail_message", "model"),
+    ("mail_followers", "res_model"),
+    ("mail_activity", "res_model"),
+    ("ir_attachment", "res_model"),
+)
+REFERENCE_COLUMN = ("ir_ui_menu", "action")
+ACTIVITY_SELECTION_FIELDS = ("activity_state", "activity_exception_decoration")
+SUBTYPE_DATA_FILE = "data/mail_message_subtype_data.xml"
 HOOKS_LOGGER = "odoo.addons.%s.hooks" % MODULE
 OTHER_MODULE = "other_module"
 EXTENDED_MODELS = ("project.project", "project.task")
@@ -143,15 +202,35 @@ DATABASE_STATE_QUERIES = {
     "external ids": "SELECT id, module, name, model, res_id FROM ir_model_data ORDER BY id",
     "constraints": "SELECT id, module, name FROM ir_model_constraint ORDER BY id",
     "relations": "SELECT id, module, name FROM ir_model_relation ORDER BY id",
-    "fields": "SELECT id, model, name, related FROM ir_model_fields ORDER BY id",
-    "views": "SELECT id, arch_fs, arch_db::text FROM ir_ui_view ORDER BY id",
+    "models": "SELECT id, model FROM ir_model ORDER BY id",
+    "fields": "SELECT id, model, name, relation, related, depends FROM ir_model_fields ORDER BY id",
+    "views": "SELECT id, model, arch_fs, arch_db::text FROM ir_ui_view ORDER BY id",
     "rules": "SELECT id, domain_force FROM ir_rule ORDER BY id",
-    "filters": "SELECT id, domain, context, sort FROM ir_filters ORDER BY id",
-    "window actions": "SELECT id, domain, context FROM ir_act_window ORDER BY id",
+    "filters": "SELECT id, model_id, domain, context, sort FROM ir_filters ORDER BY id",
+    "window actions": "SELECT id, res_model, domain, context FROM ir_act_window ORDER BY id",
     "project columns": """
         SELECT column_name FROM information_schema.columns WHERE table_name = 'project_project' ORDER BY column_name
     """,
+    "checklist tables": """
+        SELECT relname, relkind
+          FROM pg_class
+         WHERE starts_with(relname, 'project_task_subtask') OR starts_with(relname, 'project_task_checklist_item')
+      ORDER BY relname
+    """,
+    "checklist constraints": """
+        SELECT conname
+          FROM pg_constraint
+         WHERE conrelid IN (to_regclass('project_task_subtask'), to_regclass('project_task_checklist_item'))
+      ORDER BY conname
+    """,
 }
+
+
+def _sub_view_buttons(arch):
+    """The buttons of arch, as (field of their sub-view, name)."""
+    return [
+        (node.xpath("ancestor::field[1]/@name")[0], node.get("name")) for node in etree.fromstring(arch).iter("button")
+    ]
 
 
 class PreInitHookCase(TransactionCase):
@@ -227,14 +306,7 @@ class PreInitHookCase(TransactionCase):
         }
 
     def _stored_buttons(self, view):
-        """The buttons of each translation, as (field of their sub-view, name)."""
-        return {
-            lang: [
-                (node.xpath("ancestor::field[1]/@name")[0], node.get("name"))
-                for node in etree.fromstring(arch).iter("button")
-            ]
-            for lang, arch in self._stored_archs(view).items()
-        }
+        return {lang: _sub_view_buttons(arch) for lang, arch in self._stored_archs(view).items()}
 
     def _register_foreign_keys(self, module):
         task_model_id = self.env["ir.model"]._get_id("project.task")
@@ -296,7 +368,156 @@ class PreInitHookCase(TransactionCase):
                 "UPDATE ir_model_data SET name = %s WHERE module = %s AND name = %s",
                 (former_name, MODULE, new_name),
             )
+        self._put_back_former_checklist_names()
         self.env.invalidate_all()
+
+    def _put_back_former_checklist_names(self):
+        """Undo by SQL what rename_checklist renames, and give the checklist
+        page of the task form the node and the context of the dropped field in
+        every translation. No checklist item or field of the checklist may be
+        read or flushed until rename_checklist has run.
+        """
+        self.env.flush_all()
+        cr = self.env.cr
+        form_view_id = self.env.ref("%s.view_task_form2" % MODULE).id
+        self._rename_table_objects(CHECKLIST_TABLE, FORMER_CHECKLIST_TABLE)
+        params = {
+            "model": CHECKLIST_MODEL,
+            "former_model": FORMER_CHECKLIST_MODEL,
+            "prefix": CHECKLIST_TABLE + "_",
+            "former_prefix": FORMER_CHECKLIST_TABLE + "_",
+            "external_id_pattern": r"^(model_|field_|selection__)%s(__|$)" % CHECKLIST_TABLE,
+            "former_external_id": r"\1%s\2" % FORMER_CHECKLIST_TABLE,
+            "file": CHECKLIST_VIEW_FILE,
+            "former_file": FORMER_CHECKLIST_VIEW_FILE,
+        }
+        for query in (
+            """
+            UPDATE ir_model_constraint con
+               SET name = %(former_prefix)s || substr(con.name, length(%(prefix)s) + 1)
+              FROM ir_model
+             WHERE ir_model.id = con.model AND ir_model.model = %(model)s AND starts_with(con.name, %(prefix)s)
+            """,
+            "UPDATE ir_model SET model = %(former_model)s WHERE model = %(model)s",
+            "UPDATE ir_model_fields SET model = %(former_model)s WHERE model = %(model)s",
+            "UPDATE ir_model_fields SET relation = %(former_model)s WHERE relation = %(model)s",
+            """
+            UPDATE ir_model_data
+               SET name = regexp_replace(name, %(external_id_pattern)s, %(former_external_id)s)
+             WHERE model IN ('ir.model', 'ir.model.fields', 'ir.model.fields.selection')
+               AND name ~ %(external_id_pattern)s
+            """,
+            "UPDATE ir_ui_view SET arch_fs = %(former_file)s WHERE arch_fs = %(file)s",
+        ):
+            cr.execute(query, params)
+        for column_query, columns in (
+            (
+                "UPDATE {table} SET {column} = %(former_model)s WHERE {column} = %(model)s",
+                _model_name_columns(self.env),
+            ),
+            (
+                "UPDATE {table} SET {column} = %(former_model)s || substr({column}, length(%(model)s) + 1)"
+                " WHERE starts_with({column}, %(model)s || ',')",
+                _reference_columns(self.env),
+            ),
+        ):
+            for table, column in columns:
+                cr.execute(
+                    sql.SQL(column_query).format(table=sql.Identifier(table), column=sql.Identifier(column)), params
+                )
+        for former_field, field in RENAMED_CHECKLIST_FIELDS.items():
+            field_params = {"field": field, "former_field": former_field}
+            for query in (
+                """
+                UPDATE ir_model_fields
+                   SET name = %(former_field)s,
+                       related = array_to_string(
+                           array_replace(string_to_array(related, '.'), %(field)s::text, %(former_field)s::text), '.'
+                       )
+                 WHERE name = %(field)s
+                """,
+                """
+                UPDATE ir_model_fields
+                   SET depends = replace(depends, %(field)s, %(former_field)s)
+                 WHERE strpos(depends, %(field)s) > 0
+                """,
+                """
+                UPDATE ir_model_data imd
+                   SET name = 'field_' || replace(field.model, '.', '_') || '__' || %(former_field)s
+                  FROM ir_model_fields field
+                 WHERE imd.model = 'ir.model.fields'
+                   AND imd.res_id = field.id
+                   AND field.name = %(former_field)s
+                   AND imd.name = 'field_' || replace(field.model, '.', '_') || '__' || %(field)s
+                """,
+                """
+                UPDATE ir_ui_view
+                   SET arch_db = replace(arch_db::text, %(field)s, %(former_field)s)::jsonb
+                 WHERE strpos(arch_db::text, %(field)s) > 0
+                """,
+            ):
+                cr.execute(query, field_params)
+        for former_name, new_name in RENAMED_CHECKLIST_EXTERNAL_IDS.items():
+            cr.execute(
+                "UPDATE ir_model_data SET name = %s WHERE module = %s AND name = %s", (former_name, MODULE, new_name)
+            )
+        texts = {**RENAMED_CHECKLIST_FIELDS, FORMER_CHECKLIST_MODEL: CHECKLIST_MODEL}
+        for table, column in FIELD_NAMING_COLUMNS:
+            for former_text, text in texts.items():
+                cr.execute(
+                    sql.SQL("UPDATE {table} SET {column} = replace({column}, %s, %s)").format(
+                        table=sql.Identifier(table), column=sql.Identifier(column)
+                    ),
+                    (text, former_text),
+                )
+        cr.execute("SELECT arch_db FROM ir_ui_view WHERE id = %s", (form_view_id,))
+        former_archs = {}
+        for lang, arch in cr.fetchone()[0].items():
+            self.assertIn(FORMER_CHECKLIST_LIST_NODE, arch, lang)
+            former_archs[lang] = arch.replace(FORMER_CHECKLIST_LIST_NODE, FORMER_CHECKLIST_NODES)
+        cr.execute("UPDATE ir_ui_view SET arch_db = %s WHERE id = %s", (Json(former_archs), form_view_id))
+        self.env.invalidate_all()
+        self.env.registry.clear_caches()
+
+    def _rename_table_objects(self, table, former_table):
+        """Rename table, its sequence, and the constraints and indexes named after it, to former_table."""
+        cr = self.env.cr
+        cr.execute(sql.SQL("ALTER TABLE {} RENAME TO {}").format(sql.Identifier(table), sql.Identifier(former_table)))
+        cr.execute(
+            sql.SQL("ALTER SEQUENCE {} RENAME TO {}").format(
+                sql.Identifier(table + "_id_seq"), sql.Identifier(former_table + "_id_seq")
+            )
+        )
+        for name in self._table_objects(former_table)["constraints"]:
+            if name.startswith(table + "_"):
+                cr.execute(
+                    sql.SQL("ALTER TABLE {} RENAME CONSTRAINT {} TO {}").format(
+                        sql.Identifier(former_table),
+                        sql.Identifier(name),
+                        sql.Identifier(former_table + name[len(table) :]),
+                    )
+                )
+        for name in self._table_objects(former_table)["indexes"]:
+            if name.startswith(table + "_"):
+                cr.execute(
+                    sql.SQL("ALTER INDEX {} RENAME TO {}").format(
+                        sql.Identifier(name), sql.Identifier(former_table + name[len(table) :])
+                    )
+                )
+
+    def _table_objects(self, table):
+        """The sequence, constraints and indexes of table, by kind."""
+        cr = self.env.cr
+        cr.execute("SELECT pg_get_serial_sequence(%s, 'id')", (table,))
+        objects = {"sequence": cr.fetchone()[0]}
+        cr.execute("SELECT conname FROM pg_constraint WHERE conrelid = to_regclass(%s) ORDER BY conname", (table,))
+        objects["constraints"] = [name for (name,) in cr.fetchall()]
+        cr.execute(
+            "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND tablename = %s ORDER BY indexname",
+            (table,),
+        )
+        objects["indexes"] = [name for (name,) in cr.fetchall()]
+        return objects
 
     def _create_delegating_field(self):
         """A model of another module that delegates to the task holds a copy of
@@ -422,8 +643,8 @@ class TestTakeOverFromFormerModule(PreInitHookCase):
         self.assertFalse(registrations.exists())
 
     def test_followers_of_the_checklist_subtypes_stay_subscribed(self):
-        task_subtype = self.env.ref("%s.subtasks_subtype" % MODULE)
-        project_subtype = self.env.ref("%s.all_subtask_subtype" % MODULE)
+        task_subtype = self.env.ref("%s.checklist_subtype" % MODULE)
+        project_subtype = self.env.ref("%s.project_checklist_subtype" % MODULE)
         project = self.env["project.project"].create({"name": "Followed Project"})
         task = self.env["project.task"].create({"name": "Followed Task", "project_id": project.id})
         partner = self.env["res.partner"].create({"name": "Checklist Follower"})
@@ -434,8 +655,8 @@ class TestTakeOverFromFormerModule(PreInitHookCase):
         pre_init_hook(self.env.cr)
 
         self.env.invalidate_all()
-        self.assertEqual(self.env.ref("%s.subtasks_subtype" % MODULE), task_subtype)
-        self.assertEqual(self.env.ref("%s.all_subtask_subtype" % MODULE), project_subtype)
+        self.assertEqual(self.env.ref("%s.checklist_subtype" % MODULE), task_subtype)
+        self.assertEqual(self.env.ref("%s.project_checklist_subtype" % MODULE), project_subtype)
         for record, subtype in ((project, project_subtype), (task, task_subtype)):
             follower = record.message_follower_ids.filtered(lambda follower: follower.partner_id == partner)
             self.assertEqual(follower.subtype_ids, subtype, record._name)
@@ -707,10 +928,17 @@ class TestTakeOverFromLegacyModule(PreInitHookCase):
         view = self.env.ref("%s.view_task_form2_testcase" % MODULE)
         self._store_arch(view, **OLD_BUTTONS_ARCHS)
         self._simulate_legacy_module()
+        former_buttons = self._stored_buttons(view)["en_US"]
+        self.assertIn(("subtask_ids", "change_state_done"), former_buttons)
+        self.assertIn(("testcase_ids", "change_state_done"), former_buttons)
 
         pre_init_hook(self.env.cr)
 
-        self.assertEqual(self._stored_buttons(view), dict.fromkeys(OLD_BUTTONS_ARCHS, KEPT_BUTTONS))
+        self.assertEqual(
+            self._stored_buttons(view),
+            dict.fromkeys(OLD_BUTTONS_ARCHS, KEPT_BUTTONS),
+            "the checklist keeps its buttons under its new field, the test cases lose theirs",
+        )
 
     def test_the_former_module_comes_first(self):
         self._simulate_legacy_module()
@@ -722,7 +950,7 @@ class TestTakeOverFromLegacyModule(PreInitHookCase):
         self.assertEqual(self._legacy_records(), handed_over_records)
 
     def test_followers_of_the_checklist_subtype_stay_subscribed(self):
-        subtype = self.env.ref("%s.subtasks_subtype" % MODULE)
+        subtype = self.env.ref("%s.checklist_subtype" % MODULE)
         project = self.env["project.project"].create({"name": "Followed Project"})
         task = self.env["project.task"].create({"name": "Followed Task", "project_id": project.id})
         partner = self.env["res.partner"].create({"name": "Checklist Follower"})
@@ -732,7 +960,7 @@ class TestTakeOverFromLegacyModule(PreInitHookCase):
         pre_init_hook(self.env.cr)
 
         self.env.invalidate_all()
-        self.assertEqual(self.env.ref("%s.subtasks_subtype" % MODULE), subtype)
+        self.assertEqual(self.env.ref("%s.checklist_subtype" % MODULE), subtype)
         follower = task.message_follower_ids.filtered(lambda follower: follower.partner_id == partner)
         self.assertEqual(follower.subtype_ids, subtype)
 
@@ -877,6 +1105,32 @@ class TestForgetDroppedFields(PreInitHookCase):
 
         self.assertEqual(registrations.exists().mapped("module"), other_module)
 
+    def test_a_view_given_to_this_module_by_a_pending_write_is_cleared_and_read_back(self):
+        self.env.cr.execute(
+            "UPDATE ir_model_data SET module = %s WHERE model = 'ir.ui.view' AND res_id = %s",
+            (OTHER_MODULE, self.view.id),
+        )
+        self._store_arch(self.view, en_US=OLD_ARCH % "Test Cases")
+        self.assertIn('name="difficulty"', self.view.arch_db)
+        external_id = self.env["ir.model.data"].search([("model", "=", "ir.ui.view"), ("res_id", "=", self.view.id)])
+        external_id.module = MODULE
+
+        forget_dropped_fields(self.env.cr)
+
+        self.assertEqual(self._stored_field_names(self.view), {"en_US": KEPT_FIELDS})
+        self.assertNotIn('name="difficulty"', self.view.arch_db)
+
+    def test_a_registration_given_to_this_module_by_a_pending_write_is_deleted_and_read_back(self):
+        registrations = self._register_foreign_keys(self._get_module(OTHER_MODULE))
+        self.assertTrue(registrations[0].name)
+        registrations.module = self.module
+
+        forget_dropped_fields(self.env.cr)
+
+        self.assertFalse(registrations.exists())
+        with self.assertRaises(MissingError):
+            registrations[0].name  # noqa: B018
+
     def test_second_run_changes_nothing(self):
         self._store_arch(self.view, en_US=OLD_ARCH % "Test Cases")
         self._register_foreign_keys(self.module)
@@ -941,6 +1195,16 @@ class TestForgetDroppedTestCaseButtons(PreInitHookCase):
 
         self.assertEqual(self._stored_archs(self.view), OLD_BUTTONS_ARCHS)
 
+    def test_a_button_belongs_to_its_nearest_field(self):
+        self.assertEqual(
+            _sub_view_buttons(NESTED_BUTTONS_ARCH),
+            [("testcase_ids", "change_state_done"), ("attachment_ids", "change_state_todo")],
+        )
+
+        cleared_arch = _remove_sub_view_buttons(NESTED_BUTTONS_ARCH, "testcase_ids", DROPPED_TEST_CASE_BUTTONS)
+
+        self.assertEqual(_sub_view_buttons(cleared_arch), [("attachment_ids", "change_state_todo")])
+
     def test_second_run_changes_nothing(self):
         self._store_arch(self.view, **OLD_BUTTONS_ARCHS)
         forget_dropped_test_case_buttons(self.env.cr)
@@ -962,6 +1226,409 @@ class TestForgetDroppedTestCaseButtons(PreInitHookCase):
 
         script.migrate(self.env.cr, "16.0.2.4.1")
         self.assertEqual(self._stored_buttons(self.view), dict.fromkeys(OLD_BUTTONS_ARCHS, KEPT_BUTTONS))
+
+
+@tagged("post_install", "-at_install")
+class TestRenameChecklist(PreInitHookCase):
+    """rename_checklist on a database that holds the checklist under its former
+    names, as its update and the take-over run it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        project = cls.env["project.project"].create({"name": "Checklist Project"})
+        cls.task = cls.env["project.task"].create({"name": "Checklist Task", "project_id": project.id})
+        cls.items = (
+            cls.env[CHECKLIST_MODEL]
+            .with_context(mail_auto_subscribe_no_notify=True)
+            .create(
+                [
+                    {"name": "Write the test", "task_id": cls.task.id},
+                    {"name": "Run the test", "task_id": cls.task.id, "state": "done"},
+                ],
+            )
+        )
+        cls.form_view = cls.env.ref("%s.view_task_form2" % MODULE)
+
+    def _item_rows(self, table):
+        self.env.cr.execute(
+            sql.SQL("SELECT id, name, state, task_id, user_id, reviewer_id FROM {} ORDER BY id").format(
+                sql.Identifier(table)
+            )
+        )
+        return self.env.cr.fetchall()
+
+    def _model_names(self, records):
+        """{model of each of records: the model name its column in MODEL_NAME_RECORDS holds}."""
+        model_names = {}
+        for record in records:
+            table, column = MODEL_NAME_RECORDS[record._name]
+            self.env.cr.execute(
+                sql.SQL("SELECT {} FROM {} WHERE id = %s").format(sql.Identifier(column), sql.Identifier(table)),
+                (record.id,),
+            )
+            model_names[record._name] = self.env.cr.fetchone()[0]
+        return model_names
+
+    def _checklist_external_ids(self):
+        self.env.cr.execute(
+            "SELECT module, name, res_id FROM ir_model_data WHERE strpos(name, %s) > 0", (CHECKLIST_TABLE,)
+        )
+        return {(module, name): res_id for module, name, res_id in self.env.cr.fetchall()}
+
+    def _constraint_registrations(self):
+        self.env.cr.execute(
+            """
+            SELECT con.id, con.name
+              FROM ir_model_constraint con
+              JOIN ir_model ON ir_model.id = con.model
+             WHERE ir_model.model IN %s
+            """,
+            ((CHECKLIST_MODEL, FORMER_CHECKLIST_MODEL),),
+        )
+        return dict(self.env.cr.fetchall())
+
+    def _insert_field(self, model, name, ttype, **columns):
+        """A field of model with its external id in DELEGATING_MODULE, as a
+        module that is not loaded holds it; return its id.
+        """
+        values = {"name": name, "ttype": ttype, "state": "base", "store": False, **columns}
+        self.env.cr.execute(
+            sql.SQL(
+                """
+                INSERT INTO ir_model_fields (model, model_id, field_description, {columns})
+                SELECT model, id, jsonb_build_object('en_US', %(description)s), {values}
+                  FROM ir_model
+                 WHERE model = %(model)s
+             RETURNING id
+                """
+            ).format(
+                columns=sql.SQL(", ").join(map(sql.Identifier, values)),
+                values=sql.SQL(", ").join(map(sql.Placeholder, values)),
+            ),
+            {**values, "model": model, "description": name},
+        )
+        (field_id,) = self.env.cr.fetchone()
+        self.env["ir.model.data"].create(
+            {
+                "module": DELEGATING_MODULE,
+                "name": "field_%s__%s" % (model.replace(".", "_"), name),
+                "model": "ir.model.fields",
+                "res_id": field_id,
+            },
+        )
+        self.env.flush_all()
+        return field_id
+
+    def test_keeps_the_items_and_every_record_under_its_database_id(self):
+        state = self._database_state()
+        item_rows = self._item_rows(CHECKLIST_TABLE)
+        self._put_back_former_checklist_names()
+        self.assertFalse(table_exists(self.env.cr, CHECKLIST_TABLE))
+        self.assertEqual(self._item_rows(FORMER_CHECKLIST_TABLE), item_rows)
+
+        rename_checklist(self.env.cr)
+
+        self.assertDatabaseState(state)
+        self.assertFalse(table_exists(self.env.cr, FORMER_CHECKLIST_TABLE))
+        self.assertEqual(self._item_rows(CHECKLIST_TABLE), item_rows)
+
+    def test_the_table_keeps_its_sequence_constraints_and_indexes_under_its_name(self):
+        objects = self._table_objects(CHECKLIST_TABLE)
+        registrations = self._constraint_registrations()
+        self.assertTrue(objects["constraints"] and objects["indexes"] and registrations)
+        self._put_back_former_checklist_names()
+        former_objects = self._table_objects(FORMER_CHECKLIST_TABLE)
+        self.assertEqual(
+            former_objects["sequence"], objects["sequence"].replace(CHECKLIST_TABLE, FORMER_CHECKLIST_TABLE)
+        )
+        for kind in ("constraints", "indexes"):
+            self.assertEqual(
+                former_objects[kind],
+                [FORMER_CHECKLIST_TABLE + name[len(CHECKLIST_TABLE) :] for name in objects[kind]],
+                kind,
+            )
+        self.assertTrue(
+            all(name.startswith(FORMER_CHECKLIST_TABLE + "_") for name in self._constraint_registrations().values())
+        )
+
+        rename_checklist(self.env.cr)
+
+        self.assertEqual(self._table_objects(CHECKLIST_TABLE), objects)
+        self.assertEqual(self._constraint_registrations(), registrations)
+        self.registry.check_indexes(self.env.cr, [CHECKLIST_MODEL])
+        self.assertEqual(self._table_objects(CHECKLIST_TABLE)["indexes"], objects["indexes"], "core finds them by name")
+
+    def test_records_naming_the_model_follow_it(self):
+        item = self.items[0]
+        partner = self.env["res.partner"].create({"name": "Item Follower"})
+        # Scheduled on the task and moved: core subscribes the assignee to the record, and an item has no followers.
+        activity = self.task.activity_schedule(summary="Check the item")
+        activity.write({"res_model_id": self.env["ir.model"]._get_id(CHECKLIST_MODEL), "res_id": item.id})
+        records = [
+            self.env["mail.message"].create(
+                {"model": CHECKLIST_MODEL, "res_id": item.id, "body": "Item note", "message_type": "comment"},
+            ),
+            self.env["mail.followers"].create(
+                {"res_model": CHECKLIST_MODEL, "res_id": item.id, "partner_id": partner.id}
+            ),
+            activity,
+            self.env["ir.attachment"].create({"name": "item.txt", "res_model": CHECKLIST_MODEL, "res_id": item.id}),
+            self.env["ir.filters"].create({"name": "My items", "model_id": CHECKLIST_MODEL, "user_id": self.env.uid}),
+            self.env["ir.actions.act_window"].create({"name": "Items", "res_model": CHECKLIST_MODEL}),
+        ]
+        self.assertEqual({record._name for record in records}, set(MODEL_NAME_RECORDS))
+        self._put_back_former_checklist_names()
+        self.assertEqual(self._model_names(records), dict.fromkeys(MODEL_NAME_RECORDS, FORMER_CHECKLIST_MODEL))
+
+        rename_checklist(self.env.cr)
+
+        self.assertEqual(self._model_names(records), dict.fromkeys(MODEL_NAME_RECORDS, CHECKLIST_MODEL))
+
+    def test_the_columns_renamed_include_those_known_to_name_a_model(self):
+        self.assertLessEqual(set(REQUIRED_MODEL_NAME_COLUMNS), set(_model_name_columns(self.env)))
+        self.assertIn(REFERENCE_COLUMN, _reference_columns(self.env))
+
+    def test_a_reference_to_an_item_names_the_model_and_keeps_the_id(self):
+        item_id = self.items[0].id
+        menu = self.env["ir.ui.menu"].create({"name": "Item Menu"})
+        self._put_back_former_checklist_names()
+        self.env.cr.execute(
+            "UPDATE ir_ui_menu SET action = %s WHERE id = %s", ("%s,%d" % (FORMER_CHECKLIST_MODEL, item_id), menu.id)
+        )
+
+        rename_checklist(self.env.cr)
+
+        self.env.cr.execute("SELECT action FROM ir_ui_menu WHERE id = %s", (menu.id,))
+        self.assertEqual(self.env.cr.fetchone()[0], "%s,%d" % (CHECKLIST_MODEL, item_id))
+
+    def test_a_pending_write_naming_the_former_names_is_renamed_too(self):
+        favorite = self.env["ir.filters"].create(
+            {"name": "Checked tasks", "model_id": "project.task", "user_id": self.env.uid},
+        )
+        self._put_back_former_checklist_names()
+        favorite.domain = "[('subtask_ids.state', '=', 'todo')]"
+
+        rename_checklist(self.env.cr)
+
+        self.env.cr.execute("SELECT domain FROM ir_filters WHERE id = %s", (favorite.id,))
+        self.assertEqual(self.env.cr.fetchone()[0], "[('checklist_item_ids.state', '=', 'todo')]")
+
+    def test_a_record_read_before_the_rename_reads_the_new_names(self):
+        model = self.env["ir.model"].browse(self.env["ir.model"]._get_id(CHECKLIST_MODEL))
+        self._put_back_former_checklist_names()
+        self.assertEqual(model.model, FORMER_CHECKLIST_MODEL)
+
+        rename_checklist(self.env.cr)
+
+        self.assertEqual(model.model, CHECKLIST_MODEL)
+
+    def test_rewriting_views_starts_from_a_pending_write_and_keeps_its_rewrite(self):
+        stored_arch = self.form_view.arch_db
+        self.assertIn('string="Checklist"', stored_arch)
+        self.form_view.arch_db = stored_arch.replace('string="Checklist"', 'string="Checklist (pending)"')
+
+        _rewrite_module_views(
+            self.env.cr, ("project.task",), lambda _model, arch: arch.replace("(pending)", "(rewritten)")
+        )
+
+        self.assertIn('string="Checklist (rewritten)"', self._stored_archs(self.form_view)["en_US"])
+        self.assertIn('string="Checklist (rewritten)"', self.form_view.arch_db)
+
+    def test_copies_of_the_fields_follow_them(self):
+        """A model that delegates to the task holds a copy of each field, with
+        its external id in another module; a field of the same name on a model
+        that does not stays.
+        """
+        self._put_back_former_checklist_names()
+        copy_id = self._insert_field(
+            DELEGATING_MODEL,
+            "subtask_ids",
+            "one2many",
+            relation=FORMER_CHECKLIST_MODEL,
+            related="task_id.subtask_ids",
+        )
+        dependent_id = self._insert_field(
+            DELEGATING_MODEL, "x_checklist_size", "integer", depends="task_id.subtask_ids,task_id.subtask_ids.state"
+        )
+        bystander_id = self._insert_field("res.users", "subtask_ids", "char")
+
+        rename_checklist(self.env.cr)
+
+        self.env.cr.execute(
+            "SELECT id, name, relation, related, depends FROM ir_model_fields WHERE id IN %s ORDER BY id",
+            ((copy_id, dependent_id, bystander_id),),
+        )
+        self.assertEqual(
+            self.env.cr.fetchall(),
+            [
+                (copy_id, "checklist_item_ids", CHECKLIST_MODEL, "task_id.checklist_item_ids", None),
+                (
+                    dependent_id,
+                    "x_checklist_size",
+                    None,
+                    None,
+                    "task_id.checklist_item_ids,task_id.checklist_item_ids.state",
+                ),
+                (bystander_id, "subtask_ids", None, None, None),
+            ],
+        )
+        self.assertEqual(
+            self._external_ids(DELEGATING_MODULE),
+            {
+                ("ir.model.fields", "field_res_partner__checklist_item_ids"): copy_id,
+                ("ir.model.fields", "field_res_partner__x_checklist_size"): dependent_id,
+                ("ir.model.fields", "field_res_users__subtask_ids"): bystander_id,
+            },
+        )
+
+    def test_external_ids_keep_their_records(self):
+        records = {name: self.env.ref("%s.%s" % (MODULE, name)) for name in RENAMED_CHECKLIST_EXTERNAL_IDS.values()}
+        checklist_external_ids = self._checklist_external_ids()
+        model = self.env[CHECKLIST_MODEL]
+        self.assertEqual(
+            {"%s.%s" % (module, name) for module, name in checklist_external_ids if module == "mail"},
+            {
+                selection_xmlid("mail", CHECKLIST_MODEL, field_name, value)
+                for field_name in ACTIVITY_SELECTION_FIELDS
+                for value in model._fields[field_name].get_values(self.env)
+            },
+            "the selection values of the activity fields",
+        )
+        self._put_back_former_checklist_names()
+        self.assertFalse(self._checklist_external_ids())
+        for former_name, name in RENAMED_CHECKLIST_EXTERNAL_IDS.items():
+            # looked up, and cached, under the former name, as the update does
+            self.assertEqual(self.env.ref("%s.%s" % (MODULE, former_name)), records[name])
+
+        rename_checklist(self.env.cr)
+
+        self.assertEqual(self._checklist_external_ids(), checklist_external_ids)
+        for former_name, name in RENAMED_CHECKLIST_EXTERNAL_IDS.items():
+            self.assertEqual(self.env.ref("%s.%s" % (MODULE, name)), records[name])
+            self.assertFalse(self.env.ref("%s.%s" % (MODULE, former_name), raise_if_not_found=False))
+
+    def test_followers_of_the_checklist_subtype_stay_subscribed_to_the_subtype_the_update_loads(self):
+        subtype = self.env.ref("%s.checklist_subtype" % MODULE)
+        partner = self.env["res.partner"].create({"name": "Checklist Follower"})
+        self.task.message_subscribe(partner_ids=partner.ids, subtype_ids=subtype.ids)
+        self._put_back_former_checklist_names()
+
+        rename_checklist(self.env.cr)
+        convert_file(self.env.cr, MODULE, SUBTYPE_DATA_FILE, {}, mode="update")
+
+        self.env.invalidate_all()
+        loaded_subtype = self.env.ref("%s.checklist_subtype" % MODULE)
+        follower = self.task.message_follower_ids.filtered(lambda follower: follower.partner_id == partner)
+        self.assertEqual(follower.subtype_ids, loaded_subtype)
+        self.assertEqual(loaded_subtype, subtype)
+
+    def test_the_task_form_forgets_the_default_assignee_in_every_translation(self):
+        self.env.cr.execute(
+            """
+            UPDATE ir_ui_view
+               SET arch_db = arch_db || jsonb_build_object(
+                       'fr_FR', replace(arch_db->>'en_US', 'string="Checklist"', 'string="Liste de contrôle"')
+                   )
+             WHERE id = %s
+            """,
+            (self.form_view.id,),
+        )
+        archs = self._stored_archs(self.form_view)
+        self.assertIn('string="Liste de contrôle"', archs["fr_FR"])
+        self._put_back_former_checklist_names()
+        for lang, arch in self._stored_archs(self.form_view).items():
+            self.assertIn(FORMER_CHECKLIST_NODES, arch, lang)
+
+        rename_checklist(self.env.cr)
+
+        self.assertEqual(self._stored_archs(self.form_view), archs)
+        for lang, arch in archs.items():
+            self.assertIn(CHECKLIST_LIST_NODE, arch, lang)
+            self.assertNotIn(DROPPED_CHECKLIST_FIELD, arch, lang)
+        self.form_view._check_xml()
+
+    def test_renames_the_fields_and_the_model_in_rules_filters_and_window_actions(self):
+        texts = {
+            "domain": "[('%(field)s.state', '=', 'todo'), ('old_subtask_ids', '!=', False)]",
+            "context": "{'group_by': '%(other_field)s', 'res_model': '%(model)s'}",
+            "sort": '["%(field)s desc"]',
+        }
+        former_texts = {
+            key: text % {"field": "subtask_ids", "other_field": "kanban_subtasks", "model": FORMER_CHECKLIST_MODEL}
+            for key, text in texts.items()
+        }
+        new_texts = {
+            key: text % {"field": "checklist_item_ids", "other_field": "kanban_checklist", "model": CHECKLIST_MODEL}
+            for key, text in texts.items()
+        }
+        rule = self.env["ir.rule"].create(
+            {
+                "name": "Checked tasks",
+                "model_id": self.env["ir.model"]._get_id("project.task"),
+                "groups": [Command.set(self.env.ref("base.group_system").ids)],
+            },
+        )
+        favorite = self.env["ir.filters"].create(
+            {"name": "Checked tasks", "model_id": "project.task", "user_id": self.env.uid},
+        )
+        action = self.env["ir.actions.act_window"].create({"name": "Checked tasks", "res_model": "project.task"})
+        self._put_back_former_checklist_names()
+        cr = self.env.cr
+        cr.execute("UPDATE ir_rule SET domain_force = %s WHERE id = %s", (former_texts["domain"], rule.id))
+        cr.execute(
+            "UPDATE ir_filters SET domain = %(domain)s, context = %(context)s, sort = %(sort)s WHERE id = %(id)s",
+            {**former_texts, "id": favorite.id},
+        )
+        cr.execute(
+            "UPDATE ir_act_window SET domain = %(domain)s, context = %(context)s WHERE id = %(id)s",
+            {**former_texts, "id": action.id},
+        )
+
+        rename_checklist(self.env.cr)
+
+        self.env.invalidate_all()
+        self.assertRecordValues(rule, [{"domain_force": new_texts["domain"]}])
+        self.assertRecordValues(favorite, [new_texts])
+        self.assertRecordValues(action, [{"domain": new_texts["domain"], "context": new_texts["context"]}])
+
+    def test_logs_one_line_with_the_counts(self):
+        self._put_back_former_checklist_names()
+
+        with self.assertLogs(HOOKS_LOGGER, level=logging.INFO) as logs:
+            counts = rename_checklist(self.env.cr)
+
+        self.assertEqual(len(logs.records), 1)
+        self.assertTrue(
+            logs.records[0].getMessage().startswith("Checklist renamed: 1 tables, 1 sequences, "),
+            logs.records[0].getMessage(),
+        )
+        self.assertEqual(counts["models"], 1)
+
+    def test_second_run_changes_nothing(self):
+        self._put_back_former_checklist_names()
+        rename_checklist(self.env.cr)
+        state_after_first_run = self._database_state()
+
+        with self.assertNoLogs(HOOKS_LOGGER, level=logging.INFO):
+            counts = rename_checklist(self.env.cr)
+
+        self.assertEqual(counts, dict.fromkeys(counts, 0))
+        self.assertDatabaseState(state_after_first_run)
+
+    def test_migration_script_renames_on_update_only(self):
+        spec = importlib.util.spec_from_file_location("pre_migration", CHECKLIST_MIGRATION_SCRIPT)
+        script = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(script)
+        self._put_back_former_checklist_names()
+
+        script.migrate(self.env.cr, None)
+        self.assertTrue(table_exists(self.env.cr, FORMER_CHECKLIST_TABLE))
+
+        script.migrate(self.env.cr, "16.0.2.5.0")
+        self.assertTrue(table_exists(self.env.cr, CHECKLIST_TABLE))
+        self.assertFalse(table_exists(self.env.cr, FORMER_CHECKLIST_TABLE))
 
 
 @tagged("post_install", "-at_install")

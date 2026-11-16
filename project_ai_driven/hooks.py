@@ -7,7 +7,7 @@ from psycopg2 import sql
 from psycopg2.extras import Json
 
 from odoo import SUPERUSER_ID, api
-from odoo.tools.sql import column_exists, rename_column
+from odoo.tools.sql import column_exists, rename_column, table_exists
 
 from .models.project_pull_request import parse_pull_request_links
 from .models.project_task_testcase import OLD_STATES
@@ -91,6 +91,47 @@ DROPPED_FIELDS = (
 DROPPED_FOREIGN_KEYS = ("project_task_tester_id_fkey",)
 # Deleted from the test case model since; the checklist model still has methods of these names.
 DROPPED_TEST_CASE_BUTTONS = ("change_state_done", "change_state_todo", "change_state_waiting", "change_state_cancelled")
+
+CHECKLIST_MODEL = "project.task.checklist.item"
+FORMER_CHECKLIST_MODEL = "project.task.subtask"
+CHECKLIST_TABLE = "project_task_checklist_item"
+FORMER_CHECKLIST_TABLE = "project_task_subtask"
+# Fields of the task, and the copies of models that delegate to it: {former name: new name}.
+RENAMED_CHECKLIST_FIELDS = {"subtask_ids": "checklist_item_ids", "kanban_subtasks": "kanban_checklist"}
+DROPPED_CHECKLIST_FIELD = "default_user"
+RENAMED_CHECKLIST_EXTERNAL_IDS = {
+    "access_task_subtask": "access_task_checklist_item",
+    "subtasks_subtype": "checklist_subtype",
+    "all_subtask_subtype": "project_checklist_subtype",
+    "view_task_kanban_subtasks": "view_task_kanban_checklist",
+    "project_task_subtask_view_form": "project_task_checklist_item_view_form",
+    "project_task_subtask_view_search": "project_task_checklist_item_view_search",
+    "subtask_list_view": "project_task_checklist_item_view_tree",
+    "action_view_subtask": "action_view_checklist_item",
+    "menu_action_view_subtask": "menu_action_view_checklist_item",
+}
+CHECKLIST_VIEW_FILE = MODULE + "/views/project_task_checklist_item_views.xml"
+FORMER_CHECKLIST_VIEW_FILE = MODULE + "/views/project_task_subtask_views.xml"
+# Besides the model columns of the Many2oneReference fields the registry knows.
+MODEL_NAME_COLUMNS = (
+    ("ir_model_data", "model"),
+    ("ir_ui_view", "model"),
+    ("ir_act_window", "res_model"),
+    ("ir_act_client", "res_model"),
+    ("ir_act_report_xml", "model"),
+    ("ir_act_server", "model_name"),
+    ("ir_filters", "model_id"),
+    ("ir_exports", "resource"),
+    ("mail_template", "model"),
+    ("mail_message", "model"),
+    ("mail_followers", "res_model"),
+    ("mail_activity", "res_model"),
+    ("mail_activity_type", "res_model"),
+    ("mail_message_subtype", "res_model"),
+    ("ir_attachment", "res_model"),
+    ("rating_rating", "res_model"),
+    ("rating_rating", "parent_res_model"),
+)
 
 # An external id is unique per module: a name this module already holds is left alone.
 NAME_IS_FREE = """
@@ -205,32 +246,32 @@ TAKE_OVER_VIEW_FILES = """
 
 RENAME_FIELDS = """
     UPDATE ir_model_fields field
-       SET name = %(flag)s
-     WHERE field.name = %(former_flag)s
+       SET name = %(field)s
+     WHERE field.name = %(former_field)s
        AND NOT EXISTS (
-           SELECT 1 FROM ir_model_fields taken WHERE taken.model = field.model AND taken.name = %(flag)s
+           SELECT 1 FROM ir_model_fields taken WHERE taken.model = field.model AND taken.name = %(field)s
        )
 """
 RENAME_RELATED_PATHS = """
     UPDATE ir_model_fields
        SET related = array_to_string(
-               array_replace(string_to_array(related, '.'), %(former_flag)s::text, %(flag)s::text), '.'
+               array_replace(string_to_array(related, '.'), %(former_field)s::text, %(field)s::text), '.'
            )
-     WHERE %(former_flag)s::text = ANY(string_to_array(related, '.'))
+     WHERE %(former_field)s::text = ANY(string_to_array(related, '.'))
 """
 RENAME_FIELD_EXTERNAL_IDS = """
     UPDATE ir_model_data imd
-       SET name = 'field_' || replace(field.model, '.', '_') || '__' || %(flag)s
+       SET name = 'field_' || replace(field.model, '.', '_') || '__' || %(field)s
       FROM ir_model_fields field
      WHERE imd.model = 'ir.model.fields'
        AND imd.res_id = field.id
-       AND field.name = %(flag)s
-       AND imd.name = 'field_' || replace(field.model, '.', '_') || '__' || %(former_flag)s
+       AND field.name = %(field)s
+       AND imd.name = 'field_' || replace(field.model, '.', '_') || '__' || %(former_field)s
        AND NOT EXISTS (
            SELECT 1
              FROM ir_model_data taken
             WHERE taken.module = imd.module
-              AND taken.name = 'field_' || replace(field.model, '.', '_') || '__' || %(flag)s
+              AND taken.name = 'field_' || replace(field.model, '.', '_') || '__' || %(field)s
        )
 """
 RENAME_EXTERNAL_ID = """
@@ -244,14 +285,14 @@ RENAME_EXTERNAL_ID = """
 """
 RENAME_FLAG_IN_ARCH = """
     UPDATE ir_ui_view
-       SET arch_db = replace(arch_db::text, %(former_flag)s, %(flag)s)::jsonb
-     WHERE strpos(arch_db::text, %(former_flag)s) > 0
+       SET arch_db = replace(arch_db::text, %(former_field)s, %(field)s)::jsonb
+     WHERE strpos(arch_db::text, %(former_field)s) > 0
 """
 RENAME_FLAG_IN_TEXT = sql.SQL(
     """
     UPDATE {table}
-       SET {column} = replace({column}, %(former_flag)s, %(flag)s)
-     WHERE strpos({column}, %(former_flag)s) > 0
+       SET {column} = replace({column}, %(former_field)s, %(field)s)
+     WHERE strpos({column}, %(former_field)s) > 0
     """
 )
 
@@ -270,6 +311,129 @@ FORGET_FOREIGN_KEYS = """
        AND holder.name = %(module)s
        AND con.type = 'f'
        AND con.name IN %(foreign_keys)s
+"""
+
+FORMER_CONSTRAINT_NAMES = """
+    SELECT conname
+      FROM pg_constraint
+     WHERE conrelid = to_regclass(%(table)s)
+       AND left(conname, length(%(former_prefix)s)) = %(former_prefix)s
+  ORDER BY conname
+"""
+# Run after the constraints: renaming the constraint of a primary key renames its index too.
+FORMER_INDEX_NAMES = """
+    SELECT indexname
+      FROM pg_indexes
+     WHERE schemaname = current_schema()
+       AND tablename = %(table)s
+       AND left(indexname, length(%(former_prefix)s)) = %(former_prefix)s
+  ORDER BY indexname
+"""
+RENAME_CHECKLIST_CONSTRAINT_ROWS = """
+    UPDATE ir_model_constraint con
+       SET name = %(prefix)s || substr(con.name, length(%(former_prefix)s) + 1)
+      FROM ir_model
+     WHERE ir_model.id = con.model
+       AND ir_model.model IN (%(model)s, %(former_model)s)
+       AND left(con.name, length(%(former_prefix)s)) = %(former_prefix)s
+       AND NOT EXISTS (
+           SELECT 1
+             FROM ir_model_constraint taken
+            WHERE taken.module = con.module
+              AND taken.name = %(prefix)s || substr(con.name, length(%(former_prefix)s) + 1)
+       )
+"""
+RENAME_CHECKLIST_MODEL = """
+    UPDATE ir_model
+       SET model = %(model)s
+     WHERE model = %(former_model)s
+       AND NOT EXISTS (SELECT 1 FROM ir_model taken WHERE taken.model = %(model)s)
+"""
+MOVE_CHECKLIST_FIELDS = """
+    UPDATE ir_model_fields field
+       SET model = %(model)s
+     WHERE field.model = %(former_model)s
+       AND NOT EXISTS (
+           SELECT 1 FROM ir_model_fields taken WHERE taken.model = %(model)s AND taken.name = field.name
+       )
+"""
+RENAME_CHECKLIST_RELATIONS = """
+    UPDATE ir_model_fields SET relation = %(model)s WHERE relation = %(former_model)s
+"""
+# The field of the task, and its copies: a copy is related to the field of the same name.
+RENAME_CHECKLIST_FIELD = """
+    UPDATE ir_model_fields field
+       SET name = %(field)s
+     WHERE field.name = %(former_field)s
+       AND (
+           field.model = 'project.task'
+           OR right(field.related, length(%(former_field)s) + 1) = '.' || %(former_field)s
+       )
+       AND NOT EXISTS (
+           SELECT 1 FROM ir_model_fields taken WHERE taken.model = field.model AND taken.name = %(field)s
+       )
+"""
+RENAME_WORD_IN_DEPENDENCIES = """
+    UPDATE ir_model_fields
+       SET depends = regexp_replace(depends, %(pattern)s, %(field)s, 'g')
+     WHERE depends ~ %(pattern)s
+"""
+RENAME_CHECKLIST_MODEL_IN_COLUMN = sql.SQL(
+    """
+    UPDATE {table} SET {column} = %(model)s WHERE {column} = %(former_model)s
+    """
+)
+RENAME_CHECKLIST_MODEL_IN_REFERENCES = sql.SQL(
+    """
+    UPDATE {table}
+       SET {column} = %(model)s || substr({column}, length(%(former_model)s) + 1)
+     WHERE left({column}, length(%(former_model)s) + 1) = %(former_model)s || ','
+    """
+)
+# The external ids core gives the model, its fields and their selection values, in any module.
+RENAME_CHECKLIST_RECORD_EXTERNAL_IDS = """
+    WITH checklist_record AS (
+        SELECT 'ir.model' AS model, id AS res_id FROM ir_model WHERE model = %(model)s
+         UNION ALL
+        SELECT 'ir.model.fields', id FROM ir_model_fields WHERE model = %(model)s
+         UNION ALL
+        SELECT 'ir.model.fields.selection', selection.id
+          FROM ir_model_fields_selection selection
+          JOIN ir_model_fields field ON field.id = selection.field_id
+         WHERE field.model = %(model)s
+    ),
+    renamed AS (
+        SELECT imd.id, imd.module, regexp_replace(imd.name, %(pattern)s, %(replacement)s) AS name
+          FROM ir_model_data imd
+          JOIN checklist_record record ON record.model = imd.model AND record.res_id = imd.res_id
+         WHERE imd.name ~ %(pattern)s
+    )
+    UPDATE ir_model_data imd
+       SET name = renamed.name
+      FROM renamed
+     WHERE imd.id = renamed.id
+       AND NOT EXISTS (
+           SELECT 1 FROM ir_model_data taken WHERE taken.module = renamed.module AND taken.name = renamed.name
+       )
+"""
+CHECKLIST_VIEWS = """
+    SELECT view.id, view.model, view.arch_db
+      FROM ir_ui_view view
+     WHERE view.arch_db IS NOT NULL
+       AND (
+           view.model = %(model)s
+           OR view.model IN (SELECT field.model FROM ir_model_fields field WHERE field.name IN %(fields)s)
+       )
+"""
+RENAME_WORD_IN_TEXT = sql.SQL(
+    """
+    UPDATE {table}
+       SET {column} = regexp_replace({column}, %(pattern)s, %(name)s, 'g')
+     WHERE {column} ~ %(pattern)s
+    """
+)
+RENAME_CHECKLIST_VIEW_FILES = """
+    UPDATE ir_ui_view SET arch_fs = %(file)s WHERE arch_fs = %(former_file)s
 """
 
 ONE_LINK = "one pull request link"
@@ -502,8 +666,9 @@ def pre_init_hook(cr):
     nothing left to move or rename.
 
     The database is then where an update of this module finds it, the fields
-    and the buttons deleted since included: see forget_dropped_fields and
-    forget_dropped_test_case_buttons.
+    and the buttons deleted since included, and the checklist under its new
+    names: see forget_dropped_fields, forget_dropped_test_case_buttons and
+    rename_checklist.
     """
     if is_installed(cr, FORMER_MODULE):
         take_over_module(cr, FORMER_MODULE, MODULE)
@@ -515,6 +680,7 @@ def pre_init_hook(cr):
     rename_external_ids(cr, MODULE, RENAMED_EXTERNAL_IDS)
     forget_dropped_fields(cr)
     forget_dropped_test_case_buttons(cr)
+    rename_checklist(cr)
     # external ids are cached per registry, and these changed behind the ORM
     api.Environment(cr, SUPERUSER_ID, {}).registry.clear_caches()
 
@@ -811,7 +977,7 @@ def _rename_flag(cr):
     soon as another view of the same model is loaded. The text is replaced as a
     substring, so that a default_<field> context key follows.
     """
-    params = {"flag": FLAG, "former_flag": FORMER_FLAG}
+    params = {"field": FLAG, "former_field": FORMER_FLAG}
     if column_exists(cr, FLAG_TABLE, FORMER_FLAG) and not column_exists(cr, FLAG_TABLE, FLAG):
         rename_column(cr, FLAG_TABLE, FORMER_FLAG, FLAG)
     for query in (RENAME_FIELDS, RENAME_RELATED_PATHS, RENAME_FIELD_EXTERNAL_IDS, RENAME_FLAG_IN_ARCH):
@@ -847,8 +1013,11 @@ def forget_dropped_fields(cr):
     cleared_view_ids = _rewrite_module_views(
         cr, field_names, lambda model, arch: _remove_field_nodes(arch, field_names[model])
     )
+    constraints = api.Environment(cr, SUPERUSER_ID, {})["ir.model.constraint"]
+    constraints.flush_model()
     cr.execute(FORGET_FOREIGN_KEYS, {"module": MODULE, "foreign_keys": DROPPED_FOREIGN_KEYS})
     forgotten_key_count = cr.rowcount
+    constraints.invalidate_model()
     if cleared_view_ids or forgotten_key_count:
         _logger.info(
             "Dropped fields forgotten: taken out of %d views, %d foreign key registrations deleted",
@@ -924,19 +1093,268 @@ def _rewrite_module_views(cr, models, rewrite_arch):
     models through rewrite_arch(model, arch); return the ids of the views it
     changed.
     """
-    cr.execute(MODULE_VIEWS, {"module": MODULE, "models": tuple(models)})
+    return _rewrite_views(cr, MODULE_VIEWS, {"module": MODULE, "models": tuple(models)}, rewrite_arch)
+
+
+def _rewrite_views(cr, query, params, rewrite_arch):
+    """Pass every translation of the stored arch of the views query selects, as
+    (id, model, arch_db), through rewrite_arch(model, arch); return the ids of
+    the views it changed. What the ORM holds pending goes to the database
+    first, and the ORM reads the archs written here from it.
+    """
+    env = api.Environment(cr, SUPERUSER_ID, {})
+    env["ir.model.data"].flush_model()
+    env["ir.ui.view"].flush_model()
+    cr.execute(query, params)
     rewritten_view_ids = []
     for view_id, model, archs in cr.fetchall():
         rewritten_archs = {lang: rewrite_arch(model, arch) for lang, arch in archs.items()}
         if rewritten_archs != archs:
             cr.execute("UPDATE ir_ui_view SET arch_db = %s WHERE id = %s", (Json(rewritten_archs), view_id))
             rewritten_view_ids.append(view_id)
+    env["ir.ui.view"].invalidate_model()
     return rewritten_view_ids
 
 
 def rename_external_ids(cr, module, renamed_names):
-    """Rename external ids of module, {former name: new name}. A new name that
-    is already taken leaves the former one in place.
+    """Rename external ids of module, {former name: new name}, and return how
+    many changed. A new name that is already taken leaves the former one in
+    place.
     """
+    renamed_count = 0
     for former_name, new_name in renamed_names.items():
         cr.execute(RENAME_EXTERNAL_ID, {"module": module, "former_name": former_name, "new_name": new_name})
+        renamed_count += cr.rowcount
+    return renamed_count
+
+
+def rename_checklist(cr):
+    """Rename the checklist model project.task.subtask to project.task.checklist.item,
+    and the fields of the task in RENAMED_CHECKLIST_FIELDS, before the data files
+    are loaded; return the count of each kind of rename.
+
+    Renamed: the table with its sequence, constraints and indexes; the model
+    and its fields; the relations, related paths and dependencies of fields;
+    the external ids of the model, its fields and their selection values, and
+    those in RENAMED_CHECKLIST_EXTERNAL_IDS; the columns in MODEL_NAME_COLUMNS,
+    the model column of every stored Many2oneReference and the value of every
+    stored Reference; the stored arch of the views of the checklist and of the
+    models holding the fields, and the file they were loaded from; the domains,
+    contexts and orders in FIELD_NAMING_COLUMNS. Left as they are: the code of
+    server actions and scheduled actions, the bodies of mail templates, the
+    field paths of export lines, and the views of other models. Names are
+    matched as whole words, so a name that only contains one, such as the
+    context key default_subtask_ids, stays: a looser match would rename names
+    that are not the checklist's.
+
+    The table keeps its rows, and the model, the fields, their selection values,
+    the constraints and the records in RENAMED_CHECKLIST_EXTERNAL_IDS keep their
+    database id. Left under the former names they would be deleted at the end
+    of the update, the table and the columns with them. The indexes and
+    constraints of the table take its new name: core looks an index up by name
+    and would add a second one. A model that delegates to the task carries a
+    copy of each field, with an external id in whichever module holds it: the
+    copy follows too.
+
+    The stored arch of a view is validated as soon as another view of its model
+    is loaded, before its own data file rewrites it: the views stop naming the
+    former fields, and this module's views stop naming DROPPED_CHECKLIST_FIELD,
+    which the update deletes at its end. A server in dev mode reads a view from
+    the file it was loaded from: the views of the renamed file name the new one.
+
+    A second run finds nothing left.
+    """
+    env = api.Environment(cr, SUPERUSER_ID, {})
+    env.flush_all()
+    model_params = {"model": CHECKLIST_MODEL, "former_model": FORMER_CHECKLIST_MODEL}
+    table_params = {"prefix": CHECKLIST_TABLE + "_", "former_prefix": FORMER_CHECKLIST_TABLE + "_"}
+    counts = _rename_checklist_table(cr)
+    counts["constraint registrations"] = _rowcount(
+        cr, RENAME_CHECKLIST_CONSTRAINT_ROWS, {**model_params, **table_params}
+    )
+    counts["models"] = _rowcount(cr, RENAME_CHECKLIST_MODEL, model_params)
+    counts["fields of the model"] = _rowcount(cr, MOVE_CHECKLIST_FIELDS, model_params)
+    counts["relations"] = _rowcount(cr, RENAME_CHECKLIST_RELATIONS, model_params)
+    counts.update(_rename_checklist_fields(cr))
+    counts["values naming the model"] = _rename_checklist_model_in_records(env)
+    counts["external ids"] = _rename_checklist_external_ids(cr)
+    renamed_view_ids = _rewrite_views(
+        cr,
+        CHECKLIST_VIEWS,
+        {"model": CHECKLIST_MODEL, "fields": tuple(RENAMED_CHECKLIST_FIELDS.values())},
+        lambda _model, arch: _rename_checklist_fields_in_arch(arch),
+    )
+    cleared_view_ids = _rewrite_module_views(
+        cr, ("project.task",), lambda _model, arch: _remove_field_and_its_context(arch, DROPPED_CHECKLIST_FIELD)
+    )
+    counts["views"] = len(set(renamed_view_ids) | set(cleared_view_ids))
+    counts["filters, window actions and rules"] = _rename_checklist_in_texts(cr)
+    counts["view files"] = _rowcount(
+        cr, RENAME_CHECKLIST_VIEW_FILES, {"file": CHECKLIST_VIEW_FILE, "former_file": FORMER_CHECKLIST_VIEW_FILE}
+    )
+    env.invalidate_all()
+    # external ids are cached per registry, and these changed behind the ORM
+    env.registry.clear_caches()
+    if any(counts.values()):
+        _logger.info("Checklist renamed: %s", ", ".join("%d %s" % (count, label) for label, count in counts.items()))
+    return counts
+
+
+def _rowcount(cr, query, params):
+    cr.execute(query, params)
+    return cr.rowcount
+
+
+def _rename_checklist_table(cr):
+    counts = dict.fromkeys(("tables", "sequences", "constraints", "indexes"), 0)
+    if table_exists(cr, FORMER_CHECKLIST_TABLE) and not table_exists(cr, CHECKLIST_TABLE):
+        cr.execute(
+            sql.SQL("ALTER TABLE {} RENAME TO {}").format(
+                sql.Identifier(FORMER_CHECKLIST_TABLE), sql.Identifier(CHECKLIST_TABLE)
+            )
+        )
+        counts["tables"] = 1
+    former_sequence, sequence = FORMER_CHECKLIST_TABLE + "_id_seq", CHECKLIST_TABLE + "_id_seq"
+    if _relation_exists(cr, former_sequence) and not _relation_exists(cr, sequence):
+        cr.execute(
+            sql.SQL("ALTER SEQUENCE {} RENAME TO {}").format(sql.Identifier(former_sequence), sql.Identifier(sequence))
+        )
+        counts["sequences"] = 1
+    names_params = {"table": CHECKLIST_TABLE, "former_prefix": FORMER_CHECKLIST_TABLE + "_"}
+    cr.execute(FORMER_CONSTRAINT_NAMES, names_params)
+    for (former_name,) in cr.fetchall():
+        cr.execute(
+            sql.SQL("ALTER TABLE {} RENAME CONSTRAINT {} TO {}").format(
+                sql.Identifier(CHECKLIST_TABLE),
+                sql.Identifier(former_name),
+                sql.Identifier(_checklist_table_object_name(former_name)),
+            )
+        )
+        counts["constraints"] += 1
+    cr.execute(FORMER_INDEX_NAMES, names_params)
+    for (former_name,) in cr.fetchall():
+        cr.execute(
+            sql.SQL("ALTER INDEX {} RENAME TO {}").format(
+                sql.Identifier(former_name), sql.Identifier(_checklist_table_object_name(former_name))
+            )
+        )
+        counts["indexes"] += 1
+    return counts
+
+
+def _relation_exists(cr, name):
+    cr.execute("SELECT to_regclass(%s)", (name,))
+    return cr.fetchone()[0] is not None
+
+
+def _checklist_table_object_name(former_name):
+    return CHECKLIST_TABLE + former_name[len(FORMER_CHECKLIST_TABLE) :]
+
+
+def _rename_checklist_fields(cr):
+    counts = dict.fromkeys(("fields renamed", "related paths", "dependencies"), 0)
+    for former_field, field in RENAMED_CHECKLIST_FIELDS.items():
+        params = {"field": field, "former_field": former_field, "pattern": _word_pattern(former_field)}
+        counts["fields renamed"] += _rowcount(cr, RENAME_CHECKLIST_FIELD, params)
+        counts["related paths"] += _rowcount(cr, RENAME_RELATED_PATHS, params)
+        counts["dependencies"] += _rowcount(cr, RENAME_WORD_IN_DEPENDENCIES, params)
+    return counts
+
+
+def _rename_checklist_model_in_records(env):
+    params = {"model": CHECKLIST_MODEL, "former_model": FORMER_CHECKLIST_MODEL}
+    renamed_count = 0
+    for query, columns in (
+        (RENAME_CHECKLIST_MODEL_IN_COLUMN, _model_name_columns(env)),
+        (RENAME_CHECKLIST_MODEL_IN_REFERENCES, _reference_columns(env)),
+    ):
+        for table, column in columns:
+            renamed_count += _rowcount(
+                env.cr, query.format(table=sql.Identifier(table), column=sql.Identifier(column)), params
+            )
+    return renamed_count
+
+
+def _model_name_columns(env):
+    """Return the existing columns of MODEL_NAME_COLUMNS, and the model column
+    of every stored Many2oneReference field the registry knows, as (table,
+    column).
+    """
+    columns = set(MODEL_NAME_COLUMNS)
+    for model in _models_with_table(env):
+        for field in model._fields.values():
+            model_field = model._fields.get(field.model_field) if field.type == "many2one_reference" else None
+            if field.store and model_field and model_field.store:
+                columns.add((model._table, model_field.name))
+    return sorted(column for column in columns if column_exists(env.cr, *column))
+
+
+def _reference_columns(env):
+    """Return the column of every stored Reference field the registry knows,
+    which holds 'model,id', as (table, column).
+    """
+    columns = {
+        (model._table, field.name)
+        for model in _models_with_table(env)
+        for field in model._fields.values()
+        if field.type == "reference" and field.store
+    }
+    return sorted(column for column in columns if column_exists(env.cr, *column))
+
+
+def _models_with_table(env):
+    return [model for model in env.registry.values() if model._auto and not model._abstract and not model._table_query]
+
+
+def _rename_checklist_external_ids(cr):
+    renamed_count = _rowcount(
+        cr,
+        RENAME_CHECKLIST_RECORD_EXTERNAL_IDS,
+        {
+            "model": CHECKLIST_MODEL,
+            "pattern": r"^(model_|field_|selection__)%s(__|$)" % FORMER_CHECKLIST_TABLE,
+            "replacement": r"\1%s\2" % CHECKLIST_TABLE,
+        },
+    )
+    for former_field, field in RENAMED_CHECKLIST_FIELDS.items():
+        renamed_count += _rowcount(cr, RENAME_FIELD_EXTERNAL_IDS, {"field": field, "former_field": former_field})
+    return renamed_count + rename_external_ids(cr, MODULE, RENAMED_CHECKLIST_EXTERNAL_IDS)
+
+
+def _rename_checklist_fields_in_arch(arch):
+    return re.sub(
+        r"\b(%s)\b" % "|".join(RENAMED_CHECKLIST_FIELDS),
+        lambda match: RENAMED_CHECKLIST_FIELDS[match.group(1)],
+        arch,
+    )
+
+
+def _remove_field_and_its_context(arch, field_name):
+    """Return arch without the nodes of field_name, see _remove_field_nodes,
+    and without the context attributes that name it.
+    """
+    arch = _remove_field_nodes(arch, {field_name})
+    root = etree.fromstring(arch)
+    nodes = [node for node in root.xpath("//*[@context]") if re.search(r"\b%s\b" % field_name, node.get("context"))]
+    for node in nodes:
+        del node.attrib["context"]
+    return etree.tostring(root, encoding="unicode") if nodes else arch
+
+
+def _rename_checklist_in_texts(cr):
+    """Rename the fields and the model in the domains, contexts and orders of
+    FIELD_NAMING_COLUMNS, as whole words; return how many values changed.
+    """
+    renames = {_word_pattern(former): name for former, name in RENAMED_CHECKLIST_FIELDS.items()}
+    renames[_word_pattern(FORMER_CHECKLIST_MODEL)] = CHECKLIST_MODEL
+    renamed_count = 0
+    for table, column in FIELD_NAMING_COLUMNS:
+        query = RENAME_WORD_IN_TEXT.format(table=sql.Identifier(table), column=sql.Identifier(column))
+        for pattern, name in renames.items():
+            renamed_count += _rowcount(cr, query, {"pattern": pattern, "name": name})
+    return renamed_count
+
+
+def _word_pattern(word):
+    """Return the PostgreSQL regular expression of word as a whole word."""
+    return r"\y%s\y" % re.escape(word)
