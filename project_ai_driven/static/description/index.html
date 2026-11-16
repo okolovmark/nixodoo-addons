@@ -408,25 +408,31 @@ can assign tasks without failing.</li>
 (<tt class="docutils literal">checklist_item_ids</tt>), each with a description, an <strong>Assigned to</strong> user,
 a <strong>Reviewer</strong>, a deadline and a state: TODO, Waiting, Done, Cancelled. A new
 item’s assignee and reviewer default to the user who creates it, on the form
-and over RPC; the reviewer is read-only on the form.</p>
-<p>Only the assignee or the reviewer of an item changes its state or
-description. The check runs before the write, against the assignee and the
-reviewer the item has then, so taking over an item and changing its state in
-one write is refused. Any <strong>Project / User</strong> can change the assignee and the
-deadline.</p>
+and over RPC; the reviewer is read-only on the form. Items have no
+activities.</p>
+<p>An item is found, read, changed, deleted and created by the users who can
+read its task, archived or not: the record rules of the task apply to its
+items, the companies selected in the company switcher included. The
+superuser and <tt class="docutils literal">sudo()</tt> reach every item.</p>
+<p>Only the assignee or the reviewer of an item changes its state, description
+or assignee. The check runs before the write, against the assignee and the
+reviewer the item has then: the assignee may hand the item over and change
+its state in one write, another user cannot take it. The deadline, and the
+reviewer over RPC, are changed by anyone who can change the item.</p>
 <p>A creation and a change of state, description or assignee make one post per
-item on the task, addressed to the item’s assignee and reviewer other than
-the user making the change, under the internal <em>All checklist updates</em>
-subtype. When that user is both, the post is a note addressed to no one. A
-change of description shows the former description under the former state.
-The subtype is not subscribed by default: other followers receive the posts
-of others only after opting into <em>All checklist updates</em> on the task or on
-its project. The same context key silences these posts for an account
-without an email address.</p>
+item on the task, addressed to the item’s assignee and reviewer, and to its
+former assignee on a change of assignee, other than the user making the
+change, under the internal <em>All checklist updates</em> subtype. When no one else
+is left, the post is a note addressed to no one. A change of description
+shows the former description under the former state. A post is written in
+the language of the user making the change. The subtype is not subscribed
+by default: other followers receive the posts of others only after opting
+into <em>All checklist updates</em> on the task or on its project. The same context
+key silences these posts for an account without an email address.</p>
 <p>The task’s kanban card shows the current user’s completion percentage over
 their non-cancelled items and the number of their TODO and Waiting items. The
 <strong>Checklist</strong> menu opens on your own TODO items (the <em>My</em> and <em>TODO</em> filters
-are on by default); remove those filters to see all items.</p>
+are on by default); remove those filters to see every item you can read.</p>
 <p><strong>Test cases</strong> (<tt class="docutils literal">project.task.testcase</tt>)</p>
 <p>Ordered test cases per task with Steps to execute, Expected results and
 Comments. The <strong>Status</strong> of a case is its result: Not run (the default),
@@ -736,9 +742,9 @@ actions;</li>
 </table>
 <p><tt class="docutils literal">default_user</tt> is taken out of the stored views of this module. Every
 record keeps its database id, so the items, their activities and the
-follower subscriptions to <em>All checklist updates</em> stay as they are. The server log
-gets one line with the count of each kind of rename; a second run changes
-nothing.</p>
+follower subscriptions to <em>All checklist updates</em> stay as they are; the
+update to 16.0.2.6.1 then deletes the activities. The server log gets one
+line with the count of each kind of rename; a second run changes nothing.</p>
 <p>Not rewritten: the code of server actions and scheduled actions, the bodies
 of mail templates, the field paths of export lines, the views of other
 models, and a context that turns on the search filters of the checklist by
@@ -747,6 +753,21 @@ their former names, <tt class="docutils literal">my_subtask</tt> and <tt class="
 <p>Run the update with the server stopped: renaming the table locks it, and
 running code reads the former names. Every client, RPC scripts and modules
 that name the checklist, moves to the new names in the same deploy.</p>
+<p>The update to 16.0.2.6.1 removes the activities of the checklist: the model
+no longer has activity fields. Before the data files are loaded, SQL
+deletes the activities of checklist items, the external ids <tt class="docutils literal">mail</tt> holds
+on the selection values of those fields and the external ids other modules
+hold on the fields; at its end the update deletes the fields, which have no
+column. The install that takes over <tt class="docutils literal">project_software</tt> or the
+project-specific module it was cut from does it too. The server log gets
+one line with the count of activities and of external ids deleted; a second
+run deletes nothing.</p>
+<p>From 16.0.2.6.1 a checklist item follows the access of its task, the
+companies selected in the company switcher included: the <strong>Checklist</strong> menu
+no longer lists the items of a task the user cannot read, nor of a task in
+a company that is not selected. Only the assignee or the reviewer of an item
+gives it another assignee; a reassignment by another user is refused. The
+deploy is one update of the module, with nothing else to run.</p>
 <p><strong>Upgrading from project_software</strong></p>
 <p><tt class="docutils literal">project_software</tt> remains for one release as an empty module that depends
 on this one, so updating it installs this module. Before any data file is
@@ -939,9 +960,10 @@ value; a sales order line that creates a task, which gives no task type.
 The duplicate of a project copies each task with its type and its
 estimate, so it is refused only where a task sits in such a stage without
 them.</li>
-<li>Checklist items and test cases are managed by <strong>Project / User</strong>. The
-Checklist, Test Cases and Technical Solution tabs are hidden from users
-without that group.</li>
+<li>Checklist items and test cases are managed by <strong>Project / User</strong>, a
+checklist item only by a user who can read its task. The Checklist, Test
+Cases and Technical Solution tabs are hidden from users without that
+group.</li>
 <li>Pull requests are read by every internal user and created and edited by
 <strong>Project / User</strong>. No access right allows deleting one.</li>
 <li>The stage log is read by <strong>Administration / Settings</strong> only. No access
@@ -964,7 +986,8 @@ tags. <strong>Size</strong> shows the size of the estimate and cannot be edited.
 <li><em>Checklist</em> tab: add items, each with an <strong>Assigned to</strong> user, yourself
 unless you pick another, and an optional deadline. You are the reviewer of
 the items you add. The assignee or the reviewer moves an item with the
-state icons (TODO, Waiting, Done, Cancelled). The task’s kanban card shows
+state icons (TODO, Waiting, Done, Cancelled), changes its description or
+gives it another assignee. The task’s kanban card shows
 your own completion percentage, only when you have non-cancelled items
 assigned to you.</li>
 <li><em>Test Cases</em> tab: add ordered cases with steps and expected results, then
@@ -988,8 +1011,9 @@ the task; a task that already has one gets Code by itself.</li>
 moving the task to a stage that requires them. The refusal names what is
 missing.</li>
 </ul>
-<p><strong>Project &gt; Checklist</strong> lists the checklist items of all tasks, opened on
-your own TODO items.</p>
+<p><strong>Project &gt; Checklist</strong> lists the checklist items of the tasks you can read
+in the selected companies, opened on your own TODO items. Group by project,
+task, user or status.</p>
 <p><strong>Project &gt; Test Cases</strong> lists the test cases of all tasks, opened on the
 ones Not run: a list, cards on a phone. Filter on Not run or Failed, group
 by project, task, status or verification. The header of a case’s form
@@ -1011,7 +1035,9 @@ is refused, in any project.</p>
 records with <tt class="docutils literal">task_id</tt>, <tt class="docutils literal">name</tt> and <tt class="docutils literal">user_id</tt>, which defaults to the
 tool’s own user, and reads the items of a task from <tt class="docutils literal">checklist_item_ids</tt>.
 It moves an item by writing <tt class="docutils literal">state</tt> (<tt class="docutils literal">todo</tt>, <tt class="docutils literal">waiting</tt>, <tt class="docutils literal">done</tt> or
-<tt class="docutils literal">cancelled</tt>) as the item’s assignee or reviewer.</p>
+<tt class="docutils literal">cancelled</tt>) as the item’s assignee or reviewer. It reaches only the items
+of the tasks its user can read; without <tt class="docutils literal">allowed_company_ids</tt> in the
+context, those of all the user’s companies.</p>
 <p>A tool that gives test case results over RPC writes <tt class="docutils literal">state</tt> on
 <tt class="docutils literal">project.task.testcase</tt>: <tt class="docutils literal">not_run</tt>, <tt class="docutils literal">passed</tt>, <tt class="docutils literal">failed</tt>, <tt class="docutils literal">waiting</tt>
 or <tt class="docutils literal">not_applicable</tt>. A create or write of <tt class="docutils literal">passed</tt> or <tt class="docutils literal">failed</tt> fills

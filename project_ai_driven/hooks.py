@@ -110,6 +110,8 @@ RENAMED_CHECKLIST_EXTERNAL_IDS = {
     "action_view_subtask": "action_view_checklist_item",
     "menu_action_view_subtask": "menu_action_view_checklist_item",
 }
+# The fields mail.activity.mixin, and the modules extending it, gave the checklist model.
+CHECKLIST_ACTIVITY_FIELD_PATTERN = r"^(my_)?activity_"
 CHECKLIST_VIEW_FILE = MODULE + "/views/project_task_checklist_item_views.xml"
 FORMER_CHECKLIST_VIEW_FILE = MODULE + "/views/project_task_subtask_views.xml"
 # Besides the model columns of the Many2oneReference fields the registry knows.
@@ -432,6 +434,25 @@ RENAME_WORD_IN_TEXT = sql.SQL(
      WHERE {column} ~ %(pattern)s
     """
 )
+FORGET_CHECKLIST_ACTIVITIES = "DELETE FROM mail_activity WHERE res_model = %(model)s"
+FORGET_CHECKLIST_ACTIVITY_SELECTION_EXTERNAL_IDS = """
+    DELETE FROM ir_model_data imd
+     USING ir_model_fields_selection selection, ir_model_fields field
+     WHERE imd.model = 'ir.model.fields.selection'
+       AND imd.res_id = selection.id
+       AND field.id = selection.field_id
+       AND field.model = %(model)s
+       AND field.name ~ %(pattern)s
+"""
+FORGET_CHECKLIST_ACTIVITY_FIELD_EXTERNAL_IDS = """
+    DELETE FROM ir_model_data imd
+     USING ir_model_fields field
+     WHERE imd.model = 'ir.model.fields'
+       AND imd.res_id = field.id
+       AND field.model = %(model)s
+       AND field.name ~ %(pattern)s
+       AND imd.module != %(module)s
+"""
 RENAME_CHECKLIST_VIEW_FILES = """
     UPDATE ir_ui_view SET arch_fs = %(file)s WHERE arch_fs = %(former_file)s
 """
@@ -666,9 +687,10 @@ def pre_init_hook(cr):
     nothing left to move or rename.
 
     The database is then where an update of this module finds it, the fields
-    and the buttons deleted since included, and the checklist under its new
-    names: see forget_dropped_fields, forget_dropped_test_case_buttons and
-    rename_checklist.
+    and the buttons deleted since included, the checklist under its new names
+    and without activities: see forget_dropped_fields,
+    forget_dropped_test_case_buttons, rename_checklist and
+    forget_checklist_activities.
     """
     if is_installed(cr, FORMER_MODULE):
         take_over_module(cr, FORMER_MODULE, MODULE)
@@ -681,8 +703,8 @@ def pre_init_hook(cr):
     forget_dropped_fields(cr)
     forget_dropped_test_case_buttons(cr)
     rename_checklist(cr)
-    # external ids are cached per registry, and these changed behind the ORM
-    api.Environment(cr, SUPERUSER_ID, {}).registry.clear_caches()
+    # stays last: it clears the registry caches the external id changes above leave stale
+    forget_checklist_activities(cr)
 
 
 def post_init_hook(cr, registry):
@@ -1358,3 +1380,35 @@ def _rename_checklist_in_texts(cr):
 def _word_pattern(word):
     """Return the PostgreSQL regular expression of word as a whole word."""
     return r"\y%s\y" % re.escape(word)
+
+
+def forget_checklist_activities(cr):
+    """Delete the activities of checklist items, and the external ids that
+    would outlive the activity fields of the checklist model, before the data
+    files are loaded; return the count of each.
+
+    The model no longer inherits mail.activity.mixin. The update deletes those
+    fields at its end, as records of this module it no longer has, and their
+    selection values go with them in the database. The external ids of the
+    values belong to mail, which the update does not process; an external id
+    another module holds on a field would keep the field. An activity left on
+    an item could no longer be opened from the activity menu.
+
+    A second run finds nothing left.
+    """
+    env = api.Environment(cr, SUPERUSER_ID, {})
+    env.flush_all()
+    params = {"model": CHECKLIST_MODEL, "module": MODULE, "pattern": CHECKLIST_ACTIVITY_FIELD_PATTERN}
+    counts = {
+        "activities": _rowcount(cr, FORGET_CHECKLIST_ACTIVITIES, params),
+        "external ids": _rowcount(cr, FORGET_CHECKLIST_ACTIVITY_SELECTION_EXTERNAL_IDS, params)
+        + _rowcount(cr, FORGET_CHECKLIST_ACTIVITY_FIELD_EXTERNAL_IDS, params),
+    }
+    env.invalidate_all()
+    # external ids are cached per registry, and these changed behind the ORM
+    env.registry.clear_caches()
+    if any(counts.values()):
+        _logger.info(
+            "Checklist activities forgotten: %s", ", ".join("%d %s" % (count, label) for label, count in counts.items())
+        )
+    return counts

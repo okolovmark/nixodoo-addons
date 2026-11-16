@@ -1,12 +1,15 @@
 import re
+from unittest.mock import patch
 
-from lxml import html
+from lxml import etree, html
 from markupsafe import escape
 
+from odoo import Command
 from odoo.exceptions import AccessError, UserError
 from odoo.tests.common import Form, tagged
+from odoo.tools.translate import code_translations
 
-from ..hooks import MODULE
+from ..hooks import CHECKLIST_MODEL, MODULE
 from .common import ProjectAiDrivenCommon
 
 CHECKLIST_RECORDS = (
@@ -18,7 +21,7 @@ CHECKLIST_RECORDS = (
     "action_view_checklist_item",
     "menu_action_view_checklist_item",
 )
-REFUSAL = "Only the assignee or the reviewer of a checklist item can change its state or name."
+REFUSAL = "Only the assignee or the reviewer of a checklist item can change its state, name or assignee."
 MARKUP_NAME = "<b>x</b> & y"
 
 
@@ -135,6 +138,23 @@ class TestChecklist(ProjectAiDrivenCommon):
         with self.assertRaisesRegex(UserError, "^%s$" % re.escape(REFUSAL)):
             item.with_user(outsider).write({"state": "done"})
 
+    def test_the_checklist_is_grouped_by_status(self):
+        search_arch = self.env.ref("%s.project_task_checklist_item_view_search" % MODULE).arch_db
+        self.assertEqual(etree.fromstring(search_arch).xpath("//filter[@name='state']/@string"), ["Status"])
+
+    def test_an_item_has_no_activities(self):
+        self.assertNotIn("activity_ids", self.Item._fields)
+        self.assertFalse(self.env["ir.model"]._get(CHECKLIST_MODEL).is_mail_activity)
+        self.env.cr.execute(
+            """
+            SELECT name FROM ir_model_fields WHERE model = %(model)s AND name ~ 'activity'
+             UNION ALL
+            SELECT module || '.' || name FROM ir_model_data WHERE name ~ (%(table)s || '__(my_)?activity_')
+            """,
+            {"model": CHECKLIST_MODEL, "table": self.Item._table},
+        )
+        self.assertFalse(self.env.cr.fetchall(), "the activity fields and every external id naming them")
+
 
 @tagged("post_install", "-at_install")
 class TestChecklistNotification(ProjectAiDrivenCommon):
@@ -222,10 +242,6 @@ class TestChecklistNotification(ProjectAiDrivenCommon):
         self.assertPostedTo(message, self.reviewer)
         addressees = message.body.split("<em")[0]
         self.assertEqual(addressees.count(self.reviewer.name), 1, message.body)
-        notified = message.notification_ids.filtered(
-            lambda notification: notification.res_partner_id == self.reviewer.partner_id
-        )
-        self.assertEqual(len(notified), 1)
 
     def test_names_holding_markup_are_escaped_in_the_post(self):
         assignee = self._create_project_user(MARKUP_NAME, "project_ai_driven_markup", "markup@example.com")
@@ -240,6 +256,35 @@ class TestChecklistNotification(ProjectAiDrivenCommon):
             message.body.count(escape(MARKUP_NAME)), 3, "the assignee as addressee and in the intro, and the item"
         )
         self.assertFalse(html.fromstring(message.body).xpath("//b"), message.body)
+
+    def test_a_change_is_posted_in_the_language_of_the_user_making_it(self):
+        self.env["res.lang"]._activate_lang("fr_FR")
+        for state, label in (("done", "Fait"), ("todo", "A faire")):
+            selection = self.env.ref("%s.selection__project_task_checklist_item__state__%s" % (MODULE, state))
+            selection.with_context(lang="fr_FR").name = label
+        sentences = (
+            "I updated checklist item assigned to me:",
+            "I updated checklist item, now it is assigned to %s:",
+            "Updated from",
+        )
+        item = self._create_reviewed_item("Wire the lamp")
+        as_developer_in_french = item.with_user(self.user_dev).with_context(lang="fr_FR")
+
+        with patch.dict(
+            code_translations.python_translations, {(MODULE, "fr_FR"): {text: "FR " + text for text in sentences}}
+        ):
+            as_developer_in_french.write({"name": "Wire the desk lamp", "state": "done"})
+            as_developer_in_french.write({"user_id": self.follower.id})
+
+        own_change, handover = self._checklist_comments("Wire the desk lamp")
+        for text in (
+            "FR I updated checklist item assigned to me:",
+            "Fait</span></strong>: Wire the desk lamp",
+            "FR Updated from",
+            "A faire</span></strong>: Wire the lamp",
+        ):
+            self.assertIn(text, own_change.body)
+        self.assertIn("FR I updated checklist item, now it is assigned to %s:" % self.follower.name, handover.body)
 
     def test_the_assignee_changing_the_state_posts_to_the_reviewer(self):
         item = self._create_reviewed_item("Solder the board")
@@ -264,11 +309,11 @@ class TestChecklistNotification(ProjectAiDrivenCommon):
         self.env.cr.execute("SELECT state FROM project_task_checklist_item WHERE id = %s", (item.id,))
         self.assertEqual(self.env.cr.fetchone()[0], "todo")
 
-    def test_someone_else_taking_the_item_cannot_change_its_state_or_name_in_the_same_write(self):
+    def test_someone_else_cannot_take_the_item_alone_or_with_its_state_or_name(self):
         item = self._create_reviewed_item("Seal the box")
         posts_before = self._checklist_comments("Seal the")
 
-        for vals in ({"state": "done"}, {"name": "Seal the lid"}):
+        for vals in ({}, {"state": "done"}, {"name": "Seal the lid"}):
             with self.subTest(vals=vals), self.assertRaisesRegex(UserError, re.escape(REFUSAL)):
                 item.with_user(self.user_lead).write({"user_id": self.user_lead.id, **vals})
 
@@ -314,14 +359,40 @@ class TestChecklistNotification(ProjectAiDrivenCommon):
         self.assertIn("Check the fuse", message.body.split("Updated from")[1])
         self.assertPostedTo(message, self.user_dev)
 
-    def test_the_reviewer_reassigning_posts_to_the_new_assignee(self):
+    def test_the_reviewer_reassigning_posts_to_the_new_and_the_former_assignee(self):
         item = self._create_reviewed_item("Pack the samples")
 
         item.with_user(self.reviewer).write({"user_id": self.follower.id})
 
         message = self._checklist_comments("Pack the samples")[-1]
-        self.assertPostedTo(message, self.follower)
-        self.assertNotIn(self.user_dev.partner_id, message.notification_ids.res_partner_id)
+        self.assertPostedTo(message, self.follower | self.user_dev)
+
+    def test_items_reassigned_together_are_posted_each_to_its_own_former_assignee(self):
+        items = self._create_reviewed_item("Tag the crates") | self.Item.with_user(self.user_lead).create(
+            self._item_vals("Tag the pallets", user_id=self.user_lead.id, reviewer_id=self.reviewer.id)
+        )
+
+        items.with_user(self.reviewer).write({"user_id": self.follower.id})
+
+        self.assertPostedTo(self._checklist_comments("Tag the crates")[-1], self.follower | self.user_dev)
+        self.assertPostedTo(self._checklist_comments("Tag the pallets")[-1], self.follower | self.user_lead)
+
+    def test_the_assignee_handing_the_item_over_posts_to_the_new_assignee_and_the_reviewer(self):
+        item = self._create_reviewed_item("Ship the parts")
+
+        item.with_user(self.user_dev).write({"user_id": self.follower.id})
+
+        message = self._checklist_comments("Ship the parts")[-1]
+        self.assertPostedTo(message, self.follower | self.reviewer)
+        self.assertIn("now it is assigned to %s:" % self.follower.name, message.body)
+
+    def test_the_assignee_may_hand_the_item_over_and_change_its_state_in_one_write(self):
+        item = self._create_reviewed_item("Close the valve")
+
+        item.with_user(self.user_dev).write({"user_id": self.follower.id, "state": "done"})
+
+        self.assertRecordValues(item, [{"user_id": self.follower.id, "state": "done"}])
+        self.assertPostedTo(self._checklist_comments("Close the valve")[-1], self.follower | self.reviewer)
 
     def test_a_change_of_state_and_name_together_is_posted_once(self):
         item = self._create_reviewed_item("Label the cables")
@@ -378,3 +449,140 @@ class TestChecklistNotification(ProjectAiDrivenCommon):
         item.with_context(mail_auto_subscribe_no_notify=True).write({"state": "done"})
         self.assertEqual(item.state, "done")
         self.assertFalse(self._checklist_comments("Run tests"))
+
+
+@tagged("post_install", "-at_install")
+class TestChecklistAccess(ProjectAiDrivenCommon):
+    """A global rule hides one task from everyone, whichever modules' task rules
+    are installed; the developer is the assignee and the reviewer of every item.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.env["ir.rule"].create(
+            {
+                "name": "Hide the hidden task",
+                "model_id": cls.env["ir.model"]._get_id("project.task"),
+                "domain_force": "[('name', '!=', 'Hidden Task')]",
+            },
+        )
+        cls.hidden_task = cls.env["project.task"].create({"name": "Hidden Task", "project_id": cls.project.id})
+        cls.both_tasks = cls.task | cls.hidden_task
+        cls.Item = cls.env["project.task.checklist.item"].with_context(mail_auto_subscribe_no_notify=True)
+        parties = {"user_id": cls.user_dev.id, "reviewer_id": cls.user_dev.id}
+        cls.hidden_item = cls.Item.create({"name": "Hidden item", "task_id": cls.hidden_task.id, **parties})
+        cls.visible_item = cls.Item.create({"name": "Visible item", "task_id": cls.task.id, **parties})
+        cls.as_developer = cls.Item.with_user(cls.user_dev)
+
+    def _task_checks_run(self, items):
+        """Whether the search and _filter_access_rules_python("unlink") of items, in their env, look up the
+        readable tasks."""
+        task_model = type(self.env["project.task"])
+        with patch.object(
+            task_model, "_filter_access_rules_python", autospec=True, side_effect=task_model._filter_access_rules_python
+        ) as task_check:
+            items._filter_access_rules_python("unlink")
+        return '"project_task"' in items._search([]).select()[0], task_check.called
+
+    def test_items_of_a_task_the_user_cannot_read_are_not_found(self):
+        domain = [("task_id", "in", self.both_tasks.ids)]
+        self.assertEqual(self.as_developer.search(domain), self.visible_item)
+        self.assertEqual(self.as_developer.search_count(domain), 1)
+        self.assertEqual(
+            [group["task_id"][0] for group in self.as_developer.read_group(domain, ["task_id"], ["task_id"])],
+            self.task.ids,
+        )
+        self.assertEqual([name for _item_id, name in self.as_developer.name_search("item", domain)], ["Visible item"])
+        listed = self.as_developer.web_search_read(domain, ["name"])
+        self.assertEqual((listed["length"], [record["name"] for record in listed["records"]]), (1, ["Visible item"]))
+        self.env.invalidate_all()
+        task_form = self.task.with_user(self.user_dev).read(["checklist_item_ids"])[0]
+        self.assertEqual(task_form["checklist_item_ids"], self.visible_item.ids, "the items of a task it can read")
+
+    def test_items_of_an_archived_task_the_user_can_read_are_found(self):
+        self.task.active = False
+        self.assertEqual(self.as_developer.search([("task_id", "in", self.both_tasks.ids)]), self.visible_item)
+
+    def test_items_of_a_task_the_user_cannot_read_are_not_read(self):
+        hidden_item = self.hidden_item.with_user(self.user_dev)
+        with self.assertRaises(AccessError):
+            hidden_item.read(["name"])
+        with self.assertRaises(AccessError):
+            hidden_item.name
+        self.assertEqual(
+            self.visible_item.with_user(self.user_dev).read(["name"]),
+            [{"id": self.visible_item.id, "name": "Visible item"}],
+        )
+
+    def test_items_of_a_task_the_user_cannot_read_are_not_written_or_deleted(self):
+        hidden_item = self.hidden_item.with_user(self.user_dev)
+        for vals in ({"deadline": "2026-12-01 10:00:00"}, {"state": "done"}):
+            with self.subTest(vals=vals), self.assertRaises(AccessError):
+                hidden_item.write(vals)
+        with self.assertRaises(AccessError):
+            hidden_item.unlink()
+        self.assertRecordValues(self.hidden_item, [{"state": "todo", "deadline": False}])
+        visible_item = self.visible_item.with_user(self.user_dev)
+        visible_item.write({"state": "done"})
+        visible_item.unlink()
+        self.assertFalse(self.visible_item.exists())
+
+    def test_items_cannot_be_added_to_a_task_the_user_cannot_read(self):
+        with self.assertRaises(AccessError):
+            self.as_developer.create({"name": "Sneaked item", "task_id": self.hidden_task.id})
+        self.assertEqual(self.as_developer.create({"name": "Added item", "task_id": self.task.id}).task_id, self.task)
+
+    def test_an_item_deleted_meanwhile_passes_the_check_as_core_lets_it(self):
+        """Two users with the task form open both delete the same line."""
+        self.visible_item.unlink()
+        self.task.with_user(self.user_dev).write({"checklist_item_ids": [Command.delete(self.visible_item.id)]})
+        deleted_item = self.visible_item.with_user(self.user_dev)
+        for operation in ("read", "write", "unlink"):
+            deleted_item.check_access_rule(operation)
+        with self.assertRaises(AccessError):
+            (deleted_item | self.hidden_item.with_user(self.user_dev)).check_access_rule("unlink")
+
+    def test_items_of_a_task_in_a_company_the_user_has_not_selected_are_not_found_or_read(self):
+        home_company, other_company = self.env["res.company"].create(
+            [{"name": "Checklist Home Company"}, {"name": "Checklist Other Company"}],
+        )
+        self.user_dev.write(
+            {
+                "company_ids": [Command.link(home_company.id), Command.link(other_company.id)],
+                "company_id": home_company.id,
+            },
+        )
+        other_project = self.env["project.project"].create({"name": "Other Project", "company_id": other_company.id})
+        other_task = self.env["project.task"].create({"name": "Other Task", "project_id": other_project.id})
+        other_item = self.Item.create(
+            {
+                "name": "Other item",
+                "task_id": other_task.id,
+                "user_id": self.user_dev.id,
+                "reviewer_id": self.user_dev.id,
+            },
+        )
+        domain = [("task_id", "=", other_task.id)]
+        home_only = self.as_developer.with_context(allowed_company_ids=home_company.ids)
+        self.assertFalse(home_only.search(domain))
+        with self.assertRaises(AccessError):
+            home_only.browse(other_item.id).read(["name"])
+        with self.assertRaises(AccessError):
+            home_only.browse(other_item.id).write({"deadline": "2026-12-01 10:00:00"})
+        both_companies = self.as_developer.with_context(allowed_company_ids=(home_company | other_company).ids)
+        self.assertEqual(both_companies.search(domain), other_item)
+        both_companies.browse(other_item.id).write({"deadline": "2026-12-01 10:00:00"})
+        self.assertEqual(both_companies.browse(other_item.id).read(["name"])[0]["name"], "Other item")
+
+    def test_the_superuser_and_sudo_reach_every_item_without_the_task_checks(self):
+        domain = [("task_id", "in", self.both_tasks.ids)]
+        every_item = self.hidden_item | self.visible_item
+        self.assertEqual(self._task_checks_run(every_item.with_user(self.user_dev)), (True, True), "as the user")
+        for items in (every_item, every_item.with_user(self.user_dev).sudo()):
+            with self.subTest(uid=items.env.uid):
+                self.assertEqual(self._task_checks_run(items), (False, False))
+                self.assertEqual(items.search(domain), every_item)
+                hidden_item = items & self.hidden_item
+                hidden_item.write({"deadline": "2026-12-01 10:00:00"})
+                self.assertEqual(hidden_item.read(["name"])[0]["name"], "Hidden item")

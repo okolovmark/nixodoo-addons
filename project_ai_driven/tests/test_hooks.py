@@ -40,6 +40,7 @@ from ..hooks import (
     _reference_columns,
     _remove_sub_view_buttons,
     _rewrite_module_views,
+    forget_checklist_activities,
     forget_dropped_fields,
     forget_dropped_test_case_buttons,
     pre_init_hook,
@@ -100,6 +101,7 @@ KEPT_BUTTONS = [("testcase_ids", "action_set_passed")] + [
 ]
 BUTTONS_MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.5.0" / "pre-migration.py"
 CHECKLIST_MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.6.0" / "pre-migration.py"
+ACTIVITIES_MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.6.1" / "pre-migration.py"
 CHECKLIST_LIST_NODE = '<field name="checklist_item_ids">'
 # How the checklist page of the task form named its list, and the default assignee of a new line.
 FORMER_CHECKLIST_LIST_NODE = '<field name="subtask_ids">'
@@ -138,10 +140,17 @@ REQUIRED_MODEL_NAME_COLUMNS = (
     ("ir_attachment", "res_model"),
 )
 REFERENCE_COLUMN = ("ir_ui_menu", "action")
-ACTIVITY_SELECTION_FIELDS = ("activity_state", "activity_exception_decoration")
 SUBTYPE_DATA_FILE = "data/mail_message_subtype_data.xml"
 HOOKS_LOGGER = "odoo.addons.%s.hooks" % MODULE
 OTHER_MODULE = "other_module"
+# The activity fields of the checklist model as a database from before 16.0.2.6.1 holds them,
+# cut down to three: {name: (type, the modules holding an external id of the field)}.
+ACTIVITY_FIELDS = {
+    "activity_state": ("selection", (MODULE,)),
+    "activity_calendar_event_id": ("many2one", (MODULE, OTHER_MODULE)),
+    "my_activity_date_deadline": ("date", (OTHER_MODULE,)),
+}
+ACTIVITY_STATES = ("overdue", "today", "planned")
 EXTENDED_MODELS = ("project.project", "project.task")
 # Added after the cut from the legacy module, which never held them.
 ADDED_FIELDS = (
@@ -1485,16 +1494,17 @@ class TestRenameChecklist(PreInitHookCase):
 
     def test_external_ids_keep_their_records(self):
         records = {name: self.env.ref("%s.%s" % (MODULE, name)) for name in RENAMED_CHECKLIST_EXTERNAL_IDS.values()}
-        checklist_external_ids = self._checklist_external_ids()
-        model = self.env[CHECKLIST_MODEL]
-        self.assertEqual(
-            {"%s.%s" % (module, name) for module, name in checklist_external_ids if module == "mail"},
+        self.env["ir.model.data"].create(
             {
-                selection_xmlid("mail", CHECKLIST_MODEL, field_name, value)
-                for field_name in ACTIVITY_SELECTION_FIELDS
-                for value in model._fields[field_name].get_values(self.env)
+                "module": OTHER_MODULE,
+                "name": "field_%s__name" % CHECKLIST_TABLE,
+                "model": "ir.model.fields",
+                "res_id": self.env["ir.model.fields"]._get(CHECKLIST_MODEL, "name").id,
             },
-            "the selection values of the activity fields",
+        )
+        checklist_external_ids = self._checklist_external_ids()
+        self.assertEqual(
+            {module for module, _name in checklist_external_ids}, {MODULE, OTHER_MODULE}, "without the activity fields"
         )
         self._put_back_former_checklist_names()
         self.assertFalse(self._checklist_external_ids())
@@ -1504,7 +1514,7 @@ class TestRenameChecklist(PreInitHookCase):
 
         rename_checklist(self.env.cr)
 
-        self.assertEqual(self._checklist_external_ids(), checklist_external_ids)
+        self.assertEqual(self._checklist_external_ids(), checklist_external_ids, "those of other modules included")
         for former_name, name in RENAMED_CHECKLIST_EXTERNAL_IDS.items():
             self.assertEqual(self.env.ref("%s.%s" % (MODULE, name)), records[name])
             self.assertFalse(self.env.ref("%s.%s" % (MODULE, former_name), raise_if_not_found=False))
@@ -1629,6 +1639,171 @@ class TestRenameChecklist(PreInitHookCase):
         script.migrate(self.env.cr, "16.0.2.5.0")
         self.assertTrue(table_exists(self.env.cr, CHECKLIST_TABLE))
         self.assertFalse(table_exists(self.env.cr, FORMER_CHECKLIST_TABLE))
+
+
+@tagged("post_install", "-at_install")
+class TestForgetChecklistActivities(PreInitHookCase):
+    """forget_checklist_activities on a database whose checklist model still has
+    the activity fields of mail.activity.mixin, an activity on an item, and the
+    external ids of their selection values in mail.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        project = cls.env["project.project"].create({"name": "Activity Project"})
+        cls.task = cls.env["project.task"].create({"name": "Activity Task", "project_id": project.id})
+        item = (
+            cls.env[CHECKLIST_MODEL]
+            .with_context(mail_auto_subscribe_no_notify=True)
+            .create(
+                {"name": "Item with an activity", "task_id": cls.task.id},
+            )
+        )
+        cls.task_activity = cls.task.activity_schedule(summary="Stays on the task")
+        # Scheduled on the task and moved: an item no longer has the fields an activity needs.
+        cls.item_activity = cls.task.activity_schedule(summary="Check the item")
+        cls.item_activity.write({"res_model_id": cls.env["ir.model"]._get_id(CHECKLIST_MODEL), "res_id": item.id})
+        cls.field_ids = {name: cls._insert_activity_field(name, *spec) for name, spec in ACTIVITY_FIELDS.items()}
+        cls.env.flush_all()
+
+    @classmethod
+    def _insert_activity_field(cls, name, ttype, modules):
+        cr = cls.env.cr
+        cr.execute(
+            """
+            INSERT INTO ir_model_fields (model, model_id, name, field_description, ttype, state, store)
+            SELECT model, id, %(name)s, jsonb_build_object('en_US', %(name)s), %(ttype)s, 'base', false
+              FROM ir_model
+             WHERE model = %(model)s
+         RETURNING id
+            """,
+            {"model": CHECKLIST_MODEL, "name": name, "ttype": ttype},
+        )
+        (field_id,) = cr.fetchone()
+        external_ids = [
+            {"module": module, "name": "field_%s__%s" % (CHECKLIST_TABLE, name), "model": "ir.model.fields"}
+            for module in modules
+        ]
+        for record_vals in external_ids:
+            record_vals["res_id"] = field_id
+        if ttype == "selection":
+            for value in ACTIVITY_STATES:
+                cr.execute(
+                    """
+                    INSERT INTO ir_model_fields_selection (field_id, value, name, sequence)
+                    VALUES (%s, %s, jsonb_build_object('en_US', %s), 1)
+                 RETURNING id
+                    """,
+                    (field_id, value, value),
+                )
+                external_ids.append(
+                    {
+                        "module": "mail",
+                        "name": selection_xmlid("mail", CHECKLIST_MODEL, name, value).split(".", 1)[1],
+                        "model": "ir.model.fields.selection",
+                        "res_id": cr.fetchone()[0],
+                    },
+                )
+        cls.env["ir.model.data"].create(external_ids)
+        return field_id
+
+    def _activity_rows(self):
+        """The rows the update deletes at its end, and those it would leave."""
+        cr = self.env.cr
+        field_ids = tuple(self.field_ids.values())
+        cr.execute("SELECT id FROM ir_model_fields WHERE id IN %s", (field_ids,))
+        fields_left = {field_id for (field_id,) in cr.fetchall()}
+        cr.execute("SELECT count(*) FROM ir_model_fields_selection WHERE field_id IN %s", (field_ids,))
+        (selection_count,) = cr.fetchone()
+        cr.execute(
+            """
+            SELECT imd.module, imd.name
+              FROM ir_model_data imd
+              LEFT JOIN ir_model_fields_selection selection
+                ON imd.model = 'ir.model.fields.selection' AND selection.id = imd.res_id
+             WHERE (imd.model = 'ir.model.fields' AND imd.res_id IN %(fields)s) OR selection.field_id IN %(fields)s
+            """,
+            {"fields": field_ids},
+        )
+        external_ids = set(cr.fetchall())
+        cr.execute("SELECT id FROM mail_activity WHERE id IN %s", ((self.task_activity.id, self.item_activity.id),))
+        activity_ids = {activity_id for (activity_id,) in cr.fetchall()}
+        return fields_left, selection_count, external_ids, activity_ids
+
+    def _task_activity_external_ids(self):
+        self.env.cr.execute(
+            "SELECT id FROM ir_model_data WHERE name ~ '^(field_|selection__)project_task__(my_)?activity_' ORDER BY id"
+        )
+        return self.env.cr.fetchall()
+
+    def assertForgotten(self):
+        self.assertEqual(
+            self._activity_rows(),
+            (
+                set(self.field_ids.values()),
+                len(ACTIVITY_STATES),
+                {
+                    (MODULE, "field_%s__%s" % (CHECKLIST_TABLE, name))
+                    for name, (_ttype, modules) in ACTIVITY_FIELDS.items()
+                    if MODULE in modules
+                },
+                {self.task_activity.id},
+            ),
+            "the fields, their values and the external ids of this module stay for the end of the update",
+        )
+
+    def test_forgets_the_activities_and_the_external_ids_the_update_would_leave(self):
+        fields_left, selection_count, external_ids, activity_ids = self._activity_rows()
+        self.assertEqual(
+            {module for module, _name in external_ids} | activity_ids,
+            {MODULE, OTHER_MODULE, "mail", self.task_activity.id, self.item_activity.id},
+        )
+        task_external_ids = self._task_activity_external_ids()
+        self.assertTrue(task_external_ids)
+
+        counts = forget_checklist_activities(self.env.cr)
+
+        self.assertForgotten()
+        self.assertEqual(counts, {"activities": 1, "external ids": len(ACTIVITY_STATES) + 2})
+        self.assertEqual(self._task_activity_external_ids(), task_external_ids, "the task keeps its activity fields")
+        self.assertFalse(self.item_activity.exists())
+
+    def test_the_take_over_from_the_former_module_forgets_them(self):
+        self._set_module_state(self.former_module, "to upgrade")
+
+        pre_init_hook(self.env.cr)
+
+        self.assertForgotten()
+
+    def test_the_take_over_from_the_legacy_module_forgets_them(self):
+        self._set_module_state(self.legacy_module, "to upgrade")
+
+        pre_init_hook(self.env.cr)
+
+        self.assertForgotten()
+
+    def test_second_run_changes_nothing(self):
+        forget_checklist_activities(self.env.cr)
+        rows_after_first_run = self._activity_rows()
+
+        with self.assertNoLogs(HOOKS_LOGGER, level=logging.INFO):
+            counts = forget_checklist_activities(self.env.cr)
+
+        self.assertEqual(counts, dict.fromkeys(counts, 0))
+        self.assertEqual(self._activity_rows(), rows_after_first_run)
+
+    def test_migration_script_forgets_them_on_update_only(self):
+        spec = importlib.util.spec_from_file_location("pre_migration", ACTIVITIES_MIGRATION_SCRIPT)
+        script = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(script)
+        rows_before = self._activity_rows()
+
+        script.migrate(self.env.cr, None)
+        self.assertEqual(self._activity_rows(), rows_before)
+
+        script.migrate(self.env.cr, "16.0.2.6.0")
+        self.assertForgotten()
 
 
 @tagged("post_install", "-at_install")

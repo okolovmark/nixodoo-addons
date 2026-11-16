@@ -38,28 +38,35 @@ Task-level checklist items, the **Checklist** of the task
 (``checklist_item_ids``), each with a description, an **Assigned to** user,
 a **Reviewer**, a deadline and a state: TODO, Waiting, Done, Cancelled. A new
 item's assignee and reviewer default to the user who creates it, on the form
-and over RPC; the reviewer is read-only on the form.
+and over RPC; the reviewer is read-only on the form. Items have no
+activities.
 
-Only the assignee or the reviewer of an item changes its state or
-description. The check runs before the write, against the assignee and the
-reviewer the item has then, so taking over an item and changing its state in
-one write is refused. Any **Project / User** can change the assignee and the
-deadline.
+An item is found, read, changed, deleted and created by the users who can
+read its task, archived or not: the record rules of the task apply to its
+items, the companies selected in the company switcher included. The
+superuser and ``sudo()`` reach every item.
+
+Only the assignee or the reviewer of an item changes its state, description
+or assignee. The check runs before the write, against the assignee and the
+reviewer the item has then: the assignee may hand the item over and change
+its state in one write, another user cannot take it. The deadline, and the
+reviewer over RPC, are changed by anyone who can change the item.
 
 A creation and a change of state, description or assignee make one post per
-item on the task, addressed to the item's assignee and reviewer other than
-the user making the change, under the internal *All checklist updates*
-subtype. When that user is both, the post is a note addressed to no one. A
-change of description shows the former description under the former state.
-The subtype is not subscribed by default: other followers receive the posts
-of others only after opting into *All checklist updates* on the task or on
-its project. The same context key silences these posts for an account
-without an email address.
+item on the task, addressed to the item's assignee and reviewer, and to its
+former assignee on a change of assignee, other than the user making the
+change, under the internal *All checklist updates* subtype. When no one else
+is left, the post is a note addressed to no one. A change of description
+shows the former description under the former state. A post is written in
+the language of the user making the change. The subtype is not subscribed
+by default: other followers receive the posts of others only after opting
+into *All checklist updates* on the task or on its project. The same context
+key silences these posts for an account without an email address.
 
 The task's kanban card shows the current user's completion percentage over
 their non-cancelled items and the number of their TODO and Waiting items. The
 **Checklist** menu opens on your own TODO items (the *My* and *TODO* filters
-are on by default); remove those filters to see all items.
+are on by default); remove those filters to see every item you can read.
 
 **Test cases** (``project.task.testcase``)
 
