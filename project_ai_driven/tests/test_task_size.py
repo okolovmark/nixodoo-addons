@@ -4,11 +4,13 @@ from pathlib import Path
 
 from odoo.tests.common import Form, tagged
 
-from ..hooks import MODULE, post_init_hook, recompute_task_sizes
+from ..hooks import MODULE, clear_estimates_that_are_not_numbers, post_init_hook, recompute_task_sizes
 from ..models.project_task import SIZE_BANDS, get_size
 from .common import ProjectAiDrivenCommon
 
 MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.4.0" / "post-migration.py"
+FINITE_ESTIMATE_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.4.1" / "post-migration.py"
+NOT_NUMBERS = (float("nan"), float("inf"), float("-inf"))
 HOOKS_LOGGER = "odoo.addons.%s.hooks" % MODULE
 SIZES_OF_HOURS = (
     (0.5, "xs"),
@@ -208,10 +210,59 @@ class TestRecomputeTaskSizes(ProjectAiDrivenCommon):
         post_init_hook(self.env.cr, self.env.registry)
         self.assertEqual(task.tshirt_estimate, "xl")
 
-    def test_migration_script_recomputes_on_update_only(self):
-        spec = importlib.util.spec_from_file_location("post_migration", MIGRATION_SCRIPT)
+    def _load_migration(self, path):
+        spec = importlib.util.spec_from_file_location("post_migration", path)
         script = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(script)
+        return script
+
+    def test_estimates_that_are_not_numbers_are_set_to_zero(self):
+        tasks = self.env["project.task"].concat(*map(self._create_task, (*NOT_NUMBERS, 5)))
+        recompute_task_sizes(self.env.cr)
+        self.assertEqual(tasks.mapped("tshirt_estimate"), ["xxl", "xxl", False, "s"])
+        if "remaining_hours" in tasks._fields:
+            # hr_timesheet stores the hours less the time spent: what a write of the hours had left
+            self.env.cr.execute(
+                "UPDATE project_task SET remaining_hours = planned_hours WHERE id IN %s", [tuple(tasks.ids)]
+            )
+
+        self.assertEqual(clear_estimates_that_are_not_numbers(self.env.cr), 3)
+        # the fields computed from the hours follow without a size recompute
+        self.assertRecordValues(
+            tasks,
+            [{"planned_hours": hours, "tshirt_estimate": size} for hours, size in ((0, False),) * 3 + ((5, "s"),)],
+        )
+        if "remaining_hours" in tasks._fields:
+            self.env.cr.execute("SELECT remaining_hours FROM project_task WHERE id IN %s", [tuple(tasks[:3].ids)])
+            self.assertEqual([row[0] for row in self.env.cr.fetchall()], [0, 0, 0])
+        self.assertEqual(clear_estimates_that_are_not_numbers(self.env.cr), 0)
+
+    def test_post_init_hook_sets_estimates_that_are_not_numbers_to_zero(self):
+        task = self._create_task(float("nan"))
+        post_init_hook(self.env.cr, self.env.registry)
+        self.assertRecordValues(task, [{"planned_hours": 0, "tshirt_estimate": False}])
+
+    def test_finite_estimate_migration_on_update_only(self):
+        script = self._load_migration(FINITE_ESTIMATE_SCRIPT)
+        tasks = self.env["project.task"].concat(*map(self._create_task, (*NOT_NUMBERS, 5)))
+        recompute_task_sizes(self.env.cr)
+
+        script.migrate(self.env.cr, None)
+        self.assertEqual(tasks[1].planned_hours, float("inf"))
+
+        script.migrate(self.env.cr, "16.0.2.4.0")
+        self.assertRecordValues(
+            tasks,
+            [
+                {"planned_hours": 0, "tshirt_estimate": False},
+                {"planned_hours": 0, "tshirt_estimate": False},
+                {"planned_hours": 0, "tshirt_estimate": False},
+                {"planned_hours": 5, "tshirt_estimate": "s"},
+            ],
+        )
+
+    def test_migration_script_recomputes_on_update_only(self):
+        script = self._load_migration(MIGRATION_SCRIPT)
         task = self._create_task(40)
         self._store_size(task, "m")
 

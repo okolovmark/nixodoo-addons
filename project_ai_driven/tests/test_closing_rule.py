@@ -113,7 +113,9 @@ class TestClosingRule(ProjectAiDrivenCommon):
             (self.task | self._create_task(resolution="data")).write({"stage_id": self.stage_done.id})
 
     def test_project_change_that_moves_the_stage_runs_the_rule(self):
-        other_project = self.env["project.project"].create({"name": "Other AI-driven Project", "is_ai_driven": True})
+        other_project = self.env["project.project"].create(
+            {"name": "Other AI-driven Project", "is_ai_driven": True, "type_ids": [Command.clear()]},
+        )
         other_project.pr_required_states = self._create_stage("Delivered", 1, project=other_project)
 
         with self.assertRefused("Choose a Resolution"):
@@ -216,6 +218,7 @@ class TestClosingRule(ProjectAiDrivenCommon):
         self.project.write({"pr_required_states": self.stage_done.ids, "privacy_visibility": "followers"})
         self.task.user_ids = self.user_dev
         task = self.task.with_user(self.user_dev)
+        task.check_access_rights("write")
         task.check_access_rule("write")
         with self.assertRaises(AccessError):
             task.project_id.check_access_rule("read")

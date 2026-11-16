@@ -611,6 +611,14 @@ replaced by theirs; the former value is not kept. The server log gets one
 line with the number of tasks changed; a second run changes none. On a
 database that has neither module installed, the install computes the size of
 the tasks that exist through the ORM, which writes those tasks.</p>
+<p>The update to 16.0.2.4.1 sets to zero the hours (<tt class="docutils literal">planned_hours</tt>) of
+every task that holds a NaN or an infinity, archived tasks included, and
+recomputes what is computed from them: the size, none for zero hours, and
+with <tt class="docutils literal">hr_timesheet</tt> the remaining hours. From this version a write
+refuses such hours, so a task holding them could no longer be copied or
+recur. No tracking message is posted; the recompute stamps the last update
+date of those tasks. The server log gets the number of tasks changed. The
+install does the same.</p>
 <p><strong>Upgrading from project_software</strong></p>
 <p><tt class="docutils literal">project_software</tt> remains for one release as an empty module that depends
 on this one, so updating it installs this module. Before any data file is
@@ -860,7 +868,8 @@ pull request, one link per write, or <tt class="docutils literal">resolution</tt
 <tt class="docutils literal">configuration</tt> or <tt class="docutils literal">no_change</tt> when there is none. A write of another
 link adds a second pull request to the task. The estimate is written to
 <tt class="docutils literal">planned_hours</tt> and the type to <tt class="docutils literal">task_type</tt>; a <tt class="docutils literal">tshirt_estimate</tt> sent
-with them is ignored.</p>
+with them is ignored. The estimate is a finite number: a NaN or an infinity
+is refused, in any project.</p>
 <p>The stage log has no view and no menu. A system administrator reads
 <tt class="docutils literal">project.task.stage.log</tt> over RPC: the rows come ordered by date, each
 with <tt class="docutils literal">task_id</tt>, <tt class="docutils literal">previous_stage_id</tt>, <tt class="docutils literal">stage_id</tt>, <tt class="docutils literal">stage_name</tt>,

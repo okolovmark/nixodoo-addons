@@ -39,7 +39,8 @@ pull request, one link per write, or ``resolution`` to ``data``,
 ``configuration`` or ``no_change`` when there is none. A write of another
 link adds a second pull request to the task. The estimate is written to
 ``planned_hours`` and the type to ``task_type``; a ``tshirt_estimate`` sent
-with them is ignored.
+with them is ignored. The estimate is a finite number: a NaN or an infinity
+is refused, in any project.
 
 The stage log has no view and no menu. A system administrator reads
 ``project.task.stage.log`` over RPC: the rows come ordered by date, each
