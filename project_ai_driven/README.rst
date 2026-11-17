@@ -112,8 +112,9 @@ its task (``action_convert_to_subtask``):
   gets its followers, its creator and those of the task, only once it is
   created. So a reviewer assigned to a task of a project open to its team
   members only, without being one of them, changes the task but does not
-  convert its items. On a task without a project only the item's assignee
-  converts it, or a project manager who is its reviewer. The *Convert to
+  convert its items. On a task template without a project only the item's
+  assignee converts it, or a project manager who is its reviewer; on a
+  private task nobody does. The *Convert to
   Sub-task* buttons show only to who may convert under these conditions.
 * The sub-task takes the item's description as its title, its assignee and
   its deadline, and the project of the task. It is given no stage: core puts
@@ -591,8 +592,9 @@ On the task form, which opens on Description:
   task with the *Convert to Sub-task* icon of its row, after a confirmation:
   the item is deleted and a note on the task links the sub-task. The icon
   shows only to who may convert: on a task you may change, the assignee, or
-  the reviewer when they may open the task's project. On a task without a
-  project the reviewer converts only as a project manager. The task's
+  the reviewer when they may open the task's project. On a task template
+  without a project the reviewer converts only as a project manager; a
+  private task shows no icon. The task's
   kanban card shows your own completion percentage, only when you have
   non-cancelled items assigned to you.
 * *Technical Solution* tab (AI-driven projects): the **Questions** list,
@@ -673,7 +675,8 @@ It moves an item by writing ``state`` (``todo``, ``waiting``, ``done`` or
 ``cancelled``) as the item's assignee or reviewer, and turns items into
 sub-tasks with ``action_convert_to_subtask``, one sub-task under the task of
 each item, as the item's assignee, or as its reviewer where its user may read
-the task's project or, on a task without a project, is a project manager;
+the task's project or, on a task template without a project, is a project
+manager (never on a private task);
 ``can_convert`` tells whether its user may. It reads only the items of the
 tasks its user can read, and creates, changes and deletes only those of the
 tasks its user can change; without ``allowed_company_ids`` in the context,

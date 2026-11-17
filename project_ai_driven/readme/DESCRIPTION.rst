@@ -88,8 +88,9 @@ its task (``action_convert_to_subtask``):
   gets its followers, its creator and those of the task, only once it is
   created. So a reviewer assigned to a task of a project open to its team
   members only, without being one of them, changes the task but does not
-  convert its items. On a task without a project only the item's assignee
-  converts it, or a project manager who is its reviewer. The *Convert to
+  convert its items. On a task template without a project only the item's
+  assignee converts it, or a project manager who is its reviewer; on a
+  private task nobody does. The *Convert to
   Sub-task* buttons show only to who may convert under these conditions.
 * The sub-task takes the item's description as its title, its assignee and
   its deadline, and the project of the task. It is given no stage: core puts
