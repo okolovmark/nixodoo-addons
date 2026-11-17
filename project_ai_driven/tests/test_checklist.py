@@ -454,6 +454,256 @@ class TestChecklistNotification(ProjectAiDrivenCommon):
 
 
 @tagged("post_install", "-at_install")
+class TestChecklistFollowers(ProjectAiDrivenCommon):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.Task = cls.env["project.task"]
+        cls.Item = cls.env["project.task.checklist.item"]
+        cls.reviewer = cls._create_project_user("Reviewer", "project_ai_driven_reviewer", "reviewer@example.com")
+        cls.technician = cls._create_project_user(
+            "Technician", "project_ai_driven_technician", "technician@example.com"
+        )
+
+    def _task_vals(self, name, *items_vals, **vals):
+        return {
+            "name": name,
+            "project_id": self.project.id,
+            "checklist_item_ids": [Command.create(item_vals) for item_vals in items_vals],
+            **vals,
+        }
+
+    def _create_task(self, name, *items_vals, **vals):
+        """A task the lead saves together with its items, in one create."""
+        return self.Task.with_user(self.user_lead).create(self._task_vals(name, *items_vals, **vals))
+
+    def _count_follower_rows(self, task, user):
+        return self.env["mail.followers"].search_count(
+            [("res_model", "=", "project.task"), ("res_id", "=", task.id), ("partner_id", "=", user.partner_id.id)],
+        )
+
+    def _item_posts(self, task, body_text):
+        return self.env["mail.message"].search(
+            [
+                ("model", "=", "project.task"),
+                ("res_id", "=", task.id),
+                ("message_type", "=", "comment"),
+                ("body", "ilike", body_text),
+            ],
+            order="id",
+        )
+
+    def test_a_task_saved_with_its_items_has_its_creator_as_follower_once(self):
+        task = self._create_task(
+            "Wire the panel",
+            {"name": "Order the cable"},
+            {"name": "Crimp the lugs", "user_id": self.user_dev.id},
+        )
+
+        self.assertEqual(task.checklist_item_ids.mapped("name"), ["Order the cable", "Crimp the lugs"])
+        self.assertEqual(self._count_follower_rows(task, self.user_lead), 1)
+
+    def test_a_sub_task_saved_with_its_items_from_its_parent_has_its_creator_as_follower_once(self):
+        item = Command.create({"name": "Drill the holes", "user_id": self.user_dev.id})
+        self.task.with_user(self.user_lead).write(
+            {"child_ids": [Command.create({"name": "Mount the rail", "checklist_item_ids": [item]})]},
+        )
+
+        sub_task = self.task.child_ids
+        self.assertEqual(sub_task.name, "Mount the rail")
+        self.assertEqual(sub_task.checklist_item_ids.name, "Drill the holes")
+        self.assertEqual(self._count_follower_rows(sub_task, self.user_lead), 1)
+
+    def test_a_sub_task_saved_with_its_items_from_its_parent_in_the_web_client_has_its_creator_as_follower_once(self):
+        # The v16 web client sends lists with virtual ids, not the tuples of Command.create.
+        item_vals = {"name": "Drill the holes", "user_id": self.user_dev.id}
+        sub_task_vals = {"name": "Mount the rail", "checklist_item_ids": [[Command.CREATE, "virtual_2", item_vals]]}
+        self.task.with_user(self.user_lead).write({"child_ids": [[Command.CREATE, "virtual_1", sub_task_vals]]})
+
+        sub_task = self.task.child_ids
+        self.assertEqual(sub_task.name, "Mount the rail")
+        self.assertEqual(sub_task.checklist_item_ids.name, "Drill the holes")
+        self.assertEqual(self._count_follower_rows(sub_task, self.user_lead), 1)
+
+    def test_a_parent_saved_with_a_sub_task_and_its_items_leaves_them_on_the_sub_task(self):
+        sub_task_vals = {"name": "Wire the relay", "checklist_item_ids": [Command.create({"name": "Strip the wires"})]}
+        parent = self._create_task("Build the cabinet", child_ids=[Command.create(sub_task_vals)])
+
+        self.assertFalse(parent.checklist_item_ids)
+        self.assertEqual(parent.child_ids.checklist_item_ids.name, "Strip the wires")
+        self.assertEqual(self._count_follower_rows(parent.child_ids, self.user_lead), 1)
+
+    def test_tasks_saved_together_get_each_its_own_items_in_order(self):
+        tasks = self.Task.with_user(self.user_lead).create(
+            [
+                self._task_vals("Fit the pump", {"name": "Bolt the base"}, {"name": "Prime the pump"}),
+                self._task_vals("Fit the gauge"),
+                self._task_vals("Fit the valve", {"name": "Seat the gasket"}),
+            ],
+        )
+
+        self.assertEqual(tasks[0].checklist_item_ids.mapped("name"), ["Bolt the base", "Prime the pump"])
+        self.assertFalse(tasks[1].checklist_item_ids)
+        self.assertEqual(tasks[2].checklist_item_ids.mapped("name"), ["Seat the gasket"])
+        for task in tasks:
+            self.assertEqual(self._count_follower_rows(task, self.user_lead), 1, task.name)
+
+    def test_a_task_saved_with_an_item_of_another_task_takes_it_with_its_new_items(self):
+        moved_item = self.Item.with_user(self.user_lead).create({"name": "Order the paint", "task_id": self.task.id})
+        task = self.Task.with_user(self.user_lead).create(
+            {
+                "name": "Paint the frame",
+                "project_id": self.project.id,
+                "checklist_item_ids": [Command.link(moved_item.id), Command.create({"name": "Mask the edges"})],
+            },
+        )
+
+        self.assertEqual(moved_item.task_id, task)
+        self.assertEqual(task.checklist_item_ids.mapped("name"), ["Order the paint", "Mask the edges"])
+
+    def test_a_task_saved_with_items_has_the_followers_of_one_saved_without(self):
+        set_assignees = Command.set((self.user_dev | self.technician).ids)
+        without_items = self._create_task("Without items", user_ids=[set_assignees])
+        with_items = self._create_task(
+            "With items", {"name": "Label the wires", "user_id": self.reviewer.id}, user_ids=[set_assignees]
+        )
+
+        self.assertIn(self.user_lead.partner_id, without_items.message_partner_ids)
+        self.assertEqual(with_items.message_partner_ids, without_items.message_partner_ids)
+
+    def test_items_saved_with_their_task_take_no_default_from_the_context_of_the_task(self):
+        task_model = self.Task.with_user(self.user_lead).with_context(
+            default_user_id=self.technician.id, default_deadline="2026-12-01 10:00:00"
+        )
+        task = task_model.create(
+            self._task_vals(
+                "Fit the socket", {"name": "Cut the box"}, {"name": "Test the circuit", "user_id": self.user_dev.id}
+            )
+        )
+
+        self.assertRecordValues(
+            task.checklist_item_ids,
+            [
+                {"name": "Cut the box", "user_id": self.user_lead.id, "deadline": False},
+                {"name": "Test the circuit", "user_id": self.user_dev.id, "deadline": False},
+            ],
+        )
+
+    def test_items_saved_with_their_task_are_posted_to_their_assignee_and_reviewer(self):
+        task = self._create_task(
+            "Fit the sensor",
+            {"name": "Calibrate the sensor", "user_id": self.user_dev.id, "reviewer_id": self.reviewer.id},
+        )
+
+        message = self._item_posts(task, "Calibrate the sensor")
+        recipients = (self.user_dev | self.reviewer).partner_id
+        self.assertEqual(message.subtype_id, self.env.ref("project_ai_driven.checklist_subtype"))
+        self.assertEqual(message.partner_ids, recipients)
+        self.assertLessEqual(recipients, message.notification_ids.res_partner_id)
+
+    def test_a_project_follower_of_all_checklist_updates_gets_the_posts_of_items_saved_with_a_new_task(self):
+        self.project.message_subscribe(
+            partner_ids=self.technician.partner_id.ids,
+            subtype_ids=self.env.ref("project_ai_driven.project_checklist_subtype").ids,
+        )
+        task = self._create_task("Hang the door", {"name": "Fit the hinges", "user_id": self.user_dev.id})
+
+        message = self._item_posts(task, "Fit the hinges")
+        self.assertIn(self.technician.partner_id, task.message_partner_ids)
+        self.assertIn(
+            self.technician.partner_id,
+            message.notification_ids.res_partner_id,
+            "as for an item added after the task is saved",
+        )
+
+    def test_items_saved_with_their_task_are_posted_after_its_creation_message(self):
+        task = self._create_task("Fit the lamp", {"name": "Test the bulb", "user_id": self.user_dev.id})
+
+        creation_message = task.message_ids.filtered(
+            lambda message: message.subtype_id == self.env.ref("project.mt_task_new")
+        )
+        item_post = self._item_posts(task, "Test the bulb")
+        self.assertLess(creation_message.ensure_one().id, item_post.ensure_one().id)
+
+    def test_a_non_follower_adding_an_item_to_an_existing_task_follows_it_once(self):
+        task = self._create_task("Fit the fan")
+        self.assertFalse(self._count_follower_rows(task, self.user_dev))
+
+        item = Command.create({"name": "Check the airflow", "user_id": self.user_lead.id})
+        task.with_user(self.user_dev).write({"checklist_item_ids": [item]})
+
+        self.assertEqual(self._count_follower_rows(task, self.user_dev), 1)
+
+    def test_a_non_follower_assignee_changing_an_item_follows_the_task_once(self):
+        item = self.Item.with_user(self.user_lead).create(
+            {"name": "Seal the box", "task_id": self.task.id, "user_id": self.technician.id},
+        )
+        self.assertFalse(self._count_follower_rows(self.task, self.technician))
+
+        item.with_user(self.technician).write({"state": "done"})
+
+        self.assertEqual(self._count_follower_rows(self.task, self.technician), 1)
+
+    def test_a_new_task_saved_in_the_form_with_an_item_has_its_creator_as_follower_once(self):
+        task_form = Form(self.Task.with_user(self.user_lead))
+        task_form.name = "Paint the cabinet"
+        task_form.project_id = self.project
+        with task_form.checklist_item_ids.new() as item:
+            item.name = "Sand the doors"
+        task = task_form.save()
+
+        self.assertEqual(task.checklist_item_ids.name, "Sand the doors")
+        self.assertEqual(self._count_follower_rows(task, self.user_lead), 1)
+
+
+@tagged("post_install", "-at_install")
+class TestChecklistProjectSharing(ProjectAiDrivenCommon):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.user_portal = (
+            cls.env["res.users"]
+            .with_context(no_reset_password=True)
+            .create(
+                {
+                    "name": "Portal Collaborator",
+                    "login": "project_ai_driven_portal",
+                    "email": "portal@example.com",
+                    "groups_id": [Command.set(cls.env.ref("base.group_portal").ids)],
+                },
+            )
+        )
+        cls.shared_project = cls.env["project.project"].create(
+            {
+                "name": "Shared Project",
+                "privacy_visibility": "portal",
+                "collaborator_ids": [Command.create({"partner_id": cls.user_portal.partner_id.id})],
+            },
+        )
+        cls.shared_project.message_subscribe(partner_ids=cls.user_portal.partner_id.ids)
+        cls.shared_task = cls.env["project.task"].create({"name": "Fix the roof", "project_id": cls.shared_project.id})
+
+    def _create_sub_task_as_portal(self, **vals):
+        # No project in vals or context: project_key, where installed, then adds a key a portal user may not write.
+        return (
+            self.env["project.task"]
+            .with_user(self.user_portal)
+            .create({"name": "Report the leak", "parent_id": self.shared_task.id, **vals})
+        )
+
+    def test_a_portal_collaborator_saves_a_task_without_items(self):
+        task = self._create_sub_task_as_portal()
+
+        self.assertEqual(task.project_id, self.shared_project)
+
+    def test_a_portal_collaborator_cannot_save_a_task_with_items(self):
+        with self.assertRaises(AccessError):
+            self._create_sub_task_as_portal(checklist_item_ids=[Command.create({"name": "Close the tap"})])
+
+        self.assertFalse(self.env["project.task.checklist.item"].search_count([("name", "=", "Close the tap")]))
+
+
+@tagged("post_install", "-at_install")
 class TestChecklistAccess(ProjectAiDrivenCommon):
     """A global rule hides one task from everyone, whichever modules' task rules
     are installed; the developer is the assignee and the reviewer of every item.
