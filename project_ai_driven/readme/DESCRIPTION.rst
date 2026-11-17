@@ -5,8 +5,9 @@ sessions that worked on a task, the project that develops this Odoo and the
 installed modules its tasks touch, the internal notes of tasks by category,
 and two rules on the stages a project marks: a Resolution to enter some, a
 task type and an estimate to enter others. The module also logs the stage
-changes of every task of the database, and keeps the images of every task's
-texts as attachments of the task.
+changes of every task of the database, keeps the images of every task's
+texts as attachments of the task, and gives every task a brief: the whole
+task in Markdown, in one read.
 
 **Task attributes** (``project.task``)
 
@@ -442,6 +443,77 @@ to another task's image that a write pastes.
 Texts saved before 16.0.2.13.0 keep their inline images until the text is
 saved again or ``_move_inline_images_to_attachments`` runs on its task (see
 *Usage*).
+
+**Task brief** (``project.task``)
+
+**Brief** (``brief``) is the whole task as Markdown text, for an agent or a
+tool that reads tasks over RPC. It is computed for the user who reads it,
+in the language and the companies of their context, and not stored. It is
+on no view, cannot be exported, and is left out of a read that names no
+fields; a read that names ``brief`` gets it. Its help text is the reference
+for the forms of urls it rewrites.
+
+A brief holds, in this order, each part only when it has something to show:
+
+* The header: the task's key, or ``#<id>`` where no module gives tasks a
+  key, and its title; then the project, the stage and since when, the task
+  type, the estimate and its size, the priority, the planned window, the
+  deadline, the hours spent, the assignees, the UAT users, the author and
+  the creation date, the Resolution, the modules on a task of the project
+  that develops this Odoo, the tags, and the link to the task form. The key,
+  the planned window, the hours spent and the UAT users show where a module
+  declares their fields (``key``, ``planned_date_start`` and
+  ``planned_date_end``, ``effective_hours``, ``uat_user_ids``).
+* Related tasks: the parent, the sub-tasks, the tasks it is blocked by and
+  those it blocks, each with its key, title and stage.
+* Pull requests, with their state, merge date and deploy date.
+* The Description.
+* The question rows, each with its id, status, round, addressee, who
+  answered and when, its question and its answer.
+* The Solution.
+* The checklist, its progress counting the Done items over the items not
+  cancelled; each item with its id, state, assignee, reviewer and deadline.
+* The test cases: the general comments, then each case in its order with
+  its id, status, verification (who, when, how), automated test reference,
+  steps, expected results and comments.
+* The sessions, the newest first.
+* The last 10 internal notes with a body, oldest first, each with its date,
+  author and category. Nothing else is cut.
+* The attachments of the task, each with its name, id, type and size.
+
+Times are in UTC. The texts become Markdown (headings, emphasis, links,
+lists, tables, code) with no markup left; the headings of a text sit below
+the section that holds it.
+
+* An image or a link that names an attachment, by a relative url or a url on
+  the host of this database (``get_base_url()``, a website's domain where it
+  applies), in any url form, becomes a pointer:
+  ``![image: <name>](attachment <id>)`` for an image,
+  ``[file: <name>](attachment <id>)`` for a bare link and
+  ``[<link text>](attachment <id>)`` for a link with a text of its own;
+  ``![image](attachment <id>)`` and ``[file](attachment <id>)`` without a
+  name.
+* An inline image the save has not moved to an attachment shows as
+  ``[image not yet moved to an attachment]``: its data never enters the
+  brief.
+* Tokens and credentials are removed from urls: a url loses its user and
+  password, its query and fragment parameters named like a token, and the
+  ``hash`` and ``pid`` that sign a portal link. That holds for the url of a
+  link or an image, and on a best-effort basis for a url that stands as a
+  word in a text or in code. A token written loose, outside a url, stays.
+* A link of a scheme other than http(s) or mailto keeps only its text.
+* User text that would open a Markdown heading, list, quote, code fence or
+  HTML block at the start of a line is escaped, and names are put on one
+  line, so a text cannot open a section of the brief.
+
+A reader who cannot read the task is refused, as a read of it is. What the
+reader may not read is left out: the lines (question rows, checklist items,
+test cases, sessions, pull requests), the related tasks, the notes and the
+attachments under their access rights and record rules, the companies not
+selected in their context included; and the fields their groups keep from
+them, such as the question rows, checklist, test cases, sessions and
+modules for a user outside **Project / User**. A many-to-one value (the
+project, the stage, the author) shows its name as a read of the task does.
 
 **Former names**
 
