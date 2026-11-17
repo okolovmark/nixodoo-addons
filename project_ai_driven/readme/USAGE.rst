@@ -35,14 +35,14 @@ On the task form:
 * **Resolution** (AI-driven projects), next to the tags: choose it before
   moving the task to a stage that requires one. Code needs a pull request on
   the task; a task that already has one gets Code by itself.
-* **Modules** (AI-driven projects, project users), after the Resolution: the
-  installed modules the task touches, as tags bearing their technical names.
-  Type a technical name or a title to pick one; only installed modules are
-  offered, and *Search More...* lists them by technical name and title,
-  cards on a phone. A module that is not installed is refused, and the
-  refusal names it. A module uninstalled after it was added stays on the
-  task, which still saves with it. Search tasks by **Module**, with a
-  technical name or a title.
+* **Modules** (the project that develops this Odoo, project users), after
+  the Resolution: the installed modules the task touches, as tags bearing
+  their technical names. Type a technical name or a title to pick one; only
+  installed modules are offered, and *Search More...* lists them by
+  technical name and title, cards on a phone. A module that is not installed
+  is refused, and the refusal names it. A module uninstalled after it was
+  added stays on the task, which still saves with it. Search tasks by
+  **Module**, with a technical name or a title.
 * **Task Type** and **Estimate** (AI-driven projects): set both before
   moving the task to a stage that requires them. The refusal names what is
   missing.
@@ -90,8 +90,11 @@ link adds a second pull request to the task. The estimate is written to
 with them is ignored. The estimate is a finite number: a NaN or an infinity
 is refused, in any project.
 
-A tool that records the modules of a task over RPC, as a project user, finds
-their ids with ``search_read`` on ``ir.module.module``, the domain
+A tool that records the modules of a task over RPC, as a project user, first
+reads ``develops_this_odoo`` on the task and goes on only when it is
+``True``: on a task of any other project the form hides the modules, but
+its project does not stop a write of them. It finds their ids with
+``search_read`` on ``ir.module.module``, the domain
 ``[("name", "in", <technical names>), ("state", "in", ["installed",
 "to upgrade", "to remove"])]`` and the field ``name``, then writes
 ``module_ids`` on the task with one ``(4, <module id>)`` command per module:

@@ -7,6 +7,7 @@
         <field name="arch" type="xml">
             <xpath expr="//field[@name='project_id']" position="after">
                 <field name="is_ai_driven" invisible="1" />
+                <field name="develops_this_odoo" invisible="1" />
             </xpath>
             <xpath expr="//page[2]" position="after">
                 <page
@@ -135,7 +136,7 @@
                 <field
                     name="module_ids"
                     widget="many2many_tags"
-                    attrs="{'invisible': [('is_ai_driven', '=', False)]}"
+                    attrs="{'invisible': ['|', ('is_ai_driven', '=', False), ('develops_this_odoo', '=', False)]}"
                     options="{'no_create': True}"
                     context="{
                         'module_technical_name': True,

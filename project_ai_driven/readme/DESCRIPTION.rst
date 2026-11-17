@@ -1,10 +1,11 @@
 Additions to project tasks for AI-driven development: task attributes,
 clarifying questions as rows with their answers, the technical solution, a
-checklist and test cases per task, pull requests as records, the installed
-modules a task touches, the internal notes of tasks by category, and two
-rules on the stages a project marks: a
-Resolution to enter some, a task type and an estimate to enter others. The
-module also logs the stage changes of every task of the database.
+checklist and test cases per task, pull requests as records, the project
+that develops this Odoo and the installed modules its tasks touch, the
+internal notes of tasks by category, and two rules on the stages a project
+marks: a Resolution to enter some, a task type and an estimate to enter
+others. The module also logs the stage changes of every task of the
+database.
 
 **Task attributes** (``project.task``)
 
@@ -232,13 +233,35 @@ rule. A stage marked for both rules refuses for the Resolution first.
 The next task of a recurrence takes the task type of the last one, as it
 takes its estimate.
 
+**The project that develops this Odoo** (``project.project``)
+
+* **Develops This Odoo** (``develops_this_odoo``) marks the AI-driven
+  project whose tasks change the Odoo database the module runs in. One
+  project of the database carries it at most, archived projects included: a
+  second one is refused, and the refusal names the project that has it, also
+  to a user who cannot read that project. Ticking it on a project that is
+  not AI-driven, or clearing **AI-driven Project** on the project that has
+  it, is refused.
+* Only a Settings administrator (**Administration / Settings**) sets or
+  clears it, at creation (a context default included) or in a write; a
+  write that leaves it as it is passes for any user. Only a Settings
+  administrator archives or deletes the project that carries it.
+* The project form shows it to Settings administrators, below **AI-driven
+  Project**, on a project that is AI-driven or carries it. A change is
+  tracked in the chatter of the project. A duplicated project starts without
+  it.
+* The task has the same field, related to its project, read-only and
+  readable by every user who reads the task.
+
 **Modules of a task** (``project.task``)
 
 * **Modules** (``module_ids``): the installed modules the task touches,
-  records of the module list (``ir.module.module``). On the tasks of an
-  AI-driven project the form shows them after the Resolution, as tags
-  bearing their technical names, and offers only installed modules. A
-  duplicated task starts without modules.
+  records of the module list (``ir.module.module``). On the tasks of the
+  project that develops this Odoo the form shows them after the Resolution,
+  as tags bearing their technical names, and offers only installed modules.
+  On the tasks of other projects the form hides them; they are kept, and the
+  project does not stop a create or a write of them. A duplicated task
+  starts without modules.
 * A create or a write refuses a module it adds that is not installed;
   *To be upgraded* and *To be removed* count as installed, *To be
   installed* does not. The refusal names the modules, and the whole call is

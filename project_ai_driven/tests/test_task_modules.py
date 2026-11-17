@@ -36,6 +36,7 @@ class TestTaskModules(ProjectAiDrivenCommon):
             ]
         )
         cls._keep_only_own_module_access()
+        cls._set_develops_this_odoo(cls.project)
 
     @classmethod
     def _keep_only_own_module_access(cls):

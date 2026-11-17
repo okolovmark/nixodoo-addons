@@ -29,6 +29,7 @@ class ProjectTask(models.Model):
     _inherit = "project.task"
 
     is_ai_driven = fields.Boolean(related="project_id.is_ai_driven")
+    develops_this_odoo = fields.Boolean(related="project_id.develops_this_odoo")
     solution = fields.Html()
     priority_level = fields.Selection(
         [

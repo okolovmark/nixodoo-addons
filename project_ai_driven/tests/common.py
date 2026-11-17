@@ -54,6 +54,14 @@ class ProjectAiDrivenCommon(TransactionCase):
         return cls._create_user(name, login, email, extra_group="project.group_project_user")
 
     @classmethod
+    def _set_develops_this_odoo(cls, project):
+        """The database may hold its own project that develops it, and one project at most does."""
+        cls.env["project.project"].with_context(active_test=False).search(
+            [("develops_this_odoo", "=", True), ("id", "!=", project.id)]
+        ).develops_this_odoo = False
+        project.develops_this_odoo = True
+
+    @classmethod
     def _create_stage(cls, name, sequence, project=None, **values):
         return cls.env["project.task.type"].create(
             {"name": name, "sequence": sequence, "project_ids": [Command.link((project or cls.project).id)], **values},
