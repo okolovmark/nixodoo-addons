@@ -17,10 +17,6 @@
 * Two first creates of the same task and session in concurrent transactions
   both find no row: the later one fails on the unique constraint, and
   nothing retries it.
-* The test case flag ``passed`` and the translation of the former state
-  values (``todo``, ``done``, ``cancelled``) at create and write serve
-  clients written for the former selection, until a later version removes
-  them.
 * The path of a pull request link is stored as written. Two spellings of one
   pull request (``Owner/Repo`` and ``owner/repo``, ``http`` and ``https``,
   with and without ``/-/``) are two records.

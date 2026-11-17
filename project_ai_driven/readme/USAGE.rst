@@ -164,15 +164,12 @@ the tasks its user can read: a create on another task raises an access
 error. It reads the sessions of a task from ``session_ids``.
 
 A tool that gives test case results over RPC writes ``state`` on
-``project.task.testcase``: ``not_run``, ``passed``, ``failed``, ``waiting``
-or ``not_applicable``. A create or write of ``passed`` or ``failed`` fills
-``verified_by_id`` and ``verified_on`` unless it sends them. It sends
-``verification_kind`` (``manual``, ``automated`` or ``demo``) and
-``test_reference`` with the result: only the buttons set ``manual`` by
-themselves. The former values ``todo``, ``done`` and ``cancelled`` are taken
-as ``not_run``, ``passed`` and ``not_applicable``. ``passed`` is read, not
-written: a value sent for it is dropped, and ``passed`` true without a
-``state`` gives ``passed``.
+``project.task.testcase``, and reads the result from it: ``not_run``,
+``passed``, ``failed``, ``waiting`` or ``not_applicable``. A create or write
+of ``passed`` or ``failed`` fills ``verified_by_id`` and ``verified_on``
+unless it sends them. It sends ``verification_kind`` (``manual``,
+``automated`` or ``demo``) and ``test_reference`` with the result: only the
+buttons set ``manual`` by themselves.
 
 A tool reads the notes of one category of a task with ``search_read`` on
 ``mail.message``, the domain ``[("task_id", "=", <task id>),
