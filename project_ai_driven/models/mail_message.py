@@ -30,18 +30,19 @@ def _any_case(text):
     return "".join("[%s%s]" % (char.upper(), char.lower()) if char.isalpha() else char for char in text)
 
 
-_LEADING_SPACE = "^%s*" % SPACE
+_BODY_START = "^%s*" % SPACE
 _SPAN = _any_case("span")
-SPAN_OPENING = "%s<%s" % (_LEADING_SPACE, _SPAN)
+SPAN_OPENING = "%s<%s" % (_BODY_START, _SPAN)
 
 
 def _get_note_category_pattern(label):
-    # the Html sanitizer stores inside a <span> a body of inline content only and more than one node
+    # the Html sanitizer stores inside a <span> a body of more than one node that opens with an
+    # inline tag and holds no block tag
     return (
-        "{leading_space}(?:<(?:{p}|{span})(?:{space}[^>]*)?>{space}*)?<(?:{b}|{strong})(?:{space}[^>]*)?>{space}*"
+        "{body_start}(?:<(?:{p}|{span})(?:{space}[^>]*)?>{space}*)?<(?:{b}|{strong})(?:{space}[^>]*)?>{space}*"
         "{label}{space}*(?:</(?:{b}|{strong})>|[-:/+(\u2013\u2014])"
     ).format(
-        leading_space=_LEADING_SPACE,
+        body_start=_BODY_START,
         space=SPACE,
         p=_any_case("p"),
         span=_SPAN,

@@ -42,7 +42,8 @@ CATEGORY_OPENINGS = {
     "<p><b>Bug Fix / Review Fix</b></p>": "bug_fix",
     "<p><b>Review Fix + Bug Fix</b></p>": "review_fix",
     "<p><b>Bug Fix (round 2)</b></p>": "bug_fix",
-    # the sanitizer stores inside a <span> a body of inline content only and more than one node
+    # the sanitizer stores inside a <span> a body of more than one node that opens with an inline
+    # tag and holds no block tag
     "<b>Progress</b> \u2014 Test Case Verification: 7/7 passed.": "progress",
     "<b>Review Fix</b> - posted without a paragraph": "review_fix",
     "<span><b>Progress</b> - posted without a paragraph</span>": "progress",

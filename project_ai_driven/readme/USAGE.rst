@@ -113,9 +113,10 @@ A tool reads the notes of one category of a task with ``search_read`` on
 can read. It gives a note a category by posting it on the task with
 ``message_post``, ``subtype_xmlid`` ``mail.mt_note`` and a body that opens
 with the category in bold, in a paragraph:
-``<p><b>Progress</b> - in review</p>``. A body of inline content only and
-more than one node, such as ``<b>Progress</b> - in review``, is stored
-inside a ``<span>`` and gets its category too. A grouped read
+``<p><b>Progress</b> - in review</p>``. A body of more than one node that
+opens with an inline tag and holds no block tag, such as
+``<b>Progress</b> - in review``, is stored inside a ``<span>`` and gets
+its category too. A grouped read
 (``read_group``) of messages takes a project user, ``("is_task_readable",
 "=", True)`` in the domain and group-bys among ``note_category``,
 ``task_id``, ``author_id``, ``date``, ``model``, ``message_type`` and

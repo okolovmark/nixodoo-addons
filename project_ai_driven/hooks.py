@@ -870,9 +870,10 @@ def categorize_span_notes(cr):
     """Give their category, by SQL, the internal notes of tasks without one
     whose body opens with a <span>, and return how many were given one.
 
-    The Html sanitizer stores a body of inline content only and more than
-    one node inside a <span>. Only these notes are read and written: every
-    other message is taken to hold its category already.
+    The Html sanitizer stores inside a <span> a body of more than one node
+    that opens with an inline tag and holds no block tag. Only these notes
+    are read and written: every other message is taken to hold its
+    category already.
     """
     env = api.Environment(cr, SUPERUSER_ID, {})
     env.flush_all()
