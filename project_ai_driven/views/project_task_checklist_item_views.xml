@@ -20,6 +20,7 @@
                             <field name="user_id" />
                             <field name="state" readonly="True" />
                             <field name="hide_button" invisible='True' />
+                            <field name="allow_subtasks" invisible="1" />
                             <button
                                 name="change_state_done"
                                 title="Change state to DONE"
@@ -47,6 +48,14 @@
                                 title="Change state to CANCELLED"
                                 icon="fa-ban"
                                 attrs="{'invisible': [ '|',('state', '=', 'cancelled'), ('hide_button', '=', True)]}"
+                            />
+                            <button
+                                name="action_convert_to_subtask"
+                                type="object"
+                                title="Convert to sub-task"
+                                icon="fa-level-down"
+                                confirm="Convert this item into a sub-task of the task? The item is deleted."
+                                attrs="{'invisible': ['|', ('hide_button', '=', True), ('allow_subtasks', '=', False)]}"
                             />
                             <field name="reviewer_id" />
                             <field name="deadline" />
@@ -82,6 +91,17 @@
         <field name="model">project.task.checklist.item</field>
         <field name="arch" type="xml">
             <form string="Checklist Item">
+                <header>
+                    <field name="hide_button" invisible="1" />
+                    <field name="allow_subtasks" invisible="1" />
+                    <button
+                        name="action_convert_to_subtask_open"
+                        string="Convert to Sub-task"
+                        type="object"
+                        confirm="Convert this item into a sub-task of the task? The item is deleted."
+                        attrs="{'invisible': ['|', ('hide_button', '=', True), ('allow_subtasks', '=', False)]}"
+                    />
+                </header>
                 <sheet>
                     <group>
                         <field name="name" />
