@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <odoo>
-    <record id="subtasks_subtype" model="mail.message.subtype">
+    <record id="checklist_subtype" model="mail.message.subtype">
         <field name="name">All checklist updates</field>
         <field name="res_model">project.task</field>
         <field name="description">
@@ -10,7 +10,7 @@
         <field name="default" eval="False" />
         <field name="internal" eval="True" />
     </record>
-    <record id="all_subtask_subtype" model="mail.message.subtype">
+    <record id="project_checklist_subtype" model="mail.message.subtype">
         <field name="name">All checklist updates</field>
         <field name="description">
             Subscribe to checklist updates of other users. By default you are notified
@@ -18,7 +18,7 @@
         </field>
         <field name="sequence">10</field>
         <field name="res_model">project.project</field>
-        <field name="parent_id" ref="subtasks_subtype" />
+        <field name="parent_id" ref="checklist_subtype" />
         <field name="relation_field">project_id</field>
         <field name="default" eval="False" />
         <field name="internal" eval="True" />

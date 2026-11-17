@@ -10,7 +10,7 @@
     "data": [
         "security/ir.access.csv",
         "data/mail_message_subtype_data.xml",
-        "views/project_task_subtask_views.xml",
+        "views/project_task_checklist_item_views.xml",
         "views/project_task_testcase_views.xml",
         "views/project_pull_request_views.xml",
         "views/project_task_views.xml",
