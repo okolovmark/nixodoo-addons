@@ -1,5 +1,5 @@
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 from markupsafe import Markup, escape
 
@@ -8,6 +8,9 @@ from odoo.exceptions import ValidationError
 
 from .project_pull_request import parse_single_pull_request_link
 from .project_task_subtask import SUBTASK_STATES
+from .project_task_testcase import TESTCASE_STATES
+
+KANBAN_TESTCASE_STATES = ("not_run", "failed", "waiting")
 
 # The largest estimate in hours of each size.
 SIZE_BANDS = ((2, "xs"), (6, "s"), (12, "m"), (32, "l"), (60, "xl"), (float("inf"), "xxl"))
@@ -182,16 +185,16 @@ class ProjectTask(models.Model):
     @api.depends("testcase_ids.state")
     def _compute_testcase_completion(self):
         for record in self:
-            user_task_ids = record.testcase_ids.filtered(lambda x: x.state != "cancelled")
-            if not user_task_ids:
+            applicable_cases = record.testcase_ids.filtered(lambda case: case.state != "not_applicable")
+            if not applicable_cases:
                 completion = 100
                 record.testcase_completion_xml = """
                     <div class="task_progress">
                     </div>
                     """
             else:
-                user_done_task_ids = user_task_ids.filtered(lambda x: x.state == "done")
-                completion = (len(user_done_task_ids) / len(user_task_ids)) * 100
+                passed_cases = applicable_cases.filtered(lambda case: case.state == "passed")
+                completion = (len(passed_cases) / len(applicable_cases)) * 100
                 record.testcase_completion_xml = f"""
                 <div class="task_progress">
                     <div class="progress_info">
@@ -205,20 +208,13 @@ class ProjectTask(models.Model):
     @api.depends("testcase_ids.state")
     def _compute_kanban_testcases(self):
         for record in self:
-            result_string_td = ""
-            result_string_wt = ""
-            if record.testcase_ids:
-                task_todo_ids = record.testcase_ids.filtered(lambda x: x.state == "todo")
-                task_waiting_ids = record.testcase_ids.filtered(lambda x: x.state == "waiting")
-                if task_todo_ids:
-                    tmp_string_td = escape(f": {len(task_todo_ids)}")
-                    result_string_td += f"<li><b>TODO{tmp_string_td}</b></li>"
-                if task_waiting_ids:
-                    tmp_string_wt = escape(f": {len(task_waiting_ids)}")
-                    result_string_wt += f"<li><b>Waiting{tmp_string_wt}</b></li>"
-            record.kanban_testcases = (
-                '<div class="kanban_subtasks"><ul>' + result_string_td + result_string_wt + "</ul></div>"
+            state_counts = Counter(record.testcase_ids.mapped("state"))
+            state_lines = "".join(
+                "<li><b>%s</b></li>" % escape("%s: %d" % (TESTCASE_STATES[state], state_counts[state]))
+                for state in KANBAN_TESTCASE_STATES
+                if state_counts[state]
             )
+            record.kanban_testcases = '<div class="kanban_subtasks"><ul>' + state_lines + "</ul></div>"
 
     @api.depends("pull_request_ids.url")
     def _compute_pr_uri(self):
@@ -294,7 +290,7 @@ class ProjectTask(models.Model):
             for subtask in task.subtask_ids:
                 subtask.copy({"task_id": copied_task.id, "state": subtask.state})
             for testcase in task.testcase_ids:
-                testcase.copy({"task_id": copied_task.id, "state": testcase.state})
+                testcase.copy({"task_id": copied_task.id, **testcase._get_result_values()})
         return copied_tasks
 
     @api.model
