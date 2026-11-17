@@ -154,12 +154,17 @@ class TestDevelopsThisOdoo(ProjectAiDrivenCommon):
         self.assertTrue(self.project.active)
 
     def test_a_settings_administrator_archives_and_deletes_the_project_that_develops_this_odoo(self):
-        flagged_project = self.project.with_user(self.settings_admin)
+        # A project without tasks: core deletes the project before its tasks, and a task left without a
+        # project is no longer one the project manager's rule lets a non-assignee delete, whatever the flag says.
+        self.project.develops_this_odoo = False
+        taskless_project = self._create_project("Taskless AI-driven Project", is_ai_driven=True)
+        taskless_project.develops_this_odoo = True
+        flagged_project = taskless_project.with_user(self.settings_admin)
 
         flagged_project.action_archive()
-        self.assertFalse(self.project.active)
+        self.assertFalse(taskless_project.active)
         flagged_project.unlink()
-        self.assertFalse(self.project.exists())
+        self.assertFalse(taskless_project.exists())
 
     def test_a_project_manager_archives_and_deletes_a_project_that_does_not_develop_this_odoo(self):
         other_project = self.other_project.with_user(self.manager)
