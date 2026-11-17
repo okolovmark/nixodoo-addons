@@ -1,10 +1,33 @@
-On the project form, *Settings* tab, choose the **Access** of the project.
-For Public and Private, add the people on the *Members* tab with their role;
-a Public or Private project keeps at least one Admin.
+**Roles in a Public or Private project**
 
-A stage shared by a Standard project and a Public or Private project is
-changed only by an Admin of the latter: give such a project stages of its own.
+============================================== ====== =========== ====== =====
+Action                                         Reader Contributor Editor Admin
+============================================== ====== =========== ====== =====
+Read tasks, post in the chatter                yes    yes         yes    yes
+Create a task, or move one in                  no     yes         yes    yes
+Edit an own task (creator, assignee, UAT user) yes    yes         yes    yes
+Edit somebody else's task                      no     no          yes    yes
+Move the stage of a task one is assigned to    yes    yes         yes    yes
+Move the stage of another task                 no     no          yes    yes
+Change assignees, on create too                no     no          no     yes
+Delete a task                                  no     no          no     yes
+Members, Access, stages, milestones, updates   no     no          no     yes
+============================================== ====== =========== ====== =====
 
-Known limit: an Admin of a Public or Private project can move a task in with
-new assignees and move it out again, which a module restricting assignee
-changes in Standard projects does not see.
+Without a role, an internal user is a Reader of a Public project, a Project
+Administrator a Reader of every project, and a Settings administrator an
+Admin of every project.
+
+**Work in such a project**
+
+* Create tasks without assignees unless you are an Admin: clear the
+  Assignees a screen fills in (the *Sub-tasks* tab of a task copies the
+  parent's, *My Tasks* adds you); an Admin assigns them.
+* Move a task along the stages when you are one of its assignees; Editors
+  and Admins move any task.
+* Admins keep the *Members* tab of the project form: add a user with a
+  role, change a role, remove a member. A member's user is not changed:
+  remove the member and add the other user. The last Admin stays until
+  another member is Admin.
+* Following a task or the project opens nothing: a follower who cannot read
+  it gets no notification of it, and no portal link opens it.
