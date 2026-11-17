@@ -461,8 +461,8 @@ filtered on the cases Not run; remove the <em>Not run</em> filter to see them al
 Copying a task also copies its checklist items, keeping their states, and
 its test cases, keeping their status, Verified by, Verified on,
 Verification and Automated test reference: a duplicate and its sub-tasks, a
-duplicated project, a task or project created from a template or made into
-one. The next occurrence of a recurring task gets neither.</p>
+duplicated project, a task or project created from a template, a project
+made into a template. The next occurrence of a recurring task gets neither.</p>
 <p><strong>Questions</strong> (<tt class="docutils literal">project.task.question</tt>)</p>
 <p>The clarifying questions of a task, its <strong>Questions</strong> (<tt class="docutils literal">question_ids</tt>),
 are rows in an order of their own:</p>
@@ -677,10 +677,10 @@ first. <tt class="docutils literal">&lt;b&gt;Progress <span class="pre">report&l
 user, a tracking message and a message with neither a body nor a file are
 left out, and so are the notes of tasks the user cannot read, which Odoo
 would show to their author or recipients. Its domain names the model
-<tt class="docutils literal">project.task</tt>, so Odoo checks the access of the tasks in SQL. Odoo 20 lets any user group messages under that
-check: the groups and their counts hold only notes of tasks the user can
-read. Groups by category come in the order of the categories, the notes
-without one last.</p>
+<tt class="docutils literal">project.task</tt>, so Odoo checks the access of the tasks in SQL. Odoo 20
+lets any user group messages under that check: the groups and their counts
+hold only notes of tasks the user can read. Groups by category come in the
+order of the categories, the notes without one last.</p>
 <p><strong>Coming from 16.0</strong></p>
 <p>The module’s models, fields and selection values carry the names of the
 16.0 branch, so a caller written for one branch works on the other, but for

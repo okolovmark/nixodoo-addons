@@ -121,8 +121,8 @@ filtered on the cases Not run; remove the *Not run* filter to see them all.
 Copying a task also copies its checklist items, keeping their states, and
 its test cases, keeping their status, Verified by, Verified on,
 Verification and Automated test reference: a duplicate and its sub-tasks, a
-duplicated project, a task or project created from a template or made into
-one. The next occurrence of a recurring task gets neither.
+duplicated project, a task or project created from a template, a project
+made into a template. The next occurrence of a recurring task gets neither.
 
 **Questions** (``project.task.question``)
 
@@ -327,10 +327,10 @@ The category of a note:
 user, a tracking message and a message with neither a body nor a file are
 left out, and so are the notes of tasks the user cannot read, which Odoo
 would show to their author or recipients. Its domain names the model
-``project.task``, so Odoo checks the access of the tasks in SQL. Odoo 20 lets any user group messages under that
-check: the groups and their counts hold only notes of tasks the user can
-read. Groups by category come in the order of the categories, the notes
-without one last.
+``project.task``, so Odoo checks the access of the tasks in SQL. Odoo 20
+lets any user group messages under that check: the groups and their counts
+hold only notes of tasks the user can read. Groups by category come in the
+order of the categories, the notes without one last.
 
 **Coming from 16.0**
 

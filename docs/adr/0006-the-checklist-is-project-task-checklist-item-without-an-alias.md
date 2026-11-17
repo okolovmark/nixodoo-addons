@@ -13,7 +13,7 @@ The 16.0 branch decided this first. Its record, `docs/adr/0006-the-checklist-is-
 - Nothing is renamed in the database (ADR 0001). 16.0 renames by SQL the table, the model, its fields, the external ids and the stored views, rules, filters and actions that name them, keeping every database id. Here an update from an earlier 20.0 version creates `project.task.checklist.item` with an empty table; the items stay in the table `project_task_subtask`, which no model reads.
 - The records of the data files are created under the new external ids, and the former ones are deleted at the end of the update: the two All checklist updates subtypes go with the follower subscriptions to them.
 - The external ids that mail (selection values of the activity fields) and phone_validation (the activity mixin inheritance) hold for the former model stay; nothing reads them.
-- Copying a task copies its items with their state in every copy Odoo 20 makes, sub-tasks included, as lines of `copy_data` (ADR 0005); the next occurrence of a recurring task gets none, as on 16.0. The items of a copy are created inside core's copy, which posts nothing: 16.0 posts each copied item to its assignee and reviewer.
+- Copying a task copies its items with their state in every copy Odoo 20 makes, sub-tasks included, as lines of `copy_data` (ADR 0005); the next occurrence of a recurring task gets none, as on 16.0. The items of a copy are created inside core's copy, under `mail_auto_subscribe_no_notify`, so no item is posted: 16.0 posts each copied item to its assignee and reviewer.
 
 **Consequences.**
 
