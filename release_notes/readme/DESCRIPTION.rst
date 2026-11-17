@@ -14,9 +14,15 @@ load them (see *Configuration*).
   notes; it never overwrites one that already exists.
 * A loaded note starts unpublished and is visible to Release Notes managers
   only. Its *Deployed by* user publishes it.
-* Publishing sends one OdooBot direct chat to every active internal user who
-  can read at least one of the note's models. No email is sent, and a note
-  is announced once, however often it is unpublished and published again.
+* A published note is announced in the main menu of every active internal
+  user who can read at least one of the note's models and was created before
+  it was published: a counter on the menu icon and a panel at the top of the
+  menu with *View* and *Skip*. It stays announced until the user opens or
+  skips it. No chat and no email is sent.
+* A note's key can open its ticket, for the users who can read tickets
+  (see *Configuration*).
+* A video attached to a note plays at the top of it: the place for a demo of
+  the change.
 * Every internal user can open *Release Notes* to read the published notes,
   search them and filter or group them by tag.
 
@@ -32,4 +38,4 @@ Why the notes live in a module of their own:
   note can point at any module's screen without a dependency on it.
 
 ``readme/release_note_flow.puml`` shows the flow from the pull request to the
-users' chats.
+users' main menu.

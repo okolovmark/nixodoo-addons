@@ -1,9 +1,12 @@
+import importlib.util
 import os
 import tempfile
+from datetime import timedelta
 from unittest.mock import patch
 
 from odoo import Command, fields
 from odoo.exceptions import AccessError, UserError
+from odoo.modules.module import get_resource_path
 from odoo.tests import Form, new_test_user, tagged
 from odoo.tests.common import TransactionCase
 
@@ -38,6 +41,18 @@ class TestReleaseNote(TransactionCase):
         cls.inactive_admin = new_test_user(cls.env, "rn_inactive", groups="base.group_system")
         cls.inactive_admin.active = False
         cls.admin_user = new_test_user(cls.env, "rn_admin", groups="base.group_system")
+        # created well before any note the tests publish: a note is announced only to users older than it
+        users = (
+            cls.manager | cls.other_manager | cls.internal_user | cls.portal_user | cls.inactive_admin | cls.admin_user
+        )
+        cls.env.cr.execute(
+            "UPDATE res_users SET create_date = create_date - interval '1 hour' WHERE id IN %s", [tuple(users.ids)]
+        )
+        users.invalidate_recordset(["create_date"])
+        # the notes a database already has are not the tests' business
+        published_notes = cls.env["release.note"].search([("is_published", "=", True)])
+        for user in users:
+            published_notes._mark_seen_by(user)
         cls.odoobot = cls.env.ref("base.user_root")
         cls.cron_model = cls.env["ir.model"]._get("ir.cron")
         cls.partner_model = cls.env["ir.model"]._get("res.partner")
@@ -57,6 +72,27 @@ class TestReleaseNote(TransactionCase):
         note_values = {"key": "PROJ-TEST", "name": "Release test", "summary": "A summary"}
         note_values.update(values)
         return self.Note.create(note_values)
+
+    def _publish_note(self, **values):
+        note_values = {
+            "is_published": True,
+            "published_date": fields.Datetime.now(),
+            "model_ids": [Command.set(self.partner_model.ids)],
+        }
+        note_values.update(values)
+        return self._create_note(**note_values)
+
+    def _announcement(self, user):
+        return self.Note.with_user(user).get_announcement()
+
+    def _video_values(self, note, raw):
+        return {
+            "name": "PROJ_demo.mp4",
+            "raw": raw,
+            "mimetype": "video/mp4",
+            "res_model": "release.note",
+            "res_id": note.id,
+        }
 
     def _odoobot_chat_messages(self, user, note):
         channels = self.env["mail.channel"].search(
@@ -214,42 +250,23 @@ class TestReleaseNote(TransactionCase):
         self.assertIn('class="btn btn-primary"', created_note.body)
         self.assertNotIn("btn-secondary", created_note.body)
 
-    def test_publish_by_deployer_notifies_once_without_email(self):
+    def test_publish_announces_without_chat_or_email(self):
         note = self._create_note(deployer_id=self.manager.id, model_ids=[Command.set(self.partner_model.ids)])
         mail_count = self.env["mail.mail"].search_count([])
-        note.with_user(self.manager).action_publish()
+        with patch.object(type(self.env["bus.bus"]), "_sendmany", autospec=True) as sendmany:
+            note.with_user(self.manager).action_publish()
         self.assertTrue(note.is_published)
         self.assertTrue(note.is_notified)
         self.assertEqual(note.published_by_id, self.manager)
         self.assertTrue(note.published_date)
-        self.assertEqual(len(self._odoobot_chat_messages(self.internal_user, note)), 1)
+        self.assertFalse(self._odoobot_chat_messages(self.internal_user, note), "No OdooBot chat any more")
         self.assertEqual(self.env["mail.mail"].search_count([]), mail_count, "No email is queued")
-        message = self._odoobot_chat_messages(self.internal_user, note)
-        self.assertIn("<b>Release test</b>", message.body)
-        self.assertIn("/web#id=%s&amp;model=release.note" % note.id, message.body)
-
-        note.with_user(self.manager).action_unpublish()
-        self.assertFalse(note.is_published)
-        note.with_user(self.manager).action_publish()
-        self.assertEqual(len(self._odoobot_chat_messages(self.internal_user, note)), 1, "Re-publish never re-sends")
-
-    def test_chat_message_escapes_title(self):
-        note = self._create_note(
-            name="Fix <b>& more",
-            deployer_id=self.manager.id,
-            model_ids=[Command.set(self.partner_model.ids)],
-        )
-        note.with_user(self.manager).action_publish()
-        channels = self.env["mail.channel"].search(
-            [
-                ("channel_type", "=", "chat"),
-                ("channel_partner_ids", "in", self.internal_user.partner_id.ids),
-                ("channel_partner_ids", "in", self.odoobot.partner_id.ids),
-            ]
-        )
-        message = channels.message_ids.filtered(lambda message: "/web#id=%s&amp;" % note.id in message.body)
-        self.assertEqual(len(message), 1)
-        self.assertIn("<b>Fix &lt;b&gt;&amp; more</b>", message.body)
+        pushed = [(partner, kind) for partner, kind, _payload in sendmany.call_args.args[1]]
+        self.assertIn((self.internal_user.partner_id, "release_notes/updated"), pushed)
+        self.assertNotIn(self.portal_user.partner_id, [partner for partner, _kind in pushed])
+        self.assertIn(note.id, self._announcement(self.internal_user)["note_ids"])
+        self.assertNotIn(note.id, self._announcement(self.manager)["note_ids"], "The deployer read it already")
+        self.assertIn(self.manager, note.seen_user_ids)
 
     def test_publish_refused_without_models(self):
         note = self._create_note(deployer_id=self.manager.id)
@@ -387,11 +404,131 @@ class TestReleaseNote(TransactionCase):
 
         self.assertFalse(self._create_note(key="PROJ-NOMODEL")._get_notification_recipients())
 
-    def test_user_without_access_gets_no_message(self):
-        note = self._create_note(deployer_id=self.manager.id, model_ids=[Command.set(self.cron_model.ids)])
-        note.with_user(self.manager).action_publish()
-        self.assertTrue(self._odoobot_chat_messages(self.admin_user, note))
-        self.assertFalse(self._odoobot_chat_messages(self.internal_user, note))
+    def test_announcement_needs_read_access_to_a_note_model(self):
+        note = self._publish_note(model_ids=[Command.set(self.cron_model.ids)])
+        self.assertIn(note.id, self._announcement(self.admin_user)["note_ids"])
+        self.assertNotIn(note.id, self._announcement(self.internal_user)["note_ids"])
+        portal_note = self._publish_note(key="PROJ-PORTAL")
+        self.assertTrue(
+            self.env["res.partner"].with_user(self.portal_user).check_access_rights("read", raise_exception=False),
+            "The portal user can read the note's model",
+        )
+        self.assertNotIn(portal_note.id, self._announcement(self.portal_user)["note_ids"], "Only internal users")
+
+    def test_announcement_lists_unseen_notes_newest_first(self):
+        now = fields.Datetime.now()
+        older = self._publish_note(key="PROJ-OLD", name="Older", published_date=now)
+        newest = self._publish_note(key="PROJ-NEW", name="Newest", published_date=now + timedelta(seconds=1))
+        self._publish_note(key="PROJ-NOMODEL", name="No model", model_ids=[])
+        self._create_note(key="PROJ-DRAFT", model_ids=[Command.set(self.partner_model.ids)])
+        announcement = self._announcement(self.internal_user)
+        self.assertEqual(announcement["note_ids"], [newest.id, older.id])
+        self.assertEqual(announcement["count"], 2)
+        self.assertEqual(announcement["title"], "Newest")
+
+    def test_opened_note_is_no_longer_announced(self):
+        first = self._publish_note(key="PROJ-ONE")
+        second = self._publish_note(key="PROJ-TWO")
+        with patch.object(type(self.env["bus.bus"]), "_sendmany", autospec=True) as sendmany:
+            first.with_user(self.internal_user).action_mark_seen()
+        self.assertEqual(self._announcement(self.internal_user)["note_ids"], [second.id])
+        self.assertEqual(sendmany.call_args.args[1], [(self.internal_user.partner_id, "release_notes/updated", {})])
+        self.assertIn(self.internal_user, first.seen_user_ids)
+        first.with_user(self.internal_user).action_mark_seen()
+        self.assertEqual(first.seen_user_ids, self.internal_user, "Seen twice is one row")
+        self.assertIn(first.id, self._announcement(self.admin_user)["note_ids"], "Seen by one user only")
+
+    def test_seen_leaves_the_note_row_alone(self):
+        note = self._publish_note()
+        self.env.flush_all()
+        # an UPDATE of the row, even one changing nothing, writes a new row version
+        self.env.cr.execute("SELECT ctid FROM release_note WHERE id = %s", [note.id])
+        row_version = self.env.cr.fetchone()[0]
+        note.with_user(self.internal_user).action_mark_seen()
+        self.env.flush_all()
+        self.env.cr.execute("SELECT ctid FROM release_note WHERE id = %s", [note.id])
+        self.assertEqual(self.env.cr.fetchone()[0], row_version)
+
+    def test_skip_marks_the_shown_notes_seen(self):
+        shown = self._publish_note(key="PROJ-ONE") | self._publish_note(key="PROJ-TWO")
+        self.assertEqual(set(self._announcement(self.internal_user)["note_ids"]), set(shown.ids))
+        published_since = self._publish_note(key="PROJ-LATER")
+        self.Note.browse(shown.ids).with_user(self.internal_user).action_mark_seen()
+        self.assertEqual(self._announcement(self.internal_user)["note_ids"], [published_since.id])
+        self.assertTrue(all(self.internal_user in note.seen_user_ids for note in shown))
+        self.assertEqual(self._announcement(self.admin_user)["count"], 3)
+
+    def test_note_published_before_the_user_existed_is_not_announced(self):
+        note = self._publish_note(published_date=self.internal_user.create_date - timedelta(days=1))
+        self.assertNotIn(note.id, self._announcement(self.internal_user)["note_ids"])
+
+    def test_unpublished_note_leaves_the_announcement(self):
+        note = self._publish_note(deployer_id=self.manager.id)
+        with patch.object(type(self.env["bus.bus"]), "_sendmany", autospec=True) as sendmany:
+            note.with_user(self.manager).action_unpublish()
+        self.assertEqual(self._announcement(self.internal_user)["count"], 0)
+        self.assertIn(self.internal_user.partner_id, [partner for partner, _kind, _p in sendmany.call_args.args[1]])
+
+    def test_hidden_note_cannot_be_marked_seen(self):
+        note = self._create_note(model_ids=[Command.set(self.partner_model.ids)])
+        with self.assertRaises(AccessError):
+            note.with_user(self.internal_user).action_mark_seen()
+        note.with_user(self.manager).action_mark_seen()
+        self.assertFalse(note.seen_user_ids, "An unpublished note is never marked seen")
+
+    def test_seen_users_hidden_from_internal_users(self):
+        note = self._publish_note()
+        with self.assertRaises(AccessError):
+            note.with_user(self.internal_user).read(["seen_user_ids"])
+
+    def test_key_links_the_ticket_for_users_who_can_read_it(self):
+        note = self._publish_note(key="PROJ 7/1")
+
+        def ticket_url(user):
+            note.invalidate_recordset(["ticket_url"])
+            return note.with_user(user).ticket_url
+
+        params = self.env["ir.config_parameter"]
+        params.set_param("release_notes.ticket_url", False)
+        params.set_param("release_notes.ticket_model", False)
+        self.assertFalse(ticket_url(self.internal_user), "No link without a URL template")
+        params.set_param("release_notes.ticket_url", "/tickets/{key}")
+        self.assertEqual(ticket_url(self.internal_user), "/tickets/PROJ%207%2F1")
+        params.set_param("release_notes.ticket_model", "ir.cron")
+        self.assertFalse(ticket_url(self.internal_user), "No read access to ir.cron")
+        self.assertEqual(ticket_url(self.admin_user), "/tickets/PROJ%207%2F1")
+        params.set_param("release_notes.ticket_model", "no.such.model")
+        self.assertFalse(ticket_url(self.admin_user))
+
+    def test_demo_is_the_newest_video_of_the_note(self):
+        note = self._publish_note()
+        self.assertFalse(note.demo_attachment_id)
+        attachment_model = self.env["ir.attachment"]
+        first = attachment_model.create(self._video_values(note, b"\x00"))
+        note.invalidate_recordset(["demo_attachment_id"])
+        self.assertEqual(note.demo_attachment_id, first)
+        second = attachment_model.create(self._video_values(note, b"\x01"))
+        attachment_model.create({"name": "notes.txt", "raw": b"text", "res_model": "release.note", "res_id": note.id})
+        note.invalidate_recordset(["demo_attachment_id"])
+        self.assertEqual(note.demo_attachment_id, second, "The newest video, not the newest attachment")
+        user_note = note.with_user(self.internal_user)
+        self.assertEqual(user_note.demo_attachment_id.read(["name"])[0]["name"], "PROJ_demo.mp4")
+
+    def test_migration_counts_published_notes_as_seen(self):
+        published = self._publish_note(is_notified=True)
+        unpublished_after_its_chat = self._create_note(key="PROJ-UNPUBLISHED", is_notified=True)
+        draft = self._create_note(key="PROJ-DRAFT")
+        path = get_resource_path("release_notes", "migrations", "16.0.2.0.0", "post-migration.py")
+        spec = importlib.util.spec_from_file_location("release_notes_post_migration", path)
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        migration.migrate(self.env.cr, "16.0.1.0.0")
+        (published | unpublished_after_its_chat | draft).invalidate_recordset(["seen_user_ids"])
+        self.assertIn(self.internal_user, published.seen_user_ids)
+        self.assertIn(self.internal_user, unpublished_after_its_chat.seen_user_ids, "Its chat went out already")
+        self.assertNotIn(self.portal_user, published.seen_user_ids)
+        self.assertFalse(draft.seen_user_ids)
+        self.assertEqual(self._announcement(self.internal_user)["count"], 0)
 
     def test_unpublished_note_hidden_from_internal_user(self):
         hidden_note = self._create_note()
