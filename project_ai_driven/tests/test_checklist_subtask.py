@@ -6,14 +6,15 @@ from datetime import date, datetime
 from lxml import html
 from markupsafe import escape
 
-from odoo.exceptions import AccessError, UserError
+from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests.common import tagged
 
 from ..hooks import CHECKLIST_MODEL, MODULE
 from .common import ProjectAiDrivenCommon
-from .test_checklist import MARKUP_NAME, REFUSAL
+from .test_checklist import MARKUP_NAME
 from .test_estimate_rule import NO_ESTIMATE, NO_TYPE
 
+REFUSAL = "Only the assignee or the reviewer of a checklist item can convert it into a sub-task."
 CONVERT_INVISIBLE = {"invisible": ["|", ("hide_button", "=", True), ("allow_subtasks", "=", False)]}
 
 
@@ -42,6 +43,11 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
 
     def _subtasks(self, task):
         return self.env["project.task"].search([("parent_id", "=", task.id)])
+
+    def _assignment_notifications(self, task):
+        return self.env["mail.message"].search(
+            [("model", "=", "project.task"), ("res_id", "=", task.id), ("message_type", "=", "user_notification")],
+        )
 
     def _conversion_notes(self, task):
         return self.env["mail.message"].search(
@@ -99,7 +105,23 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
         self.assertIn(self.user_dev.partner_id, subtask.message_partner_ids)
         self.assertNoteLinks(self.task, "Write the migration", subtask, self.reviewer)
 
-    def test_another_project_user_is_refused_before_anything_is_created(self):
+    def test_the_assignee_is_notified_of_a_subtask_converted_by_the_reviewer(self):
+        item = self._new_item()
+        item.with_user(self.reviewer).with_context(mail_auto_subscribe_no_notify=False).action_convert_to_subtask()
+        subtask = self._subtasks(self.task)
+        notification = self._assignment_notifications(subtask)
+        self.assertEqual(len(notification), 1)
+        self.assertEqual(notification.partner_ids, self.user_dev.partner_id)
+        self.assertEqual(notification.subject, "You have been assigned to %s" % subtask.display_name)
+
+    def test_the_assignee_converting_their_own_item_is_not_notified(self):
+        item = self._new_item()
+        item.with_user(self.user_dev).with_context(mail_auto_subscribe_no_notify=False).action_convert_to_subtask()
+        subtask = self._subtasks(self.task)
+        self.assertEqual(subtask.user_ids, self.user_dev)
+        self.assertFalse(self._assignment_notifications(subtask))
+
+    def test_another_project_user_is_refused_the_conversion_before_anything_is_created(self):
         item = self._new_item()
         outsider = self._create_project_user("Outsider", "project_ai_driven_outsider", "outsider@example.com")
         # in place: Odoo's assertRaises rolls back what a late refusal would leave behind
@@ -115,9 +137,13 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
     def test_a_subtask_refused_by_the_first_stage_of_the_project_leaves_the_item(self):
         self.project.estimate_required_states = self.stage_backlog
         item = self._new_item()
-        with self.assertRefused(NO_TYPE, NO_ESTIMATE):
+        with unittest.TestCase.assertRaises(self, ValidationError) as refusal:
             item.with_user(self.user_dev).action_convert_to_subtask()
-        self.assertLeftInPlace(item, self.task)
+        for message_part in (NO_TYPE, NO_ESTIMATE):
+            self.assertIn(message_part, refusal.exception.args[0])
+        # the rule refuses after core's INSERT: the sub-task row goes with the rollback of the request
+        self.assertTrue(item.exists(), "the item goes only once its sub-task is accepted")
+        self.assertFalse(self._conversion_notes(self.task), "the note follows the sub-task")
 
     def test_a_user_who_may_read_but_not_change_the_items_is_refused_before_anything_is_created(self):
         self.env["ir.rule"].create(
@@ -138,6 +164,30 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
             item.with_user(self.user_dev).action_convert_to_subtask()
         self.assertLeftInPlace(item, read_only_task)
 
+    def test_the_subtask_takes_no_default_of_the_calling_view(self):
+        milestone = self.env["project.milestone"].create({"name": "Milestone", "project_id": self.project.id})
+        customer = self.env["res.partner"].create({"name": "Calling view customer"})
+        other_task = self.env["project.task"].create({"name": "Other Task", "project_id": self.project.id})
+        item = self._new_item()
+        item.with_user(self.user_dev).with_context(
+            default_partner_id=customer.id,
+            default_milestone_id=milestone.id,
+            default_user_ids=self.user_lead.ids,
+            default_parent_id=other_task.id,
+            default_stage_id=self.stage_progress.id,
+        ).action_convert_to_subtask()
+        self.assertRecordValues(
+            self._subtasks(self.task),
+            [
+                {
+                    "partner_id": False,
+                    "milestone_id": False,
+                    "user_ids": self.user_dev.ids,
+                    "stage_id": self.stage_backlog.id,
+                },
+            ],
+        )
+
     def test_items_converted_together_become_each_a_subtask_of_its_own_task(self):
         other_task = self.env["project.task"].create({"name": "Other Task", "project_id": self.project.id})
         first_item = self._new_item(name="First item")
@@ -157,15 +207,21 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
         self.assertNoteLinks(self.task, "First item", first_subtask, self.user_dev)
         self.assertNoteLinks(other_task, "Second item", second_subtask, self.user_dev)
 
-    def test_converting_from_the_item_form_opens_the_subtask(self):
+    def test_converting_from_the_item_form_opens_the_subtask_in_place_of_the_breadcrumbs(self):
         item = self._new_item()
         action = item.with_user(self.user_dev).action_convert_to_subtask_open()
         subtask = self._subtasks(self.task)
         self.assertEqual(len(subtask), 1)
         self.assertFalse(item.exists())
         self.assertEqual(
-            (action["type"], action["res_model"], action["res_id"], action["views"]),
-            ("ir.actions.act_window", "project.task", subtask.id, [(False, "form")]),
+            action,
+            {
+                "type": "ir.actions.act_window",
+                "res_model": "project.task",
+                "res_id": subtask.id,
+                "views": [(False, "form")],
+                "target": "main",
+            },
         )
 
     def test_markup_in_the_name_of_an_item_is_text_in_the_note(self):
@@ -182,7 +238,7 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
         (button,) = item_list.xpath("button[@name='action_convert_to_subtask']")
         self.assertEqual(
             {name: button.get(name) for name in ("type", "icon", "title")},
-            {"type": "object", "icon": "fa-level-down", "title": "Convert to sub-task"},
+            {"type": "object", "icon": "fa-level-down", "title": "Convert to Sub-task"},
         )
         self.assertEqual(literal_eval(button.get("attrs")), CONVERT_INVISIBLE)
         self.assertIn("The item is deleted.", button.get("confirm"))

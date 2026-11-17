@@ -2,6 +2,7 @@ from markupsafe import Markup, escape
 
 from odoo import Command, _, api, fields, models
 from odoo.exceptions import UserError
+from odoo.tools.misc import clean_context
 
 STATE_COLORS = {"done": "#080", "todo": "#A00", "cancelled": "#777", "waiting": "#b818ce"}
 NOTIFIED_FIELDS = ("state", "name", "user_id")
@@ -84,7 +85,8 @@ class ProjectTaskChecklistItem(models.Model):
 
     def action_convert_to_subtask_open(self):
         """Convert from the form of the item, which cannot reload a deleted
-        record: open the form of the sub-task instead.
+        record: open the form of the sub-task in place of the breadcrumbs,
+        which would lead back to the item.
         """
         self.ensure_one()
         subtask = self._convert_to_subtasks()
@@ -93,13 +95,22 @@ class ProjectTaskChecklistItem(models.Model):
             "res_model": "project.task",
             "res_id": subtask.id,
             "views": [(False, "form")],
+            "target": "main",
         }
 
     def _check_change_allowed(self):
-        if self.filtered(lambda record: self.env.user not in record.user_id | record.reviewer_id):
+        if self._filter_items_of_others():
             raise UserError(
                 _("Only the assignee or the reviewer of a checklist item can change its state, name or assignee.")
             )
+
+    def _check_conversion_allowed(self):
+        if self._filter_items_of_others():
+            raise UserError(_("Only the assignee or the reviewer of a checklist item can convert it into a sub-task."))
+
+    def _filter_items_of_others(self):
+        """The items the user is neither the assignee nor the reviewer of."""
+        return self.filtered(lambda record: self.env.user not in record.user_id | record.reviewer_id)
 
     def _check_subtasks_allowed(self):
         tasks = self.task_id.filtered(lambda task: not task.allow_subtasks)
@@ -114,13 +125,18 @@ class ProjectTaskChecklistItem(models.Model):
     def _convert_to_subtasks(self):
         """Replace each item with a sub-task of its task and a note on the task
         linking it. As the user: a refused step raises before the items go.
-        Return the sub-tasks in the order of the items.
+        The sub-task takes no default of the calling view, which is about the
+        item or its task. Return the sub-tasks in the order of the items.
         """
-        self._check_change_allowed()
+        self._check_conversion_allowed()
         self._check_subtasks_allowed()
         self.check_access_rights("unlink")
         self.check_access_rule("unlink")
-        subtasks = self.env["project.task"].create([record._get_subtask_values() for record in self])
+        subtasks = (
+            self.env["project.task"]
+            .with_context(clean_context(self.env.context))
+            .create([record._get_subtask_values() for record in self])
+        )
         for record, subtask in zip(self, subtasks):
             # the assignee follows through user_ids
             subtask.message_subscribe(partner_ids=(record.reviewer_id - record.user_id).partner_id.ids)
@@ -133,7 +149,10 @@ class ProjectTaskChecklistItem(models.Model):
         return subtasks
 
     def _get_subtask_values(self):
-        """No stage: the task takes the default one of its project, its first."""
+        """No stage: the cleaned context holds no default_stage_id, so the task
+        takes the first unfolded stage of its project (core's stage_find with
+        fold False).
+        """
         self.ensure_one()
         return {
             "name": self.name,

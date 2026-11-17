@@ -52,7 +52,7 @@
                             <button
                                 name="action_convert_to_subtask"
                                 type="object"
-                                title="Convert to sub-task"
+                                title="Convert to Sub-task"
                                 icon="fa-level-down"
                                 confirm="Convert this item into a sub-task of the task? The item is deleted."
                                 attrs="{'invisible': ['|', ('hide_button', '=', True), ('allow_subtasks', '=', False)]}"
