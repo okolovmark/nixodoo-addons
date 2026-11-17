@@ -17,6 +17,7 @@ Rejected: following the user's companies instead of the selected ones. The Check
 - The items of a task the user cannot read are not found, counted or grouped, in the menu and in name searches. Reading, writing or deleting one, or creating one on such a task, raises an access error.
 - A rule any module adds to `project.task` applies to the items without a change here.
   - 2026-11-17: 16.0.2.7.0 moves the two overrides into `project.task.access.mixin`; question rows (`project.task.question`, ADR 0008) follow the access of their task through it too.
+  - 2026-11-17: in 16.0.2.12.0 session rows (`project.task.session`, ADR 0010) follow it too, and a create or a write of `task_id` checks read access on the task it names before anything else.
 - An item already deleted passes the check, as core lets a missing record through: two users deleting the same line from an open task form do not fail.
 - A search of items carries a subquery of the tasks the user can read.
 

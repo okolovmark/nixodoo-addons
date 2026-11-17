@@ -85,6 +85,9 @@ class ProjectTask(models.Model):
     question_ids = fields.One2many(
         "project.task.question", "task_id", string="Questions", groups="project.group_project_user"
     )
+    session_ids = fields.One2many(
+        "project.task.session", "task_id", string="Sessions", groups="project.group_project_user"
+    )
     testcase_completion = fields.Integer(compute="_compute_testcase_completion")
     testcase_completion_xml = fields.Html(compute="_compute_testcase_completion")
     kanban_testcases = fields.Html(compute="_compute_kanban_testcases")

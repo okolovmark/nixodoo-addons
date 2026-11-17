@@ -2,6 +2,7 @@ id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_task_checklist_item,project.task.checklist.item,model_project_task_checklist_item,project.group_project_user,1,1,1,1
 access_task_testcase,project.task.testcase,model_project_task_testcase,project.group_project_user,1,1,1,1
 access_task_question,project.task.question,model_project_task_question,project.group_project_user,1,1,1,1
+access_task_session,project.task.session,model_project_task_session,project.group_project_user,1,1,1,1
 access_project_pull_request_internal,project.pull.request.internal,model_project_pull_request,base.group_user,1,0,0,0
 access_project_pull_request_user,project.pull.request.user,model_project_pull_request,project.group_project_user,1,1,1,0
 access_project_task_stage_log_system,project.task.stage.log.system,model_project_task_stage_log,base.group_system,1,0,0,0

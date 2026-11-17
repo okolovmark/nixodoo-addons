@@ -11,6 +11,12 @@
   formatting.
 * Question rows have no chatter: a change of status or answer leaves no
   trace but **Answered by** and **Answered on**.
+* Session rows have no chatter either: a session that writes its row again
+  replaces its date, and its outcome when it sends one; the former values
+  are not kept.
+* Two first creates of the same task and session in concurrent transactions
+  both find no row: the later one fails on the unique constraint, and
+  nothing retries it.
 * The test case flag ``passed`` and the translation of the former state
   values (``todo``, ``done``, ``cancelled``) at create and write serve
   clients written for the former selection, until a later version removes

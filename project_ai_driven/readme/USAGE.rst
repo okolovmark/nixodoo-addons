@@ -37,6 +37,11 @@ On the task form:
   request already recorded for another task is picked from the list instead
   of being created again. **PR (old value)** shows above the list on a task
   that has one.
+* *Sessions* tab (AI-driven projects, project users), after *Pull
+  Requests*: the agent sessions that worked on the task, the newest first,
+  with their date, who worked them, the session id and the outcome; cards
+  on a phone. A row saved with a session the task already lists updates
+  that row instead of adding one. Editing a row leaves its date as it is.
 * **Resolution** (AI-driven projects), next to the tags: choose it before
   moving the task to a stage that requires one. Code needs a pull request on
   the task; a task that already has one gets Code by itself.
@@ -139,6 +144,19 @@ rows of a task from ``question_ids``. It answers a row by writing
 write that makes a row Answered fills ``answered_by_id`` and ``answered_on``
 unless it sends them. It reaches only the rows of the tasks its user can
 read.
+
+A tool that records an agent session on a task over RPC, when the session
+closes, creates a ``project.task.session`` record with ``task_id``,
+``session_id`` and ``outcome``: one ``create`` per task, without a search
+first. The first call for a task and session creates the row, with
+``user_id`` the tool's user and ``date`` now unless it sends them. A later
+call for the same pair updates that row and returns its id: ``date``
+becomes now unless the call sends one, and ``user_id`` and ``outcome`` stay
+unless it sends them. A batch ``create`` returns one id per values, in
+their order, the same id where a pair repeats. ``Command.create`` in the
+``session_ids`` of a task updates the same way. It reaches only the rows of
+the tasks its user can read: a create on another task raises an access
+error. It reads the sessions of a task from ``session_ids``.
 
 A tool that gives test case results over RPC writes ``state`` on
 ``project.task.testcase``: ``not_run``, ``passed``, ``failed``, ``waiting``

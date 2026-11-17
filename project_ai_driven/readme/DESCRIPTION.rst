@@ -1,11 +1,11 @@
 Additions to project tasks for AI-driven development: task attributes,
 clarifying questions as rows with their answers, the technical solution, a
-checklist and test cases per task, pull requests as records, the project
-that develops this Odoo and the installed modules its tasks touch, the
-internal notes of tasks by category, and two rules on the stages a project
-marks: a Resolution to enter some, a task type and an estimate to enter
-others. The module also logs the stage changes of every task of the
-database.
+checklist and test cases per task, pull requests as records, the agent
+sessions that worked on a task, the project that develops this Odoo and the
+installed modules its tasks touch, the internal notes of tasks by category,
+and two rules on the stages a project marks: a Resolution to enter some, a
+task type and an estimate to enter others. The module also logs the stage
+changes of every task of the database.
 
 **Task attributes** (``project.task``)
 
@@ -149,6 +149,40 @@ answer when the question is blank, or else by its task. A row is found,
 read, changed, deleted and created by the users who can read its task, as a
 checklist item is. Copying a task copies its rows with all their values,
 the status, Answered by and Answered on included.
+
+**Sessions** (``project.task.session``)
+
+The agent sessions that worked on a task, its **Sessions**
+(``session_ids``), are rows listed the newest first, one per task and
+session:
+
+* **Session** (``session_id``): the id of the agent session. No link is
+  stored; where the Entire CLI records sessions, ``entire session info
+  <id>`` opens it.
+* **Date**: when the session last wrote its row.
+* **Worked by** (``user_id``): an internal user, by default the one who
+  creates the row.
+* **Outcome**: what the session did, in one line.
+
+A task lists a session once. A create that names a task and a session that
+already have a row writes the values it gives onto that row and returns it
+in its place: the date becomes now unless the create gives one, and what it
+does not give, the user and the outcome included, stays. A batch that names
+a pair twice keeps the later values. The task and the session are read from
+the values or their defaults, so a session added to the task's
+``session_ids``, on the task form or with ``Command.create``, updates its
+row too. A write changes only what it names: editing a row leaves its date
+alone. A write that moves a row onto a task and session that have a row is
+refused.
+
+A row is named by its outcome, cut at 80 characters, or else by its
+session. A row is found, read, changed, deleted and created by the users
+who can read its task, as a checklist item is. A create, and a write of the
+task, first checks that the user can read the task it names, so a create on
+a task the user cannot read is refused whether or not that task lists the
+session. The **Sessions** tab, after **Pull Requests**, shows the rows to
+project users on the tasks of an AI-driven project, as cards on a phone.
+Copying a task copies no session.
 
 **Pull requests** (``project.pull.request``)
 

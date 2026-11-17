@@ -126,6 +126,54 @@
                         </tree>
                     </field>
                 </page>
+                <page
+                    string="Sessions"
+                    name="sessions"
+                    attrs="{'invisible': [('is_ai_driven', '=', False)]}"
+                    groups="project.group_project_user"
+                >
+                    <field name="session_ids" mode="tree,kanban">
+                        <tree>
+                            <field name="date" />
+                            <field name="user_id" widget="many2one_avatar_user" />
+                            <field name="session_id" />
+                            <field name="outcome" />
+                        </tree>
+                        <kanban>
+                            <field name="user_id" />
+                            <templates>
+                                <t t-name="kanban-box">
+                                    <div class="oe_kanban_global_click">
+                                        <div t-if="record.outcome.raw_value" class="fw-bold text-break">
+                                            <field name="outcome" />
+                                        </div>
+                                        <div class="text-muted small text-break">
+                                            <field name="session_id" />
+                                        </div>
+                                        <div class="text-muted small">
+                                            <t t-if="record.user_id.raw_value">
+                                                <field name="user_id" /> -
+                                            </t>
+                                            <field name="date" />
+                                        </div>
+                                    </div>
+                                </t>
+                            </templates>
+                        </kanban>
+                        <form>
+                            <group>
+                                <group>
+                                    <field name="session_id" />
+                                    <field name="outcome" />
+                                </group>
+                                <group>
+                                    <field name="user_id" widget="many2one_avatar_user" />
+                                    <field name="date" />
+                                </group>
+                            </group>
+                        </form>
+                    </field>
+                </page>
             </xpath>
             <xpath expr="//field[@name='tag_ids']" position="before">
                 <field name="priority_level" string="Priority" />

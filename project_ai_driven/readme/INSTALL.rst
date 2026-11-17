@@ -229,6 +229,11 @@ ticks the flag on the AI-driven project that develops the database.
 The update to 16.0.2.10.1 has no migration and writes nothing on existing
 records; it can run with the server up.
 
+The update to 16.0.2.12.0 adds the sessions of a task: the table
+``project_task_session``, its access right for **Project / User** and the
+**Sessions** tab of the task form. It has no migration and writes nothing
+on the tasks, which start without sessions.
+
 **Upgrading from project_software**
 
 ``project_software`` remains for one release as an empty module that depends
