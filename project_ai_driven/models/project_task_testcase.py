@@ -118,6 +118,20 @@ class ProjectTaskTestcase(models.Model):
             return dict.fromkeys(VERIFICATION_FIELDS, False)
         return {}
 
+    def _get_task_copy_values(self, keep_progress):
+        """The values of a copy of each case for a copy of its task: it keeps
+        its automated test reference, and with keep_progress its result,
+        verification included; else it is Not run.
+        """
+        return [
+            {
+                **values,
+                "test_reference": case.test_reference,
+                **(case._get_result_values() if keep_progress else {"state": "not_run"}),
+            }
+            for case, values in zip(self, self.copy_data())
+        ]
+
     def _get_result_values(self):
         """The result of this case as values for a copy of it, verification included."""
         self.ensure_one()
@@ -126,5 +140,4 @@ class ProjectTaskTestcase(models.Model):
             "verified_by_id": self.verified_by_id.id,
             "verified_on": self.verified_on,
             "verification_kind": self.verification_kind,
-            "test_reference": self.test_reference,
         }

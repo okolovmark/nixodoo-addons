@@ -10,7 +10,7 @@ from .project_pull_request import parse_single_pull_request_link
 from .project_task_testcase import TESTCASE_STATES
 
 KANBAN_TESTCASE_STATES = ("not_run", "failed", "waiting")
-COPIED_LINE_FIELDS = ("checklist_item_ids", "testcase_ids", "question_ids")
+LINE_FIELDS = ("checklist_item_ids", "testcase_ids", "question_ids")
 
 # The largest estimate in hours of each size.
 SIZE_BANDS = ((2, "xs"), (6, "s"), (12, "m"), (32, "l"), (60, "xl"), (float("inf"), "xxl"))
@@ -120,11 +120,13 @@ class ProjectTask(models.Model):
             record.tshirt_estimate = get_size(record.allocated_hours)
 
     @api.depends("checklist_item_ids.state", "checklist_item_ids.user_id")
+    @api.depends_context("uid")
     def _compute_completion(self):
         for record in self:
             record.completion = record.task_completion()
 
     @api.depends("checklist_item_ids.state", "checklist_item_ids.user_id")
+    @api.depends_context("uid")
     def _compute_completion_xml(self):
         for record in self:
             active_items = record.checklist_item_ids.filtered(
@@ -148,6 +150,7 @@ class ProjectTask(models.Model):
             """
 
     @api.depends("checklist_item_ids.state", "checklist_item_ids.user_id")
+    @api.depends_context("uid")
     def _compute_kanban_checklist(self):
         for record in self:
             result_string_td = ""
@@ -234,7 +237,7 @@ class ProjectTask(models.Model):
     @api.depends_context("uid", "allowed_company_ids")
     def _compute_note_count(self):
         # res_id, not task_id: the access check of mail.message reads the task ids from it
-        note_domain = [*self.env["mail.message"]._get_task_note_domain(), ("res_id", "in", self.ids)]
+        note_domain = [*self.env["mail.message"]._get_task_note_domain(with_templates=True), ("res_id", "in", self.ids)]
         note_counts = dict(self.env["mail.message"]._read_group(note_domain, ["res_id"], ["__count"]))
         for record in self:
             record.note_count = note_counts.get(record.id, 0)
@@ -276,13 +279,17 @@ class ProjectTask(models.Model):
         request of its source.
 
         Every copy takes the lines of its source here, as core builds the
-        sub-tasks of a copy from their copy_data alone.
+        sub-tasks of a copy from their copy_data alone: from zero on a copy
+        from or into a template, else as they are. The next occurrence of a
+        recurring task takes none.
         """
         vals_list = super().copy_data(default=default)
+        keep_progress = not self._is_template_copy()
         for task, vals in zip(self, vals_list):
             if not self.env.context.get("copy_from_template"):
                 task._add_closing_values(vals)
-            task._add_line_values(vals)
+            if not self.env.context.get("copy_without_lines"):
+                task._add_line_values(vals, keep_progress)
         return vals_list
 
     @api.model
@@ -302,7 +309,10 @@ class ProjectTask(models.Model):
     def action_open_notes(self):
         self.ensure_one()
         action = self.env["ir.actions.act_window"]._for_xml_id("project_ai_driven.mail_message_action_task_note")
-        action["domain"] = [*self.env["mail.message"]._get_task_note_domain(), ("res_id", "=", self.id)]
+        action["domain"] = [
+            *self.env["mail.message"]._get_task_note_domain(with_templates=True),
+            ("res_id", "=", self.id),
+        ]
         return action
 
     def _log_stage_moves(self, vals_list):
@@ -352,33 +362,32 @@ class ProjectTask(models.Model):
     def _is_stage_kept_in(self, vals):
         return bool(self.stage_id) and vals.get("stage_id") == self.stage_id.id
 
-    def _add_line_values(self, vals):
+    @api.model
+    def _is_template_copy(self):
+        """Whether the copy under way creates a task from a template, the tasks
+        of a project from a project template, or those of a project template
+        from a project: the context core gives each.
+        """
+        return bool(self.env.context.get("copy_from_template") or self.env.context.get("convert_to_template"))
+
+    def _add_line_values(self, vals, keep_progress):
         """Complete the values of a copy with the lines of this task, unless the
         values set them.
         """
         self.ensure_one()
-        for field_name, lines_values in self._get_line_copy_values().items():
+        for field_name, lines_values in self._get_line_copy_values(keep_progress).items():
             vals.setdefault(field_name, [Command.create(line_values) for line_values in lines_values])
 
-    def _get_line_copy_values(self):
+    def _get_line_copy_values(self, keep_progress):
         """Return {line field: [values of the copy of each line]} for the line
-        fields the user may read, as core copies no other field of a task: a
-        checklist item and a question row keep their state, a test case its
-        result.
+        fields the user may read, as core copies no other field of a task.
+        keep_progress keeps the state, the result or the answer of each line.
         """
-        kept_values_getters = {
-            "checklist_item_ids": lambda item: {"state": item.state},
-            "testcase_ids": lambda case: case._get_result_values(),
-            "question_ids": lambda row: {"state": row.state},
+        return {
+            field_name: self[field_name]._get_task_copy_values(keep_progress)
+            for field_name in LINE_FIELDS
+            if self.has_field_access(self._fields[field_name], "read")
         }
-        line_copy_values = {}
-        for field_name, get_kept_values in kept_values_getters.items():
-            if self.has_field_access(self._fields[field_name], "read"):
-                lines = self[field_name]
-                line_copy_values[field_name] = [
-                    {**values, **get_kept_values(line)} for line, values in zip(lines, lines.copy_data())
-                ]
-        return line_copy_values
 
     @api.model
     def _without_size(self, vals):

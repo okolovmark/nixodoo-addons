@@ -45,9 +45,14 @@ class ProjectAiDrivenCommon(TransactionCase):
         return cls._create_user(name, login, email, extra_group="project.group_project_user")
 
     @classmethod
-    def _restrict_task_reading(cls, name, domain):
+    def _restrict_task_access(cls, name, domain):
         cls.env["ir.access"].create(
-            {"name": name, "model_id": cls.env["ir.model"]._get_id("project.task"), "operation": "r", "domain": domain},
+            {
+                "name": name,
+                "model_id": cls.env["ir.model"]._get_id("project.task"),
+                "operation": "crud",
+                "domain": domain,
+            },
         )
 
     @classmethod

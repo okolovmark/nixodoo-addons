@@ -130,6 +130,7 @@
                 '|',
                 ('body', 'not in', ['', False]),
                 ('attachment_ids', '!=', False),
+                ('task_id', 'any', [('has_template_ancestor', '=', False), ('has_project_template', '=', False)]),
             ]"
         />
         <field name="search_view_id" ref="mail_message_view_search_task_note" />

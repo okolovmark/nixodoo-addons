@@ -6,6 +6,7 @@ from unittest.mock import patch
 from freezegun import freeze_time
 from lxml import etree
 
+from odoo import Command
 from odoo.exceptions import AccessError
 from odoo.tests import Form
 
@@ -450,3 +451,93 @@ class TestTestCases(ProjectAiDrivenCommon):
             self.assertEqual(self.Testcase.search(domain + [("task_id", "=", self.task.id)]), case, filter_name)
         group_bys = [literal_eval(context)["group_by"] for context in search_arch.xpath("//group/filter/@context")]
         self.assertLessEqual({"state", "verification_kind"}, set(group_bys))
+
+
+class TestTestCaseAccess(ProjectAiDrivenCommon):
+    """The hidden task is in a followers-only project the developer is no member of."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        hidden_project = cls.env["project.project"].create(
+            {"name": "Followers Only", "privacy_visibility": "followers", "user_id": cls.user_lead.id},
+        )
+        cls.hidden_task = cls.env["project.task"].create({"name": "Hidden Task", "project_id": hidden_project.id})
+        cls.both_tasks = cls.task | cls.hidden_task
+        Testcase = cls.env["project.task.testcase"]
+        cls.hidden_case = Testcase.create({"name": "Hidden case", "task_id": cls.hidden_task.id})
+        cls.visible_case = Testcase.create({"name": "Visible case", "task_id": cls.task.id})
+        cls.as_developer = Testcase.with_user(cls.user_dev)
+
+    def test_cases_of_a_task_the_user_cannot_read_are_not_found(self):
+        with self.assertRaises(AccessError):
+            self.hidden_task.with_user(self.user_dev).check_access("read")
+        domain = [("task_id", "in", self.both_tasks.ids)]
+        self.assertEqual(self.as_developer.search(domain), self.visible_case)
+        self.assertEqual(self.as_developer.search_count(domain), 1)
+        self.assertEqual(self.as_developer.read_group(domain, ["task_id"], ["__count"]), [(self.task.id, 1)])
+        self.env.invalidate_all()
+        task_form = self.task.with_user(self.user_dev).read(["testcase_ids"])[0]
+        self.assertEqual(task_form["testcase_ids"], self.visible_case.ids)
+
+    def test_cases_of_a_task_the_user_cannot_read_are_not_read_written_or_deleted(self):
+        hidden_case = self.hidden_case.with_user(self.user_dev)
+        with self.assertRaises(AccessError):
+            hidden_case.read(["name"])
+        for vals in ({"comments": "<p>Checked</p>"}, {"state": "passed"}):
+            with self.subTest(vals=vals), self.assertRaises(AccessError):
+                hidden_case.write(vals)
+        with self.assertRaises(AccessError):
+            hidden_case.unlink()
+        self.assertRecordValues(self.hidden_case, [{"state": "not_run", "comments": False}])
+        visible_case = self.visible_case.with_user(self.user_dev)
+        visible_case.write({"state": "passed"})
+        self.assertEqual(visible_case.verified_by_id, self.user_dev)
+        visible_case.unlink()
+        self.assertFalse(self.visible_case.exists())
+
+    def test_cases_cannot_be_added_to_a_task_the_user_cannot_read(self):
+        with self.assertRaises(AccessError):
+            self.as_developer.create({"name": "Sneaked case", "task_id": self.hidden_task.id})
+        self.assertEqual(self.as_developer.create({"name": "Added case", "task_id": self.task.id}).task_id, self.task)
+
+    def test_cases_of_an_archived_task_the_user_can_read_are_found_and_changed(self):
+        self.task.active = False
+        self.assertEqual(self.as_developer.search([("task_id", "in", self.both_tasks.ids)]), self.visible_case)
+        visible_case = self.visible_case.with_user(self.user_dev)
+        visible_case.write({"state": "failed"})
+        self.assertEqual(visible_case.read(["state"]), [{"id": self.visible_case.id, "state": "failed"}])
+
+    def test_cases_of_a_task_in_a_company_the_user_has_not_selected_are_not_found_read_written_or_created(self):
+        home_company, other_company = self.env["res.company"].create(
+            [{"name": "Test Case Home Company"}, {"name": "Test Case Other Company"}],
+        )
+        self.user_dev.write(
+            {
+                "company_ids": [Command.link(home_company.id), Command.link(other_company.id)],
+                "company_id": home_company.id,
+            },
+        )
+        other_project = self.env["project.project"].create({"name": "Other Project", "company_id": other_company.id})
+        other_task = self.env["project.task"].create({"name": "Other Task", "project_id": other_project.id})
+        other_case = self.env["project.task.testcase"].create({"name": "Other case", "task_id": other_task.id})
+        domain = [("task_id", "=", other_task.id)]
+        home_only = self.as_developer.with_context(allowed_company_ids=home_company.ids)
+        self.assertFalse(home_only.search(domain))
+        with self.assertRaises(AccessError):
+            home_only.browse(other_case.id).read(["name"])
+        with self.assertRaises(AccessError):
+            home_only.browse(other_case.id).write({"comments": "<p>Checked</p>"})
+        with self.assertRaises(AccessError):
+            home_only.create({"name": "Sneaked case", "task_id": other_task.id})
+        both_companies = self.as_developer.with_context(allowed_company_ids=(home_company | other_company).ids)
+        self.assertEqual(both_companies.search(domain), other_case)
+        both_companies.browse(other_case.id).write({"comments": "<p>Checked</p>"})
+        self.assertEqual(both_companies.create({"name": "Added case", "task_id": other_task.id}).task_id, other_task)
+
+    def test_sudo_reaches_every_case(self):
+        every_case = self.hidden_case | self.visible_case
+        self.assertEqual(self.as_developer.sudo().search([("task_id", "in", self.both_tasks.ids)]), every_case)
+        hidden_case = self.hidden_case.with_user(self.user_dev).sudo()
+        hidden_case.write({"comments": "<p>Checked</p>"})
+        self.assertEqual(hidden_case.read(["name"])[0]["name"], "Hidden case")

@@ -333,7 +333,7 @@ class TestQuestionAccess(ProjectAiDrivenCommon):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls._restrict_task_reading("Hide the hidden task", "[('name', '!=', 'Hidden Task')]")
+        cls._restrict_task_access("Hide the hidden task", "[('name', '!=', 'Hidden Task')]")
         cls.hidden_task = cls.env["project.task"].create({"name": "Hidden Task", "project_id": cls.project.id})
         cls.both_tasks = cls.task | cls.hidden_task
         Question = cls.env["project.task.question"]

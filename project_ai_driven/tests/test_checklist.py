@@ -95,6 +95,24 @@ class TestChecklist(ProjectAiDrivenCommon):
         self.assertIn("Waiting: 1", as_dev.kanban_checklist)
         self.assertNotIn("TODO", as_dev.kanban_checklist)
 
+    def test_two_users_read_their_own_values_of_an_item_and_its_task_in_one_transaction(self):
+        item = self._new_item()
+        for user, item_values, task_values in (
+            (self.user_dev, (False, True), (0, True, True)),
+            (self.user_lead, (True, False), (100, False, False)),
+        ):
+            with self.subTest(user=user.name):
+                user_item, user_task = item.with_user(user), self.task.with_user(user)
+                self.assertEqual((user_item.hide_button, user_item.recolor), item_values)
+                self.assertEqual(
+                    (
+                        user_task.completion,
+                        "% Done" in user_task.completion_xml,
+                        "TODO: 1" in user_task.kanban_checklist,
+                    ),
+                    task_values,
+                )
+
     def test_only_reviewer_and_assignee_change_the_state_or_the_name(self):
         item = self.QuietItem.with_user(self.user_lead).create(
             {"name": "Checklist item", "task_id": self.task.id, "user_id": self.user_dev.id},
@@ -485,7 +503,7 @@ class TestChecklistAccess(ProjectAiDrivenCommon):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls._restrict_task_reading("Hide the hidden task", "[('name', '!=', 'Hidden Task')]")
+        cls._restrict_task_access("Hide the hidden task", "[('name', '!=', 'Hidden Task')]")
         cls.hidden_task = cls.env["project.task"].create({"name": "Hidden Task", "project_id": cls.project.id})
         cls.both_tasks = cls.task | cls.hidden_task
         cls.Item = cls.env[CHECKLIST_MODEL].with_context(mail_auto_subscribe_no_notify=True)
@@ -556,7 +574,7 @@ class TestChecklistAccess(ProjectAiDrivenCommon):
 
     def test_a_user_who_can_read_no_task_is_refused_an_item_before_it_is_inserted(self):
         self.assertTrue(self.as_developer.browse().has_access("create"))
-        self._restrict_task_reading("Hide every task", "[(0, '=', 1)]")
+        self._restrict_task_access("Hide every task", "[(0, '=', 1)]")
         self.assertFalse(self.as_developer.browse().has_access("create"))
         item_model = type(self.Item)
         with (

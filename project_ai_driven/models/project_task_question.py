@@ -194,3 +194,14 @@ class ProjectTaskQuestion(models.Model):
         if state == "open":
             return dict.fromkeys(ANSWER_STAMP_FIELDS, False)
         return {}
+
+    def _get_task_copy_values(self, keep_progress):
+        """The values of a copy of each row for a copy of its task: all of them
+        with keep_progress, else the row is Open, without an answer or a stamp.
+        """
+        blank_answer = {} if keep_progress else dict.fromkeys(("answer", *ANSWER_STAMP_FIELDS), False)
+        # the state always: core copies no field named state
+        return [
+            {**values, "state": row.state if keep_progress else "open", **blank_answer}
+            for row, values in zip(self, self.copy_data())
+        ]

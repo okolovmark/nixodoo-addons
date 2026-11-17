@@ -99,15 +99,18 @@ class MailMessage(models.Model):
             message.note_category = get_note_category(body)
 
     @api.model
-    def _get_task_note_domain(self):
+    def _get_task_note_domain(self, with_templates=False):
         """The internal notes of the tasks the user can read: no message to one
         user, no tracking of changed fields, none without a body or a file.
+        Unless with_templates, none of the templates core keeps out of its task
+        lists either: a task template, its sub-tasks, the tasks of a project
+        template.
 
         The task access leaf drops the notes core lets a user read on a task
         they cannot: their own and those sent to them. The model leaf keeps the
         access check of _search in SQL.
         """
-        return [
+        note_domain = [
             ("model", "=", NOTE_MODEL),
             ("task_id", "access", "read"),
             ("subtype_id", "=", self.env["ir.model.data"]._xmlid_to_res_id(NOTE_SUBTYPE)),
@@ -116,3 +119,8 @@ class MailMessage(models.Model):
             ("body", "not in", ["", False]),
             ("attachment_ids", "!=", False),
         ]
+        if not with_templates:
+            note_domain.append(
+                ("task_id", "any", [("has_template_ancestor", "=", False), ("has_project_template", "=", False)])
+            )
+        return note_domain

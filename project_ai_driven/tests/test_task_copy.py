@@ -1,4 +1,5 @@
 from datetime import datetime
+from unittest.mock import patch
 
 from freezegun import freeze_time
 
@@ -20,7 +21,22 @@ LINE_FIELDS = {
         "verification_kind",
         "test_reference",
     ],
-    "question_ids": ["sequence", "round", "question", "answer", "state", "answered_by_id", "answered_on"],
+    "question_ids": [
+        "sequence",
+        "round",
+        "question",
+        "addressed_to_id",
+        "answer",
+        "state",
+        "answered_by_id",
+        "answered_on",
+    ],
+}
+# What a line of a copy from or into a template holds in place of the values of its source.
+VALUES_FROM_ZERO = {
+    "checklist_item_ids": {"state": "todo"},
+    "testcase_ids": {"state": "not_run", "verified_by_id": False, "verified_on": False, "verification_kind": False},
+    "question_ids": {"state": "open", "answer": False, "answered_by_id": False, "answered_on": False},
 }
 
 
@@ -74,7 +90,13 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
             )
             cls.env["project.task.question"].with_user(cls.user_dev).create(
                 [
-                    {"round": label, "question": "<p>Who?</p>", "answer": "<p>The lead.</p>", "task_id": task.id},
+                    {
+                        "round": label,
+                        "question": "<p>Who?</p>",
+                        "answer": "<p>The lead.</p>",
+                        "addressed_to_id": cls.user_lead.id,
+                        "task_id": task.id,
+                    },
                     {"round": label, "question": "<p>When?</p>", "state": "dropped", "task_id": task.id},
                     {"round": label, "question": "<p>Where?</p>", "task_id": task.id, "sequence": 5},
                 ],
@@ -97,11 +119,21 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
     def _line_counts(self, tasks):
         return [[len(task[field_name]) for field_name in LINE_FIELDS] for task in tasks]
 
-    def assertLinesCopied(self, copied_tasks, source_values, source_tasks):
-        self.assertEqual(self._line_values(copied_tasks), source_values)
+    def assertLinesCopied(self, copied_tasks, source_values, source_tasks, copy_values=None):
+        self.assertEqual(self._line_values(copied_tasks), copy_values or source_values)
         self.assertEqual(self._line_values(source_tasks), source_values, "the sources keep their lines")
         for field_name in LINE_FIELDS:
             self.assertFalse(copied_tasks[field_name] & source_tasks[field_name], field_name)
+
+    def assertLinesCopiedFromZero(self, copied_tasks, source_values, source_tasks):
+        values_from_zero = [
+            {
+                field_name: [{**line_values, **VALUES_FROM_ZERO[field_name]} for line_values in lines_values]
+                for field_name, lines_values in task_values.items()
+            }
+            for task_values in source_values
+        ]
+        self.assertLinesCopied(copied_tasks, source_values, source_tasks, copy_values=values_from_zero)
 
     def test_a_duplicate_takes_the_lines_of_its_task_and_subtask_with_their_states(self):
         source_tasks = self.task | self.subtask
@@ -175,7 +207,7 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
         task_copy = project_copy.tasks.filtered(lambda task: not task.parent_id)
         self.assertLinesCopied(task_copy | task_copy.child_ids, source_values, source_tasks)
 
-    def test_a_task_created_from_a_template_takes_its_lines_and_those_of_its_subtask(self):
+    def test_a_task_created_from_a_template_takes_its_lines_and_those_of_its_subtask_from_zero(self):
         self.task.is_template = True
         source_tasks = self.task | self.subtask
         source_values = self._line_values(source_tasks)
@@ -184,9 +216,9 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
             task = self.env["project.task"].browse(self.task.action_create_from_template())
 
         self.assertFalse(task.is_template)
-        self.assertLinesCopied(task | task.child_ids, source_values, source_tasks)
+        self.assertLinesCopiedFromZero(task | task.child_ids, source_values, source_tasks)
 
-    def test_a_project_created_from_a_template_takes_the_lines_of_its_tasks_and_subtasks(self):
+    def test_a_project_created_from_a_template_takes_the_lines_of_its_tasks_and_subtasks_from_zero(self):
         self.project.is_template = True
         source_tasks = self.task | self.subtask
         source_values = self._line_values(source_tasks)
@@ -195,9 +227,9 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
             project = self.project.action_create_from_template({"name": "Project From Template"})
 
         task = project.tasks.filtered(lambda task: not task.parent_id)
-        self.assertLinesCopied(task | task.child_ids, source_values, source_tasks)
+        self.assertLinesCopiedFromZero(task | task.child_ids, source_values, source_tasks)
 
-    def test_a_template_created_from_a_project_takes_the_lines_of_its_tasks_and_subtasks(self):
+    def test_a_template_created_from_a_project_takes_the_lines_of_its_tasks_and_subtasks_from_zero(self):
         source_tasks = self.task | self.subtask
         source_values = self._line_values(source_tasks)
 
@@ -206,7 +238,16 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
 
         project_template = self.env["project.project"].browse(action["params"]["project_id"])
         task = project_template.tasks.filtered(lambda task: not task.parent_id)
-        self.assertLinesCopied(task | task.child_ids, source_values, source_tasks)
+        self.assertLinesCopiedFromZero(task | task.child_ids, source_values, source_tasks)
+
+    def test_a_task_converted_to_a_template_keeps_its_lines_and_those_of_its_subtask(self):
+        source_tasks = self.task | self.subtask
+        source_values = self._line_values(source_tasks)
+
+        self.task.action_convert_to_template()
+
+        self.assertTrue(self.task.is_template)
+        self.assertEqual(self._line_values(source_tasks), source_values)
 
     def test_the_next_occurrence_of_a_recurring_task_and_its_subtask_take_no_lines(self):
         self.project.allow_recurring_tasks = True
@@ -221,6 +262,22 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
         self.assertEqual(
             self._line_counts(self.task | self.subtask), [[3, 3, 3]] * 2, "the last occurrence keeps its lines"
         )
+
+    def test_the_next_occurrence_of_a_recurring_task_builds_no_line_values(self):
+        self.project.allow_recurring_tasks = True
+        self.task.write({"recurring_task": True, "repeat_type": "forever"})
+        task_model = type(self.env["project.task"])
+
+        with patch.object(
+            task_model, "_get_line_copy_values", autospec=True, side_effect=task_model._get_line_copy_values
+        ) as line_copy_values:
+            self.subtask.copy()
+            self.assertTrue(line_copy_values.called, "a duplicate builds them")
+            line_copy_values.reset_mock()
+            self.task.state = "1_done"
+
+        self.assertTrue(self.task.recurrence_id.task_ids - self.task, "the next occurrence")
+        self.assertFalse(line_copy_values.called)
 
     def test_a_copy_given_lines_takes_those(self):
         task_copy = self.subtask.copy({"checklist_item_ids": [Command.create({"name": "Given item"})]})

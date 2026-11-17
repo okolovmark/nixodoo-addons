@@ -1,4 +1,3 @@
-import logging
 from ast import literal_eval
 from datetime import datetime, timedelta
 from unittest.mock import patch
@@ -8,6 +7,7 @@ from markupsafe import Markup
 
 from odoo import Command
 from odoo.exceptions import AccessError
+from odoo.sql_db import Cursor
 
 from ..models.mail_message import NOTE_CATEGORIES, get_note_category
 from .common import MODULE, ProjectAiDrivenCommon
@@ -195,17 +195,24 @@ class TestNoteCategory(NoteCategoryCase):
 
     def test_a_new_message_is_inserted_with_its_task_and_category(self):
         self.env.flush_all()
-        with self.assertLogs("odoo.sql_db", logging.DEBUG) as logs:
+        # the queries as run, not as logged: the SQL log may highlight them, which needs Pygments
+        with patch.object(Cursor, "execute", autospec=True, side_effect=Cursor.execute) as execute:
             messages = self._log_note("<p><b>Deploy</b> - prod</p>") | self._log_note(
                 "<p><b>Deploy</b> - prod</p>", record=self.project
             )
             self.env.flush_all()
-        updates = [
-            record.getMessage()
-            for record in logs.records
-            if 'UPDATE "mail_message"' in record.getMessage()
-            and ('"task_id"' in record.getMessage() or '"note_category"' in record.getMessage())
+        queries = [call.args[0].mogrify(*call.args[1:3]).decode() for call in execute.call_args_list]
+        inserted_columns = [
+            ('"task_id"' in query, '"note_category"' in query)
+            for query in queries
+            if 'INSERT INTO "mail_message"' in query
         ]
+        updates = [
+            query
+            for query in queries
+            if 'UPDATE "mail_message"' in query and ('"task_id"' in query or '"note_category"' in query)
+        ]
+        self.assertEqual(inserted_columns, [(True, True)] * 2)
         self.assertEqual(updates, [])
         self.assertEqual(self._stored_values(messages), [(self.task.id, "deploy"), (False, False)])
 
@@ -357,6 +364,27 @@ class TestTaskNotes(NoteCategoryCase):
         user_task = other_task.with_user(self.user_dev)
         self.assertEqual(user_task.with_context(allowed_company_ids=both_companies).note_count, 1)
         self.assertEqual(user_task.with_context(allowed_company_ids=home_company.ids).note_count, 0)
+
+    def test_the_action_leaves_out_the_notes_of_templates_which_their_notes_button_counts_and_lists(self):
+        project_template = self.env["project.project"].create({"name": "Notes Project Template", "is_template": True})
+        template_tasks = self._create_template_tasks(self._create_stage("Template Stage", 1), project_template)
+        todo = self.env["project.task"].create(
+            {"name": "To-do", "project_id": False, "user_ids": [Command.set(self.user_dev.ids)]},
+        )
+        notes = {
+            task: self._log_note("<p><b>Progress</b> - %s</p>" % task.name, record=task)
+            for task in template_tasks | self.task | todo
+        }
+        listed_notes = notes[self.task] | notes[todo]
+
+        for user in (self.env.user, self.user_dev):
+            with self.subTest(user=user.name):
+                self.assertEqual(self._action_notes(user, template_tasks | self.task | todo), listed_notes)
+        for template_task in template_tasks.with_user(self.user_dev):
+            with self.subTest(task=template_task.name):
+                self.assertEqual(template_task.note_count, 1)
+                notes_domain = template_task.action_open_notes()["domain"]
+                self.assertEqual(self.Message.with_user(self.user_dev).search(notes_domain), notes[template_task])
 
     def test_the_notes_of_an_archived_task_the_user_can_read_are_listed_and_counted(self):
         notes = self._log_note("<p><b>Progress</b> - before archiving</p>") | self._log_files()

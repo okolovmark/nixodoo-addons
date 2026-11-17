@@ -31,6 +31,7 @@ class ProjectTaskChecklistItem(models.Model):
     deadline = fields.Datetime()
 
     @api.depends("reviewer_id", "user_id")
+    @api.depends_context("uid")
     def _compute_hide_button(self):
         for record in self:
             if self.env.user not in [record.reviewer_id, record.user_id]:
@@ -39,6 +40,7 @@ class ProjectTaskChecklistItem(models.Model):
                 record.hide_button = False
 
     @api.depends("user_id", "state")
+    @api.depends_context("uid")
     def _compute_recolor(self):
         for record in self:
             if self.env.user == record.user_id and record.state == "todo":
@@ -77,6 +79,14 @@ class ProjectTaskChecklistItem(models.Model):
     def change_state_waiting(self):
         for record in self:
             record.state = "waiting"
+
+    def _get_task_copy_values(self, keep_progress):
+        """The values of a copy of each item for a copy of its task: TODO, or
+        the state of the item with keep_progress.
+        """
+        return [
+            {**values, "state": item.state if keep_progress else "todo"} for item, values in zip(self, self.copy_data())
+        ]
 
     def _check_change_allowed(self):
         if self.filtered(lambda record: self.env.user not in record.user_id | record.reviewer_id):
