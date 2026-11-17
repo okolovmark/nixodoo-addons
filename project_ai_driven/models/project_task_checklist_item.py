@@ -1,7 +1,7 @@
 from markupsafe import Markup, escape
 
 from odoo import Command, api, fields, models
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
 from odoo.tools.misc import clean_context
 
 from .task_line import check_task_line_move
@@ -49,7 +49,8 @@ class ProjectTaskChecklistItem(models.Model):
         refused_items = (
             self._filter_items_of_others()
             | self._filter_items_of_private_tasks()
-            | self._filter_items_without_project_of_others()
+            | self._filter_items_of_read_only_tasks()
+            | self._filter_items_without_project_access()
         )
         for record in self:
             record.can_convert = record not in refused_items
@@ -192,10 +193,24 @@ class ProjectTaskChecklistItem(models.Model):
                     " set a project on the task first."
                 )
             )
-        if self._filter_items_without_project_of_others():
+        if self._filter_items_of_read_only_tasks():
+            # an AccessError, as the deletion of the item would raise
+            raise AccessError(
+                self.env._("Only a user who may change the task can convert its checklist items into sub-tasks.")
+            )
+        items_without_project_access = self._filter_items_without_project_access()
+        if items_without_project_access.filtered(lambda record: not record.task_id.project_id):
             raise UserError(
                 self.env._(
-                    "On a task without a project only the assignee of a checklist item can convert it into a sub-task."
+                    "On a task without a project only the assignee of a checklist item or a project manager"
+                    " can convert it into a sub-task."
+                )
+            )
+        if items_without_project_access:
+            raise UserError(
+                self.env._(
+                    "On a task of a project you have no access to, only the assignee of a checklist item"
+                    " can convert it into a sub-task."
                 )
             )
 
@@ -207,15 +222,26 @@ class ProjectTaskChecklistItem(models.Model):
         # core refuses a sub-task under a private task (_private_task_has_no_parent)
         return self.filtered(lambda record: not record.task_id.project_id and not record.task_id.is_template)
 
-    def _filter_items_without_project_of_others(self):
-        """The items of a task without project the user is not the assignee of.
-        Core lets a project user create a task without project only as one of
-        its assignees, the sub-task's being the item's; the creator follows it
-        only once created. A project manager creates any task template.
+    def _filter_items_of_read_only_tasks(self):
+        """The items of the tasks the user may not change: deleting an item
+        takes write access to its task.
+        """
+        writable_tasks = self.task_id._filtered_access("write")
+        return self.filtered(lambda record: record.task_id not in writable_tasks)
+
+    def _filter_items_without_project_access(self):
+        """The items whose sub-task core's create rule refuses the user: a
+        project user creates a task in a project they may read or as one of its
+        assignees, the sub-task's being the item's; following the task does not
+        count, as the creator follows it only once created. A project manager
+        creates a task in any project and any task template.
         """
         if self.env.user.has_group("project.group_project_manager"):
             return self.browse()
-        return self.filtered(lambda record: not record.task_id.project_id and record.user_id != self.env.user)
+        readable_projects = self.task_id.project_id._filtered_access("read")
+        return self.filtered(
+            lambda record: record.user_id != self.env.user and record.task_id.project_id not in readable_projects
+        )
 
     def _notify_checklist_item_change(self, former_values=None, former_assignees=None):
         """Post each item on its task to its assignee and its reviewer, never to

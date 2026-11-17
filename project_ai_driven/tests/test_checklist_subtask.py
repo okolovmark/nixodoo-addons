@@ -16,7 +16,15 @@ REFUSAL = "Only the assignee or the reviewer of a checklist item can convert it 
 PRIVATE_TASK_REFUSAL = (
     "The checklist items of a private task cannot be converted into sub-tasks: set a project on the task first."
 )
-NO_PROJECT_REFUSAL = "On a task without a project only the assignee of a checklist item can convert it into a sub-task."
+READ_ONLY_TASK_REFUSAL = "Only a user who may change the task can convert its checklist items into sub-tasks."
+NO_PROJECT_REFUSAL = (
+    "On a task without a project only the assignee of a checklist item or a project manager"
+    " can convert it into a sub-task."
+)
+NO_PROJECT_ACCESS_REFUSAL = (
+    "On a task of a project you have no access to, only the assignee of a checklist item"
+    " can convert it into a sub-task."
+)
 CONVERT_CONFIRMATION = "Convert this item into a sub-task of the task? The item is deleted."
 
 
@@ -51,6 +59,21 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
             {
                 "name": "Template without Project",
                 "is_template": True,
+                "user_ids": [Command.set((self.user_dev | self.reviewer).ids)],
+            },
+        )
+
+    def _create_task_of_team_project(self, privacy_visibility):
+        """A task assigned to the developer and the reviewer, neither of them a
+        team member of its project.
+        """
+        project = self.env["project.project"].create(
+            {"name": "Team Project", "privacy_visibility": privacy_visibility, "user_id": self.user_lead.id},
+        )
+        return self.env["project.task"].create(
+            {
+                "name": "Task of the Team Project",
+                "project_id": project.id,
                 "user_ids": [Command.set((self.user_dev | self.reviewer).ids)],
             },
         )
@@ -178,7 +201,8 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
             with self.subTest(task=task.name):
                 item = self._new_item(task_id=task.id)
                 task.with_user(self.user_dev).check_access("read")
-                with unittest.TestCase.assertRaises(self, AccessError):
+                self.assertFalse(item.with_user(self.user_dev).can_convert, "no button for its assignee")
+                with unittest.TestCase.assertRaisesRegex(self, AccessError, "^%s$" % re.escape(READ_ONLY_TASK_REFUSAL)):
                     item.with_user(self.user_dev).action_convert_to_subtask()
                 self.assertLeftInPlace(item, task)
 
@@ -269,6 +293,37 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
         subtask = self._subtasks(template)
         self.assertRecordValues(subtask, [{"is_template": True, "project_id": False, "user_ids": self.user_dev.ids}])
         self.assertNoteLinks(template, "Write the migration", subtask, manager)
+
+    def test_a_reviewer_assigned_to_a_task_of_a_project_they_cannot_read_is_refused_but_the_assignee_converts(self):
+        for privacy_visibility in ("followers", "invited_users"):
+            with self.subTest(privacy_visibility=privacy_visibility):
+                task = self._create_task_of_team_project(privacy_visibility)
+                task.with_user(self.reviewer).check_access("write")
+                self.assertFalse(task.project_id.with_user(self.reviewer).has_access("read"))
+                item = self._new_item(task_id=task.id)
+                self.assertFalse(item.with_user(self.reviewer).can_convert, "no button for the reviewer")
+                with unittest.TestCase.assertRaisesRegex(
+                    self, UserError, "^%s$" % re.escape(NO_PROJECT_ACCESS_REFUSAL)
+                ):
+                    item.with_user(self.reviewer).action_convert_to_subtask()
+                self.assertLeftInPlace(item, task)
+                self.assertTrue(item.with_user(self.user_dev).can_convert)
+                item.with_user(self.user_dev).action_convert_to_subtask()
+                self.assertFalse(item.exists(), "its assignee converts it")
+                self.assertRecordValues(
+                    self._subtasks(task), [{"project_id": task.project_id.id, "user_ids": self.user_dev.ids}]
+                )
+
+    def test_a_reviewer_who_may_read_the_project_of_a_team_converts(self):
+        task = self._create_task_of_team_project("followers")
+        task.project_id.allowed_internal_user_ids = [Command.link(self.reviewer.id)]
+        item = self._new_item(task_id=task.id)
+        self.assertTrue(item.with_user(self.reviewer).can_convert)
+        item.with_user(self.reviewer).action_convert_to_subtask()
+        self.assertFalse(item.exists())
+        subtask = self._subtasks(task)
+        self.assertRecordValues(subtask, [{"project_id": task.project_id.id, "user_ids": self.user_dev.ids}])
+        self.assertNoteLinks(task, "Write the migration", subtask, self.reviewer)
 
     def test_the_subtask_takes_no_default_of_the_calling_view(self):
         self.project.allow_milestones = True
