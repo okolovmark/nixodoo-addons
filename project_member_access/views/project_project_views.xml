@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="project_project_view_form_inherit_member_access" model="ir.ui.view">
+        <field name="name">project.project.view.form.inherit.project_member_access</field>
+        <field name="model">project.project</field>
+        <field name="inherit_id" ref="project.edit_project" />
+        <field name="arch" type="xml">
+            <xpath expr="//header/button[@name='%(project.project_share_wizard_action)d'][1]" position="attributes">
+                <attribute
+                    name="attrs"
+                >{'invisible': ['|', ('privacy_visibility', '!=', 'portal'), ('access_mode', '!=', 'standard')]}</attribute>
+            </xpath>
+            <xpath expr="//header/button[@name='%(project.project_share_wizard_action)d'][2]" position="attributes">
+                <attribute
+                    name="attrs"
+                >{'invisible': ['|', ('privacy_visibility', '!=', 'portal'), ('access_mode', '!=', 'standard')]}</attribute>
+            </xpath>
+            <xpath
+                expr="//div[@name='button_box']/button[@name='%(project.project_collaborator_action)d']"
+                position="attributes"
+            >
+                <attribute
+                    name="attrs"
+                >{'invisible': ['|', ('privacy_visibility', '!=', 'portal'), ('access_mode', '!=', 'standard')]}</attribute>
+            </xpath>
+            <xpath expr="//field[@name='privacy_visibility']" position="before">
+                <field name="access_mode" widget="radio" />
+            </xpath>
+            <xpath expr="//field[@name='privacy_visibility']" position="attributes">
+                <attribute name="attrs">{'invisible': [('access_mode', '!=', 'standard')]}</attribute>
+            </xpath>
+            <xpath expr="//field[@name='access_instruction_message']/.." position="attributes">
+                <attribute
+                    name="attrs"
+                >{'invisible': ['|', ('access_mode', '!=', 'standard'), ('access_instruction_message', '=', '')]}</attribute>
+            </xpath>
+            <xpath expr="//field[@name='privacy_visibility_warning']/.." position="attributes">
+                <attribute
+                    name="attrs"
+                >{'invisible': ['|', ('access_mode', '!=', 'standard'), ('privacy_visibility_warning', '=', '')]}</attribute>
+            </xpath>
+            <xpath expr="//page[@name='settings']" position="before">
+                <page name="members" string="Members" attrs="{'invisible': [('access_mode', '=', 'standard')]}">
+                    <field name="member_ids" mode="tree,kanban">
+                        <tree editable="bottom">
+                            <!-- a member changes role, not user: remove and add instead -->
+                            <field
+                                name="user_id"
+                                widget="many2one_avatar_user"
+                                options="{'no_create': True}"
+                                attrs="{'readonly': [('id', '!=', False)]}"
+                            />
+                            <field name="role" />
+                        </tree>
+                        <!-- the phone gets cards -->
+                        <kanban>
+                            <field name="user_id" />
+                            <field name="role" />
+                            <templates>
+                                <t t-name="kanban-box">
+                                    <div class="oe_kanban_global_click d-flex align-items-center gap-2">
+                                        <field name="user_id" widget="many2one_avatar_user" />
+                                        <field
+                                            name="role"
+                                            widget="badge"
+                                            decoration-info="role == 'admin'"
+                                            class="ms-auto"
+                                        />
+                                    </div>
+                                </t>
+                            </templates>
+                        </kanban>
+                        <form>
+                            <group>
+                                <field
+                                    name="user_id"
+                                    options="{'no_create': True}"
+                                    attrs="{'readonly': [('id', '!=', False)]}"
+                                />
+                                <field name="role" />
+                            </group>
+                        </form>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+    <record id="project_project_view_kanban_inherit_member_access" model="ir.ui.view">
+        <field name="name">project.project.view.kanban.inherit.project_member_access</field>
+        <field name="model">project.project</field>
+        <field name="inherit_id" ref="project.view_project_kanban" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='privacy_visibility']" position="after">
+                <field name="access_mode" />
+            </xpath>
+            <xpath expr="//a[@name='%(project.project_share_wizard_action)d']" position="attributes">
+                <attribute
+                    name="t-if"
+                >record.privacy_visibility.raw_value == 'portal' and record.access_mode.raw_value == 'standard'</attribute>
+            </xpath>
+        </field>
+    </record>
+</odoo>

@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_project_member_internal,project.member.internal,model_project_member,base.group_user,1,0,0,0
+access_project_member_user,project.member.user,model_project_member,project.group_project_user,1,1,1,1
