@@ -14,7 +14,9 @@ On the task form:
   assigned to you.
 * *Checklist* tab, in a project with Sub-tasks turned on: the assignee or
   the reviewer converts an item into a sub-task with the level-down icon of
-  its row, after a confirmation. The item is deleted and the task gets a
+  its row, after a confirmation, if they may create a task in the project;
+  in a project of invited internal users, only if they follow the project or
+  are a Project / Administrator. The item is deleted and the task gets a
   note linking the sub-task.
 * *Test Cases* tab: add ordered cases with steps and expected results, then
   give each case its result with the icons of its row; a row offers the
@@ -119,7 +121,11 @@ context, those of all the user's companies.
 
 It converts items into sub-tasks with ``action_convert_to_subtask``, each
 into a sub-task of its own task, as the assignee or the reviewer of every
-item: a refusal of one leaves them all. The method returns ``True``.
+item who may create a task in its project under the record rules of tasks:
+a refusal of one leaves them all. ``can_convert`` tells whether its user may
+convert an item under these rules; the closing and estimate rules of the
+first stage, the email address the note needs and a rule on a field Odoo
+computes only once the task is created are checked by the conversion only. The method returns ``True``.
 ``action_convert_to_subtask_open`` converts one item and returns the window
 action of its sub-task, the id in ``res_id``. The note on the task is posted
 in the name of the tool's user, who needs an email address even with
