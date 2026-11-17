@@ -66,6 +66,21 @@ by default: other followers receive the posts of others only after opting
 into *All checklist updates* on the task or on its project. The same context
 key silences these posts for an account without an email address.
 
+The assignee or the reviewer of an item converts it into a sub-task of its
+task, whatever its state, in a project with **Sub-tasks** turned on, so never
+on a task without a project. The sub-task takes the item's description as
+its title, its assignee, and the date of its deadline in the time zone of the
+user converting it, or no deadline. Its parent is the task, its project the
+task's, its stage the first unfolded stage of that project; it takes no
+default of the screen the conversion starts from. The assignee and the
+reviewer follow it. When the reviewer converts an item assigned to another
+user, that user gets Odoo's *You have been assigned to* notice. The task gets
+an internal note, without a category, linking the sub-task, and the item is
+deleted. The conversion also takes the right to delete the item, and when
+the closing or the estimate rule marks that first unfolded stage, the stage
+refuses the sub-task, which has no Resolution, type or estimate. Any refusal
+leaves the item and the task as they were, with no sub-task.
+
 The task's kanban card shows the current user's completion percentage over
 their non-cancelled items and the number of their TODO and Waiting items. The
 **Checklist** menu opens on your own TODO items (the *My* and *TODO* filters
