@@ -23,11 +23,11 @@ Project AI-driven
 |badge1| |badge2| |badge3|
 
 Additions to project tasks for AI-driven development: task attributes,
-clarifying questions with their answers and the technical solution, a
-checklist and test cases per task, pull requests as records, and two rules
-on the stages a project marks: a Resolution to enter some, a task type and
-an estimate to enter others. The module also logs the stage changes of
-every task of the database.
+clarifying questions as rows with their answers, the technical solution, a
+checklist and test cases per task, pull requests as records, the internal
+notes of tasks by category, and two rules on the stages a project marks: a
+Resolution to enter some, a task type and an estimate to enter others. The
+module also logs the stage changes of every task of the database.
 
 **Task attributes** (``project.task``)
 
@@ -51,36 +51,103 @@ every task of the database.
   filters of the search still search on it. The tasks of other projects keep
   the star, also in the same list. The task list of a flagged project opened
   from the project has no *Priority* column at all.
-* A **Technical Solution** tab with Questions, Answers and Solution, shown to
-  project users on the tasks of a project flagged **AI-driven Project**.
+* A **Technical Solution** tab with the Questions list and the Solution,
+  shown to project users on the tasks of a project flagged **AI-driven
+  Project**.
 
-**Checklist** (``project.task.subtask``)
+**Checklist** (``project.task.checklist.item``)
 
-Task-level checklist items with a description, an **Assigned to** user, a
-**Reviewer** (the creator), a deadline and a state: TODO, Waiting, Done,
-Cancelled. Only the reviewer and the assignee may change an item's state or
-description. Every creation, state, name or assignee change posts a message
-to the task addressed to the reviewer and/or the assignee, under the internal
-*All checklist updates* subtype (a change on an item whose reviewer and
-assignee are both the current user is a plain note instead). The subtype is
-not subscribed by default: other followers receive these posts only after
-opting into *All checklist updates* on the task or on its project. The
+Task-level checklist items, the **Checklist** of the task
+(``checklist_item_ids``), each with a description, an **Assigned to** user,
+a **Reviewer**, a deadline and a state: TODO, Waiting, Done, Cancelled. A new
+item's assignee and reviewer default to the user who creates it, on the form
+and over RPC; the reviewer is read-only on the form. Items have no
+activities.
+
+An item is found, read, changed, deleted and created by the users who can
+read its task, archived or not: its access right carries the domain
+``[('task_id', 'access', 'read')]``, so the record rules of the task apply
+to its items, the companies selected in the company switcher included. The
+superuser and ``sudo()`` reach every item. Reading, changing or deleting an
+item deleted meanwhile raises ``MissingError``, as core does.
+
+Only the assignee or the reviewer of an item changes its state, description
+or assignee. The check runs before the write, against the assignee and the
+reviewer the item has then: the assignee may hand the item over and change
+its state in one write, another user cannot take it. The deadline, and the
+reviewer over RPC, are changed by anyone who can change the item.
+
+A creation and a change of state, description or assignee make one post per
+item on the task, addressed to the item's assignee and reviewer, and to its
+former assignee on a change of assignee, other than the user making the
+change, under the internal *All checklist updates* subtype. When no one else
+is left, the post is a note addressed to no one. A change of description
+shows the former description under the former state. A post is written in
+the language of the user making the change. The subtype is not subscribed
+by default: other followers receive the posts of others only after opting
+into *All checklist updates* on the task or on its project. The
 ``mail_auto_subscribe_no_notify`` context key silences these posts, the way
 it silences the assignment notification of a task in Odoo itself: an
 integration writes tasks and checklist items with it and nobody is notified.
+
 The task's kanban card shows the current user's completion percentage over
 their non-cancelled items and the number of their TODO and Waiting items. The
 **Checklist** menu opens on your own TODO items (the *My* and *TODO* filters
-are on by default); remove those filters to see all items.
+are on by default); remove those filters to see every item you can read.
 
 **Test cases** (``project.task.testcase``)
 
-Ordered test cases per task with Steps to execute, Expected results,
-Comments, a Passed flag and the same four states. The task carries general
-comments and a completion percentage over non-cancelled cases. The **Test
-Cases** menu opens filtered on the cases still in *TODO*; remove the *TODO*
-filter to see them all. Copying a task also copies its checklist items and
-test cases, keeping their names and states.
+Ordered test cases per task with Steps to execute, Expected results and
+Comments. The **Status** of a case is its result: Not run (the default),
+Passed, Failed, Waiting or Not applicable.
+
+* **Verified by** and **Verified on**: who gave the last Passed or Failed,
+  and when. A create or write that sets Passed or Failed fills them with the
+  user who makes it, also under ``sudo()``, and the current time; a value
+  the same call gives is kept. Passed or Failed given again is a new
+  verification. Not run clears them and **Verification**; Waiting and Not
+  applicable leave them.
+* **Verification**: Manual, Automated test or Demo. A result button other
+  than Not run sets it to Manual when it is empty.
+* **Automated test reference**: the automated test that verifies the case,
+  such as a test selector. Not run leaves it.
+* **Passed** (``passed``) is stored, read-only and follows the status: set
+  for Passed only.
+
+The task carries general comments and a completion percentage: its Passed
+cases over all its cases but the Not applicable ones. Its kanban card counts
+the cases Not run, Failed and Waiting. The **Test Cases** menu opens
+filtered on the cases Not run; remove the *Not run* filter to see them all.
+Copying a task also copies its checklist items, keeping their states, and
+its test cases, keeping their status, Verified by, Verified on,
+Verification and Automated test reference.
+
+**Questions** (``project.task.question``)
+
+The clarifying questions of a task, its **Questions** (``question_ids``),
+are rows in an order of their own:
+
+* **Round**: the round of questions the row was asked in, a name or a date.
+* **Question** and **Answer**: rich text.
+* **Addressed to**: the internal user the question is for.
+* **Status**: Open, Answered or Dropped. A row is Open until it gets an
+  answer that shows something: text, an image, a video or an icon. A create
+  or a write that gives such an answer to an Open row makes it Answered,
+  unless the same call sets the status; a Dropped row stays Dropped. An
+  answer of spaces, empty paragraphs or empty list items leaves the row
+  Open.
+* **Answered by** and **Answered on**: who made the row Answered, and when. A
+  create or write that makes a row Answered fills them with the user who
+  makes it, also under ``sudo()``, and the current time; a value the same
+  call gives is kept. A row already Answered keeps them when it is set
+  Answered again or gets another answer. Open clears them and keeps the
+  answer; Dropped leaves them.
+
+A row is named by the text of its question, cut at 80 characters, or of its
+answer when the question is blank, or else by its task. A row is found,
+read, changed, deleted and created by the users who can read its task, as a
+checklist item is. Copying a task copies its rows with all their values,
+the status, Answered by and Answered on included.
 
 **Pull requests** (``project.pull.request``)
 
@@ -223,20 +290,75 @@ access right allows creating, changing or deleting a row. The log has no
 view and no menu. A search of the log first flushes the stage changes that
 are pending.
 
+**Task notes** (``mail.message``)
+
+* **Task** (``task_id``): the task a message is posted on, empty for a
+  message of another model and for one whose task no longer exists. It is
+  stored, set from the model and the record of the message, and emptied
+  when the task is deleted.
+* **Category** (``note_category``): Requirement Change, Design Decision,
+  Bug Fix, Review Fix, User Feedback, Progress, Revised or Deploy, given to
+  an internal note of a task whose body opens with it in bold. It is stored,
+  and read again when the body, the model, the subtype or the message type
+  of the message changes, as when a note is edited.
+
+Both are computed when a message is created, and for every existing message
+when the module adds their columns, on install or on the update that brings
+them.
+
+The category of a note:
+
+* An internal note is a message of the *Note* subtype on a task, of any
+  message type but *Tracking*. A message to the followers, a message on
+  another model and a tracking message get no category, whatever their body.
+* The body opens with the bold text (``<b>`` or ``<strong>``): only white
+  space, ``&nbsp;`` and at most one opening tag, ``<p>`` or ``<span>``, with
+  or without attributes, come before it.
+* The bold text opens with the category, in any letter case, and ends there
+  or goes on after a dash, a colon, a slash, a plus or an opening
+  parenthesis: ``<b>Bug Fix</b>: the total``, ``<b>Progress: 2/2</b>``,
+  ``<b>Bug Fix (round 2)</b>``. Bold text naming two categories gets the
+  first. ``<b>Progress report</b>`` and ``<b>Deploy notes</b>`` get none.
+
+**Project > Task Notes** lists the internal notes of tasks: a message to one
+user, a tracking message and a message with neither a body nor a file are
+left out. Its domain names the model ``project.task``, so Odoo checks the
+access of the tasks in SQL. Odoo 20 lets any user group messages under that
+check: the groups and their counts hold only notes of tasks the user can
+read. Groups by category come in the order of the categories, the notes
+without one last.
+
 **Coming from 16.0**
 
 The module's models, fields and selection values carry the names of the
-16.0 branch, so a caller written for one branch works on the other. What
-differs on 20.0:
+16.0 branch, so a caller written for one branch works on the other, but for
+``is_task_readable`` (below). What differs on 20.0:
 
-* The module has no install hook and no migration. The 16.0 branch takes
-  over the records of the module's former name, turns old ``pr_uri`` text
-  into pull request records, fills the stage log with the past of the tasks
-  sets the size of every task from its hours and sets hours that are NaN
-  or infinite to zero. This branch does none of it: a task that got such
-  hours under an earlier 20.0 version keeps them, and the constraint on the
-  estimate refuses its copies and its next occurrence until they are
-  corrected.
+* The module has no install hook, and its one migration converts no data
+  (see *Installation*). The 16.0 branch takes over the records of the
+  module's former name, turns old ``pr_uri`` text into pull request records,
+  fills the stage log with the past of the tasks, sets the size of every
+  task from its hours, sets hours that are NaN or infinite to zero, converts
+  the test case states, renames the checklist model with its table and
+  external ids, turns the Html ``questions`` and ``answers`` into question
+  rows and fills the task and the category of existing messages by SQL. This
+  branch does none of it: a task that got such hours under an earlier 20.0
+  version keeps them, and the constraint on the estimate refuses its copies
+  and its next occurrence until they are corrected. The ORM computes the
+  task and the category of existing messages when the module adds their
+  columns.
+* A checklist item and a question row follow the access of their task
+  through the domain of their access right, with the ``access`` operator of
+  Odoo 20. 16.0 has two ORM overrides for it, in
+  ``project.task.access.mixin``, which this branch does not have. On 16.0 an
+  item deleted meanwhile passes the access check.
+* This branch has neither ``is_task_readable`` nor the grouped read of
+  messages that 16.0 opens to project users on a domain naming it: Odoo 20
+  groups messages for any user. A client that names ``is_task_readable``
+  fails here.
+* A message that tracks changed fields is of type *Tracking* on Odoo 20,
+  with the changes in its body after any note logged with them. It has no
+  category and is not in **Task Notes**.
 * A task opens on Description; Checklist, Technical Solution, Test Cases
   and Pull Requests follow it. On 16.0 Checklist is the first tab.
 * **AI-driven Project**, **Stages Requiring a Resolution** and **Stages
@@ -269,15 +391,46 @@ differs on 20.0:
 Installation
 ============
 
-The module has no install hook and no migration. Installing it is all a
-database needs, but for the two cases below.
+The module has no install hook. Installing it is all a database needs, but
+for the two cases below. The install adds two columns to the message table
+and computes them for every message through the ORM: the table stays locked
+until the module is loaded, which takes long on a large message table.
 
 **A database that has an earlier 20.0 version installed**
 
-Updating the module deletes the fields **Difficulty**, **Knowledge Area
-Level** and **Tester** of the tasks, with their values. Export them first
-if they are needed. The sizes the tasks have stored stay as they are until
-their hours change.
+The update runs one migration, ``20.0.2.8.1/pre-migration.py``. Before the
+data files load, it blanks the stored arch of the module's extension views,
+which still name fields and buttons of the earlier version, so that the
+update passes without dev flags. The data files rewrite each view they name;
+a view no file names any more is deleted at the end of the update. The
+migration converts no data. The update:
+
+* deletes the fields **Difficulty**, **Knowledge Area Level** and **Tester**
+  of the tasks, with their values;
+* deletes the Html fields ``questions`` and ``answers`` of the tasks, with
+  their columns: their text is not turned into question rows;
+* creates the checklist model ``project.task.checklist.item`` with an empty
+  table. The items of the former ``project.task.subtask`` stay in the table
+  ``project_task_subtask``, which no model reads;
+* creates the two *All checklist updates* subtypes under new external ids
+  and deletes the former ones, with the follower subscriptions to them: tick
+  *All checklist updates* again where it was ticked;
+* computes the task and the note category of every message, as an install
+  does.
+
+Export the deleted fields first if they are needed.
+
+The update leaves:
+
+* the test cases with the states of the earlier version (``todo``,
+  ``done``, ``cancelled``) as they are stored, with their **Passed** flag.
+  Such a case matches no filter and no kanban count of this version, and the
+  completion of its task counts it as not passed, until it is given a
+  result;
+* the external ids of selection values that ``mail`` and
+  ``phone_validation`` hold for the former checklist model; nothing reads
+  them;
+* the sizes the tasks have stored, until their hours change.
 
 **A database that has the 20.0 project_software installed**
 
@@ -290,7 +443,12 @@ path:
 
 What to expect:
 
-* The tasks keep their field values, their checklists and their test cases.
+* The tasks keep their field values and their test cases, the test case
+  states as they are stored.
+* The checklist items and the Html ``questions`` and ``answers`` are not
+  kept: ``project_ai_driven`` declares neither ``project.task.subtask`` nor
+  the two fields, so the uninstall drops them with their table and columns.
+  Export them first if they are needed.
 * The project flag does not come along: tick **AI-driven Project** again on
   each project.
 * The views of ``project_software`` and its two checklist message subtypes
@@ -320,17 +478,21 @@ Configuration
   A copy that keeps the stage of its source, a plain Duplicate or the
   duplication of a project, takes the type and the estimate of its source,
   so it is refused only where its source sits in such a stage without them.
-* Checklist items and test cases are managed by users with the **User**
-  access of *Project* (Settings > Users, the *Access Rights* tab of a user).
-  The Checklist, Test Cases and Technical Solution tabs are hidden from users
-  without it.
+* Checklist items, question rows and test cases are managed by users with
+  the **User** access of *Project* (Settings > Users, the *Access Rights* tab
+  of a user), a checklist item and a question row only by a user who can
+  read its task. The Checklist, Test Cases and Technical Solution tabs are
+  hidden from users without that access.
+* **Project > Task Notes** and the **Notes** button of the task form are
+  shown to users with the **User** access of *Project*. They list the notes
+  of the tasks the user can read.
 * Pull requests are read by every internal user and created and edited by
   users with the **User** access of *Project*. No access right allows
   deleting one.
 * The stage log is read by system administrators (``base.group_system``)
   only. No access right allows creating, changing or deleting a row.
-* To be notified of checklist items that are neither assigned to you nor
-  created by you, edit your follower subscription on the task or on the
+* To be notified of checklist items of which you are neither the assignee
+  nor the reviewer, edit your follower subscription on the task or on the
   project and tick *All checklist updates*.
 * An integration that writes tasks or checklist items passes
   ``mail_auto_subscribe_no_notify`` in the context to keep the write silent:
@@ -345,16 +507,29 @@ On the task form, which opens on Description:
 
 * Set **Priority**, **Estimate** (in hours) and **Task Type** next to the
   tags. **Size** shows the size of the estimate and cannot be edited.
-* *Checklist* tab: add items, each with an **Assigned to** user and an
-  optional deadline. The assignee or the reviewer moves an item with the
-  state icons (TODO, Waiting, Done, Cancelled). The task's kanban card shows
-  your own completion percentage, only when you have non-cancelled items
-  assigned to you.
-* *Technical Solution* tab (AI-driven projects): record the Questions, the
-  Answers and the Solution.
+* *Checklist* tab: add items, each with an **Assigned to** user, yourself
+  unless you pick another, and an optional deadline. You are the reviewer of
+  the items you add. The assignee or the reviewer moves an item with the
+  state icons (TODO, Waiting, Done, Cancelled), changes its description or
+  gives it another assignee. The task's kanban card shows your own
+  completion percentage, only when you have non-cancelled items assigned to
+  you.
+* *Technical Solution* tab (AI-driven projects): the **Questions** list,
+  then the **Solution**. Add a row per question, with its round and the user
+  it is addressed to, and drag the rows into order. Give a row its answer and
+  it becomes Answered, stamped with your name and the time; the status of a
+  new row follows its answer. Once the row is saved, set it back to Open to
+  ask again, or to Dropped when it no longer applies. The Answer column is
+  hidden in the list until you show it. On a phone the list shows cards.
 * *Test Cases* tab: add ordered cases with steps and expected results, then
-  move each case with the state icons. Marking a case Done ticks
-  **Passed**; any other state, Cancelled included, clears it.
+  give each case its result with the icons of its row; a row offers the
+  states other than its own (Passed, Failed, Not run, Waiting, Not
+  applicable). **Verified by** and **Verified on** show who gave the last
+  Passed or Failed. On a phone the tab shows cards with the same buttons.
+  Set **Verification** to Automated test or Demo, and the **Automated test
+  reference**, on the form of the case.
+* **Notes** button: counts the notes of the task and opens them in the
+  **Task Notes** list. It shows once the task has a note.
 * *Pull Requests* tab (AI-driven projects): add the pull requests of the
   task. The list shows the link, state, merge date and deploy date of each.
   A pull request already recorded for another task is picked from the list
@@ -367,15 +542,34 @@ On the task form, which opens on Description:
   moving the task to a stage that requires them. The refusal names what is
   missing.
 
-**Project > Checklist** lists the checklist items of all tasks, opened on
-your own TODO items. **Project > Test Cases** lists the test cases of all
-tasks, opened on the ones still in TODO.
+**Project > Checklist** lists the checklist items of the tasks you can read
+in the selected companies, opened on your own TODO items. Group by project,
+task, user or status.
+
+**Project > Test Cases** lists the test cases of all tasks, opened on the
+ones Not run: a list, cards on a phone. Filter on Not run or Failed, group
+by project, task, status or verification. The header of a case's form
+gives it its result with the same buttons, next to its status bar: Not run,
+Passed and Failed, and the status of the case when it is another.
 
 **Project > Pull Requests** lists all pull requests, the newest first: a
 list, cards on a phone. Search by URL, repository or task, filter on Open,
 Merged, Closed or No State, group by repository or state. On the form of a
 pull request, set **State**, **Merge Date** and **Deploy Date** when it is
 merged and deployed.
+
+**Project > Task Notes** lists the internal notes of the tasks you can read,
+archived tasks included, the newest first: a list, cards on a phone. A note
+of files alone is listed; a message to one user and a change of tracked
+fields are not. Filter on a category, search by contents, task or author,
+and group by category or by task: a task's group bears its current name.
+A note opens read-only with its files, and **Open Task** opens its task.
+Nothing is created, changed or deleted from this menu.
+
+To give a note a category, log it on the task with the category in bold as
+its first words, alone in the bold or followed there by a dash, a colon, a
+slash, a plus or an opening parenthesis: **Design Decision** - keep the
+flow; **Progress: 2/3**.
 
 A tool that writes over RPC sets ``pr_uri`` on the task to the link of the
 pull request, one link per write, or ``resolution`` to ``data``,
@@ -384,6 +578,48 @@ link adds a second pull request to the task. The estimate is written to
 ``allocated_hours`` and the type to ``task_type``; a ``tshirt_estimate``
 sent with them is ignored. The estimate is a finite number: a NaN or an
 infinity is refused, in any project.
+
+A tool that keeps a checklist over RPC creates ``project.task.checklist.item``
+records with ``task_id``, ``name`` and ``user_id``, which defaults to the
+tool's own user, and reads the items of a task from ``checklist_item_ids``.
+It moves an item by writing ``state`` (``todo``, ``waiting``, ``done`` or
+``cancelled``) as the item's assignee or reviewer. It reaches only the items
+of the tasks its user can read; without ``allowed_company_ids`` in the
+context, those of all the user's companies.
+
+A tool that keeps the questions of a task over RPC creates
+``project.task.question`` records with ``task_id`` and ``question``, and
+``round``, ``addressed_to_id`` and ``answer`` when it has them, and reads the
+rows of a task from ``question_ids``. It answers a row by writing
+``answer``; ``state`` takes ``open``, ``answered`` or ``dropped``. A create or
+write that makes a row Answered fills ``answered_by_id`` and ``answered_on``
+unless it sends them. It reaches only the rows of the tasks its user can
+read.
+
+A tool that gives test case results over RPC writes ``state`` on
+``project.task.testcase``: ``not_run``, ``passed``, ``failed``, ``waiting``
+or ``not_applicable``. A create or write of ``passed`` or ``failed`` fills
+``verified_by_id`` and ``verified_on`` unless it sends them. It sends
+``verification_kind`` (``manual``, ``automated`` or ``demo``) and
+``test_reference`` with the result: only the buttons set ``manual`` by
+themselves. The former values ``todo``, ``done`` and ``cancelled`` are taken
+as ``not_run``, ``passed`` and ``not_applicable``. ``passed`` is read, not
+written: a value sent for it is dropped, and ``passed`` true without a
+``state`` gives ``passed``.
+
+A tool reads the notes of one category of a task with ``search_read`` on
+``mail.message``, the domain ``[("task_id", "=", <task id>),
+("note_category", "=", "design_decision")]`` and fields such as ``date``,
+``author_id`` and ``body``. ``note_category`` takes ``requirement_change``,
+``design_decision``, ``bug_fix``, ``review_fix``, ``user_feedback``,
+``progress``, ``revised`` or ``deploy``. It reaches the messages its user
+can read, and groups them under the same check. It gives a note a category
+by posting it on the task with ``message_post``, ``subtype_xmlid``
+``mail.mt_note`` and a body that opens with the category in bold, in a
+paragraph: ``<p><b>Progress</b> - in review</p>``. A body of more than one
+node that opens with an inline tag and holds no block tag, such as
+``<b>Progress</b> - in review``, is stored inside a ``<span>`` and gets its
+category too.
 
 The stage log has no view and no menu. A system administrator reads
 ``project.task.stage.log`` over RPC: the rows come ordered by date, each
@@ -440,6 +676,25 @@ Known issues / Roadmap
 * The sizes stored by an earlier 20.0 version of the module stay as they
   are until the hours of their task change: this branch has no migration
   that recomputes them.
+* An update from an earlier 20.0 version converts no data: test cases keep
+  their former states, the former checklist items stay in a table nothing
+  reads, and the Html questions and answers are deleted (see
+  *Installation*).
+* The test case flag ``passed`` and the translation of the former state
+  values (``todo``, ``done``, ``cancelled``) at create and write serve
+  clients written for the former selection, until a later version removes
+  them.
+* Question rows have no chatter: a change of status or answer leaves no
+  trace but **Answered by** and **Answered on**.
+* A note whose category is in bold inside a heading or a list, or coloured,
+  gets no category: only one opening ``<p>`` or ``<span>`` may come before
+  the bold, and nothing between the bold and the category.
+* The eight categories and their spelling are fixed in the module:
+  ``Bugfix`` or ``Deployment`` in bold is no category. A change of them
+  gives existing notes a category only where a migration recomputes it.
+* A note that code logs with a change of tracked fields
+  (``_track_set_log_message``) is part of the tracking message of the
+  change: it gets no category and is not in **Task Notes**.
 * The stage log starts when the module is installed: the stages a task went
   through before that are not in it.
 * A row of the stage log is written when the change of stage is flushed to

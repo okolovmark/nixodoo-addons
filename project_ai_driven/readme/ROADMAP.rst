@@ -42,6 +42,25 @@
 * The sizes stored by an earlier 20.0 version of the module stay as they
   are until the hours of their task change: this branch has no migration
   that recomputes them.
+* An update from an earlier 20.0 version converts no data: test cases keep
+  their former states, the former checklist items stay in a table nothing
+  reads, and the Html questions and answers are deleted (see
+  *Installation*).
+* The test case flag ``passed`` and the translation of the former state
+  values (``todo``, ``done``, ``cancelled``) at create and write serve
+  clients written for the former selection, until a later version removes
+  them.
+* Question rows have no chatter: a change of status or answer leaves no
+  trace but **Answered by** and **Answered on**.
+* A note whose category is in bold inside a heading or a list, or coloured,
+  gets no category: only one opening ``<p>`` or ``<span>`` may come before
+  the bold, and nothing between the bold and the category.
+* The eight categories and their spelling are fixed in the module:
+  ``Bugfix`` or ``Deployment`` in bold is no category. A change of them
+  gives existing notes a category only where a migration recomputes it.
+* A note that code logs with a change of tracked fields
+  (``_track_set_log_message``) is part of the tracking message of the
+  change: it gets no category and is not in **Task Notes**.
 * The stage log starts when the module is installed: the stages a task went
   through before that are not in it.
 * A row of the stage log is written when the change of stage is flushed to

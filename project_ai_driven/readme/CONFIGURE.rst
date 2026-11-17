@@ -16,17 +16,21 @@
   A copy that keeps the stage of its source, a plain Duplicate or the
   duplication of a project, takes the type and the estimate of its source,
   so it is refused only where its source sits in such a stage without them.
-* Checklist items and test cases are managed by users with the **User**
-  access of *Project* (Settings > Users, the *Access Rights* tab of a user).
-  The Checklist, Test Cases and Technical Solution tabs are hidden from users
-  without it.
+* Checklist items, question rows and test cases are managed by users with
+  the **User** access of *Project* (Settings > Users, the *Access Rights* tab
+  of a user), a checklist item and a question row only by a user who can
+  read its task. The Checklist, Test Cases and Technical Solution tabs are
+  hidden from users without that access.
+* **Project > Task Notes** and the **Notes** button of the task form are
+  shown to users with the **User** access of *Project*. They list the notes
+  of the tasks the user can read.
 * Pull requests are read by every internal user and created and edited by
   users with the **User** access of *Project*. No access right allows
   deleting one.
 * The stage log is read by system administrators (``base.group_system``)
   only. No access right allows creating, changing or deleting a row.
-* To be notified of checklist items that are neither assigned to you nor
-  created by you, edit your follower subscription on the task or on the
+* To be notified of checklist items of which you are neither the assignee
+  nor the reviewer, edit your follower subscription on the task or on the
   project and tick *All checklist updates*.
 * An integration that writes tasks or checklist items passes
   ``mail_auto_subscribe_no_notify`` in the context to keep the write silent:

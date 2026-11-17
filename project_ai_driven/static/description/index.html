@@ -371,11 +371,11 @@ ul.auto-toc {
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! -->
 <p><a class="reference external image-reference" href="https://odoo-community.org/page/development-status"><img alt="Beta" src="https://img.shields.io/badge/maturity-Beta-yellow.png" /></a> <a class="reference external image-reference" href="http://www.gnu.org/licenses/lgpl-3.0-standalone.html"><img alt="License: LGPL-3" src="https://img.shields.io/badge/license-LGPL--3-blue.png" /></a> <a class="reference external image-reference" href="https://github.com/okolovmark/nixodoo-addons/tree/20.0/project_ai_driven"><img alt="okolovmark/nixodoo-addons" src="https://img.shields.io/badge/github-okolovmark%2Fnixodoo--addons-lightgray.png?logo=github" /></a></p>
 <p>Additions to project tasks for AI-driven development: task attributes,
-clarifying questions with their answers and the technical solution, a
-checklist and test cases per task, pull requests as records, and two rules
-on the stages a project marks: a Resolution to enter some, a task type and
-an estimate to enter others. The module also logs the stage changes of
-every task of the database.</p>
+clarifying questions as rows with their answers, the technical solution, a
+checklist and test cases per task, pull requests as records, the internal
+notes of tasks by category, and two rules on the stages a project marks: a
+Resolution to enter some, a task type and an estimate to enter others. The
+module also logs the stage changes of every task of the database.</p>
 <p><strong>Task attributes</strong> (<tt class="docutils literal">project.task</tt>)</p>
 <ul class="simple">
 <li><strong>Priority</strong> (Highest to Lowest), <strong>Estimate</strong>, <strong>Size</strong> and <strong>Task Type</strong>
@@ -398,33 +398,94 @@ value is not touched: core still orders tasks by it, and the <em>Priority</em>
 filters of the search still search on it. The tasks of other projects keep
 the star, also in the same list. The task list of a flagged project opened
 from the project has no <em>Priority</em> column at all.</li>
-<li>A <strong>Technical Solution</strong> tab with Questions, Answers and Solution, shown to
-project users on the tasks of a project flagged <strong>AI-driven Project</strong>.</li>
+<li>A <strong>Technical Solution</strong> tab with the Questions list and the Solution,
+shown to project users on the tasks of a project flagged <strong>AI-driven
+Project</strong>.</li>
 </ul>
-<p><strong>Checklist</strong> (<tt class="docutils literal">project.task.subtask</tt>)</p>
-<p>Task-level checklist items with a description, an <strong>Assigned to</strong> user, a
-<strong>Reviewer</strong> (the creator), a deadline and a state: TODO, Waiting, Done,
-Cancelled. Only the reviewer and the assignee may change an item’s state or
-description. Every creation, state, name or assignee change posts a message
-to the task addressed to the reviewer and/or the assignee, under the internal
-<em>All checklist updates</em> subtype (a change on an item whose reviewer and
-assignee are both the current user is a plain note instead). The subtype is
-not subscribed by default: other followers receive these posts only after
-opting into <em>All checklist updates</em> on the task or on its project. The
+<p><strong>Checklist</strong> (<tt class="docutils literal">project.task.checklist.item</tt>)</p>
+<p>Task-level checklist items, the <strong>Checklist</strong> of the task
+(<tt class="docutils literal">checklist_item_ids</tt>), each with a description, an <strong>Assigned to</strong> user,
+a <strong>Reviewer</strong>, a deadline and a state: TODO, Waiting, Done, Cancelled. A new
+item’s assignee and reviewer default to the user who creates it, on the form
+and over RPC; the reviewer is read-only on the form. Items have no
+activities.</p>
+<p>An item is found, read, changed, deleted and created by the users who can
+read its task, archived or not: its access right carries the domain
+<tt class="docutils literal"><span class="pre">[('task_id',</span> 'access', <span class="pre">'read')]</span></tt>, so the record rules of the task apply
+to its items, the companies selected in the company switcher included. The
+superuser and <tt class="docutils literal">sudo()</tt> reach every item. Reading, changing or deleting an
+item deleted meanwhile raises <tt class="docutils literal">MissingError</tt>, as core does.</p>
+<p>Only the assignee or the reviewer of an item changes its state, description
+or assignee. The check runs before the write, against the assignee and the
+reviewer the item has then: the assignee may hand the item over and change
+its state in one write, another user cannot take it. The deadline, and the
+reviewer over RPC, are changed by anyone who can change the item.</p>
+<p>A creation and a change of state, description or assignee make one post per
+item on the task, addressed to the item’s assignee and reviewer, and to its
+former assignee on a change of assignee, other than the user making the
+change, under the internal <em>All checklist updates</em> subtype. When no one else
+is left, the post is a note addressed to no one. A change of description
+shows the former description under the former state. A post is written in
+the language of the user making the change. The subtype is not subscribed
+by default: other followers receive the posts of others only after opting
+into <em>All checklist updates</em> on the task or on its project. The
 <tt class="docutils literal">mail_auto_subscribe_no_notify</tt> context key silences these posts, the way
 it silences the assignment notification of a task in Odoo itself: an
-integration writes tasks and checklist items with it and nobody is notified.
-The task’s kanban card shows the current user’s completion percentage over
+integration writes tasks and checklist items with it and nobody is notified.</p>
+<p>The task’s kanban card shows the current user’s completion percentage over
 their non-cancelled items and the number of their TODO and Waiting items. The
 <strong>Checklist</strong> menu opens on your own TODO items (the <em>My</em> and <em>TODO</em> filters
-are on by default); remove those filters to see all items.</p>
+are on by default); remove those filters to see every item you can read.</p>
 <p><strong>Test cases</strong> (<tt class="docutils literal">project.task.testcase</tt>)</p>
-<p>Ordered test cases per task with Steps to execute, Expected results,
-Comments, a Passed flag and the same four states. The task carries general
-comments and a completion percentage over non-cancelled cases. The <strong>Test
-Cases</strong> menu opens filtered on the cases still in <em>TODO</em>; remove the <em>TODO</em>
-filter to see them all. Copying a task also copies its checklist items and
-test cases, keeping their names and states.</p>
+<p>Ordered test cases per task with Steps to execute, Expected results and
+Comments. The <strong>Status</strong> of a case is its result: Not run (the default),
+Passed, Failed, Waiting or Not applicable.</p>
+<ul class="simple">
+<li><strong>Verified by</strong> and <strong>Verified on</strong>: who gave the last Passed or Failed,
+and when. A create or write that sets Passed or Failed fills them with the
+user who makes it, also under <tt class="docutils literal">sudo()</tt>, and the current time; a value
+the same call gives is kept. Passed or Failed given again is a new
+verification. Not run clears them and <strong>Verification</strong>; Waiting and Not
+applicable leave them.</li>
+<li><strong>Verification</strong>: Manual, Automated test or Demo. A result button other
+than Not run sets it to Manual when it is empty.</li>
+<li><strong>Automated test reference</strong>: the automated test that verifies the case,
+such as a test selector. Not run leaves it.</li>
+<li><strong>Passed</strong> (<tt class="docutils literal">passed</tt>) is stored, read-only and follows the status: set
+for Passed only.</li>
+</ul>
+<p>The task carries general comments and a completion percentage: its Passed
+cases over all its cases but the Not applicable ones. Its kanban card counts
+the cases Not run, Failed and Waiting. The <strong>Test Cases</strong> menu opens
+filtered on the cases Not run; remove the <em>Not run</em> filter to see them all.
+Copying a task also copies its checklist items, keeping their states, and
+its test cases, keeping their status, Verified by, Verified on,
+Verification and Automated test reference.</p>
+<p><strong>Questions</strong> (<tt class="docutils literal">project.task.question</tt>)</p>
+<p>The clarifying questions of a task, its <strong>Questions</strong> (<tt class="docutils literal">question_ids</tt>),
+are rows in an order of their own:</p>
+<ul class="simple">
+<li><strong>Round</strong>: the round of questions the row was asked in, a name or a date.</li>
+<li><strong>Question</strong> and <strong>Answer</strong>: rich text.</li>
+<li><strong>Addressed to</strong>: the internal user the question is for.</li>
+<li><strong>Status</strong>: Open, Answered or Dropped. A row is Open until it gets an
+answer that shows something: text, an image, a video or an icon. A create
+or a write that gives such an answer to an Open row makes it Answered,
+unless the same call sets the status; a Dropped row stays Dropped. An
+answer of spaces, empty paragraphs or empty list items leaves the row
+Open.</li>
+<li><strong>Answered by</strong> and <strong>Answered on</strong>: who made the row Answered, and when. A
+create or write that makes a row Answered fills them with the user who
+makes it, also under <tt class="docutils literal">sudo()</tt>, and the current time; a value the same
+call gives is kept. A row already Answered keeps them when it is set
+Answered again or gets another answer. Open clears them and keeps the
+answer; Dropped leaves them.</li>
+</ul>
+<p>A row is named by the text of its question, cut at 80 characters, or of its
+answer when the question is blank, or else by its task. A row is found,
+read, changed, deleted and created by the users who can read its task, as a
+checklist item is. Copying a task copies its rows with all their values,
+the status, Answered by and Answered on included.</p>
 <p><strong>Pull requests</strong> (<tt class="docutils literal">project.pull.request</tt>)</p>
 <p>A pull request is a record of its own, shared by every task it belongs to:</p>
 <ul class="simple">
@@ -580,19 +641,72 @@ stage it left as the previous one.</p>
 access right allows creating, changing or deleting a row. The log has no
 view and no menu. A search of the log first flushes the stage changes that
 are pending.</p>
+<p><strong>Task notes</strong> (<tt class="docutils literal">mail.message</tt>)</p>
+<ul class="simple">
+<li><strong>Task</strong> (<tt class="docutils literal">task_id</tt>): the task a message is posted on, empty for a
+message of another model and for one whose task no longer exists. It is
+stored, set from the model and the record of the message, and emptied
+when the task is deleted.</li>
+<li><strong>Category</strong> (<tt class="docutils literal">note_category</tt>): Requirement Change, Design Decision,
+Bug Fix, Review Fix, User Feedback, Progress, Revised or Deploy, given to
+an internal note of a task whose body opens with it in bold. It is stored,
+and read again when the body, the model, the subtype or the message type
+of the message changes, as when a note is edited.</li>
+</ul>
+<p>Both are computed when a message is created, and for every existing message
+when the module adds their columns, on install or on the update that brings
+them.</p>
+<p>The category of a note:</p>
+<ul class="simple">
+<li>An internal note is a message of the <em>Note</em> subtype on a task, of any
+message type but <em>Tracking</em>. A message to the followers, a message on
+another model and a tracking message get no category, whatever their body.</li>
+<li>The body opens with the bold text (<tt class="docutils literal">&lt;b&gt;</tt> or <tt class="docutils literal">&lt;strong&gt;</tt>): only white
+space, <tt class="docutils literal">&amp;nbsp;</tt> and at most one opening tag, <tt class="docutils literal">&lt;p&gt;</tt> or <tt class="docutils literal">&lt;span&gt;</tt>, with
+or without attributes, come before it.</li>
+<li>The bold text opens with the category, in any letter case, and ends there
+or goes on after a dash, a colon, a slash, a plus or an opening
+parenthesis: <tt class="docutils literal">&lt;b&gt;Bug <span class="pre">Fix&lt;/b&gt;:</span> the total</tt>, <tt class="docutils literal">&lt;b&gt;Progress: <span class="pre">2/2&lt;/b&gt;</span></tt>,
+<tt class="docutils literal">&lt;b&gt;Bug Fix (round <span class="pre">2)&lt;/b&gt;</span></tt>. Bold text naming two categories gets the
+first. <tt class="docutils literal">&lt;b&gt;Progress <span class="pre">report&lt;/b&gt;</span></tt> and <tt class="docutils literal">&lt;b&gt;Deploy <span class="pre">notes&lt;/b&gt;</span></tt> get none.</li>
+</ul>
+<p><strong>Project &gt; Task Notes</strong> lists the internal notes of tasks: a message to one
+user, a tracking message and a message with neither a body nor a file are
+left out. Its domain names the model <tt class="docutils literal">project.task</tt>, so Odoo checks the
+access of the tasks in SQL. Odoo 20 lets any user group messages under that
+check: the groups and their counts hold only notes of tasks the user can
+read. Groups by category come in the order of the categories, the notes
+without one last.</p>
 <p><strong>Coming from 16.0</strong></p>
 <p>The module’s models, fields and selection values carry the names of the
-16.0 branch, so a caller written for one branch works on the other. What
-differs on 20.0:</p>
+16.0 branch, so a caller written for one branch works on the other, but for
+<tt class="docutils literal">is_task_readable</tt> (below). What differs on 20.0:</p>
 <ul class="simple">
-<li>The module has no install hook and no migration. The 16.0 branch takes
-over the records of the module’s former name, turns old <tt class="docutils literal">pr_uri</tt> text
-into pull request records, fills the stage log with the past of the tasks
-sets the size of every task from its hours and sets hours that are NaN
-or infinite to zero. This branch does none of it: a task that got such
-hours under an earlier 20.0 version keeps them, and the constraint on the
-estimate refuses its copies and its next occurrence until they are
-corrected.</li>
+<li>The module has no install hook, and its one migration converts no data
+(see <em>Installation</em>). The 16.0 branch takes over the records of the
+module’s former name, turns old <tt class="docutils literal">pr_uri</tt> text into pull request records,
+fills the stage log with the past of the tasks, sets the size of every
+task from its hours, sets hours that are NaN or infinite to zero, converts
+the test case states, renames the checklist model with its table and
+external ids, turns the Html <tt class="docutils literal">questions</tt> and <tt class="docutils literal">answers</tt> into question
+rows and fills the task and the category of existing messages by SQL. This
+branch does none of it: a task that got such hours under an earlier 20.0
+version keeps them, and the constraint on the estimate refuses its copies
+and its next occurrence until they are corrected. The ORM computes the
+task and the category of existing messages when the module adds their
+columns.</li>
+<li>A checklist item and a question row follow the access of their task
+through the domain of their access right, with the <tt class="docutils literal">access</tt> operator of
+Odoo 20. 16.0 has two ORM overrides for it, in
+<tt class="docutils literal">project.task.access.mixin</tt>, which this branch does not have. On 16.0 an
+item deleted meanwhile passes the access check.</li>
+<li>This branch has neither <tt class="docutils literal">is_task_readable</tt> nor the grouped read of
+messages that 16.0 opens to project users on a domain naming it: Odoo 20
+groups messages for any user. A client that names <tt class="docutils literal">is_task_readable</tt>
+fails here.</li>
+<li>A message that tracks changed fields is of type <em>Tracking</em> on Odoo 20,
+with the changes in its body after any note logged with them. It has no
+category and is not in <strong>Task Notes</strong>.</li>
 <li>A task opens on Description; Checklist, Technical Solution, Test Cases
 and Pull Requests follow it. On 16.0 Checklist is the first tab.</li>
 <li><strong>AI-driven Project</strong>, <strong>Stages Requiring a Resolution</strong> and <strong>Stages
@@ -635,13 +749,44 @@ is queued without a sender address.</li>
 </div>
 <div class="section" id="installation">
 <h1><a class="toc-backref" href="#toc-entry-1">Installation</a></h1>
-<p>The module has no install hook and no migration. Installing it is all a
-database needs, but for the two cases below.</p>
+<p>The module has no install hook. Installing it is all a database needs, but
+for the two cases below. The install adds two columns to the message table
+and computes them for every message through the ORM: the table stays locked
+until the module is loaded, which takes long on a large message table.</p>
 <p><strong>A database that has an earlier 20.0 version installed</strong></p>
-<p>Updating the module deletes the fields <strong>Difficulty</strong>, <strong>Knowledge Area
-Level</strong> and <strong>Tester</strong> of the tasks, with their values. Export them first
-if they are needed. The sizes the tasks have stored stay as they are until
-their hours change.</p>
+<p>The update runs one migration, <tt class="docutils literal"><span class="pre">20.0.2.8.1/pre-migration.py</span></tt>. Before the
+data files load, it blanks the stored arch of the module’s extension views,
+which still name fields and buttons of the earlier version, so that the
+update passes without dev flags. The data files rewrite each view they name;
+a view no file names any more is deleted at the end of the update. The
+migration converts no data. The update:</p>
+<ul class="simple">
+<li>deletes the fields <strong>Difficulty</strong>, <strong>Knowledge Area Level</strong> and <strong>Tester</strong>
+of the tasks, with their values;</li>
+<li>deletes the Html fields <tt class="docutils literal">questions</tt> and <tt class="docutils literal">answers</tt> of the tasks, with
+their columns: their text is not turned into question rows;</li>
+<li>creates the checklist model <tt class="docutils literal">project.task.checklist.item</tt> with an empty
+table. The items of the former <tt class="docutils literal">project.task.subtask</tt> stay in the table
+<tt class="docutils literal">project_task_subtask</tt>, which no model reads;</li>
+<li>creates the two <em>All checklist updates</em> subtypes under new external ids
+and deletes the former ones, with the follower subscriptions to them: tick
+<em>All checklist updates</em> again where it was ticked;</li>
+<li>computes the task and the note category of every message, as an install
+does.</li>
+</ul>
+<p>Export the deleted fields first if they are needed.</p>
+<p>The update leaves:</p>
+<ul class="simple">
+<li>the test cases with the states of the earlier version (<tt class="docutils literal">todo</tt>,
+<tt class="docutils literal">done</tt>, <tt class="docutils literal">cancelled</tt>) as they are stored, with their <strong>Passed</strong> flag.
+Such a case matches no filter and no kanban count of this version, and the
+completion of its task counts it as not passed, until it is given a
+result;</li>
+<li>the external ids of selection values that <tt class="docutils literal">mail</tt> and
+<tt class="docutils literal">phone_validation</tt> hold for the former checklist model; nothing reads
+them;</li>
+<li>the sizes the tasks have stored, until their hours change.</li>
+</ul>
 <p><strong>A database that has the 20.0 project_software installed</strong></p>
 <p><tt class="docutils literal">project_software</tt> is the former name of this module. Such a database is
 not updated in place. With the code of <tt class="docutils literal">project_ai_driven</tt> on the addons
@@ -652,7 +797,12 @@ path:</p>
 </ol>
 <p>What to expect:</p>
 <ul class="simple">
-<li>The tasks keep their field values, their checklists and their test cases.</li>
+<li>The tasks keep their field values and their test cases, the test case
+states as they are stored.</li>
+<li>The checklist items and the Html <tt class="docutils literal">questions</tt> and <tt class="docutils literal">answers</tt> are not
+kept: <tt class="docutils literal">project_ai_driven</tt> declares neither <tt class="docutils literal">project.task.subtask</tt> nor
+the two fields, so the uninstall drops them with their table and columns.
+Export them first if they are needed.</li>
 <li>The project flag does not come along: tick <strong>AI-driven Project</strong> again on
 each project.</li>
 <li>The views of <tt class="docutils literal">project_software</tt> and its two checklist message subtypes
@@ -683,17 +833,21 @@ value; a sales order line that creates a task, which gives no task type.
 A copy that keeps the stage of its source, a plain Duplicate or the
 duplication of a project, takes the type and the estimate of its source,
 so it is refused only where its source sits in such a stage without them.</li>
-<li>Checklist items and test cases are managed by users with the <strong>User</strong>
-access of <em>Project</em> (Settings &gt; Users, the <em>Access Rights</em> tab of a user).
-The Checklist, Test Cases and Technical Solution tabs are hidden from users
-without it.</li>
+<li>Checklist items, question rows and test cases are managed by users with
+the <strong>User</strong> access of <em>Project</em> (Settings &gt; Users, the <em>Access Rights</em> tab
+of a user), a checklist item and a question row only by a user who can
+read its task. The Checklist, Test Cases and Technical Solution tabs are
+hidden from users without that access.</li>
+<li><strong>Project &gt; Task Notes</strong> and the <strong>Notes</strong> button of the task form are
+shown to users with the <strong>User</strong> access of <em>Project</em>. They list the notes
+of the tasks the user can read.</li>
 <li>Pull requests are read by every internal user and created and edited by
 users with the <strong>User</strong> access of <em>Project</em>. No access right allows
 deleting one.</li>
 <li>The stage log is read by system administrators (<tt class="docutils literal">base.group_system</tt>)
 only. No access right allows creating, changing or deleting a row.</li>
-<li>To be notified of checklist items that are neither assigned to you nor
-created by you, edit your follower subscription on the task or on the
+<li>To be notified of checklist items of which you are neither the assignee
+nor the reviewer, edit your follower subscription on the task or on the
 project and tick <em>All checklist updates</em>.</li>
 <li>An integration that writes tasks or checklist items passes
 <tt class="docutils literal">mail_auto_subscribe_no_notify</tt> in the context to keep the write silent:
@@ -708,16 +862,29 @@ email address to send them from.</li>
 <ul class="simple">
 <li>Set <strong>Priority</strong>, <strong>Estimate</strong> (in hours) and <strong>Task Type</strong> next to the
 tags. <strong>Size</strong> shows the size of the estimate and cannot be edited.</li>
-<li><em>Checklist</em> tab: add items, each with an <strong>Assigned to</strong> user and an
-optional deadline. The assignee or the reviewer moves an item with the
-state icons (TODO, Waiting, Done, Cancelled). The task’s kanban card shows
-your own completion percentage, only when you have non-cancelled items
-assigned to you.</li>
-<li><em>Technical Solution</em> tab (AI-driven projects): record the Questions, the
-Answers and the Solution.</li>
+<li><em>Checklist</em> tab: add items, each with an <strong>Assigned to</strong> user, yourself
+unless you pick another, and an optional deadline. You are the reviewer of
+the items you add. The assignee or the reviewer moves an item with the
+state icons (TODO, Waiting, Done, Cancelled), changes its description or
+gives it another assignee. The task’s kanban card shows your own
+completion percentage, only when you have non-cancelled items assigned to
+you.</li>
+<li><em>Technical Solution</em> tab (AI-driven projects): the <strong>Questions</strong> list,
+then the <strong>Solution</strong>. Add a row per question, with its round and the user
+it is addressed to, and drag the rows into order. Give a row its answer and
+it becomes Answered, stamped with your name and the time; the status of a
+new row follows its answer. Once the row is saved, set it back to Open to
+ask again, or to Dropped when it no longer applies. The Answer column is
+hidden in the list until you show it. On a phone the list shows cards.</li>
 <li><em>Test Cases</em> tab: add ordered cases with steps and expected results, then
-move each case with the state icons. Marking a case Done ticks
-<strong>Passed</strong>; any other state, Cancelled included, clears it.</li>
+give each case its result with the icons of its row; a row offers the
+states other than its own (Passed, Failed, Not run, Waiting, Not
+applicable). <strong>Verified by</strong> and <strong>Verified on</strong> show who gave the last
+Passed or Failed. On a phone the tab shows cards with the same buttons.
+Set <strong>Verification</strong> to Automated test or Demo, and the <strong>Automated test
+reference</strong>, on the form of the case.</li>
+<li><strong>Notes</strong> button: counts the notes of the task and opens them in the
+<strong>Task Notes</strong> list. It shows once the task has a note.</li>
 <li><em>Pull Requests</em> tab (AI-driven projects): add the pull requests of the
 task. The list shows the link, state, merge date and deploy date of each.
 A pull request already recorded for another task is picked from the list
@@ -730,14 +897,30 @@ the task; a task that already has one gets Code by itself.</li>
 moving the task to a stage that requires them. The refusal names what is
 missing.</li>
 </ul>
-<p><strong>Project &gt; Checklist</strong> lists the checklist items of all tasks, opened on
-your own TODO items. <strong>Project &gt; Test Cases</strong> lists the test cases of all
-tasks, opened on the ones still in TODO.</p>
+<p><strong>Project &gt; Checklist</strong> lists the checklist items of the tasks you can read
+in the selected companies, opened on your own TODO items. Group by project,
+task, user or status.</p>
+<p><strong>Project &gt; Test Cases</strong> lists the test cases of all tasks, opened on the
+ones Not run: a list, cards on a phone. Filter on Not run or Failed, group
+by project, task, status or verification. The header of a case’s form
+gives it its result with the same buttons, next to its status bar: Not run,
+Passed and Failed, and the status of the case when it is another.</p>
 <p><strong>Project &gt; Pull Requests</strong> lists all pull requests, the newest first: a
 list, cards on a phone. Search by URL, repository or task, filter on Open,
 Merged, Closed or No State, group by repository or state. On the form of a
 pull request, set <strong>State</strong>, <strong>Merge Date</strong> and <strong>Deploy Date</strong> when it is
 merged and deployed.</p>
+<p><strong>Project &gt; Task Notes</strong> lists the internal notes of the tasks you can read,
+archived tasks included, the newest first: a list, cards on a phone. A note
+of files alone is listed; a message to one user and a change of tracked
+fields are not. Filter on a category, search by contents, task or author,
+and group by category or by task: a task’s group bears its current name.
+A note opens read-only with its files, and <strong>Open Task</strong> opens its task.
+Nothing is created, changed or deleted from this menu.</p>
+<p>To give a note a category, log it on the task with the category in bold as
+its first words, alone in the bold or followed there by a dash, a colon, a
+slash, a plus or an opening parenthesis: <strong>Design Decision</strong> - keep the
+flow; <strong>Progress: 2/3</strong>.</p>
 <p>A tool that writes over RPC sets <tt class="docutils literal">pr_uri</tt> on the task to the link of the
 pull request, one link per write, or <tt class="docutils literal">resolution</tt> to <tt class="docutils literal">data</tt>,
 <tt class="docutils literal">configuration</tt> or <tt class="docutils literal">no_change</tt> when there is none. A write of another
@@ -745,6 +928,44 @@ link adds a second pull request to the task. The estimate is written to
 <tt class="docutils literal">allocated_hours</tt> and the type to <tt class="docutils literal">task_type</tt>; a <tt class="docutils literal">tshirt_estimate</tt>
 sent with them is ignored. The estimate is a finite number: a NaN or an
 infinity is refused, in any project.</p>
+<p>A tool that keeps a checklist over RPC creates <tt class="docutils literal">project.task.checklist.item</tt>
+records with <tt class="docutils literal">task_id</tt>, <tt class="docutils literal">name</tt> and <tt class="docutils literal">user_id</tt>, which defaults to the
+tool’s own user, and reads the items of a task from <tt class="docutils literal">checklist_item_ids</tt>.
+It moves an item by writing <tt class="docutils literal">state</tt> (<tt class="docutils literal">todo</tt>, <tt class="docutils literal">waiting</tt>, <tt class="docutils literal">done</tt> or
+<tt class="docutils literal">cancelled</tt>) as the item’s assignee or reviewer. It reaches only the items
+of the tasks its user can read; without <tt class="docutils literal">allowed_company_ids</tt> in the
+context, those of all the user’s companies.</p>
+<p>A tool that keeps the questions of a task over RPC creates
+<tt class="docutils literal">project.task.question</tt> records with <tt class="docutils literal">task_id</tt> and <tt class="docutils literal">question</tt>, and
+<tt class="docutils literal">round</tt>, <tt class="docutils literal">addressed_to_id</tt> and <tt class="docutils literal">answer</tt> when it has them, and reads the
+rows of a task from <tt class="docutils literal">question_ids</tt>. It answers a row by writing
+<tt class="docutils literal">answer</tt>; <tt class="docutils literal">state</tt> takes <tt class="docutils literal">open</tt>, <tt class="docutils literal">answered</tt> or <tt class="docutils literal">dropped</tt>. A create or
+write that makes a row Answered fills <tt class="docutils literal">answered_by_id</tt> and <tt class="docutils literal">answered_on</tt>
+unless it sends them. It reaches only the rows of the tasks its user can
+read.</p>
+<p>A tool that gives test case results over RPC writes <tt class="docutils literal">state</tt> on
+<tt class="docutils literal">project.task.testcase</tt>: <tt class="docutils literal">not_run</tt>, <tt class="docutils literal">passed</tt>, <tt class="docutils literal">failed</tt>, <tt class="docutils literal">waiting</tt>
+or <tt class="docutils literal">not_applicable</tt>. A create or write of <tt class="docutils literal">passed</tt> or <tt class="docutils literal">failed</tt> fills
+<tt class="docutils literal">verified_by_id</tt> and <tt class="docutils literal">verified_on</tt> unless it sends them. It sends
+<tt class="docutils literal">verification_kind</tt> (<tt class="docutils literal">manual</tt>, <tt class="docutils literal">automated</tt> or <tt class="docutils literal">demo</tt>) and
+<tt class="docutils literal">test_reference</tt> with the result: only the buttons set <tt class="docutils literal">manual</tt> by
+themselves. The former values <tt class="docutils literal">todo</tt>, <tt class="docutils literal">done</tt> and <tt class="docutils literal">cancelled</tt> are taken
+as <tt class="docutils literal">not_run</tt>, <tt class="docutils literal">passed</tt> and <tt class="docutils literal">not_applicable</tt>. <tt class="docutils literal">passed</tt> is read, not
+written: a value sent for it is dropped, and <tt class="docutils literal">passed</tt> true without a
+<tt class="docutils literal">state</tt> gives <tt class="docutils literal">passed</tt>.</p>
+<p>A tool reads the notes of one category of a task with <tt class="docutils literal">search_read</tt> on
+<tt class="docutils literal">mail.message</tt>, the domain <tt class="docutils literal"><span class="pre">[(&quot;task_id&quot;,</span> <span class="pre">&quot;=&quot;,</span> &lt;task <span class="pre">id&gt;),</span>
+(&quot;note_category&quot;, <span class="pre">&quot;=&quot;,</span> <span class="pre">&quot;design_decision&quot;)]</span></tt> and fields such as <tt class="docutils literal">date</tt>,
+<tt class="docutils literal">author_id</tt> and <tt class="docutils literal">body</tt>. <tt class="docutils literal">note_category</tt> takes <tt class="docutils literal">requirement_change</tt>,
+<tt class="docutils literal">design_decision</tt>, <tt class="docutils literal">bug_fix</tt>, <tt class="docutils literal">review_fix</tt>, <tt class="docutils literal">user_feedback</tt>,
+<tt class="docutils literal">progress</tt>, <tt class="docutils literal">revised</tt> or <tt class="docutils literal">deploy</tt>. It reaches the messages its user
+can read, and groups them under the same check. It gives a note a category
+by posting it on the task with <tt class="docutils literal">message_post</tt>, <tt class="docutils literal">subtype_xmlid</tt>
+<tt class="docutils literal">mail.mt_note</tt> and a body that opens with the category in bold, in a
+paragraph: <tt class="docutils literal"><span class="pre">&lt;p&gt;&lt;b&gt;Progress&lt;/b&gt;</span> - in <span class="pre">review&lt;/p&gt;</span></tt>. A body of more than one
+node that opens with an inline tag and holds no block tag, such as
+<tt class="docutils literal"><span class="pre">&lt;b&gt;Progress&lt;/b&gt;</span> - in review</tt>, is stored inside a <tt class="docutils literal">&lt;span&gt;</tt> and gets its
+category too.</p>
 <p>The stage log has no view and no menu. A system administrator reads
 <tt class="docutils literal">project.task.stage.log</tt> over RPC: the rows come ordered by date, each
 with <tt class="docutils literal">task_id</tt>, <tt class="docutils literal">previous_stage_id</tt>, <tt class="docutils literal">stage_id</tt>, <tt class="docutils literal">stage_name</tt>,
@@ -800,6 +1021,25 @@ duplication of the project: core creates its copy in that project first.</li>
 <li>The sizes stored by an earlier 20.0 version of the module stay as they
 are until the hours of their task change: this branch has no migration
 that recomputes them.</li>
+<li>An update from an earlier 20.0 version converts no data: test cases keep
+their former states, the former checklist items stay in a table nothing
+reads, and the Html questions and answers are deleted (see
+<em>Installation</em>).</li>
+<li>The test case flag <tt class="docutils literal">passed</tt> and the translation of the former state
+values (<tt class="docutils literal">todo</tt>, <tt class="docutils literal">done</tt>, <tt class="docutils literal">cancelled</tt>) at create and write serve
+clients written for the former selection, until a later version removes
+them.</li>
+<li>Question rows have no chatter: a change of status or answer leaves no
+trace but <strong>Answered by</strong> and <strong>Answered on</strong>.</li>
+<li>A note whose category is in bold inside a heading or a list, or coloured,
+gets no category: only one opening <tt class="docutils literal">&lt;p&gt;</tt> or <tt class="docutils literal">&lt;span&gt;</tt> may come before
+the bold, and nothing between the bold and the category.</li>
+<li>The eight categories and their spelling are fixed in the module:
+<tt class="docutils literal">Bugfix</tt> or <tt class="docutils literal">Deployment</tt> in bold is no category. A change of them
+gives existing notes a category only where a migration recomputes it.</li>
+<li>A note that code logs with a change of tracked fields
+(<tt class="docutils literal">_track_set_log_message</tt>) is part of the tracking message of the
+change: it gets no category and is not in <strong>Task Notes</strong>.</li>
 <li>The stage log starts when the module is installed: the stages a task went
 through before that are not in it.</li>
 <li>A row of the stage log is written when the change of stage is flushed to
