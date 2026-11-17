@@ -210,6 +210,15 @@ those notes alone. It adds no column and writes nothing else on the
 messages. The server log gets one line with the number of notes given a
 category; a second run changes nothing.
 
+The update to 16.0.2.9.0 adds the **Modules** of a task: it creates the
+table ``project_task_ir_module_module_rel``, the two views of the module
+picker, the **Module** field of the task search and an access right that
+lets **Project / User** read the module list. It has no migration and writes
+nothing on the tasks, which start without modules; it can run with the
+server up. Where ``base_install_request``, installed with ``mail``, already
+lets every internal user read the module list, the access right changes
+nothing; without it, the field still works for project users.
+
 **Upgrading from project_software**
 
 ``project_software`` remains for one release as an empty module that depends

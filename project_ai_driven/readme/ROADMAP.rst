@@ -23,6 +23,12 @@
 * The pull requests of a task are tracked only through ``pr_uri``: one that
   is added without becoming the task's first leaves no trace in the chatter.
   Odoo 16 tracks no many2many field.
+* A change of the Modules of a task leaves no trace in the chatter, for the
+  same reason.
+* A module that a pull request of the task brings into the code base is
+  added to the task only once it is installed in the database.
+* Deleting a module from the module list, which Odoo refuses for a module
+  installed or about to be, takes it off every task that held it.
 * The closing rule and the estimate rule are checked on the tasks of a write
   that names their stage or their project. A stage recomputed for another
   reason is not checked, as for a subtask whose parent changes project, and
