@@ -3,6 +3,7 @@ from . import test_assignment_notification
 from . import test_checklist
 from . import test_closing_rule
 from . import test_estimate_rule
+from . import test_migrations
 from . import test_note_categories
 from . import test_pull_request
 from . import test_questions
