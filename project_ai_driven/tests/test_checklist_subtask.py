@@ -103,6 +103,7 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
         subtask = self._subtasks(self.task)
         self.assertRecordValues(subtask, [{"name": "Write the migration", "user_ids": self.user_dev.ids}])
         self.assertIn(self.user_dev.partner_id, subtask.message_partner_ids)
+        self.assertFalse(self._assignment_notifications(subtask), "mail_auto_subscribe_no_notify silences the notice")
         self.assertNoteLinks(self.task, "Write the migration", subtask, self.reviewer)
 
     def test_the_assignee_is_notified_of_a_subtask_converted_by_the_reviewer(self):
@@ -142,6 +143,16 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
         for message_part in (NO_TYPE, NO_ESTIMATE):
             self.assertIn(message_part, refusal.exception.args[0])
         # the rule refuses after core's INSERT: the sub-task row goes with the rollback of the request
+        self.assertTrue(item.exists(), "the item goes only once its sub-task is accepted")
+        self.assertFalse(self._conversion_notes(self.task), "the note follows the sub-task")
+
+    def test_a_subtask_refused_by_the_closing_rule_of_the_first_stage_leaves_the_item(self):
+        self._skip_next_to_pull_request_module()
+        self.project.pr_required_states = self.stage_backlog
+        item = self._new_item()
+        with unittest.TestCase.assertRaises(self, ValidationError) as refusal:
+            item.with_user(self.user_dev).action_convert_to_subtask()
+        self.assertIn("Choose a Resolution", refusal.exception.args[0])
         self.assertTrue(item.exists(), "the item goes only once its sub-task is accepted")
         self.assertFalse(self._conversion_notes(self.task), "the note follows the sub-task")
 

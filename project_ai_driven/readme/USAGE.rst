@@ -111,11 +111,10 @@ context, those of all the user's companies.
 It converts items into sub-tasks with ``action_convert_to_subtask``, each
 into a sub-task of its own task, as the assignee or the reviewer of every
 item: a refusal of one leaves them all. The method returns ``True``.
-``action_convert_to_subtask_open`` converts
-one item and returns the window action of its sub-task, the id in
-``res_id``. The note on the task is posted in the name of the tool's user,
-who needs an email address even with ``mail_auto_subscribe_no_notify``;
-that key silences the assignee's notice.
+``action_convert_to_subtask_open`` converts one item and returns the window
+action of its sub-task, the id in ``res_id``. The note on the task is posted
+in the name of the tool's user, who needs an email address even with
+``mail_auto_subscribe_no_notify``; that key silences the assignee's notice.
 
 A tool that keeps the questions of a task over RPC creates
 ``project.task.question`` records with ``task_id`` and ``question``, and

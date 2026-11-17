@@ -92,17 +92,17 @@ key silences these posts for an account without an email address.
 The assignee or the reviewer of an item converts it into a sub-task of its
 task, whatever its state, in a project with **Sub-tasks** turned on, so never
 on a task without a project. The sub-task takes the item's description as
-its title, its assignee, and the date of its deadline in the user's time
-zone, or no deadline. Its parent is the task, its project the task's, its
-stage the first unfolded stage of that project; it takes no default of the
-screen the conversion starts from. The assignee and the reviewer follow it.
-When the reviewer converts an item assigned to another user, that user gets
-Odoo's *You have been assigned to* notice. The task gets an internal note,
-without a category, linking the sub-task, and the item is deleted. The
-conversion also takes the right to delete the item, and a first stage marked
-by the closing or the estimate rule refuses the sub-task, which has no
-Resolution, type or estimate. Any refusal leaves the item and the task as
-they were, with no sub-task.
+its title, its assignee, and the date of its deadline in the time zone of the
+user converting it, or no deadline. Its parent is the task, its project the
+task's, its stage the first unfolded stage of that project; it takes no
+default of the screen the conversion starts from. The assignee and the
+reviewer follow it. When the reviewer converts an item assigned to another
+user, that user gets Odoo's *You have been assigned to* notice. The task gets
+an internal note, without a category, linking the sub-task, and the item is
+deleted. The conversion also takes the right to delete the item, and when
+the closing or the estimate rule marks that first unfolded stage, the stage
+refuses the sub-task, which has no Resolution, type or estimate. Any refusal
+leaves the item and the task as they were, with no sub-task.
 
 The task's kanban card shows the current user's completion percentage over
 their non-cancelled items and the number of their TODO and Waiting items. The
@@ -915,11 +915,10 @@ context, those of all the user's companies.
 It converts items into sub-tasks with ``action_convert_to_subtask``, each
 into a sub-task of its own task, as the assignee or the reviewer of every
 item: a refusal of one leaves them all. The method returns ``True``.
-``action_convert_to_subtask_open`` converts
-one item and returns the window action of its sub-task, the id in
-``res_id``. The note on the task is posted in the name of the tool's user,
-who needs an email address even with ``mail_auto_subscribe_no_notify``;
-that key silences the assignee's notice.
+``action_convert_to_subtask_open`` converts one item and returns the window
+action of its sub-task, the id in ``res_id``. The note on the task is posted
+in the name of the tool's user, who needs an email address even with
+``mail_auto_subscribe_no_notify``; that key silences the assignee's notice.
 
 A tool that keeps the questions of a task over RPC creates
 ``project.task.question`` records with ``task_id`` and ``question``, and
