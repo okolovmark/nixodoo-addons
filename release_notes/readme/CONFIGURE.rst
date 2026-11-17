@@ -39,13 +39,23 @@ holder (``-u acme_release_notes``) loads the note files whose key is new.
 Keep the ``<function>`` out of a ``noupdate`` block: there it would run on
 install only, and notes added later would never load.
 
+**Ticket link** (Settings > Technical > System Parameters)
+
+* ``release_notes.ticket_url``: the link a note's key opens, with ``{key}``
+  where the key goes, e.g. ``/tasks/{key}`` when a module serves that route.
+  Unset, the key is plain text.
+* ``release_notes.ticket_model``: the ticket model, e.g. ``project.task``.
+  Only users who can read it get the link. Unset, everyone does.
+
+A holder module can set both in a data file.
+
 **Access groups** (Settings > Users, the *Access Rights* tab of a user,
 section *Release Notes*)
 
 * **Internal users** (no group to set) read published notes and their tags.
   Unpublished notes are hidden from them.
 * **Manager** sees every note, creates and edits notes, manages tags, sees
-  the *Models* and *Notified* fields, can be a note's *Deployed by* user and
+  the *Models* and *Announced* fields, can be a note's *Deployed by* user and
   can publish and unpublish. Administrators (role *Administrator*) are
   managers through an implied group and are the only users who can delete a
   note. The group is not a light one: a user who holds it has the role

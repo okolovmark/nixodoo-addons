@@ -4,7 +4,7 @@
         <field name="name">release.note.view.form</field>
         <field name="model">release.note</field>
         <field name="arch" type="xml">
-            <form duplicate="0">
+            <form duplicate="0" js_class="release_note_form">
                 <header>
                     <button name="action_publish" string="Publish" type="object" class="oe_highlight"
                             groups="release_notes.group_release_note_manager"
@@ -16,12 +16,13 @@
                 <sheet>
                     <widget name="web_ribbon" title="Published" bg_color="text-bg-success"
                             invisible="not is_published"/>
+                    <field name="ticket_url" invisible="1"/>
                     <div class="oe_title">
                         <h1><field name="name" placeholder="Title"/></h1>
                     </div>
                     <group>
                         <group>
-                            <field name="key" readonly="id"/>
+                            <field name="key" widget="release_note_key" readonly="id"/>
                             <field name="summary"/>
                             <field name="tag_ids" widget="many2many_tags" options="{'color_field': 'color', 'on_tag_click': 'edit_color'}"/>
                             <field name="model_ids" widget="many2many_tags" groups="release_notes.group_release_note_manager"/>
@@ -33,6 +34,8 @@
                             <field name="is_notified" groups="release_notes.group_release_note_manager"/>
                         </group>
                     </group>
+                    <field name="demo_attachment_id" widget="release_note_video" nolabel="1"
+                           invisible="not demo_attachment_id"/>
                     <field name="body" nolabel="1"/>
                 </sheet>
                 <chatter/>

@@ -2,6 +2,7 @@ import glob
 import logging
 import os
 import re
+from urllib.parse import quote
 
 from markupsafe import Markup
 
@@ -17,6 +18,10 @@ MANAGER_GROUP = "release_notes.group_release_note_manager"
 PUBLISH_FIELDS = ("is_published", "published_by_id", "published_date", "is_notified")
 CLASS_ATTRIBUTE_RE = re.compile(r"""\bclass=(["'])(.*?)\1""")
 BUTTON_CLASS = "btn btn-primary"
+TICKET_URL_PARAM = "release_notes.ticket_url"
+TICKET_MODEL_PARAM = "release_notes.ticket_model"
+ANNOUNCEMENT_NOTIFICATION = "release_notes/updated"
+SEEN_RELATION = "release_note_seen_user_rel"
 
 
 class ReleaseNote(models.Model):
@@ -27,7 +32,7 @@ class ReleaseNote(models.Model):
 
     key = fields.Char(required=True, copy=False, help="Identity the notes loader matches on, e.g. PROJ-123.")
     name = fields.Char(string="Title", required=True, tracking=True)
-    summary = fields.Char(help="One line shown in the notification.")
+    summary = fields.Char(help="One line under the title: what changed for the user.")
     body = fields.Html()
     tag_ids = fields.Many2many("release.note.tag", string="Tags")
     model_ids = fields.Many2many(
@@ -45,9 +50,67 @@ class ReleaseNote(models.Model):
         tracking=True,
         domain=lambda self: [("all_group_ids", "in", self.env.ref(MANAGER_GROUP).ids)],
     )
-    is_notified = fields.Boolean(string="Notified", readonly=True, copy=False)
+    is_notified = fields.Boolean(
+        string="Announced",
+        readonly=True,
+        copy=False,
+        help="Set on the first publish: the note was announced in the main menu of its users.",
+    )
+    seen_user_ids = fields.Many2many(
+        "res.users",
+        SEEN_RELATION,
+        "note_id",
+        "user_id",
+        string="Seen by",
+        readonly=True,
+        copy=False,
+        groups=MANAGER_GROUP,
+        help="Users who opened or skipped the note: it is no longer announced to them.",
+    )
+    ticket_url = fields.Char(
+        compute="_compute_ticket_url",
+        help="Link the key opens, for users who can read the ticket model.",
+    )
+    demo_attachment_id = fields.Many2one(
+        "ir.attachment",
+        string="Demo video",
+        compute="_compute_demo_attachment_id",
+        help="The newest video attached to the note.",
+    )
 
     _key_unique = models.Constraint("unique(key)", "A release note with this key already exists.")
+
+    @api.depends("key")
+    @api.depends_context("uid")
+    def _compute_ticket_url(self):
+        params = self.env["ir.config_parameter"].sudo()
+        url_template = params.get_str(TICKET_URL_PARAM)
+        ticket_model = params.get_str(TICKET_MODEL_PARAM)
+        can_open = bool(url_template) and (
+            not ticket_model or (ticket_model in self.env and self.env[ticket_model].has_access("read"))
+        )
+        for note in self:
+            note.ticket_url = (
+                url_template.replace("{key}", quote(note.key, safe="")) if can_open and note.key else False
+            )
+
+    # no field path to depend on: attachments point at the note by res_model and res_id
+    @api.depends()
+    def _compute_demo_attachment_id(self):
+        videos = (
+            self.env["ir.attachment"]
+            .sudo()
+            .search(
+                [
+                    ("res_model", "=", self._name),
+                    ("res_id", "in", self.ids),
+                    ("mimetype", "=like", "video/%"),
+                ],
+                order="create_date desc, id desc",
+            )
+        )
+        for note in self:
+            note.demo_attachment_id = videos.filtered(lambda video, note=note: video.res_id == note.id)[:1]
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -75,10 +138,10 @@ class ReleaseNote(models.Model):
         return super().write(vals)
 
     def action_publish(self):
-        """Publish the notes and announce each one once by OdooBot direct chat.
+        """Publish the notes; each one is announced in its users' main menu.
 
         Only the note's Deployed by user may publish, and the note needs at least
-        one installed model: the models decide who is notified.
+        one installed model: the models decide who is announced the note.
         """
         self.check_access("write")
         for note in self:
@@ -97,15 +160,91 @@ class ReleaseNote(models.Model):
                 "published_date": fields.Datetime.now(),
             }
         )
-        pending_notes = self.filtered(lambda note: not note.is_notified)
-        for note in pending_notes:
-            note._notify_recipients()
-        pending_notes.sudo().write({"is_notified": True})
+        self.filtered(lambda note: not note.is_notified).sudo().write({"is_notified": True})
+        # the deployer read the note before publishing it: it is not news to them
+        self._mark_seen_by(self.env.user)
+        self._send_announcement_update()
 
     def action_unpublish(self):
-        """Hide the notes from internal users; chats already sent stay and are not re-sent."""
+        """Hide the notes from internal users and from the main menu announcement."""
         self.check_access("write")
         self.sudo().write({"is_published": False})
+        self._send_announcement_update()
+
+    @api.model
+    def get_announcement(self):
+        """What the main menu announces to the current user.
+
+        :return: dict with ``count``, ``note_ids`` (newest first) and ``title``
+            (of the newest note)
+        """
+        notes = self._get_announced_notes()
+        return {"count": len(notes), "note_ids": notes.ids, "title": notes[:1].name or ""}
+
+    def action_mark_seen(self):
+        """Mark the published notes among these as seen by the current user.
+
+        The main menu's View marks the note it opens, Skip the notes its panel
+        shows: never a note published since the panel was drawn.
+        """
+        self.check_access("read")
+        self.filtered("is_published")._mark_seen_by(self.env.user)
+        return True
+
+    def _get_announced_notes(self):
+        """Published notes the current user has neither opened nor skipped.
+
+        Only notes published after the user was created, and only notes about a
+        model the user can read.
+        """
+        user = self.env.user
+        if user.share:
+            return self.browse()
+        notes = self.sudo().search(
+            [
+                ("is_published", "=", True),
+                ("published_date", ">", user.create_date),
+                ("seen_user_ids", "not in", user.ids),
+            ],
+            order="published_date desc, id desc",
+        )
+        return notes.with_env(self.env).filtered(lambda note: note._is_about_a_model_of(user))
+
+    def _mark_seen_by(self, user):
+        """Record that ``user`` saw these notes.
+
+        A plain insert into the relation, not a write: the note's row is left
+        alone, so users opening the same note never wait on each other.
+        """
+        if not self:
+            return
+        self.env.cr.execute(
+            """
+            INSERT INTO release_note_seen_user_rel (note_id, user_id)
+            SELECT note_id, %s FROM unnest(%s) AS note_id
+            ON CONFLICT DO NOTHING
+            """,
+            (user.id, self.ids),
+        )
+        self.invalidate_recordset(["seen_user_ids"])
+        self._send_announcement_update(user)
+
+    def _is_about_a_model_of(self, user):
+        self.ensure_one()
+        return any(
+            self.env[name].with_user(user).has_access("read")
+            for name in self.sudo().model_ids.mapped("model")
+            if name in self.env
+        )
+
+    def _send_announcement_update(self, users=None):
+        """Tell the open web clients of ``users`` (default: the notes' audience) to reload the announcement."""
+        if users is None:
+            users = self.env["res.users"]
+            for note in self:
+                users |= note._get_notification_recipients()
+        for user in users:
+            user._bus_send(ANNOUNCEMENT_NOTIFICATION, {})
 
     def _publish_fields_changed(self, vals):
         for field_name in (name for name in PUBLISH_FIELDS if name in vals):
@@ -159,30 +298,7 @@ class ReleaseNote(models.Model):
                 ]
             )
         )
-        return candidate_users.filtered(
-            lambda user: any(self.env[name].with_user(user).has_access("read") for name in model_names)
-        )
-
-    def _notify_recipients(self):
-        self.ensure_one()
-        odoobot = self.env.ref("base.user_root")
-        channel_model = self.env["discuss.channel"].with_user(odoobot)
-        note_url = "/odoo/release.note/%s" % self.id
-        headline = self.env._("New update: %s", Markup("<b>%s</b>") % self.name)
-        body = Markup('<p>&#127881; %s</p><p>%s</p><p><a href="%s">%s</a></p>') % (
-            headline,
-            self.summary or "",
-            note_url,
-            self.env._("Open release note"),
-        )
-        for user in self._get_notification_recipients():
-            channel = channel_model._get_or_create_chat([user.partner_id.id])
-            channel.message_post(
-                body=body,
-                author_id=odoobot.partner_id.id,
-                message_type="comment",
-                subtype_xmlid="mail.mt_comment",
-            )
+        return candidate_users.filtered(lambda user: self._is_about_a_model_of(user))
 
     @api.model
     def _load_release_notes(self, module=None, path=None):

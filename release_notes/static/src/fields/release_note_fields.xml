@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="release_notes.KeyField">
+        <a t-if="this.ticketUrl" class="o_release_note_ticket_link" t-att-href="this.ticketUrl" target="_blank"
+           t-out="this.props.record.data[this.props.name]"/>
+        <t t-else="" t-call="web.CharField"/>
+    </t>
+
+    <t t-name="release_notes.VideoField">
+        <video t-if="this.video" class="o_release_note_video w-100 rounded" controls="" preload="metadata"
+               t-att-src="this.videoUrl"/>
+    </t>
+</templates>
