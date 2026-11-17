@@ -61,3 +61,13 @@
 * Of the stage changes the chatter did not track before the log existed, the
   filled past holds at most the stage the task is in, at its last stage
   update.
+* The breadcrumb of a note opened from **Task Notes** shows the name its
+  task had when the note was posted; the title of the note, the list and the
+  groups show the current name of the task.
+* A note whose body does not open with a paragraph, as one posted over the
+  API as ``<b>Progress</b> - in review``, is stored inside a ``<span>`` and
+  gets no category. Neither does a category in bold inside a heading or a
+  list, or coloured: only a paragraph may come before the bold, and nothing
+  between the bold and the category.
+* The eight categories and their spelling are fixed in the module:
+  ``Bugfix`` or ``Deployment`` in bold is no category.

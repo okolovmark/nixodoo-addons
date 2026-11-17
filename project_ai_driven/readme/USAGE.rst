@@ -51,6 +51,23 @@ on Open, Merged, Closed or No State, group by repository or state. On the
 form of a pull request, set **State**, **Merge Date** and **Deploy Date**
 when it is merged and deployed.
 
+**Project > Task Notes** lists the internal notes of the tasks you can read,
+archived tasks included, the newest first: a list, cards on a phone. A note
+of files alone is listed; a message to one user and a change of tracked
+fields without a note are not. Filter on a category, search by contents,
+task or author, and group by category or by task: a task's group bears its
+current name, and the categories come in the order of the filters, the notes
+without one last. A note opens read-only with its files, and **Open Task**
+opens its task. Nothing is created, changed or deleted from this menu.
+
+On the task form, the **Notes** button counts the notes of the task and
+opens them in the same list. It shows once the task has a note.
+
+To give a note a category, log it on the task with the category in bold as
+its first words, alone in the bold or followed there by a dash, a colon, a
+slash, a plus or an opening parenthesis: **Design Decision** - keep the
+flow; **Progress: 2/3**.
+
 A tool that writes over RPC sets ``pr_uri`` on the task to the link of the
 pull request, one link per write, or ``resolution`` to ``data``,
 ``configuration`` or ``no_change`` when there is none. A write of another
@@ -86,6 +103,20 @@ themselves. The former values ``todo``, ``done`` and ``cancelled`` are taken
 as ``not_run``, ``passed`` and ``not_applicable``. ``passed`` is read, not
 written: a value sent for it is dropped, and ``passed`` true without a
 ``state`` gives ``passed``.
+
+A tool reads the notes of one category of a task with ``search_read`` on
+``mail.message``, the domain ``[("task_id", "=", <task id>),
+("note_category", "=", "design_decision")]`` and fields such as ``date``,
+``author_id`` and ``body``. ``note_category`` takes ``requirement_change``,
+``design_decision``, ``bug_fix``, ``review_fix``, ``user_feedback``,
+``progress``, ``revised`` or ``deploy``. It reaches the messages its user
+can read. It gives a note a category by posting it on the task with
+``message_post``, ``subtype_xmlid`` ``mail.mt_note`` and a body that opens
+with a paragraph: ``<p><b>Progress</b> - in review</p>``. A grouped read
+(``read_group``) of messages takes a project user, ``("is_task_readable",
+"=", True)`` in the domain and group-bys among ``note_category``,
+``task_id``, ``author_id``, ``date``, ``model``, ``message_type`` and
+``subtype_id``.
 
 The stage log has no view and no menu. A system administrator reads
 ``project.task.stage.log`` over RPC: the rows come ordered by date, each

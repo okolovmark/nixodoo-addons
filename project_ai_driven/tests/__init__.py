@@ -3,6 +3,7 @@ from . import test_checklist
 from . import test_closing_rule
 from . import test_estimate_rule
 from . import test_hooks
+from . import test_note_categories
 from . import test_ai_driven_task
 from . import test_pr_uri_conversion
 from . import test_pull_request

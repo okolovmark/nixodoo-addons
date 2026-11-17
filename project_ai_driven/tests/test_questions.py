@@ -470,6 +470,53 @@ class TestQuestionConversion(ProjectAiDrivenCommon):
             [(False, "Scope?", "As agreed", "answered"), (False, "Data?", False, "open")],
         )
 
+    def test_a_pair_of_two_blank_items_gives_no_row(self):
+        task = self._store(("<ol><li>Scope?</li><li><br></li></ol>", "<ol><li>As agreed</li><li></li></ol>"))
+        self._convert()
+        self.assertEqual(self._rows(task), [(False, "Scope?", "As agreed", "answered")])
+
+    def test_pairs_all_blank_keep_the_task_whole(self):
+        blank_pairs = ("<p>Round one</p><ol><li><br></li></ol>", "<p>Round one</p><ol><li></li></ol>")
+        task = self._store(blank_pairs)
+        converted_counts, _state_counts, _logged_line = self._convert()
+        self.assertEqual(self._rows(task), [(False, *blank_pairs, "answered")])
+        self.assertEqual(converted_counts, {"paired_lists": 0, "kept_whole": 1, "open_questions": 0, "answers_only": 0})
+
+    def test_questions_alone_all_blank_give_one_row_of_the_whole(self):
+        blank_questions = "<p>Round one</p><ul><li><br></li><li></li></ul>"
+        task = self._store((blank_questions, None))
+        self._convert()
+        self.assertEqual(self._rows(task), [(False, blank_questions, False, "open")])
+
+    def test_a_heading_over_blank_items_alone_keeps_the_task_whole(self):
+        questions = "<p>R1</p><ul><li>Q1</li></ul><p>R2</p><ul><li></li></ul>"
+        answers = "<p>R1</p><ul><li>A1</li></ul><p>R2</p><ul><li></li></ul>"
+        answer_heading = (
+            "<ol><li>Q1</li></ol><ol><li><br></li></ol>",
+            "<ol><li>A1</li></ol><p>Later</p><ol><li></li></ol>",
+        )
+        headless_questions = "<ol><li>Q1</li></ol><ol><li><br></li></ol>"
+        paired_task = self._store((questions, answers))
+        answer_heading_task = self._store(answer_heading)
+        open_task = self._store((questions, None))
+        headless_task = self._store((headless_questions, None))
+        self._convert()
+        self.assertEqual(self._rows(paired_task), [(False, questions, answers, "answered")])
+        self.assertEqual(
+            self._rows(answer_heading_task), [(False, *answer_heading, "answered")], "a heading on the answer side"
+        )
+        self.assertEqual(self._rows(open_task), [(False, questions, False, "open")])
+        self.assertEqual(self._rows(headless_task), [(False, "Q1", False, "open")], "no heading, no text lost")
+
+    def test_an_answer_heading_over_blank_answers_alone_keeps_the_task_whole(self):
+        empty_answers = ("<p>R1</p><ol><li>Q1</li></ol>", "<p>Later</p><ol><li></li></ol>")
+        break_answers = ("<p>R1</p><ol><li>Q1</li></ol>", "<p>Later</p><ol><li><br></li></ol>")
+        empty_task = self._store(empty_answers)
+        break_task = self._store(break_answers)
+        self._convert()
+        self.assertEqual(self._rows(empty_task), [(False, *empty_answers, "answered")])
+        self.assertEqual(self._rows(break_task), [(False, *break_answers, "answered")])
+
     def test_the_heading_of_an_answer_list_opens_each_of_its_answers(self):
         same_round = ("<p>Round one</p><ol><li>Scope?</li></ol>", "<p>Round one</p><ol><li>As agreed</li></ol>")
         other_round = (

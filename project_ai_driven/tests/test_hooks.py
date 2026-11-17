@@ -48,6 +48,7 @@ from ..hooks import (
     rename_external_ids,
     take_over_module,
 )
+from ..models.mail_message import NOTE_CATEGORIES
 from odoo.addons.base.models.ir_model import selection_xmlid
 
 EMPTY_ARCH = "<data/>"
@@ -168,12 +169,16 @@ ACTIVITY_STATES = ("overdue", "today", "planned")
 EXTENDED_MODELS = ("project.project", "project.task")
 # Added after the cut from the legacy module, which never held them.
 ADDED_FIELDS = (
+    ("mail.message", "is_task_readable"),
+    ("mail.message", "note_category"),
+    ("mail.message", "task_id"),
     ("project.project", "estimate_required_states"),
     ("project.project", "pr_required_states"),
     ("project.task", "pr_legacy"),
     ("project.task", "pr_required_states"),
     ("project.task", "pr_uri"),
     ("project.task", "pull_request_ids"),
+    ("project.task", "note_count"),
     ("project.task", "question_ids"),
     ("project.task", "resolution"),
     ("project.task.testcase", "verified_by_id"),
@@ -200,8 +205,16 @@ ADDED_RECORDS = (
     ("ir.model", "model_project_task_access_mixin"),
     ("ir.model", "model_project_task_question"),
     ("ir.model.access", "access_task_question"),
-    # a model this module only extends, and did not extend at the cut
+    ("ir.ui.view", "mail_message_view_tree_task_note"),
+    ("ir.ui.view", "mail_message_view_kanban_task_note"),
+    ("ir.ui.view", "mail_message_view_form_task_note"),
+    ("ir.ui.view", "mail_message_view_search_task_note"),
+    ("ir.actions.act_window", "mail_message_action_task_note"),
+    ("ir.ui.menu", "mail_message_menu_task_note"),
+    ("ir.ui.view", "project_task_view_form_inherit_notes"),
+    # models this module only extends, and did not extend at the cut
     ("ir.model", "model_project_task_recurrence"),
+    ("ir.model", "model_mail_message"),
     *(
         ("ir.model.fields.selection", "selection__%s__%s" % (field, value))
         for field, values in (
@@ -211,6 +224,7 @@ ADDED_RECORDS = (
             ("project_task_testcase__state", ("not_run", "passed", "failed", "not_applicable")),
             ("project_task_testcase__verification_kind", ("manual", "automated", "demo")),
             ("project_task_question__state", ("open", "answered", "dropped")),
+            ("mail_message__note_category", tuple(NOTE_CATEGORIES)),
         )
         for value in values
     ),
@@ -221,6 +235,7 @@ ADDED_CONSTRAINTS = (
     "project_estimate_required%",
     "project_task_stage_log%",
     "project_task_question%",
+    "mail_message_task_id%",
 )
 # Fields of the legacy module that this module leaves to whatever replaces it.
 LEGACY_QUESTION_FIELDS = (("project.task", "questions"), ("project.task", "answers"))

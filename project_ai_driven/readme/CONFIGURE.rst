@@ -24,6 +24,11 @@
   **Project / User**. No access right allows deleting one.
 * The stage log is read by **Administration / Settings** only. No access
   right allows creating, changing or deleting a row.
+* **Project > Task Notes** and the **Notes** button of the task form are
+  shown to **Project / User**. A project user lists and groups there the
+  notes of the tasks they can read, by category, task, author, date, model,
+  message type or subtype; Odoo lets only administrators group other
+  messages, or group by any other field.
 * To be notified of checklist items of which you are neither the assignee
   nor the reviewer, edit your follower subscription on the task or on the
   project and tick *All checklist updates*.

@@ -5,6 +5,7 @@ from markupsafe import escape
 
 from odoo import Command, _, api, fields, models
 from odoo.exceptions import ValidationError
+from odoo.osv import expression
 
 from .project_pull_request import parse_single_pull_request_link
 from .project_task_testcase import TESTCASE_STATES
@@ -109,6 +110,7 @@ class ProjectTask(models.Model):
         copy=False,
         tracking=True,
     )
+    note_count = fields.Integer("Notes", compute="_compute_note_count")
 
     @api.depends("planned_hours")
     def _compute_tshirt_estimate(self):
@@ -225,6 +227,16 @@ class ProjectTask(models.Model):
         with self.env.protecting([self._fields["pr_uri"]], self):
             self._compute_pr_uri()
 
+    # message_ids clears only the count cached within a transaction: an open form shows a new note on reload
+    @api.depends("message_ids")
+    def _compute_note_count(self):
+        note_domain = expression.AND([self.env["mail.message"]._get_task_note_domain(), [("task_id", "in", self.ids)]])
+        # sudo: core groups messages for administrators alone, and these are notes of the tasks read
+        note_groups = self.env["mail.message"].sudo()._read_group(note_domain, ["res_id"], ["res_id"])
+        note_counts = {group["res_id"]: group["res_id_count"] for group in note_groups}
+        for record in self:
+            record.note_count = note_counts.get(record.id, 0)
+
     @api.constrains("planned_hours")
     def _check_estimate_is_a_number(self):
         """A NaN passes no comparison of the rules, and the JSON the web client
@@ -282,6 +294,14 @@ class ProjectTask(models.Model):
                 self, vals["stage_id"], vals.get("write_uid") or self.env.uid
             )
         return super()._write(vals)
+
+    def action_open_notes(self):
+        self.ensure_one()
+        action = self.env["ir.actions.act_window"]._for_xml_id("project_ai_driven.mail_message_action_task_note")
+        action["domain"] = expression.AND(
+            [self.env["mail.message"]._get_task_note_domain(), [("task_id", "=", self.id)]]
+        )
+        return action
 
     def _with_closing_values(self, default):
         """Return default for a copy that keeps the stage of its source, as the
