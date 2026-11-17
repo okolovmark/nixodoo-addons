@@ -130,8 +130,7 @@ class TestChecklist(ProjectAiDrivenCommon):
         for name in CHECKLIST_RECORDS:
             record = self.env.ref("%s.%s" % (MODULE, name))
             texts = [record.name, record.arch_db if record._name == "ir.ui.view" else ""]
-            # the conversion buttons and their visibility name the sub-task an item becomes, not the item
-            text = re.sub("action_convert_to_subtask|allow_subtasks", "", " ".join(texts).lower())
+            text = re.sub("action_convert_to_subtask", "", " ".join(texts).lower())
             self.assertNotIn("subtask", text, name)
         form_arch = self.env.ref("%s.project_task_checklist_item_view_form" % MODULE).arch_db
         self.assertIn('string="Checklist Item"', form_arch)

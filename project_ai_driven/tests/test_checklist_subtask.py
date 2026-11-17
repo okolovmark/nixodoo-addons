@@ -6,6 +6,7 @@ from datetime import date, datetime
 from lxml import html
 from markupsafe import escape
 
+from odoo import Command
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests.common import tagged
 
@@ -15,7 +16,13 @@ from .test_checklist import MARKUP_NAME
 from .test_estimate_rule import NO_ESTIMATE, NO_TYPE
 
 REFUSAL = "Only the assignee or the reviewer of a checklist item can convert it into a sub-task."
-CONVERT_INVISIBLE = {"invisible": ["|", ("hide_button", "=", True), ("allow_subtasks", "=", False)]}
+NO_TASK_CREATION = (
+    "You may not create tasks in the project %s, so you cannot convert its checklist items into sub-tasks."
+)
+NO_TASK_CREATION_IN_PROJECTS = (
+    "You may not create tasks in the projects %s, so you cannot convert their checklist items into sub-tasks."
+)
+CONVERT_INVISIBLE = {"invisible": [("can_convert", "=", False)]}
 
 
 @tagged("post_install", "-at_install")
@@ -40,6 +47,43 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
                 **vals,
             },
         )
+
+    def _new_item_of_invited_users_project(self, project_name="Invited Users Project", **vals):
+        """An item of a task its assignee and its reviewer follow, in a project
+        of invited internal users neither of them follows.
+        """
+        project = self.env["project.project"].create(
+            {
+                "name": project_name,
+                "privacy_visibility": "followers",
+                "allow_subtasks": True,
+                "type_ids": [Command.clear()],
+            },
+        )
+        self._create_stage("Invited Users Backlog", 1, project=project)
+        task = self.env["project.task"].create({"name": "Invited Users Task", "project_id": project.id})
+        task.message_subscribe(partner_ids=(self.user_dev | self.reviewer).partner_id.ids)
+        return self._new_item(task_id=task.id, **vals)
+
+    def _create_task_rule(self, domain_force, perm_create=True, perm_read=True):
+        """A rule another module adds to project.task for project users."""
+        return self.env["ir.rule"].create(
+            {
+                "name": "Tasks a module opens to project users",
+                "model_id": self.env["ir.model"]._get_id("project.task"),
+                "groups": [Command.link(self.env.ref("project.group_project_user").id)],
+                "domain_force": domain_force,
+                "perm_read": perm_read,
+                "perm_write": False,
+                "perm_create": perm_create,
+                "perm_unlink": False,
+            },
+        )
+
+    def _in_a_new_request(self, records, user):
+        # a request starts with an empty cache: values the setup cached as superuser would skip the user's access checks
+        self.env.invalidate_all()
+        return records.with_user(user)
 
     def _subtasks(self, task):
         return self.env["project.task"].search([("parent_id", "=", task.id)])
@@ -125,9 +169,11 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
     def test_another_project_user_is_refused_the_conversion_before_anything_is_created(self):
         item = self._new_item()
         outsider = self._create_project_user("Outsider", "project_ai_driven_outsider", "outsider@example.com")
+        as_outsider = self._in_a_new_request(item, outsider)
+        self.assertFalse(as_outsider.can_convert, "no button")
         # in place: Odoo's assertRaises rolls back what a late refusal would leave behind
         with unittest.TestCase.assertRaisesRegex(self, UserError, "^%s$" % re.escape(REFUSAL)):
-            item.with_user(outsider).action_convert_to_subtask()
+            as_outsider.action_convert_to_subtask()
         self.assertLeftInPlace(item, self.task)
 
     def test_an_item_without_deadline_gives_a_subtask_without_deadline(self):
@@ -171,6 +217,7 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
         read_only_task = self.env["project.task"].create({"name": "Read-only Task", "project_id": self.project.id})
         item = self._new_item(task_id=read_only_task.id)
         self.assertEqual(item.with_user(self.user_dev).read(["name"])[0]["name"], "Write the migration")
+        self.assertFalse(item.with_user(self.user_dev).can_convert, "no button")
         with unittest.TestCase.assertRaises(self, AccessError):
             item.with_user(self.user_dev).action_convert_to_subtask()
         self.assertLeftInPlace(item, read_only_task)
@@ -243,7 +290,7 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
         self.assertIn(str(escape(MARKUP_NAME)), self._conversion_notes(self.task).body)
         self.assertNoteLinks(self.task, MARKUP_NAME, subtask, self.user_dev)
 
-    def test_each_item_row_of_the_task_form_converts_it_for_its_assignee_and_reviewer(self):
+    def test_each_item_row_of_the_task_form_converts_it_for_a_user_who_may_convert(self):
         form_arch = self.env.ref("project.view_task_form2")._get_combined_arch()
         (item_list,) = form_arch.xpath("//field[@name='checklist_item_ids']/tree")
         (button,) = item_list.xpath("button[@name='action_convert_to_subtask']")
@@ -253,8 +300,7 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
         )
         self.assertEqual(literal_eval(button.get("attrs")), CONVERT_INVISIBLE)
         self.assertIn("The item is deleted.", button.get("confirm"))
-        for field_name in ("hide_button", "allow_subtasks"):
-            self.assertEqual(len(item_list.xpath("field[@name='%s']" % field_name)), 1, field_name)
+        self.assertEqual(len(item_list.xpath("field[@name='can_convert']")), 1)
 
     def test_the_item_form_converts_it_from_its_header(self):
         form_arch = self.env.ref("%s.project_task_checklist_item_view_form" % MODULE)._get_combined_arch()
@@ -265,14 +311,189 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
         )
         self.assertEqual(literal_eval(button.get("attrs")), CONVERT_INVISIBLE)
         self.assertIn("The item is deleted.", button.get("confirm"))
-        for field_name in ("hide_button", "allow_subtasks"):
-            self.assertEqual(len(form_arch.xpath("//field[@name='%s']" % field_name)), 1, field_name)
+        self.assertEqual(len(form_arch.xpath("//field[@name='can_convert']")), 1)
+
+    def test_computing_the_conversion_in_an_onchange_adds_no_subtask_to_the_task(self):
+        item = self._new_item()
+        as_assignee = self._in_a_new_request(self.task, self.user_dev)
+        task_in_onchange = as_assignee.new(
+            {"checklist_item_ids": [Command.update(item.id, {"name": "Renamed in the form"})]}, origin=as_assignee
+        )
+        self.assertFalse(task_in_onchange.checklist_item_ids.can_convert, "a line of an onchange")
+        self.assertFalse(task_in_onchange.child_ids)
 
     def test_a_project_without_subtasks_refuses_the_conversion(self):
         item = self._new_item()
-        self.assertTrue(item.with_user(self.user_dev).allow_subtasks)
+        self.assertTrue(item.with_user(self.user_dev).can_convert)
         self.project.allow_subtasks = False
-        self.assertFalse(item.with_user(self.user_dev).allow_subtasks, "the buttons are hidden")
+        self.assertFalse(item.with_user(self.user_dev).can_convert, "the buttons are hidden")
         with unittest.TestCase.assertRaisesRegex(self, UserError, "only in a project with Sub-tasks turned on"):
             item.with_user(self.user_dev).action_convert_to_subtask()
         self.assertLeftInPlace(item, self.task)
+
+    def test_an_item_of_a_task_without_project_is_refused_by_the_subtasks_setting(self):
+        task = self.env["project.task"].create({"name": "Private Task", "user_ids": [Command.set(self.user_dev.ids)]})
+        item = self._new_item(task_id=task.id)
+        as_assignee = self._in_a_new_request(item, self.user_dev)
+        self.assertFalse(as_assignee.can_convert, "no button")
+        with unittest.TestCase.assertRaisesRegex(self, UserError, "only in a project with Sub-tasks turned on"):
+            as_assignee.action_convert_to_subtask()
+        self.assertLeftInPlace(item, task)
+
+    def test_a_reviewer_outside_an_invited_users_project_is_refused_before_anything_is_created(self):
+        item = self._new_item_of_invited_users_project()
+        task = item.task_id
+        as_reviewer = self._in_a_new_request(item, self.reviewer)
+        self.assertFalse(as_reviewer.can_convert, "no button")
+        refusal = NO_TASK_CREATION % "Invited Users Project"
+        with unittest.TestCase.assertRaisesRegex(self, UserError, "^%s$" % re.escape(refusal)):
+            as_reviewer.action_convert_to_subtask()
+        self.assertLeftInPlace(item, task)
+
+    def test_the_assignee_outside_an_invited_users_project_is_refused_as_well(self):
+        # core reads the new sub-task before writing its assignees, and refuses them that read
+        item = self._new_item_of_invited_users_project()
+        task = item.task_id
+        as_assignee = self._in_a_new_request(item, self.user_dev)
+        self.assertFalse(as_assignee.can_convert, "no button")
+        refusal = NO_TASK_CREATION % "Invited Users Project"
+        with unittest.TestCase.assertRaisesRegex(self, UserError, "^%s$" % re.escape(refusal)):
+            as_assignee.action_convert_to_subtask()
+        self.assertLeftInPlace(item, task)
+
+    def test_items_of_several_refused_projects_are_refused_naming_each_project(self):
+        first_item = self._new_item_of_invited_users_project()
+        second_item = self._new_item_of_invited_users_project(project_name="Second Invited Users Project")
+        items = self._in_a_new_request(first_item | second_item, self.reviewer)
+        refusal = NO_TASK_CREATION_IN_PROJECTS % "Invited Users Project, Second Invited Users Project"
+        with unittest.TestCase.assertRaisesRegex(self, UserError, "^%s$" % re.escape(refusal)):
+            items.action_convert_to_subtask()
+        self.assertLeftInPlace(first_item, first_item.task_id)
+        self.assertLeftInPlace(second_item, second_item.task_id)
+
+    def test_a_task_rule_another_module_adds_lets_a_reviewer_outside_an_invited_users_project_convert(self):
+        item = self._new_item_of_invited_users_project()
+        task = item.task_id
+        self._create_task_rule("[('project_id', '=', %d)]" % task.project_id.id)
+        as_reviewer = self._in_a_new_request(item, self.reviewer)
+        self.assertTrue(as_reviewer.can_convert)
+        as_reviewer.action_convert_to_subtask()
+        self.assertFalse(item.exists())
+        self.assertRecordValues(
+            self._subtasks(task), [{"project_id": task.project_id.id, "user_ids": self.user_dev.ids}]
+        )
+
+    def test_a_task_rule_opening_the_tasks_to_read_only_leaves_the_reviewer_refused(self):
+        item = self._new_item_of_invited_users_project()
+        task = item.task_id
+        self._create_task_rule("[('project_id', '=', %d)]" % task.project_id.id, perm_create=False)
+        as_reviewer = self._in_a_new_request(item, self.reviewer)
+        self.assertFalse(as_reviewer.can_convert, "no button")
+        refusal = NO_TASK_CREATION % "Invited Users Project"
+        with unittest.TestCase.assertRaisesRegex(self, UserError, "^%s$" % re.escape(refusal)):
+            as_reviewer.action_convert_to_subtask()
+        self.assertLeftInPlace(item, task)
+
+    def test_a_task_rule_opening_task_creation_only_leaves_the_reviewer_refused(self):
+        # core reads the new row before it checks the create rule
+        item = self._new_item_of_invited_users_project()
+        task = item.task_id
+        self._create_task_rule("[('project_id', '=', %d)]" % task.project_id.id, perm_read=False)
+        as_reviewer = self._in_a_new_request(item, self.reviewer)
+        self.assertFalse(as_reviewer.can_convert, "no button")
+        refusal = NO_TASK_CREATION % "Invited Users Project"
+        with unittest.TestCase.assertRaisesRegex(self, UserError, "^%s$" % re.escape(refusal)):
+            as_reviewer.action_convert_to_subtask()
+        self.assertLeftInPlace(item, task)
+
+    def test_the_right_to_convert_is_computed_for_each_company_selection(self):
+        other_company = self.env["res.company"].create({"name": "Other Company"})
+        self.reviewer.company_ids = [Command.link(other_company.id)]
+        item = self._new_item_of_invited_users_project()
+        main_company = item.task_id.company_id
+        self._create_task_rule(
+            "[('project_id', '=', %d), ('company_id', '=', company_id)]" % item.task_id.project_id.id
+        )
+        as_reviewer = self._in_a_new_request(item, self.reviewer)
+        self.assertTrue(as_reviewer.with_context(allowed_company_ids=(main_company | other_company).ids).can_convert)
+        self.assertFalse(
+            as_reviewer.with_context(allowed_company_ids=(other_company | main_company).ids).can_convert,
+            "the rules are those of the current company",
+        )
+
+    def test_a_task_rule_searching_a_hierarchy_is_followed(self):
+        item = self._new_item_of_invited_users_project()
+        task = item.task_id
+        other_company = self.env["res.company"].create({"name": "Other Company"})
+        rule = self._create_task_rule("[('company_id', 'child_of', [%d])]" % other_company.id)
+        self.assertFalse(self._in_a_new_request(item, self.reviewer).can_convert, "not a task of that company")
+        rule.domain_force = "[('company_id', 'child_of', company_ids)]"
+        as_reviewer = self._in_a_new_request(item, self.reviewer)
+        self.assertTrue(as_reviewer.can_convert)
+        as_reviewer.action_convert_to_subtask()
+        self.assertEqual(self._subtasks(task).user_ids, self.user_dev)
+
+    def test_a_user_without_the_right_to_create_tasks_is_refused_the_conversion(self):
+        item = self._new_item()
+        self.env["ir.model.access"].search([("model_id.model", "=", "project.task")]).perm_create = False
+        as_assignee = self._in_a_new_request(item, self.user_dev)
+        self.assertFalse(as_assignee.can_convert, "no button")
+        refusal = NO_TASK_CREATION % "AI-driven Project"
+        with unittest.TestCase.assertRaisesRegex(self, UserError, "^%s$" % re.escape(refusal)):
+            as_assignee.action_convert_to_subtask()
+        self.assertLeftInPlace(item, self.task)
+
+    def test_a_task_rule_on_the_creator_lets_the_reviewer_create_the_subtask(self):
+        item = self._new_item_of_invited_users_project()
+        task = item.task_id
+        self._create_task_rule("[('create_uid', '=', user.id)]")
+        as_reviewer = self._in_a_new_request(item, self.reviewer)
+        self.assertTrue(as_reviewer.can_convert)
+        as_reviewer.action_convert_to_subtask()
+        self.assertEqual(self._subtasks(task).create_uid, self.reviewer)
+
+    def test_a_reviewer_who_follows_an_invited_users_project_converts_its_items(self):
+        item = self._new_item_of_invited_users_project()
+        task = item.task_id
+        task.project_id.message_subscribe(partner_ids=self.reviewer.partner_id.ids)
+        self.assertTrue(self._in_a_new_request(item, self.reviewer).can_convert)
+        self.assertFalse(item.with_user(self.user_dev).can_convert, "computed for each user")
+        self._in_a_new_request(item, self.reviewer).action_convert_to_subtask()
+        self.assertFalse(item.exists())
+        self.assertRecordValues(
+            self._subtasks(task), [{"project_id": task.project_id.id, "user_ids": self.user_dev.ids}]
+        )
+
+    def test_a_project_manager_converts_the_items_they_review_in_any_project(self):
+        manager = self._create_user(
+            "Project Manager", "project_ai_driven_manager", "manager@example.com", "project.group_project_manager"
+        )
+        item = self._new_item_of_invited_users_project(reviewer_id=manager.id)
+        task = item.task_id
+        as_manager = self._in_a_new_request(item, manager)
+        self.assertTrue(as_manager.can_convert)
+        as_manager.action_convert_to_subtask()
+        self.assertFalse(item.exists())
+        self.assertEqual(self._subtasks(task).user_ids, self.user_dev)
+
+    def test_an_item_of_another_allowed_company_converts_into_that_company(self):
+        other_company = self.env["res.company"].create({"name": "Other Company"})
+        self.reviewer.company_ids = [Command.link(other_company.id)]
+        project = self.env["project.project"].create(
+            {
+                "name": "Other Company Project",
+                "company_id": other_company.id,
+                "privacy_visibility": "employees",
+                "allow_subtasks": True,
+                "type_ids": [Command.clear()],
+            },
+        )
+        self._create_stage("Other Company Backlog", 1, project=project)
+        task = self.env["project.task"].create({"name": "Other Company Task", "project_id": project.id})
+        item = self._new_item(task_id=task.id)
+        as_reviewer = self._in_a_new_request(item, self.reviewer).with_context(
+            allowed_company_ids=(self.env.company | other_company).ids
+        )
+        self.assertTrue(as_reviewer.can_convert)
+        as_reviewer.action_convert_to_subtask()
+        self.assertEqual(self._subtasks(task).company_id, other_company)

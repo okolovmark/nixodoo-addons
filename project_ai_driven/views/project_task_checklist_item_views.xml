@@ -20,7 +20,7 @@
                             <field name="user_id" />
                             <field name="state" readonly="True" />
                             <field name="hide_button" invisible='True' />
-                            <field name="allow_subtasks" invisible="1" />
+                            <field name="can_convert" invisible="1" />
                             <button
                                 name="change_state_done"
                                 title="Change state to DONE"
@@ -55,7 +55,7 @@
                                 title="Convert to Sub-task"
                                 icon="fa-level-down"
                                 confirm="Convert this item into a sub-task of the task? The item is deleted."
-                                attrs="{'invisible': ['|', ('hide_button', '=', True), ('allow_subtasks', '=', False)]}"
+                                attrs="{'invisible': [('can_convert', '=', False)]}"
                             />
                             <field name="reviewer_id" />
                             <field name="deadline" />
@@ -92,14 +92,13 @@
         <field name="arch" type="xml">
             <form string="Checklist Item">
                 <header>
-                    <field name="hide_button" invisible="1" />
-                    <field name="allow_subtasks" invisible="1" />
+                    <field name="can_convert" invisible="1" />
                     <button
                         name="action_convert_to_subtask_open"
                         string="Convert to Sub-task"
                         type="object"
                         confirm="Convert this item into a sub-task of the task? The item is deleted."
-                        attrs="{'invisible': ['|', ('hide_button', '=', True), ('allow_subtasks', '=', False)]}"
+                        attrs="{'invisible': [('can_convert', '=', False)]}"
                     />
                 </header>
                 <sheet>
