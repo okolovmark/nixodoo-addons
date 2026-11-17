@@ -2,6 +2,7 @@ from markupsafe import Markup, escape
 
 from odoo import Command, api, fields, models
 from odoo.exceptions import UserError
+from odoo.tools.misc import clean_context
 
 STATE_COLORS = {"done": "#080", "todo": "#A00", "cancelled": "#777", "waiting": "#b818ce"}
 NOTIFIED_FIELDS = ("state", "name", "user_id")
@@ -26,6 +27,7 @@ class ProjectTaskChecklistItem(models.Model):
     user_id = fields.Many2one("res.users", "Assigned to", required=True, default=lambda self: self.env.user)
     task_id = fields.Many2one("project.task", "Task", ondelete="cascade", required=True, index=True)
     task_state = fields.Char(string="Task state", related="task_id.stage_id.name", readonly=True)
+    task_is_template = fields.Boolean(related="task_id.is_template")
     hide_button = fields.Boolean(compute="_compute_hide_button")
     recolor = fields.Boolean(compute="_compute_recolor")
     deadline = fields.Datetime()
@@ -55,6 +57,9 @@ class ProjectTaskChecklistItem(models.Model):
         return items
 
     def write(self, vals):
+        if "task_id" in vals:
+            # core checks write access on the task the item leaves, not on the one it moves to
+            self.env["project.task"].browse(vals["task_id"]).check_access("write")
         if any(field_name in vals for field_name in GUARDED_FIELDS):
             self._check_change_allowed()
         former_values = {record.id: (record.name, record.state) for record in self} if "name" in vals else {}
@@ -85,7 +90,8 @@ class ProjectTaskChecklistItem(models.Model):
 
     def action_convert_to_subtask_open(self):
         """Convert from the form of the item, which cannot reload a deleted
-        record: open the form of the sub-task instead.
+        record: open the form of the sub-task in place of the breadcrumbs,
+        which would lead back to the item.
         """
         self.ensure_one()
         subtask = self._convert_to_subtasks()
@@ -94,16 +100,22 @@ class ProjectTaskChecklistItem(models.Model):
             "res_model": "project.task",
             "res_id": subtask.id,
             "views": [(False, "form")],
+            "target": "main",
         }
 
     def _convert_to_subtasks(self):
         """Replace each item with a sub-task of its task and a note on the task
         linking it. As the user: a refused step raises before the items go.
-        Return the sub-tasks in the order of the items.
+        The sub-task takes no default of the calling view, which is about the
+        item or its task. Return the sub-tasks in the order of the items.
         """
-        self._check_change_allowed()
+        self._check_conversion_allowed()
         self.check_access("unlink")
-        subtasks = self.env["project.task"].create([record._get_subtask_values() for record in self])
+        subtasks = (
+            self.env["project.task"]
+            .with_context(clean_context(self.env.context))
+            .create([record._get_subtask_values() for record in self])
+        )
         for record, subtask in zip(self, subtasks):
             # the assignee follows through user_ids
             subtask.message_subscribe(partner_ids=(record.reviewer_id - record.user_id).partner_id.ids)
@@ -116,12 +128,15 @@ class ProjectTaskChecklistItem(models.Model):
         return subtasks
 
     def _get_subtask_values(self):
-        """No stage: the task takes the default one of its project, its first."""
+        """No stage: the task takes the default one of its project, its first.
+        A sub-task of a template is a template, as core's Sub-tasks tab makes it.
+        """
         self.ensure_one()
         return {
             "name": self.name,
             "parent_id": self.task_id.id,
             "project_id": self.task_id.project_id.id,
+            "is_template": self.task_id.is_template,
             "user_ids": [Command.set(self.user_id.ids)],
             "date_deadline": self.deadline,
         }
@@ -135,20 +150,37 @@ class ProjectTaskChecklistItem(models.Model):
         )
 
     def _get_task_copy_values(self, keep_progress):
-        """The values of a copy of each item for a copy of its task: TODO, or
-        the state of the item with keep_progress.
+        """The values of a copy of each item for a copy of its task: with
+        keep_progress its state and deadline, else TODO without deadline.
         """
-        return [
-            {**values, "state": item.state if keep_progress else "todo"} for item, values in zip(self, self.copy_data())
-        ]
+        from_zero = {} if keep_progress else {"state": "todo", "deadline": False}
+        return [{**values, "state": item.state, **from_zero} for item, values in zip(self, self.copy_data())]
 
     def _check_change_allowed(self):
-        if self.filtered(lambda record: self.env.user not in record.user_id | record.reviewer_id):
+        if self._filter_items_of_others():
             raise UserError(
                 self.env._(
                     "Only the assignee or the reviewer of a checklist item can change its state, name or assignee."
                 )
             )
+
+    def _check_conversion_allowed(self):
+        if self._filter_items_of_others():
+            raise UserError(
+                self.env._("Only the assignee or the reviewer of a checklist item can convert it into a sub-task.")
+            )
+        # core refuses a sub-task under a private task (_private_task_has_no_parent)
+        if self.filtered(lambda record: not record.task_id.project_id and not record.task_id.is_template):
+            raise UserError(
+                self.env._(
+                    "The checklist items of a private task cannot be converted into sub-tasks:"
+                    " set a project on the task first."
+                )
+            )
+
+    def _filter_items_of_others(self):
+        """The items the user is neither the assignee nor the reviewer of."""
+        return self.filtered(lambda record: self.env.user not in record.user_id | record.reviewer_id)
 
     def _notify_checklist_item_change(self, former_values=None, former_assignees=None):
         """Post each item on its task to its assignee and its reviewer, never to

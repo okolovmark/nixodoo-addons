@@ -16,6 +16,8 @@ LINE_FIELDS = {
         "name",
         "state",
         "steps_to_execute",
+        "expected_results",
+        "comments",
         "verified_by_id",
         "verified_on",
         "verification_kind",
@@ -34,8 +36,14 @@ LINE_FIELDS = {
 }
 # What a line of a copy from or into a template holds in place of the values of its source.
 VALUES_FROM_ZERO = {
-    "checklist_item_ids": {"state": "todo"},
-    "testcase_ids": {"state": "not_run", "verified_by_id": False, "verified_on": False, "verification_kind": False},
+    "checklist_item_ids": {"state": "todo", "deadline": False},
+    "testcase_ids": {
+        "state": "not_run",
+        "comments": False,
+        "verified_by_id": False,
+        "verified_on": False,
+        "verification_kind": False,
+    },
     "question_ids": {"state": "open", "answer": False, "answered_by_id": False, "answered_on": False},
 }
 
@@ -81,6 +89,8 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
                         "task_id": task.id,
                         "state": "passed",
                         "steps_to_execute": "<p>Run it</p>",
+                        "expected_results": "<p>It passes</p>",
+                        "comments": "<p>Passed on the second run</p>",
                         "verification_kind": "automated",
                         "test_reference": "/module:TestClass.test_method",
                     },
@@ -204,6 +214,29 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
         with freeze_time(LATER):
             project_copy = self.project.copy()
 
+        task_copy = project_copy.tasks.filtered(lambda task: not task.parent_id)
+        self.assertLinesCopied(task_copy | task_copy.child_ids, source_values, source_tasks)
+
+    def test_a_duplicated_task_template_takes_its_lines_and_those_of_its_subtask_with_their_states(self):
+        self.task.is_template = True
+        source_tasks = self.task | self.subtask
+        source_values = self._line_values(source_tasks)
+
+        with freeze_time(LATER):
+            template_copy = self.task.copy()
+
+        self.assertTrue(template_copy.is_template)
+        self.assertLinesCopied(template_copy | template_copy.child_ids, source_values, source_tasks)
+
+    def test_a_duplicated_project_template_takes_the_lines_of_its_tasks_and_subtasks_with_their_states(self):
+        self.project.is_template = True
+        source_tasks = self.task | self.subtask
+        source_values = self._line_values(source_tasks)
+
+        with freeze_time(LATER):
+            project_copy = self.project.copy()
+
+        self.assertTrue(project_copy.is_template)
         task_copy = project_copy.tasks.filtered(lambda task: not task.parent_id)
         self.assertLinesCopied(task_copy | task_copy.child_ids, source_values, source_tasks)
 

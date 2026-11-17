@@ -353,7 +353,7 @@ class TestQuestionAccess(ProjectAiDrivenCommon):
         self.visible_question.with_user(self.user_dev).write({"answer": ANSWER})
         self.assertEqual(self.visible_question.state, "answered")
 
-    def test_rows_of_a_task_the_user_cannot_read_are_not_read_written_or_deleted(self):
+    def test_rows_of_a_task_the_user_cannot_read_or_write_are_not_read_written_or_deleted(self):
         hidden_question = self.hidden_question.with_user(self.user_dev)
         with self.assertRaises(AccessError):
             hidden_question.read(["question"])
@@ -387,7 +387,7 @@ class TestQuestionAccess(ProjectAiDrivenCommon):
         with self.assertRaises((AccessError, MissingError)):
             (deleted_question | self.hidden_question.with_user(self.user_dev)).check_access("unlink")
 
-    def test_rows_cannot_be_added_to_a_task_the_user_cannot_read(self):
+    def test_rows_cannot_be_added_to_a_task_the_user_cannot_write(self):
         with self.assertRaises(AccessError):
             self.as_developer.create({"question": QUESTION, "task_id": self.hidden_task.id})
         self.assertEqual(self.as_developer.create({"question": QUESTION, "task_id": self.task.id}).task_id, self.task)

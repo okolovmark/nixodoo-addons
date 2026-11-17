@@ -62,6 +62,9 @@ class ProjectTaskTestcase(models.Model):
         return super().create([self._prepare_result_values(vals) for vals in vals_list])
 
     def write(self, vals):
+        if "task_id" in vals:
+            # core checks write access on the task the case leaves, not on the one it moves to
+            self.env["project.task"].browse(vals["task_id"]).check_access("write")
         return super().write(self._prepare_result_values(vals))
 
     def action_set_passed(self):
@@ -121,13 +124,14 @@ class ProjectTaskTestcase(models.Model):
     def _get_task_copy_values(self, keep_progress):
         """The values of a copy of each case for a copy of its task: it keeps
         its automated test reference, and with keep_progress its result,
-        verification included; else it is Not run.
+        verification included, and its comments; else it is Not run without
+        comments.
         """
         return [
             {
                 **values,
                 "test_reference": case.test_reference,
-                **(case._get_result_values() if keep_progress else {"state": "not_run"}),
+                **(case._get_result_values() if keep_progress else {"state": "not_run", "comments": False}),
             }
             for case, values in zip(self, self.copy_data())
         ]

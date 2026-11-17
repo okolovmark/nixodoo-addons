@@ -1,4 +1,5 @@
 import copy
+import unittest
 from ast import literal_eval
 from datetime import datetime
 from unittest.mock import patch
@@ -480,15 +481,17 @@ class TestTestCaseAccess(ProjectAiDrivenCommon):
         task_form = self.task.with_user(self.user_dev).read(["testcase_ids"])[0]
         self.assertEqual(task_form["testcase_ids"], self.visible_case.ids)
 
-    def test_cases_of_a_task_the_user_cannot_read_are_not_read_written_or_deleted(self):
+    def test_cases_of_a_task_the_user_cannot_read_or_write_are_not_read_written_or_deleted(self):
         hidden_case = self.hidden_case.with_user(self.user_dev)
         with self.assertRaises(AccessError):
             hidden_case.read(["name"])
+        # in place: Odoo's assertRaises rolls back what a refused write or unlink would leave behind
         for vals in ({"comments": "<p>Checked</p>"}, {"state": "passed"}):
-            with self.subTest(vals=vals), self.assertRaises(AccessError):
+            with self.subTest(vals=vals), unittest.TestCase.assertRaises(self, AccessError):
                 hidden_case.write(vals)
-        with self.assertRaises(AccessError):
+        with unittest.TestCase.assertRaises(self, AccessError):
             hidden_case.unlink()
+        self.hidden_case.invalidate_recordset()
         self.assertRecordValues(self.hidden_case, [{"state": "not_run", "comments": False}])
         visible_case = self.visible_case.with_user(self.user_dev)
         visible_case.write({"state": "passed"})
@@ -496,7 +499,7 @@ class TestTestCaseAccess(ProjectAiDrivenCommon):
         visible_case.unlink()
         self.assertFalse(self.visible_case.exists())
 
-    def test_cases_cannot_be_added_to_a_task_the_user_cannot_read(self):
+    def test_cases_cannot_be_added_to_a_task_the_user_cannot_write(self):
         with self.assertRaises(AccessError):
             self.as_developer.create({"name": "Sneaked case", "task_id": self.hidden_task.id})
         self.assertEqual(self.as_developer.create({"name": "Added case", "task_id": self.task.id}).task_id, self.task)

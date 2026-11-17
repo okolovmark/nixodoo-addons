@@ -1,3 +1,5 @@
+import unittest
+
 from odoo.exceptions import AccessError
 
 from .common import ProjectAiDrivenCommon
@@ -36,18 +38,39 @@ class TestLineWriteAccess(ProjectAiDrivenCommon):
         with self.assertRaises(AccessError):
             task_template.check_access("write")
         for model_name, (new_values, change) in LINE_VALUES.items():
+            (changed_field,) = change
             with self.subTest(model=model_name):
                 lines = self._lines(model_name, self.user_dev)
-                line = self.template_lines[model_name].with_user(self.user_dev)
+                template_line = self.template_lines[model_name]
+                line = template_line.with_user(self.user_dev)
                 self.assertEqual(lines.search([("task_id", "=", self.task_template.id)]), line)
                 self.assertEqual(len(line.read(list(change))), 1)
-                with self.assertRaises(AccessError):
+                # in place: Odoo's assertRaises rolls back what a refused write or unlink would leave behind
+                with unittest.TestCase.assertRaises(self, AccessError):
                     line.write(change)
-                with self.assertRaises(AccessError):
+                with unittest.TestCase.assertRaises(self, AccessError):
                     line.unlink()
+                template_line.invalidate_recordset()
+                self.assertTrue(template_line.exists())
+                self.assertFalse(template_line[changed_field])
+                # core refuses a new line after its INSERT: the row goes with the rollback of the request
                 with self.assertRaises(AccessError):
                     lines.create({**new_values, "task_id": self.task_template.id})
-                self.assertEqual(lines.sudo().search_count([("task_id", "=", self.task_template.id)]), 1)
+
+    def test_a_project_user_moves_a_line_only_onto_a_task_they_may_write(self):
+        self.task_template.with_user(self.user_dev).check_access("read")
+        other_task = self.env["project.task"].create({"name": "Other Task", "project_id": self.project.id})
+        for model_name, (new_values, _change) in LINE_VALUES.items():
+            with self.subTest(model=model_name):
+                line = self._lines(model_name, self.user_dev).create({**new_values, "task_id": self.task.id})
+                with unittest.TestCase.assertRaises(self, AccessError):
+                    line.write({"task_id": self.task_template.id})
+                line.invalidate_recordset()
+                self.assertEqual(line.task_id, self.task, "nothing moves")
+                line.write({"task_id": other_task.id})
+                self.assertEqual(line.task_id, other_task)
+                line.sudo().write({"task_id": self.task_template.id})
+                self.assertEqual(line.sudo().task_id, self.task_template)
 
     def test_a_project_user_creates_changes_and_deletes_the_lines_of_a_task_they_may_write(self):
         self.task.with_user(self.user_dev).check_access("write")

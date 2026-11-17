@@ -556,7 +556,7 @@ class TestChecklistAccess(ProjectAiDrivenCommon):
             [{"id": self.visible_item.id, "name": "Visible item"}],
         )
 
-    def test_items_of_a_task_the_user_cannot_read_are_not_written_or_deleted(self):
+    def test_items_of_a_task_the_user_cannot_write_are_not_written_or_deleted(self):
         hidden_item = self.hidden_item.with_user(self.user_dev)
         for vals in ({"deadline": "2026-12-01 10:00:00"}, {"state": "done"}):
             with self.subTest(vals=vals), self.assertRaises(AccessError):
@@ -569,12 +569,12 @@ class TestChecklistAccess(ProjectAiDrivenCommon):
         visible_item.unlink()
         self.assertFalse(self.visible_item.exists())
 
-    def test_items_cannot_be_added_to_a_task_the_user_cannot_read(self):
+    def test_items_cannot_be_added_to_a_task_the_user_cannot_write(self):
         with self.assertRaises(AccessError):
             self.as_developer.create({"name": "Sneaked item", "task_id": self.hidden_task.id})
         self.assertEqual(self.as_developer.create({"name": "Added item", "task_id": self.task.id}).task_id, self.task)
 
-    def test_a_user_who_can_read_no_task_is_refused_an_item_before_it_is_inserted(self):
+    def test_a_user_who_can_write_no_task_is_refused_an_item_before_it_is_inserted(self):
         self.assertTrue(self.as_developer.browse().has_access("create"))
         self._restrict_task_access("Hide every task", "[(0, '=', 1)]")
         self.assertFalse(self.as_developer.browse().has_access("create"))

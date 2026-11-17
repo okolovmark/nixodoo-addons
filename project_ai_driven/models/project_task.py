@@ -381,7 +381,8 @@ class ProjectTask(models.Model):
     def _get_line_copy_values(self, keep_progress):
         """Return {line field: [values of the copy of each line]} for the line
         fields the user may read, as core copies no other field of a task.
-        keep_progress keeps the state, the result or the answer of each line.
+        keep_progress keeps the state, the result or the answer of each line,
+        and the deadline of an item or the comments of a case.
         """
         return {
             field_name: self[field_name]._get_task_copy_values(keep_progress)
