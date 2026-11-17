@@ -1,8 +1,14 @@
 * On a project, tick **AI-driven Project** (*Settings* tab, above
-  *Visibility*) to show the Technical Solution and Pull Requests tabs, the
-  Resolution and the Modules on its tasks, and to hide the core priority
-  star on them.
-* Below it, on an AI-driven project, **Stages Requiring a Resolution** lists
+  *Visibility*) to show the Technical Solution and Pull Requests tabs and the
+  Resolution on its tasks, and to hide the core priority star on them.
+* Below it, a Settings administrator ticks **Develops This Odoo** on the one
+  AI-driven project whose tasks change this Odoo database: its tasks show
+  their Modules. The field is shown to **Administration / Settings** only,
+  on a project that is AI-driven or carries the flag. One project carries
+  it at most, archived projects included: to move it, clear it on the
+  project that has it, then tick it on the other one. Only a Settings
+  administrator archives or deletes the project that carries it.
+* Then, on an AI-driven project, **Stages Requiring a Resolution** lists
   the stages a task enters only with a Resolution, and with a pull request
   when the Resolution is Code. Only stages of the project can be picked.
   Leave it empty to switch the closing rule off.
