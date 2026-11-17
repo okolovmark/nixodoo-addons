@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="release_notes.Announcement" owl="1">
+        <div t-if="state.count" class="o_release_notes_announcement w-100 px-3 pt-3">
+            <div class="alert alert-info d-flex flex-wrap align-items-center gap-2 mb-0" role="status">
+                <span class="flex-grow-1">
+                    <i class="fa fa-bullhorn me-2" role="img" aria-label="New updates" title="New updates"/>
+                    <t t-if="state.count === 1">New in Odoo: </t>
+                    <t t-else=""><t t-esc="state.count"/> new updates in Odoo. Newest: </t>
+                    <b t-esc="state.title"/>
+                </span>
+                <span class="d-flex gap-2">
+                    <button type="button" class="btn btn-primary btn-sm o_release_notes_view"
+                            t-on-click.stop="onView">View</button>
+                    <button type="button" class="btn btn-link btn-sm o_release_notes_skip"
+                            t-on-click.stop="onSkip">Skip</button>
+                </span>
+            </div>
+        </div>
+    </t>
+
+    <t t-name="release_notes.Counter" owl="1">
+        <span t-if="state.count" class="o_release_notes_counter badge rounded-pill bg-danger ms-1"
+              title="New updates in Odoo" t-esc="state.count"/>
+    </t>
+
+    <!-- Odoo's own apps menu; release_notes_web_responsive places both in web_responsive's -->
+    <t t-inherit="web.NavBar.AppsMenu" t-inherit-mode="extension" owl="1">
+        <xpath expr="//i[hasclass('oi-apps')]" position="after">
+            <ReleaseNotesCounter/>
+        </xpath>
+        <xpath expr="//DropdownItem" position="before">
+            <ReleaseNotesAnnouncement/>
+        </xpath>
+    </t>
+</templates>

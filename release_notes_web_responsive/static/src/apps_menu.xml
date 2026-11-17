@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <!-- web_responsive replaces Odoo's apps menu, and the release_notes extensions with it -->
+    <t t-inherit="web_responsive.AppsMenu" t-inherit-mode="extension" owl="1">
+        <xpath expr="//i[hasclass('oi-apps')]" position="after">
+            <ReleaseNotesCounter/>
+        </xpath>
+    </t>
+
+    <t t-inherit="web.NavBar.AppsMenu" t-inherit-mode="extension" owl="1">
+        <xpath expr="//AppsMenuSearchBar" position="before">
+            <ReleaseNotesAnnouncement/>
+        </xpath>
+    </t>
+</templates>
