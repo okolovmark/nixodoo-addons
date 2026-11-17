@@ -186,6 +186,7 @@ ADDED_FIELDS = (
     ("project.task", "module_ids"),
     ("project.task", "module_names"),
     ("project.task", "develops_this_odoo"),
+    ("project.task", "brief"),
     ("project.task.testcase", "verified_by_id"),
     ("project.task.testcase", "verified_on"),
     ("project.task.testcase", "verification_kind"),
