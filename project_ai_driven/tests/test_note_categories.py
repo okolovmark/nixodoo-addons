@@ -6,6 +6,7 @@ from unittest.mock import patch
 from lxml import etree
 from markupsafe import Markup
 
+from odoo import Command
 from odoo.exceptions import AccessError
 
 from ..models.mail_message import NOTE_CATEGORIES, get_note_category
@@ -264,6 +265,19 @@ class TestTaskNotes(NoteCategoryCase):
     def _arch(self, xmlid):
         return etree.fromstring(self.env.ref("%s.%s" % (MODULE, xmlid)).arch)
 
+    def _log_note_of_a_former_follower(self, body):
+        """A note the developer logged on the hidden task while following it:
+        core lets its author read it after.
+        """
+        partner_ids = self.user_dev.partner_id.ids
+        self.hidden_task.message_subscribe(partner_ids=partner_ids)
+        note = self._log_note(body, record=self.hidden_task.with_user(self.user_dev))
+        self.hidden_task.message_unsubscribe(partner_ids=partner_ids)
+        with self.assertRaises(AccessError):
+            self.hidden_task.with_user(self.user_dev).check_access("read")
+        self.assertEqual(self.Message.with_user(self.user_dev).search([("id", "=", note.id)]), note)
+        return note
+
     def test_the_action_lists_the_internal_notes_of_tasks_and_no_tracking(self):
         notes = self._log_task_messages()
         tracking = self.task.message_ids.filtered(lambda message: message.message_type == "tracking")
@@ -285,6 +299,15 @@ class TestTaskNotes(NoteCategoryCase):
         self.assertEqual(notes_action["res_model"], "mail.message")
         self.assertEqual(self.Message.search(notes_action["domain"]), notes)
 
+    def test_the_superuser_and_a_project_user_each_read_their_own_count_in_one_transaction(self):
+        self._log_note("<p><b>Progress</b> - visible</p>")
+        self._log_note("<p><b>Deploy</b> - hidden</p>", record=self.hidden_task)
+        tasks = self.task | self.hidden_task
+
+        self.assertEqual(tasks.mapped("note_count"), [1, 1])
+        self.assertEqual(tasks.with_user(self.user_dev).mapped("note_count"), [1, 0], "not the superuser's count")
+        self.assertEqual(tasks.mapped("note_count"), [1, 1], "not the project user's count")
+
     def test_the_notes_button_counts_a_note_posted_since_it_was_read(self):
         self.assertEqual(self.task.note_count, 0)
         self._log_note("<p>Posted after the form was read</p>")
@@ -296,6 +319,55 @@ class TestTaskNotes(NoteCategoryCase):
         with self.assertRaises(AccessError):
             self.hidden_task.with_user(self.user_dev).check_access("read")
         self.assertEqual(self._action_notes(self.user_dev), visible_note)
+
+    def test_a_note_the_user_wrote_on_a_task_they_can_no_longer_read_is_not_listed_or_counted(self):
+        visible_note = self._log_note("<p><b>Progress</b> - visible</p>")
+        own_note = self._log_note_of_a_former_follower("<p><b>Progress</b> - while following</p>")
+
+        self.assertEqual(self._action_notes(self.user_dev), visible_note)
+        self.assertEqual(self._action_notes(tasks=self.hidden_task), own_note, "listed to whoever reads the task")
+        self.assertEqual(self.hidden_task.with_user(self.user_dev).note_count, 0)
+        notes_domain = self.hidden_task.with_user(self.user_dev).action_open_notes()["domain"]
+        self.assertFalse(self.Message.with_user(self.user_dev).search(notes_domain))
+
+    def test_a_note_on_a_task_of_a_company_not_selected_is_not_listed_or_counted(self):
+        home_company, other_company = self.env["res.company"].create(
+            [{"name": "Notes Home Company"}, {"name": "Notes Other Company"}],
+        )
+        self.user_dev.write(
+            {
+                "company_ids": [Command.link(home_company.id), Command.link(other_company.id)],
+                "company_id": home_company.id,
+            },
+        )
+        other_project = self.env["project.project"].create({"name": "Other Project", "company_id": other_company.id})
+        other_task = self.env["project.task"].create({"name": "Other Task", "project_id": other_project.id})
+        both_companies = (home_company | other_company).ids
+        own_note = self._log_note(
+            "<p><b>Deploy</b> - other company</p>",
+            record=other_task.with_user(self.user_dev).with_context(allowed_company_ids=both_companies),
+        )
+        user_messages = self.Message.with_user(self.user_dev)
+
+        home_only = user_messages.with_context(allowed_company_ids=home_company.ids)
+        self.assertEqual(home_only.search([("id", "=", own_note.id)]), own_note, "core lets its author read it")
+        self.assertFalse(home_only.search(self._action_domain(other_task)))
+        both = user_messages.with_context(allowed_company_ids=both_companies)
+        self.assertEqual(both.search(self._action_domain(other_task)), own_note)
+        user_task = other_task.with_user(self.user_dev)
+        self.assertEqual(user_task.with_context(allowed_company_ids=both_companies).note_count, 1)
+        self.assertEqual(user_task.with_context(allowed_company_ids=home_company.ids).note_count, 0)
+
+    def test_the_notes_of_an_archived_task_the_user_can_read_are_listed_and_counted(self):
+        notes = self._log_note("<p><b>Progress</b> - before archiving</p>") | self._log_files()
+        self.task.active = False
+
+        self.assertEqual(self._action_notes(self.user_dev), notes)
+        archived_task = self.task.with_user(self.user_dev)
+        self.assertEqual(archived_task.note_count, 2)
+        self.assertEqual(
+            self.Message.with_user(self.user_dev).search(archived_task.action_open_notes()["domain"]), notes
+        )
 
     def test_a_page_of_the_list_holds_the_notes_the_user_can_read_filtered_in_sql(self):
         visible_note = self._log_note("<p><b>Progress</b> - visible</p>")
@@ -323,6 +395,7 @@ class TestTaskNotes(NoteCategoryCase):
         self._log_note("<p><b>Progress</b> - visible</p>")
         self._log_note("<p><b>Deploy</b> - visible</p>")
         self._log_note("<p><b>Progress</b> - hidden</p>", record=self.hidden_task)
+        self._log_note_of_a_former_follower("<p><b>Deploy</b> - while following</p>")
         self.task.name = "Renamed Task"
         user_messages = self.Message.with_user(self.user_dev).with_context(read_group_expand=True)
 
@@ -336,10 +409,12 @@ class TestTaskNotes(NoteCategoryCase):
             [(group["task_id"], group["__count"]) for group in task_groups],
             [((self.task.id, "Renamed Task"), 2)],
         )
-        all_task_groups = self.Message.formatted_read_group(self._action_domain(), ["task_id"], ["__count"])
+        member_task_groups = self.Message.with_user(self.user_lead).formatted_read_group(
+            self._action_domain(), ["task_id"], ["__count"]
+        )
         self.assertEqual(
-            {group["task_id"][0]: group["__count"] for group in all_task_groups},
-            {self.task.id: 2, self.hidden_task.id: 1},
+            {group["task_id"][0]: group["__count"] for group in member_task_groups},
+            {self.task.id: 2, self.hidden_task.id: 2},
             "the hidden task to its project members",
         )
 

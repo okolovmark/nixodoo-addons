@@ -100,13 +100,16 @@ class MailMessage(models.Model):
 
     @api.model
     def _get_task_note_domain(self):
-        """The internal notes of tasks: no message to one user, no tracking of
-        changed fields, none without a body or a file. The model leaf keeps the
+        """The internal notes of the tasks the user can read: no message to one
+        user, no tracking of changed fields, none without a body or a file.
+
+        The task access leaf drops the notes core lets a user read on a task
+        they cannot: their own and those sent to them. The model leaf keeps the
         access check of _search in SQL.
         """
         return [
             ("model", "=", NOTE_MODEL),
-            ("task_id", "!=", False),
+            ("task_id", "access", "read"),
             ("subtype_id", "=", self.env["ir.model.data"]._xmlid_to_res_id(NOTE_SUBTYPE)),
             ("message_type", "not in", ["user_notification", "tracking"]),
             "|",

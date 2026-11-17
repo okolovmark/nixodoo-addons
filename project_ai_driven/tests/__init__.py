@@ -8,6 +8,7 @@ from . import test_note_categories
 from . import test_pull_request
 from . import test_questions
 from . import test_stage_log
+from . import test_task_copy
 from . import test_task_size
 from . import test_task_views
 from . import test_test_cases

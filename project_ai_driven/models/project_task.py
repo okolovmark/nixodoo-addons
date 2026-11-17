@@ -10,6 +10,7 @@ from .project_pull_request import parse_single_pull_request_link
 from .project_task_testcase import TESTCASE_STATES
 
 KANBAN_TESTCASE_STATES = ("not_run", "failed", "waiting")
+COPIED_LINE_FIELDS = ("checklist_item_ids", "testcase_ids", "question_ids")
 
 # The largest estimate in hours of each size.
 SIZE_BANDS = ((2, "xs"), (6, "s"), (12, "m"), (32, "l"), (60, "xl"), (float("inf"), "xxl"))
@@ -230,6 +231,7 @@ class ProjectTask(models.Model):
 
     # message_ids clears only the count cached within a transaction: an open form shows a new note on reload
     @api.depends("message_ids")
+    @api.depends_context("uid", "allowed_company_ids")
     def _compute_note_count(self):
         # res_id, not task_id: the access check of mail.message reads the task ids from it
         note_domain = [*self.env["mail.message"]._get_task_note_domain(), ("res_id", "in", self.ids)]
@@ -272,23 +274,16 @@ class ProjectTask(models.Model):
         """A task created from a template, or in a project created from one, is
         a new task to the closing rule: it takes no Resolution and no pull
         request of its source.
+
+        Every copy takes the lines of its source here, as core builds the
+        sub-tasks of a copy from their copy_data alone.
         """
         vals_list = super().copy_data(default=default)
-        if not self.env.context.get("copy_from_template"):
-            for task, vals in zip(self, vals_list):
+        for task, vals in zip(self, vals_list):
+            if not self.env.context.get("copy_from_template"):
                 task._add_closing_values(vals)
+            task._add_line_values(vals)
         return vals_list
-
-    def copy(self, default=None):
-        copied_tasks = super().copy(default)
-        for task, copied_task in zip(self, copied_tasks):
-            for item in task.checklist_item_ids:
-                item.copy({"task_id": copied_task.id, "state": item.state})
-            for testcase in task.testcase_ids:
-                testcase.copy({"task_id": copied_task.id, **testcase._get_result_values()})
-            for question in task.question_ids:
-                question.copy({"task_id": copied_task.id, "state": question.state})
-        return copied_tasks
 
     @api.model
     def _create(self, data_list):
@@ -356,6 +351,34 @@ class ProjectTask(models.Model):
 
     def _is_stage_kept_in(self, vals):
         return bool(self.stage_id) and vals.get("stage_id") == self.stage_id.id
+
+    def _add_line_values(self, vals):
+        """Complete the values of a copy with the lines of this task, unless the
+        values set them.
+        """
+        self.ensure_one()
+        for field_name, lines_values in self._get_line_copy_values().items():
+            vals.setdefault(field_name, [Command.create(line_values) for line_values in lines_values])
+
+    def _get_line_copy_values(self):
+        """Return {line field: [values of the copy of each line]} for the line
+        fields the user may read, as core copies no other field of a task: a
+        checklist item and a question row keep their state, a test case its
+        result.
+        """
+        kept_values_getters = {
+            "checklist_item_ids": lambda item: {"state": item.state},
+            "testcase_ids": lambda case: case._get_result_values(),
+            "question_ids": lambda row: {"state": row.state},
+        }
+        line_copy_values = {}
+        for field_name, get_kept_values in kept_values_getters.items():
+            if self.has_field_access(self._fields[field_name], "read"):
+                lines = self[field_name]
+                line_copy_values[field_name] = [
+                    {**values, **get_kept_values(line)} for line, values in zip(lines, lines.copy_data())
+                ]
+        return line_copy_values
 
     @api.model
     def _without_size(self, vals):
