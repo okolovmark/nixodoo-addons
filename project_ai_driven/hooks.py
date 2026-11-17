@@ -12,7 +12,7 @@ from psycopg2.extras import Json
 from odoo import SUPERUSER_ID, api
 from odoo.tools.sql import column_exists, create_column, create_index, rename_column, table_exists
 
-from .models.mail_message import NOTE_CATEGORIES, NOTE_CATEGORY_PATTERNS, NOTE_MODEL, NOTE_SUBTYPE
+from .models.mail_message import NOTE_CATEGORIES, NOTE_CATEGORY_PATTERNS, NOTE_MODEL, NOTE_SUBTYPE, SPAN_OPENING
 from .models.project_pull_request import parse_pull_request_links
 from .models.project_task_question import get_visible_text, has_content, has_media, is_blank_html, parse_html
 from .models.project_task_testcase import OLD_STATES
@@ -723,7 +723,11 @@ FILL_TASK_IDS = """
     )
     SELECT is_given, count(*) FROM filled GROUP BY is_given
 """
-FILL_NOTE_CATEGORIES = """
+TASK_NOTES_AND_CATEGORIZED_MESSAGES = sql.SQL(
+    "(message.model = %(model)s AND message.subtype_id = %(subtype_id)s) OR message.note_category IS NOT NULL"
+)
+FILL_NOTE_CATEGORIES = sql.SQL(
+    """
     WITH computed AS (
         SELECT message.id,
                CASE WHEN message.model = %(model)s AND message.subtype_id = %(subtype_id)s
@@ -736,8 +740,7 @@ FILL_NOTE_CATEGORIES = """
                            LIMIT 1)
                END AS category
           FROM mail_message message
-         WHERE (message.model = %(model)s AND message.subtype_id = %(subtype_id)s)
-            OR message.note_category IS NOT NULL
+         WHERE {messages}
     ), filled AS (
         UPDATE mail_message message
            SET note_category = computed.category
@@ -746,7 +749,12 @@ FILL_NOTE_CATEGORIES = """
      RETURNING computed.category
     )
     SELECT category, count(*) FROM filled GROUP BY category
-"""
+    """
+)
+TASK_NOTES_OPENING_WITH_A_SPAN_WITHOUT_CATEGORY = sql.SQL(
+    "message.model = %(model)s AND message.subtype_id = %(subtype_id)s AND message.note_category IS NULL"
+    " AND message.body ~ %(span_opening)s"
+)
 
 
 def pre_init_hook(cr):
@@ -838,18 +846,11 @@ def fill_task_messages(cr):
         )
     env = api.Environment(cr, SUPERUSER_ID, {})
     env.flush_all()
-    params = {
-        "model": NOTE_MODEL,
-        "subtype_id": env["ir.model.data"]._xmlid_to_res_id(NOTE_SUBTYPE),
-        "categories": list(NOTE_CATEGORY_PATTERNS),
-        "patterns": list(NOTE_CATEGORY_PATTERNS.values()),
-    }
+    params = _get_note_category_params(env)
     cr.execute(FILL_TASK_IDS, params)
     task_counts = dict.fromkeys(("given", "cleared"), 0)
     task_counts.update(("given" if is_given else "cleared", count) for is_given, count in cr.fetchall())
-    cr.execute(FILL_NOTE_CATEGORIES, params)
-    category_counts = dict.fromkeys((*NOTE_CATEGORIES, False), 0)
-    category_counts.update((category or False, count) for category, count in cr.fetchall())
+    category_counts = _fill_note_categories(cr, TASK_NOTES_AND_CATEGORIZED_MESSAGES, params)
     # autovacuum analyzes after a tenth of the table changed: until then the planner, blind to the
     # new columns, reads every note to list those of a task
     cr.execute("ANALYZE %s (%s)" % (TASK_MESSAGE_TABLE, ", ".join(TASK_MESSAGE_COLUMNS)))
@@ -863,6 +864,45 @@ def fill_task_messages(cr):
         category_counts[False],
     )
     return task_counts, category_counts
+
+
+def categorize_span_notes(cr):
+    """Give their category, by SQL, the internal notes of tasks without one
+    whose body opens with a <span>, and return how many were given one.
+
+    The Html sanitizer stores inside a <span> a body of more than one node
+    that opens with an inline tag and holds no block tag. Only these notes
+    are read and written: every other message is taken to hold its
+    category already.
+    """
+    env = api.Environment(cr, SUPERUSER_ID, {})
+    env.flush_all()
+    params = {**_get_note_category_params(env), "span_opening": SPAN_OPENING}
+    category_counts = _fill_note_categories(cr, TASK_NOTES_OPENING_WITH_A_SPAN_WITHOUT_CATEGORY, params)
+    env.invalidate_all()
+    categorized_count = sum(category_counts.values())
+    _logger.info("Task notes opening with a span given a category: %d", categorized_count)
+    return categorized_count
+
+
+def _get_note_category_params(env):
+    return {
+        "model": NOTE_MODEL,
+        "subtype_id": env["ir.model.data"]._xmlid_to_res_id(NOTE_SUBTYPE),
+        "categories": list(NOTE_CATEGORY_PATTERNS),
+        "patterns": list(NOTE_CATEGORY_PATTERNS.values()),
+    }
+
+
+def _fill_note_categories(cr, messages, params):
+    """Give the messages that the SQL condition `messages` selects the
+    category of their body; return the notes given each category, False for
+    those cleared.
+    """
+    cr.execute(FILL_NOTE_CATEGORIES.format(messages=messages), params)
+    category_counts = dict.fromkeys((*NOTE_CATEGORIES, False), 0)
+    category_counts.update((category or False, count) for category, count in cr.fetchall())
+    return category_counts
 
 
 def clear_estimates_that_are_not_numbers(cr):

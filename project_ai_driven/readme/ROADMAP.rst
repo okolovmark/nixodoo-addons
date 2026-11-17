@@ -64,10 +64,8 @@
 * The breadcrumb of a note opened from **Task Notes** shows the name its
   task had when the note was posted; the title of the note, the list and the
   groups show the current name of the task.
-* A note whose body does not open with a paragraph, as one posted over the
-  API as ``<b>Progress</b> - in review``, is stored inside a ``<span>`` and
-  gets no category. Neither does a category in bold inside a heading or a
-  list, or coloured: only a paragraph may come before the bold, and nothing
-  between the bold and the category.
+* A note whose category is in bold inside a heading or a list, or coloured,
+  gets no category: only one opening ``<p>`` or ``<span>`` may come before
+  the bold, and nothing between the bold and the category.
 * The eight categories and their spelling are fixed in the module:
   ``Bugfix`` or ``Deployment`` in bold is no category.

@@ -269,7 +269,8 @@ The category of a note:
   A message to the followers, a message on another model and a message that
   tracks changed fields get no category, whatever their body.
 * The body opens with the bold text (``<b>`` or ``<strong>``): only white
-  space, ``&nbsp;`` and at most one opening paragraph come before it.
+  space, ``&nbsp;`` and at most one opening tag, ``<p>`` or ``<span>``, with
+  or without attributes, come before it.
 * The bold text opens with the category, in any letter case, and ends there
   or goes on after a dash, a colon, a slash, a plus or an opening
   parenthesis: ``<b>Bug Fix</b>: the total``, ``<b>Progress: 2/2</b>``,

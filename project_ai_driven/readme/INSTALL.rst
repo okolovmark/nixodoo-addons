@@ -204,6 +204,12 @@ once. Making the columns and the key locks the message table until the
 module is loaded, and a running server waits on it meanwhile: on a large
 database, run the update or the install with the server stopped.
 
+The update to 16.0.2.8.1 gives their **Category** to the internal notes of
+tasks that have none and whose body opens with a ``<span>``, by SQL over
+those notes alone. It adds no column and writes nothing else on the
+messages. The server log gets one line with the number of notes given a
+category; a second run changes nothing.
+
 **Upgrading from project_software**
 
 ``project_software`` remains for one release as an empty module that depends

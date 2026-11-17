@@ -15,11 +15,12 @@ from odoo.exceptions import AccessError, UserError
 from odoo.osv import expression
 from odoo.tests.common import tagged
 
-from ..hooks import FORMER_MODULE, LEGACY_MODULE, MODULE, fill_task_messages, pre_init_hook
+from ..hooks import FORMER_MODULE, LEGACY_MODULE, MODULE, categorize_span_notes, fill_task_messages, pre_init_hook
 from ..models.mail_message import NOTE_CATEGORIES, get_note_category
 from .common import ProjectAiDrivenCommon
 
 MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.8.0" / "pre-migration.py"
+SPAN_MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.8.1" / "post-migration.py"
 HOOKS_LOGGER = "odoo.addons.%s.hooks" % MODULE
 ACTION = "%s.mail_message_action_task_note" % MODULE
 # Bodies as a note is posted with them, and the category each one opens with.
@@ -41,6 +42,15 @@ CATEGORY_OPENINGS = {
     "<p><b>Bug Fix / Review Fix</b></p>": "bug_fix",
     "<p><b>Review Fix + Bug Fix</b></p>": "review_fix",
     "<p><b>Bug Fix (round 2)</b></p>": "bug_fix",
+    # the sanitizer stores inside a <span> a body of more than one node that opens with an inline
+    # tag and holds no block tag
+    "<b>Progress</b> \u2014 Test Case Verification: 7/7 passed.": "progress",
+    "<b>Review Fix</b> - posted without a paragraph": "review_fix",
+    "<span><b>Progress</b> - posted without a paragraph</span>": "progress",
+    '<SPAN class="x"><b>Deploy</b> - prod</SPAN>': "deploy",
+    "<span>\u00a0<b>Deploy</b> - prod</span>": "deploy",
+    "<strong>User Feedback:</strong> a filter is missing": "user_feedback",
+    "<b>Bug Fix / Review Fix</b> in one": "bug_fix",
 }
 NO_CATEGORY_OPENINGS = (
     "<p>Shipped.</p><p><b>Progress</b> - in a later paragraph</p>",
@@ -53,9 +63,12 @@ NO_CATEGORY_OPENINGS = (
     "<p><b>Deploy notes</b></p>",
     "<p><b>Deployment</b> of the module</p>",
     "<p>Progress, not in bold</p>",
-    # the sanitizer wraps a body opening without a block so
-    "<span><b>Progress</b> - posted without a paragraph</span>",
-    "<b>Review Fix</b> - posted without a paragraph",
+    "<b>Progress report</b> without a separator",
+    "<b>Deploy notes</b> for prod",
+    "<span><p><b>Progress</b> - two wrappers</p></span>",
+    "<p><span><b>Progress</b> - two wrappers</span></p>",
+    # a <div> stays when it is not the whole body
+    "<div><b>Progress</b> - in a block</div><p>Shipped.</p>",
     # letters Python folds onto ASCII ones when it ignores case, and PostgreSQL does not
     "<p><b>REV\u0130SED</b> plan</p>",
     "<p><b>Bug F\u0131x</b>: the total</p>",
@@ -68,12 +81,28 @@ RAW_CATEGORY_OPENINGS = {
     "<p>\u00a0<b>Bug\u00a0Fix\u00a0\u2014\u00a0total</b></p>": "bug_fix",
     "<p><b>\tDeploy:</b></p>": "deploy",
     "<b>Review Fix</b> without a paragraph": "review_fix",
+    "<span><b>Progress</b></span>": "progress",
+    '<SPAN class="x"><b>Deploy</b></SPAN>': "deploy",
+    "<span>&nbsp;<b>Deploy</b></span>": "deploy",
+    " \n<Span>\n<strong>User\u00a0Feedback:</strong></Span>": "user_feedback",
+    "&nbsp;<span><b>Deploy</b> - prod</span>": "deploy",
+    "\u00a0<span><b>Progress</b></span>": "progress",
+    "<Span\n><b>Review Fix</b></Span>": "review_fix",
+    "<span><b>Bug Fix (round 2)</b></span>": "bug_fix",
+    "<span><b>Review Fix + Bug Fix</b></span>": "review_fix",
 }
 RAW_NO_CATEGORY_OPENINGS = (
     "<p><p><b>Progress</b></p></p>",
     "<div><b>Progress</b></div>",
     "<pre><b>Progress</b></pre>",
     "<p><bdi>Progress</bdi></p>",
+    "<span><p><b>Progress</b></p></span>",
+    "<p><span><b>Progress</b></span></p>",
+    "<span><span><b>Progress</b></span></span>",
+    "<small><b>Progress</b></small>",
+    "<spanx><b>Progress</b></spanx>",
+    "<span><b>Progress report</b></span>",
+    "<span><b>Deploy notes</b></span>",
 )
 TRACKING_BODY = "<p><b>Progress</b> - the deadline moved</p>"
 
@@ -83,6 +112,11 @@ def _load_script(path):
     script = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(script)
     return script
+
+
+def _opens_with_a_span(body):
+    """Whether body opens with a <span>, read without the pattern under test."""
+    return str(body).replace("&nbsp;", " ").lstrip().lower().startswith("<span")
 
 
 class NoteCategoryCase(ProjectAiDrivenCommon):
@@ -103,6 +137,32 @@ class NoteCategoryCase(ProjectAiDrivenCommon):
         self.task.date_deadline = (self.task.date_deadline or date(2026, 12, 1)) + timedelta(days=1)
         self._flush_tracking()
         return self.task.message_ids.filtered("tracking_value_ids")[0]
+
+    def _create_messages(self):
+        """A task note of every opening, posted, or written by SQL for the raw
+        ones, and category openings where no category counts. Returns the
+        messages and the (task id, category) each one has.
+        """
+        posted_bodies = {**CATEGORY_OPENINGS, **dict.fromkeys(NO_CATEGORY_OPENINGS, False)}
+        raw_bodies = {**RAW_CATEGORY_OPENINGS, **dict.fromkeys(RAW_NO_CATEGORY_OPENINGS, False)}
+        expected_values = {}
+        raw_messages = {}
+        for message_type in ("comment", "notification"):
+            for body, category in posted_bodies.items():
+                expected_values[self._log_note(body, message_type=message_type)] = (self.task.id, category)
+            for body, category in raw_bodies.items():
+                message = self._log_note("<p>to be replaced</p>", message_type=message_type)
+                raw_messages[message] = body
+                expected_values[message] = (self.task.id, category)
+        for body in CATEGORY_OPENINGS:
+            expected_values[self._log_note(body, subtype_xmlid="mail.mt_comment")] = (self.task.id, False)
+            expected_values[self._log_note(body, record=self.project)] = (False, False)
+        expected_values[self._log_tracking(TRACKING_BODY)] = (self.task.id, False)
+        self.env.flush_all()
+        for message, body in raw_messages.items():
+            self.env.cr.execute("UPDATE mail_message SET body = %s WHERE id = %s", (body, message.id))
+        self.env.invalidate_all()
+        return self.Message.concat(*expected_values), list(expected_values.values())
 
     def _categories(self, messages):
         return [message.note_category for message in messages]
@@ -135,6 +195,11 @@ class TestNoteCategory(NoteCategoryCase):
                 *(self._log_note(body, message_type=message_type) for body in CATEGORY_OPENINGS)
             )
             self._assert_categories(notes, CATEGORY_OPENINGS.values(), message_type)
+
+    def test_a_note_posted_with_an_inline_body_has_its_category(self):
+        note = self._log_note("<b>Progress</b> \u2014 Test Case Verification: 7/7 passed.")
+        self.assertEqual(str(note.body), "<span><b>Progress</b> \u2014 Test Case Verification: 7/7 passed.</span>")
+        self._assert_categories(note, ["progress"])
 
     def test_a_note_opening_otherwise_has_none(self):
         notes = self.Message.concat(*(self._log_note(body) for body in NO_CATEGORY_OPENINGS))
@@ -217,32 +282,6 @@ class TestTaskMessageFill(NoteCategoryCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.other_task = cls.env["project.task"].create({"name": "Other Task", "project_id": cls.project.id})
-
-    def _create_messages(self):
-        """A task note of every opening, posted, or written by SQL for the raw
-        ones, and category openings where no category counts. Returns the
-        messages and the (task id, category) each one has.
-        """
-        posted_bodies = {**CATEGORY_OPENINGS, **dict.fromkeys(NO_CATEGORY_OPENINGS, False)}
-        raw_bodies = {**RAW_CATEGORY_OPENINGS, **dict.fromkeys(RAW_NO_CATEGORY_OPENINGS, False)}
-        expected_values = {}
-        raw_messages = {}
-        for message_type in ("comment", "notification"):
-            for body, category in posted_bodies.items():
-                expected_values[self._log_note(body, message_type=message_type)] = (self.task.id, category)
-            for body, category in raw_bodies.items():
-                message = self._log_note("<p>to be replaced</p>", message_type=message_type)
-                raw_messages[message] = body
-                expected_values[message] = (self.task.id, category)
-        for body in CATEGORY_OPENINGS:
-            expected_values[self._log_note(body, subtype_xmlid="mail.mt_comment")] = (self.task.id, False)
-            expected_values[self._log_note(body, record=self.project)] = (False, False)
-        expected_values[self._log_tracking(TRACKING_BODY)] = (self.task.id, False)
-        self.env.flush_all()
-        for message, body in raw_messages.items():
-            self.env.cr.execute("UPDATE mail_message SET body = %s WHERE id = %s", (body, message.id))
-        self.env.invalidate_all()
-        return self.Message.concat(*expected_values), list(expected_values.values())
 
     def _set_columns(self, messages, task_id, category):
         self.env.flush_all()
@@ -365,6 +404,102 @@ class TestTaskMessageFill(NoteCategoryCase):
         messages, expected_values = self._create_messages()
         self._set_columns(messages, None, None)
         pre_init_hook(self.env.cr)
+        self.assertEqual(self._stored_values(messages), expected_values)
+
+
+@tagged("post_install", "-at_install")
+class TestSpanNoteUpdate(NoteCategoryCase):
+    """The update reads the task notes of the whole database; the messages of
+    a test are the only ones its run can change, since the module's install or
+    update gave the others their category.
+    """
+
+    def _create_span_messages(self):
+        """Messages as 16.0.2.8.0 left them: task notes opening with a <span>
+        without a category, and messages the update is not to change. Returns
+        the messages, the (task id, category) each one has after the update,
+        and the notes it gives a category.
+        """
+        span_body = "<b>Progress</b> - posted without a paragraph"
+        span_note = self._log_note(span_body)
+        raw_span_note = self._log_note("<p>to be replaced</p>", message_type="notification")
+        categorized_note = self._log_note(span_body)
+        paragraph_note = self._log_note("<p><b>Progress</b> - in a paragraph</p>")
+        plain_span_note = self._log_note("<b>Shipped</b> - no category")
+        comment = self._log_note(span_body, subtype_xmlid="mail.mt_comment")
+        project_note = self._log_note(span_body, record=self.project)
+        tracking = self._log_tracking("<span><b>Progress</b> - the deadline moved</span>")
+        self.assertTrue(
+            all(str(message.body).startswith("<span>") for message in (span_note, comment, tracking)),
+            "stored inside a <span>",
+        )
+        self.env.flush_all()
+        self.env.cr.execute(
+            "UPDATE mail_message SET body = %s WHERE id = %s",
+            (' \n<SPAN class="x"><b>Deploy</b></SPAN>', raw_span_note.id),
+        )
+        self._set_category(
+            span_note | raw_span_note | paragraph_note | plain_span_note | comment | project_note | tracking, None
+        )
+        self._set_category(categorized_note, "deploy")
+        expected_values = {
+            span_note: (self.task.id, "progress"),
+            raw_span_note: (self.task.id, "deploy"),
+            categorized_note: (self.task.id, "deploy"),
+            paragraph_note: (self.task.id, False),
+            plain_span_note: (self.task.id, False),
+            comment: (self.task.id, False),
+            project_note: (False, False),
+            tracking: (self.task.id, False),
+        }
+        return self.Message.concat(*expected_values), list(expected_values.values()), span_note | raw_span_note
+
+    def _set_category(self, messages, category):
+        self.env.cr.execute(
+            "UPDATE mail_message SET note_category = %s WHERE id IN %s", (category, tuple(messages.ids))
+        )
+        self.env.invalidate_all()
+
+    def test_the_update_categorizes_the_task_notes_opening_with_a_span_alone(self):
+        messages, expected_values, span_notes = self._create_span_messages()
+
+        categorized_count = categorize_span_notes(self.env.cr)
+
+        self.assertEqual(categorized_count, len(span_notes))
+        self.assertEqual(self._stored_values(messages), expected_values)
+
+    def test_the_update_gives_a_span_note_of_every_opening_what_the_computes_give(self):
+        messages, expected_values = self._create_messages()
+        self.assertEqual(self._computed_values(messages), expected_values, "the computes")
+        span_messages = messages.filtered(lambda message: _opens_with_a_span(message.body))
+        self._set_category(span_messages, None)
+
+        categorized_count = categorize_span_notes(self.env.cr)
+
+        self.assertEqual(self._stored_values(messages), expected_values)
+        self.assertEqual(categorized_count, len(span_messages.filtered("note_category")))
+
+    def test_a_second_update_changes_nothing_and_logs_one_line(self):
+        messages, expected_values, _span_notes = self._create_span_messages()
+        categorize_span_notes(self.env.cr)
+
+        with self.assertLogs(HOOKS_LOGGER, level=logging.INFO) as logs:
+            categorized_count = categorize_span_notes(self.env.cr)
+
+        self.assertEqual(categorized_count, 0)
+        self.assertEqual(self._stored_values(messages), expected_values)
+        self.assertEqual(
+            [record.getMessage() for record in logs.records], ["Task notes opening with a span given a category: 0"]
+        )
+
+    def test_the_migration_script_categorizes_on_update_only(self):
+        script = _load_script(SPAN_MIGRATION_SCRIPT)
+        messages, expected_values, span_notes = self._create_span_messages()
+
+        script.migrate(self.env.cr, None)
+        self.assertEqual(self._stored_values(span_notes), [(self.task.id, False)] * len(span_notes))
+
+        script.migrate(self.env.cr, "16.0.2.8.0")
         self.assertEqual(self._stored_values(messages), expected_values)
 
 
