@@ -105,7 +105,10 @@ its task (``action_convert_to_subtask``):
 
 * Only its assignee or its reviewer converts it, as for a change of its
   state, and only where they may change the task: deleting the item takes
-  it.
+  it. On a task without a project only its assignee does, or a project
+  manager: Odoo 20 lets a project user create a task without project only
+  as one of its assignees, and the sub-task goes to the item's assignee.
+  The *Convert to Sub-task* buttons show only to who may convert.
 * The sub-task takes the item's description as its title, its assignee and
   its deadline, and the project of the task. It is given no stage: core puts
   it in the first unfolded stage of the project by sequence. No default of
@@ -117,12 +120,13 @@ its task (``action_convert_to_subtask``):
 * An internal note on the task, by the user converting, links the sub-task.
   It opens with plain text, so it gets no category. The item is deleted.
 * An item of a task template becomes a template sub-task: in the template's
-  project and its first stage, or without project and stage. An item of a
-  private task is refused, since Odoo 20 gives a private task no sub-task,
-  and its *Convert to Sub-task* buttons are hidden.
-* A refusal, of the user, of a private task or of a first stage that
-  refuses the new sub-task under the closing rule or the estimate rule,
-  leaves the item as it was, without sub-task or note.
+  project and its first stage, or without project and stage, then only by
+  its assignee or a project manager. An item of a private task is refused,
+  since Odoo 20 gives a private task no sub-task.
+* A refusal, of the user, of a private task, of a reviewer on a task without
+  project or of a first stage that refuses the new sub-task under the
+  closing rule or the estimate rule, leaves the item as it was, without
+  sub-task or note.
 
 **Test cases** (``project.task.testcase``)
 
@@ -579,9 +583,10 @@ On the task form, which opens on Description:
   state icons (TODO, Waiting, Done, Cancelled), changes its description or
   gives it another assignee. They also convert it into a sub-task of the
   task with the *Convert to Sub-task* icon of its row, after a confirmation:
-  the item is deleted and a note on the task links the sub-task. The task's
-  kanban card shows your own completion percentage, only when you have
-  non-cancelled items assigned to you.
+  the item is deleted and a note on the task links the sub-task. On a task
+  without a project only the assignee converts it. The task's kanban card
+  shows your own completion percentage, only when you have non-cancelled
+  items assigned to you.
 * *Technical Solution* tab (AI-driven projects): the **Questions** list,
   then the **Solution**. Add a row per question, with its round and the user
   it is addressed to, and drag the rows into order. Give a row its answer and
@@ -614,8 +619,9 @@ On the task form, which opens on Description:
 **Project > Checklist** lists the checklist items of the tasks you can read
 in the selected companies, opened on your own TODO items. Group by project,
 task, user or status. The assignee or the reviewer converts an item into a
-sub-task with **Convert to Sub-task** in the header of its form: the new
-sub-task opens in place of the item, without breadcrumbs back to it.
+sub-task with **Convert to Sub-task** in the header of its form, only the
+assignee on a task without a project: the new sub-task opens in place of the
+item, without breadcrumbs back to it.
 
 **Project > Test Cases** lists the test cases of the tasks you can read,
 opened on the ones Not run: a list, cards on a phone. Filter on Not run or
@@ -658,10 +664,11 @@ tool's own user, and reads the items of a task from ``checklist_item_ids``.
 It moves an item by writing ``state`` (``todo``, ``waiting``, ``done`` or
 ``cancelled``) as the item's assignee or reviewer, and turns items into
 sub-tasks with ``action_convert_to_subtask``, one sub-task under the task of
-each item. It reads only the items of the tasks its user can read, and
-creates, changes and deletes only those of the tasks its user can change;
-without ``allowed_company_ids`` in the context, those of all the user's
-companies. It reaches question rows and test cases the same way.
+each item, as the assignee on a task without a project; ``can_convert`` tells
+whether its user may. It reads only the items of the tasks its user can
+read, and creates, changes and deletes only those of the tasks its user can
+change; without ``allowed_company_ids`` in the context, those of all the
+user's companies. It reaches question rows and test cases the same way.
 
 A tool that keeps the questions of a task over RPC creates
 ``project.task.question`` records with ``task_id`` and ``question``, and

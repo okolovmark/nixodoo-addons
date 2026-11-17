@@ -446,7 +446,10 @@ its task (<tt class="docutils literal">action_convert_to_subtask</tt>):</p>
 <ul class="simple">
 <li>Only its assignee or its reviewer converts it, as for a change of its
 state, and only where they may change the task: deleting the item takes
-it.</li>
+it. On a task without a project only its assignee does, or a project
+manager: Odoo 20 lets a project user create a task without project only
+as one of its assignees, and the sub-task goes to the item’s assignee.
+The <em>Convert to Sub-task</em> buttons show only to who may convert.</li>
 <li>The sub-task takes the item’s description as its title, its assignee and
 its deadline, and the project of the task. It is given no stage: core puts
 it in the first unfolded stage of the project by sequence. No default of
@@ -458,12 +461,13 @@ any task.</li>
 <li>An internal note on the task, by the user converting, links the sub-task.
 It opens with plain text, so it gets no category. The item is deleted.</li>
 <li>An item of a task template becomes a template sub-task: in the template’s
-project and its first stage, or without project and stage. An item of a
-private task is refused, since Odoo 20 gives a private task no sub-task,
-and its <em>Convert to Sub-task</em> buttons are hidden.</li>
-<li>A refusal, of the user, of a private task or of a first stage that
-refuses the new sub-task under the closing rule or the estimate rule,
-leaves the item as it was, without sub-task or note.</li>
+project and its first stage, or without project and stage, then only by
+its assignee or a project manager. An item of a private task is refused,
+since Odoo 20 gives a private task no sub-task.</li>
+<li>A refusal, of the user, of a private task, of a reviewer on a task without
+project or of a first stage that refuses the new sub-task under the
+closing rule or the estimate rule, leaves the item as it was, without
+sub-task or note.</li>
 </ul>
 <p><strong>Test cases</strong> (<tt class="docutils literal">project.task.testcase</tt>)</p>
 <p>Ordered test cases per task with Steps to execute, Expected results and
@@ -932,9 +936,10 @@ the items you add. The assignee or the reviewer moves an item with the
 state icons (TODO, Waiting, Done, Cancelled), changes its description or
 gives it another assignee. They also convert it into a sub-task of the
 task with the <em>Convert to Sub-task</em> icon of its row, after a confirmation:
-the item is deleted and a note on the task links the sub-task. The task’s
-kanban card shows your own completion percentage, only when you have
-non-cancelled items assigned to you.</li>
+the item is deleted and a note on the task links the sub-task. On a task
+without a project only the assignee converts it. The task’s kanban card
+shows your own completion percentage, only when you have non-cancelled
+items assigned to you.</li>
 <li><em>Technical Solution</em> tab (AI-driven projects): the <strong>Questions</strong> list,
 then the <strong>Solution</strong>. Add a row per question, with its round and the user
 it is addressed to, and drag the rows into order. Give a row its answer and
@@ -967,8 +972,9 @@ missing.</li>
 <p><strong>Project &gt; Checklist</strong> lists the checklist items of the tasks you can read
 in the selected companies, opened on your own TODO items. Group by project,
 task, user or status. The assignee or the reviewer converts an item into a
-sub-task with <strong>Convert to Sub-task</strong> in the header of its form: the new
-sub-task opens in place of the item, without breadcrumbs back to it.</p>
+sub-task with <strong>Convert to Sub-task</strong> in the header of its form, only the
+assignee on a task without a project: the new sub-task opens in place of the
+item, without breadcrumbs back to it.</p>
 <p><strong>Project &gt; Test Cases</strong> lists the test cases of the tasks you can read,
 opened on the ones Not run: a list, cards on a phone. Filter on Not run or
 Failed, group by project, task, status or verification. The header of a
@@ -1005,10 +1011,11 @@ tool’s own user, and reads the items of a task from <tt class="docutils litera
 It moves an item by writing <tt class="docutils literal">state</tt> (<tt class="docutils literal">todo</tt>, <tt class="docutils literal">waiting</tt>, <tt class="docutils literal">done</tt> or
 <tt class="docutils literal">cancelled</tt>) as the item’s assignee or reviewer, and turns items into
 sub-tasks with <tt class="docutils literal">action_convert_to_subtask</tt>, one sub-task under the task of
-each item. It reads only the items of the tasks its user can read, and
-creates, changes and deletes only those of the tasks its user can change;
-without <tt class="docutils literal">allowed_company_ids</tt> in the context, those of all the user’s
-companies. It reaches question rows and test cases the same way.</p>
+each item, as the assignee on a task without a project; <tt class="docutils literal">can_convert</tt> tells
+whether its user may. It reads only the items of the tasks its user can
+read, and creates, changes and deletes only those of the tasks its user can
+change; without <tt class="docutils literal">allowed_company_ids</tt> in the context, those of all the
+user’s companies. It reaches question rows and test cases the same way.</p>
 <p>A tool that keeps the questions of a task over RPC creates
 <tt class="docutils literal">project.task.question</tt> records with <tt class="docutils literal">task_id</tt> and <tt class="docutils literal">question</tt>, and
 <tt class="docutils literal">round</tt>, <tt class="docutils literal">addressed_to_id</tt> and <tt class="docutils literal">answer</tt> when it has them, and reads the

@@ -5,6 +5,8 @@ from lxml import html as lxml_html
 
 from odoo import api, fields, models
 
+from .task_line import check_task_line_move
+
 QUESTION_STATES = {"open": "Open", "answered": "Answered", "dropped": "Dropped"}
 ANSWER_STAMP_FIELDS = ("answered_by_id", "answered_on")
 # What shows without text, as core's is_html_empty counts it.
@@ -146,9 +148,7 @@ class ProjectTaskQuestion(models.Model):
         return super().create([self._prepare_new_row_values(vals) for vals in vals_list])
 
     def write(self, vals):
-        if "task_id" in vals:
-            # core checks write access on the task the row leaves, not on the one it moves to
-            self.env["project.task"].browse(vals["task_id"]).check_access("write")
+        check_task_line_move(self, vals)
         answered_rows = self._filter_newly_answered(vals)
         if answered_rows:
             super(ProjectTaskQuestion, answered_rows).write(self._prepare_state_values({**vals, "state": "answered"}))

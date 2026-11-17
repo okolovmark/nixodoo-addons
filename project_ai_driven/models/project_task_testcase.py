@@ -1,5 +1,7 @@
 from odoo import api, fields, models
 
+from .task_line import check_task_line_move
+
 TESTCASE_STATES = {
     "not_run": "Not run",
     "passed": "Passed",
@@ -62,9 +64,7 @@ class ProjectTaskTestcase(models.Model):
         return super().create([self._prepare_result_values(vals) for vals in vals_list])
 
     def write(self, vals):
-        if "task_id" in vals:
-            # core checks write access on the task the case leaves, not on the one it moves to
-            self.env["project.task"].browse(vals["task_id"]).check_access("write")
+        check_task_line_move(self, vals)
         return super().write(self._prepare_result_values(vals))
 
     def action_set_passed(self):

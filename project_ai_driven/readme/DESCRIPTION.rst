@@ -81,7 +81,10 @@ its task (``action_convert_to_subtask``):
 
 * Only its assignee or its reviewer converts it, as for a change of its
   state, and only where they may change the task: deleting the item takes
-  it.
+  it. On a task without a project only its assignee does, or a project
+  manager: Odoo 20 lets a project user create a task without project only
+  as one of its assignees, and the sub-task goes to the item's assignee.
+  The *Convert to Sub-task* buttons show only to who may convert.
 * The sub-task takes the item's description as its title, its assignee and
   its deadline, and the project of the task. It is given no stage: core puts
   it in the first unfolded stage of the project by sequence. No default of
@@ -93,12 +96,13 @@ its task (``action_convert_to_subtask``):
 * An internal note on the task, by the user converting, links the sub-task.
   It opens with plain text, so it gets no category. The item is deleted.
 * An item of a task template becomes a template sub-task: in the template's
-  project and its first stage, or without project and stage. An item of a
-  private task is refused, since Odoo 20 gives a private task no sub-task,
-  and its *Convert to Sub-task* buttons are hidden.
-* A refusal, of the user, of a private task or of a first stage that
-  refuses the new sub-task under the closing rule or the estimate rule,
-  leaves the item as it was, without sub-task or note.
+  project and its first stage, or without project and stage, then only by
+  its assignee or a project manager. An item of a private task is refused,
+  since Odoo 20 gives a private task no sub-task.
+* A refusal, of the user, of a private task, of a reviewer on a task without
+  project or of a first stage that refuses the new sub-task under the
+  closing rule or the estimate rule, leaves the item as it was, without
+  sub-task or note.
 
 **Test cases** (``project.task.testcase``)
 

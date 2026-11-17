@@ -54,7 +54,7 @@
                                 title="Convert to Sub-task"
                                 icon="subdirectory_arrow_right"
                                 confirm="Convert this item into a sub-task of the task? The item is deleted."
-                                invisible="hide_button or not parent.project_id and not parent.is_template"
+                                invisible="not can_convert"
                             />
                             <field name="reviewer_id" />
                             <field name="deadline" />
@@ -94,7 +94,7 @@
                         string="Convert to Sub-task"
                         type="object"
                         confirm="Convert this item into a sub-task of the task? The item is deleted."
-                        invisible="hide_button or not project_id and not task_is_template"
+                        invisible="not can_convert"
                     />
                 </header>
                 <sheet>

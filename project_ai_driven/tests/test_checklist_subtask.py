@@ -16,6 +16,7 @@ REFUSAL = "Only the assignee or the reviewer of a checklist item can convert it 
 PRIVATE_TASK_REFUSAL = (
     "The checklist items of a private task cannot be converted into sub-tasks: set a project on the task first."
 )
+NO_PROJECT_REFUSAL = "On a task without a project only the assignee of a checklist item can convert it into a sub-task."
 CONVERT_CONFIRMATION = "Convert this item into a sub-task of the task? The item is deleted."
 
 
@@ -37,6 +38,20 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
                 "user_id": self.user_dev.id,
                 "reviewer_id": self.reviewer.id,
                 **vals,
+            },
+        )
+
+    def _create_project_manager(self):
+        return self._create_user(
+            "Project Manager", "project_ai_driven_manager", "manager@example.com", "project.group_project_manager"
+        )
+
+    def _create_template_without_project(self):
+        return self.env["project.task"].create(
+            {
+                "name": "Template without Project",
+                "is_template": True,
+                "user_ids": [Command.set((self.user_dev | self.reviewer).ids)],
             },
         )
 
@@ -96,6 +111,7 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
 
     def test_the_reviewer_converts_an_item_assigned_to_another(self):
         item = self._new_item()
+        self.assertTrue(item.with_user(self.reviewer).can_convert)
         item.with_user(self.reviewer).action_convert_to_subtask()
         self.assertFalse(item.exists())
         subtask = self._subtasks(self.task)
@@ -204,6 +220,56 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
                 )
                 self.assertNoteLinks(template, "Write the migration", subtask, self.user_dev)
 
+    def test_who_may_convert_an_item(self):
+        outsider = self._create_project_user("Outsider", "project_ai_driven_outsider", "outsider@example.com")
+        manager = self._create_project_manager()
+        assignee_and_reviewer = [Command.set((self.user_dev | self.reviewer).ids)]
+        private_task = self.env["project.task"].create({"name": "Private Task", "user_ids": assignee_and_reviewer})
+        template_in_project = self.env["project.task"].create(
+            {"name": "Template in Project", "project_id": self.project.id, "is_template": True},
+        )
+        template_without_project = self._create_template_without_project()
+        task_item = self._new_item()
+        private_task_item = self._new_item(task_id=private_task.id)
+        template_in_project_item = self._new_item(task_id=template_in_project.id)
+        template_without_project_item = self._new_item(task_id=template_without_project.id)
+        manager_item = self._new_item(task_id=template_without_project.id, reviewer_id=manager.id)
+        cases = (
+            ("task", task_item, self.user_dev, True),
+            ("task", task_item, self.reviewer, True),
+            ("task", task_item, outsider, False),
+            ("private task", private_task_item, self.user_dev, False),
+            ("private task", private_task_item, self.reviewer, False),
+            ("template in project", template_in_project_item, self.reviewer, True),
+            ("template without project", template_without_project_item, self.user_dev, True),
+            ("template without project", template_without_project_item, self.reviewer, False),
+            ("template without project", manager_item, manager, True),
+        )
+        for task_kind, item, user, can_convert in cases:
+            with self.subTest(task=task_kind, user=user.name):
+                self.assertEqual(item.with_user(user).can_convert, can_convert)
+
+    def test_without_project_the_reviewer_is_refused_before_anything_is_created_but_the_assignee_converts(self):
+        template = self._create_template_without_project()
+        template.with_user(self.reviewer).check_access("write")
+        item = self._new_item(task_id=template.id)
+        with unittest.TestCase.assertRaisesRegex(self, UserError, "^%s$" % re.escape(NO_PROJECT_REFUSAL)):
+            item.with_user(self.reviewer).action_convert_to_subtask()
+        self.assertLeftInPlace(item, template)
+        item.with_user(self.user_dev).action_convert_to_subtask()
+        self.assertFalse(item.exists(), "its assignee converts it")
+        self.assertRecordValues(self._subtasks(template), [{"user_ids": self.user_dev.ids, "project_id": False}])
+
+    def test_a_project_manager_converts_an_item_of_a_task_without_project_they_review(self):
+        manager = self._create_project_manager()
+        template = self._create_template_without_project()
+        item = self._new_item(task_id=template.id, reviewer_id=manager.id)
+        item.with_user(manager).action_convert_to_subtask()
+        self.assertFalse(item.exists())
+        subtask = self._subtasks(template)
+        self.assertRecordValues(subtask, [{"is_template": True, "project_id": False, "user_ids": self.user_dev.ids}])
+        self.assertNoteLinks(template, "Write the migration", subtask, manager)
+
     def test_the_subtask_takes_no_default_of_the_calling_view(self):
         self.project.allow_milestones = True
         milestone = self.env["project.milestone"].create({"name": "Milestone", "project_id": self.project.id})
@@ -265,7 +331,7 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
             },
         )
 
-    def test_each_item_row_of_the_task_form_converts_it_for_its_assignee_and_reviewer_but_not_on_a_private_task(self):
+    def test_each_item_row_of_the_task_form_converts_it_for_who_may_convert_it(self):
         arch = etree.fromstring(self.env["project.task"].get_view(view_type="form")["arch"])
         (item_list,) = arch.xpath("//page[@name='checklist']/field[@name='checklist_item_ids']/list")
         (button,) = item_list.xpath("button[@name='action_convert_to_subtask']")
@@ -275,13 +341,13 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
                 "type": "object",
                 "icon": "subdirectory_arrow_right",
                 "title": "Convert to Sub-task",
-                "invisible": "hide_button or not parent.project_id and not parent.is_template",
+                "invisible": "not can_convert",
                 "confirm": CONVERT_CONFIRMATION,
             },
         )
-        self.assertEqual(len(item_list.xpath("field[@name='hide_button']")), 1)
+        self.assertEqual(len(item_list.xpath("field[@name='can_convert']")), 1)
 
-    def test_the_item_form_converts_it_from_its_header_but_not_on_a_private_task(self):
+    def test_the_item_form_converts_it_from_its_header_for_who_may_convert_it(self):
         arch = etree.fromstring(self.env[CHECKLIST_MODEL].get_view(view_type="form")["arch"])
         (button,) = arch.xpath("/form/header/button[@name='action_convert_to_subtask_open']")
         self.assertEqual(
@@ -289,15 +355,8 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
             {
                 "type": "object",
                 "string": "Convert to Sub-task",
-                "invisible": "hide_button or not project_id and not task_is_template",
+                "invisible": "not can_convert",
                 "confirm": CONVERT_CONFIRMATION,
             },
         )
-        task_template = self.env["project.task"].create({"name": "Task Template", "is_template": True})
-        self.assertRecordValues(
-            self._new_item() | self._new_item(task_id=task_template.id),
-            [
-                {"project_id": self.project.id, "task_is_template": False},
-                {"project_id": False, "task_is_template": True},
-            ],
-        )
+        self.assertEqual(len(arch.xpath("//field[@name='can_convert']")), 1)

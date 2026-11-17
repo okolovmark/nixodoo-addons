@@ -4,6 +4,8 @@ from odoo import Command, api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools.misc import clean_context
 
+from .task_line import check_task_line_move
+
 STATE_COLORS = {"done": "#080", "todo": "#A00", "cancelled": "#777", "waiting": "#b818ce"}
 NOTIFIED_FIELDS = ("state", "name", "user_id")
 GUARDED_FIELDS = ("state", "name", "user_id")
@@ -27,8 +29,8 @@ class ProjectTaskChecklistItem(models.Model):
     user_id = fields.Many2one("res.users", "Assigned to", required=True, default=lambda self: self.env.user)
     task_id = fields.Many2one("project.task", "Task", ondelete="cascade", required=True, index=True)
     task_state = fields.Char(string="Task state", related="task_id.stage_id.name", readonly=True)
-    task_is_template = fields.Boolean(related="task_id.is_template")
     hide_button = fields.Boolean(compute="_compute_hide_button")
+    can_convert = fields.Boolean(compute="_compute_can_convert")
     recolor = fields.Boolean(compute="_compute_recolor")
     deadline = fields.Datetime()
 
@@ -40,6 +42,17 @@ class ProjectTaskChecklistItem(models.Model):
                 record.hide_button = True
             else:
                 record.hide_button = False
+
+    @api.depends("reviewer_id", "user_id", "task_id.project_id", "task_id.is_template")
+    @api.depends_context("uid")
+    def _compute_can_convert(self):
+        refused_items = (
+            self._filter_items_of_others()
+            | self._filter_items_of_private_tasks()
+            | self._filter_items_without_project_of_others()
+        )
+        for record in self:
+            record.can_convert = record not in refused_items
 
     @api.depends("user_id", "state")
     @api.depends_context("uid")
@@ -57,9 +70,7 @@ class ProjectTaskChecklistItem(models.Model):
         return items
 
     def write(self, vals):
-        if "task_id" in vals:
-            # core checks write access on the task the item leaves, not on the one it moves to
-            self.env["project.task"].browse(vals["task_id"]).check_access("write")
+        check_task_line_move(self, vals)
         if any(field_name in vals for field_name in GUARDED_FIELDS):
             self._check_change_allowed()
         former_values = {record.id: (record.name, record.state) for record in self} if "name" in vals else {}
@@ -169,22 +180,42 @@ class ProjectTaskChecklistItem(models.Model):
             )
 
     def _check_conversion_allowed(self):
+        """Refuse what can_convert hides, before anything is created."""
         if self._filter_items_of_others():
             raise UserError(
                 self.env._("Only the assignee or the reviewer of a checklist item can convert it into a sub-task.")
             )
-        # core refuses a sub-task under a private task (_private_task_has_no_parent)
-        if self.filtered(lambda record: not record.task_id.project_id and not record.task_id.is_template):
+        if self._filter_items_of_private_tasks():
             raise UserError(
                 self.env._(
                     "The checklist items of a private task cannot be converted into sub-tasks:"
                     " set a project on the task first."
                 )
             )
+        if self._filter_items_without_project_of_others():
+            raise UserError(
+                self.env._(
+                    "On a task without a project only the assignee of a checklist item can convert it into a sub-task."
+                )
+            )
 
     def _filter_items_of_others(self):
         """The items the user is neither the assignee nor the reviewer of."""
         return self.filtered(lambda record: self.env.user not in record.user_id | record.reviewer_id)
+
+    def _filter_items_of_private_tasks(self):
+        # core refuses a sub-task under a private task (_private_task_has_no_parent)
+        return self.filtered(lambda record: not record.task_id.project_id and not record.task_id.is_template)
+
+    def _filter_items_without_project_of_others(self):
+        """The items of a task without project the user is not the assignee of.
+        Core lets a project user create a task without project only as one of
+        its assignees, the sub-task's being the item's; the creator follows it
+        only once created. A project manager creates any task template.
+        """
+        if self.env.user.has_group("project.group_project_manager"):
+            return self.browse()
+        return self.filtered(lambda record: not record.task_id.project_id and record.user_id != self.env.user)
 
     def _notify_checklist_item_change(self, former_values=None, former_assignees=None):
         """Post each item on its task to its assignee and its reviewer, never to

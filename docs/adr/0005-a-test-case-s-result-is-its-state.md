@@ -25,4 +25,5 @@ The 16.0 branch decided this first. Its record, `docs/adr/0005-a-test-case-s-res
 - Clients write the state, with `verification_kind` and `test_reference` when they know them, and never `passed`: a value sent for it is dropped.
 - Completion is the Passed cases over every case but the Not applicable ones; the task's kanban card counts Not run, Failed and Waiting.
 - Copying a task copies its cases in every copy Odoo 20 makes, sub-tasks included. Odoo 20 builds the sub-tasks of a copy in `copy_data`, so the cases go there as lines of the copy. A plain duplicate and a duplicated project keep each case's state, Verified by, Verified on, Verification, comments and Automated test reference; a copy from or into a template starts it Not run. A task converted to a template is not copied and keeps its cases. The next occurrence of a recurring task gets none, as on 16.0. A case duplicated on its own starts Not run without them.
+
 Reversal cost: bring back the former keys and an editable flag. The states map back one to one except Failed, which has no former value, and the verification stamps have no place in the former model. No flag was overwritten on this branch.
