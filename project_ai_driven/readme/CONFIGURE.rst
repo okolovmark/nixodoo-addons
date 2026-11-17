@@ -18,12 +18,15 @@
   so it is refused only where its source sits in such a stage without them.
 * Checklist items, question rows and test cases are managed by users with
   the **User** access of *Project* (Settings > Users, the *Access Rights* tab
-  of a user), a checklist item and a question row only by a user who can
-  read its task. The Checklist, Test Cases and Technical Solution tabs are
-  hidden from users without that access.
+  of a user). Such a user reads the lines of the tasks they can read and
+  creates, changes and deletes those of the tasks they can change: core
+  lets a project user read every task template without project, and so its
+  lines, but change them only where the template may be changed. The
+  Checklist, Test Cases and Technical Solution tabs are hidden from users
+  without that access.
 * **Project > Task Notes** and the **Notes** button of the task form are
   shown to users with the **User** access of *Project*. They list the notes
-  of the tasks the user can read.
+  of the tasks the user can read; the menu leaves out those of templates.
 * Pull requests are read by every internal user and created and edited by
   users with the **User** access of *Project*. No access right allows
   deleting one.

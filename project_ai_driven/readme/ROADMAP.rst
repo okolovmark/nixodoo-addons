@@ -21,6 +21,10 @@
   Resolution, and the refusal takes the change of state with it. The same
   holds where that stage is marked for the estimate rule and the task has no
   task type or no estimate.
+* A checklist item is not converted into a sub-task while the first unfolded
+  stage of its AI-driven project is marked for either rule: the sub-task
+  enters that stage without a Resolution, a task type or an estimate. The
+  item stays. An item of a template converts.
 * The priority star is hidden on the views the description lists. The
   portal keeps it: the project sharing views, the task list and the task
   page.

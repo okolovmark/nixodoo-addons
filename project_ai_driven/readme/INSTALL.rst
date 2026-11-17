@@ -24,6 +24,11 @@ migration converts no data. The update:
 * creates the two *All checklist updates* subtypes under new external ids
   and deletes the former ones, with the follower subscriptions to them: tick
   *All checklist updates* again where it was ticked;
+* gives checklist items, test cases and question rows two access rights
+  each, ``access_task_<model>_read`` and ``access_task_<model>_write``
+  (``checklist_item``, ``testcase``, ``question``), and deletes the access
+  rights no data file names any more, ``access_task_testcase`` among them:
+  test cases follow the access of their task from then on;
 * computes the task and the note category of every message, as an install
   does.
 

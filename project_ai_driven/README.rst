@@ -64,10 +64,12 @@ item's assignee and reviewer default to the user who creates it, on the form
 and over RPC; the reviewer is read-only on the form. Items have no
 activities.
 
-An item is found, read, changed, deleted and created by the users who can
-read its task, archived or not: its access right carries the domain
-``[('task_id', 'access', 'read')]``, so the record rules of the task apply
-to its items, the companies selected in the company switcher included. The
+An item is found and read by the users who can read its task, and created,
+changed and deleted by the users who can change the task, archived or not.
+Its two access rights carry the domains ``[('task_id', 'access', 'read')]``
+and ``[('task_id', 'access', 'write')]``, so the record rules of the task
+apply to its items, the companies selected in the company switcher included.
+Moving an item to another task also takes write access to that task. The
 superuser and ``sudo()`` reach every item. Reading, changing or deleting an
 item deleted meanwhile raises ``MissingError``, as core does.
 
@@ -91,9 +93,36 @@ it silences the assignment notification of a task in Odoo itself: an
 integration writes tasks and checklist items with it and nobody is notified.
 
 The task's kanban card shows the current user's completion percentage over
-their non-cancelled items and the number of their TODO and Waiting items. The
-**Checklist** menu opens on your own TODO items (the *My* and *TODO* filters
-are on by default); remove those filters to see every item you can read.
+their non-cancelled items and the number of their TODO and Waiting items.
+These figures, the buttons of an item and the red of one's own TODO items
+are computed for the user who reads them, also where two users read the
+same task in one transaction. The **Checklist** menu opens on your own TODO
+items (the *My* and *TODO* filters are on by default); remove those filters
+to see every item you can read.
+
+An item that turns out to be work of its own is converted into a sub-task of
+its task (``action_convert_to_subtask``):
+
+* Only its assignee or its reviewer converts it, as for a change of its
+  state, and only where they may change the task: deleting the item takes
+  it.
+* The sub-task takes the item's description as its title, its assignee and
+  its deadline, and the project of the task. It is given no stage: core puts
+  it in the first unfolded stage of the project by sequence. No default of
+  the calling view reaches it.
+* The item's reviewer follows the sub-task, next to the followers core gives
+  it. Core notifies the assignee of the sub-task unless the assignee
+  converts the item; ``mail_auto_subscribe_no_notify`` silences that, as for
+  any task.
+* An internal note on the task, by the user converting, links the sub-task.
+  It opens with plain text, so it gets no category. The item is deleted.
+* An item of a task template becomes a template sub-task: in the template's
+  project and its first stage, or without project and stage. An item of a
+  private task is refused, since Odoo 20 gives a private task no sub-task,
+  and its *Convert to Sub-task* buttons are hidden.
+* A refusal, of the user, of a private task or of a first stage that
+  refuses the new sub-task under the closing rule or the estimate rule,
+  leaves the item as it was, without sub-task or note.
 
 **Test cases** (``project.task.testcase``)
 
@@ -114,15 +143,12 @@ Passed, Failed, Waiting or Not applicable.
 * **Passed** (``passed``) is stored, read-only and follows the status: set
   for Passed only.
 
-The task carries general comments and a completion percentage: its Passed
-cases over all its cases but the Not applicable ones. Its kanban card counts
-the cases Not run, Failed and Waiting. The **Test Cases** menu opens
-filtered on the cases Not run; remove the *Not run* filter to see them all.
-Copying a task also copies its checklist items, keeping their states, and
-its test cases, keeping their status, Verified by, Verified on,
-Verification and Automated test reference: a duplicate and its sub-tasks, a
-duplicated project, a task or project created from a template, a project
-made into a template. The next occurrence of a recurring task gets neither.
+A case follows the access of its task as a checklist item does, through two
+access rights with the same domains. The task carries general comments and
+a completion percentage: its Passed cases over all its cases but the Not
+applicable ones. Its kanban card counts the cases Not run, Failed and
+Waiting. The **Test Cases** menu opens filtered on the cases Not run; remove
+the *Not run* filter to see all those you can read.
 
 **Questions** (``project.task.question``)
 
@@ -146,11 +172,29 @@ are rows in an order of their own:
   answer; Dropped leaves them.
 
 A row is named by the text of its question, cut at 80 characters, or of its
-answer when the question is blank, or else by its task. A row is found,
-read, changed, deleted and created by the users who can read its task, as a
-checklist item is. Copying a task copies its rows with all their values,
-the status, Answered by and Answered on included, sub-tasks too; the next
-occurrence of a recurring task gets none.
+answer when the question is blank, or else by its task. A row follows the
+access of its task as a checklist item does, through two access rights with
+the same domains.
+
+**The lines of a copy**
+
+A copy of a task takes the checklist items, test cases and question rows of
+its source, and its sub-tasks take theirs, unless the values of the copy
+give its own. What a line keeps depends on the copy:
+
+* A plain duplicate of a task, a project or a template of either keeps every
+  line as it is: an item with its state and deadline, a case with its
+  result, Verified by, Verified on, Verification and Comments, a row with
+  its answer, status, Answered by and Answered on.
+* A task or a project created from a template, and a project template made
+  from a project, start the lines from zero: items TODO without deadline,
+  cases Not run without verification and comments, rows Open without
+  answer, Answered by and Answered on. An item keeps its description,
+  assignee and reviewer, a case its steps, expected results and Automated
+  test reference, a row its round, question and addressee.
+* The next occurrence of a recurring task takes no line.
+
+A task converted to a template is no copy: it keeps its lines.
 
 **Pull requests** (``project.pull.request``)
 
@@ -326,7 +370,10 @@ The category of a note:
 **Project > Task Notes** lists the internal notes of tasks: a message to one
 user, a tracking message and a message with neither a body nor a file are
 left out, and so are the notes of tasks the user cannot read, which Odoo
-would show to their author or recipients. Its domain names the model
+would show to their author or recipients. The notes of task templates, of
+their sub-tasks and of the tasks of project templates are left out too, as
+core leaves those tasks out of its task lists; the **Notes** button of such
+a task counts and lists its own. The domain names the model
 ``project.task``, so Odoo checks the access of the tasks in SQL. Odoo 20
 lets any user group messages under that check: the groups and their counts
 hold only notes of tasks the user can read. Groups by category come in the
@@ -351,11 +398,14 @@ The module's models, fields and selection values carry the names of the
   and its next occurrence until they are corrected. The ORM computes the
   task and the category of existing messages when the module adds their
   columns.
-* A checklist item and a question row follow the access of their task
-  through the domain of their access right, with the ``access`` operator of
-  Odoo 20. 16.0 has two ORM overrides for it, in
-  ``project.task.access.mixin``, which this branch does not have. On 16.0 an
-  item deleted meanwhile passes the access check.
+* Checklist items, question rows and test cases follow the access of their
+  task through the domains of their access rights, with the ``access``
+  operator of Odoo 20: reading follows the read access of the task, a
+  change its write access. On 16.0 items and rows follow the read access of
+  their task for every operation, through two ORM overrides in
+  ``project.task.access.mixin``, which this branch does not have, and test
+  cases follow none: every project user reaches every case. On 16.0 an item
+  deleted meanwhile passes the access check.
 * This branch has neither ``is_task_readable`` nor the grouped read of
   messages that 16.0 opens to project users on a domain naming it: Odoo 20
   groups messages for any user. A client that names ``is_task_readable``
@@ -376,7 +426,8 @@ The module's models, fields and selection values carry the names of the
 * Odoo 20 tracks many2many fields: every pull request added to a task or
   removed from it is in the chatter. On 16.0 only ``pr_uri`` is tracked.
 * Odoo 20 creates a task from a template, which takes no Resolution and no
-  pull request, as described above. Odoo 16 has no templates.
+  pull request and starts its lines from zero, as described above. Odoo 16
+  has no templates.
 * The rows of the stage log are written in ``_create`` and
   ``_write_multi``, on 16.0 in ``_create`` and ``_write``.
 * The estimate is the task's ``allocated_hours`` (*Allocated Time*), the
@@ -421,6 +472,11 @@ migration converts no data. The update:
 * creates the two *All checklist updates* subtypes under new external ids
   and deletes the former ones, with the follower subscriptions to them: tick
   *All checklist updates* again where it was ticked;
+* gives checklist items, test cases and question rows two access rights
+  each, ``access_task_<model>_read`` and ``access_task_<model>_write``
+  (``checklist_item``, ``testcase``, ``question``), and deletes the access
+  rights no data file names any more, ``access_task_testcase`` among them:
+  test cases follow the access of their task from then on;
 * computes the task and the note category of every message, as an install
   does.
 
@@ -487,12 +543,15 @@ Configuration
   so it is refused only where its source sits in such a stage without them.
 * Checklist items, question rows and test cases are managed by users with
   the **User** access of *Project* (Settings > Users, the *Access Rights* tab
-  of a user), a checklist item and a question row only by a user who can
-  read its task. The Checklist, Test Cases and Technical Solution tabs are
-  hidden from users without that access.
+  of a user). Such a user reads the lines of the tasks they can read and
+  creates, changes and deletes those of the tasks they can change: core
+  lets a project user read every task template without project, and so its
+  lines, but change them only where the template may be changed. The
+  Checklist, Test Cases and Technical Solution tabs are hidden from users
+  without that access.
 * **Project > Task Notes** and the **Notes** button of the task form are
   shown to users with the **User** access of *Project*. They list the notes
-  of the tasks the user can read.
+  of the tasks the user can read; the menu leaves out those of templates.
 * Pull requests are read by every internal user and created and edited by
   users with the **User** access of *Project*. No access right allows
   deleting one.
@@ -518,9 +577,11 @@ On the task form, which opens on Description:
   unless you pick another, and an optional deadline. You are the reviewer of
   the items you add. The assignee or the reviewer moves an item with the
   state icons (TODO, Waiting, Done, Cancelled), changes its description or
-  gives it another assignee. The task's kanban card shows your own
-  completion percentage, only when you have non-cancelled items assigned to
-  you.
+  gives it another assignee. They also convert it into a sub-task of the
+  task with the *Convert to Sub-task* icon of its row, after a confirmation:
+  the item is deleted and a note on the task links the sub-task. The task's
+  kanban card shows your own completion percentage, only when you have
+  non-cancelled items assigned to you.
 * *Technical Solution* tab (AI-driven projects): the **Questions** list,
   then the **Solution**. Add a row per question, with its round and the user
   it is addressed to, and drag the rows into order. Give a row its answer and
@@ -536,7 +597,8 @@ On the task form, which opens on Description:
   Set **Verification** to Automated test or Demo, and the **Automated test
   reference**, on the form of the case.
 * **Notes** button: counts the notes of the task and opens them in the
-  **Task Notes** list. It shows once the task has a note.
+  **Task Notes** list. It shows once the task has a note. On a template it
+  lists the notes the **Task Notes** menu leaves out.
 * *Pull Requests* tab (AI-driven projects): add the pull requests of the
   task. The list shows the link, state, merge date and deploy date of each.
   A pull request already recorded for another task is picked from the list
@@ -551,13 +613,16 @@ On the task form, which opens on Description:
 
 **Project > Checklist** lists the checklist items of the tasks you can read
 in the selected companies, opened on your own TODO items. Group by project,
-task, user or status.
+task, user or status. The assignee or the reviewer converts an item into a
+sub-task with **Convert to Sub-task** in the header of its form: the new
+sub-task opens in place of the item, without breadcrumbs back to it.
 
-**Project > Test Cases** lists the test cases of all tasks, opened on the
-ones Not run: a list, cards on a phone. Filter on Not run or Failed, group
-by project, task, status or verification. The header of a case's form
-gives it its result with the same buttons, next to its status bar: Not run,
-Passed and Failed, and the status of the case when it is another.
+**Project > Test Cases** lists the test cases of the tasks you can read,
+opened on the ones Not run: a list, cards on a phone. Filter on Not run or
+Failed, group by project, task, status or verification. The header of a
+case's form gives it its result with the same buttons, next to its status
+bar: Not run, Passed and Failed, and the status of the case when it is
+another.
 
 **Project > Pull Requests** lists all pull requests, the newest first: a
 list, cards on a phone. Search by URL, repository or task, filter on Open,
@@ -566,7 +631,8 @@ pull request, set **State**, **Merge Date** and **Deploy Date** when it is
 merged and deployed.
 
 **Project > Task Notes** lists the internal notes of the tasks you can read,
-archived tasks included, the newest first: a list, cards on a phone. A note
+archived tasks included, templates and the tasks of project templates left
+out, the newest first: a list, cards on a phone. A note
 of files alone is listed; a message to one user and a change of tracked
 fields are not. Filter on a category, search by contents, task or author,
 and group by category or by task: a task's group bears its current name.
@@ -590,9 +656,12 @@ A tool that keeps a checklist over RPC creates ``project.task.checklist.item``
 records with ``task_id``, ``name`` and ``user_id``, which defaults to the
 tool's own user, and reads the items of a task from ``checklist_item_ids``.
 It moves an item by writing ``state`` (``todo``, ``waiting``, ``done`` or
-``cancelled``) as the item's assignee or reviewer. It reaches only the items
-of the tasks its user can read; without ``allowed_company_ids`` in the
-context, those of all the user's companies.
+``cancelled``) as the item's assignee or reviewer, and turns items into
+sub-tasks with ``action_convert_to_subtask``, one sub-task under the task of
+each item. It reads only the items of the tasks its user can read, and
+creates, changes and deletes only those of the tasks its user can change;
+without ``allowed_company_ids`` in the context, those of all the user's
+companies. It reaches question rows and test cases the same way.
 
 A tool that keeps the questions of a task over RPC creates
 ``project.task.question`` records with ``task_id`` and ``question``, and
@@ -600,8 +669,7 @@ A tool that keeps the questions of a task over RPC creates
 rows of a task from ``question_ids``. It answers a row by writing
 ``answer``; ``state`` takes ``open``, ``answered`` or ``dropped``. A create or
 write that makes a row Answered fills ``answered_by_id`` and ``answered_on``
-unless it sends them. It reaches only the rows of the tasks its user can
-read.
+unless it sends them.
 
 A tool that gives test case results over RPC writes ``state`` on
 ``project.task.testcase``: ``not_run``, ``passed``, ``failed``, ``waiting``
@@ -662,6 +730,10 @@ Known issues / Roadmap
   Resolution, and the refusal takes the change of state with it. The same
   holds where that stage is marked for the estimate rule and the task has no
   task type or no estimate.
+* A checklist item is not converted into a sub-task while the first unfolded
+  stage of its AI-driven project is marked for either rule: the sub-task
+  enters that stage without a Resolution, a task type or an estimate. The
+  item stays. An item of a template converts.
 * The priority star is hidden on the views the description lists. The
   portal keeps it: the project sharing views, the task list and the task
   page.

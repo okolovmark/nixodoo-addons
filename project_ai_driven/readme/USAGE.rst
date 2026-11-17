@@ -6,9 +6,11 @@ On the task form, which opens on Description:
   unless you pick another, and an optional deadline. You are the reviewer of
   the items you add. The assignee or the reviewer moves an item with the
   state icons (TODO, Waiting, Done, Cancelled), changes its description or
-  gives it another assignee. The task's kanban card shows your own
-  completion percentage, only when you have non-cancelled items assigned to
-  you.
+  gives it another assignee. They also convert it into a sub-task of the
+  task with the *Convert to Sub-task* icon of its row, after a confirmation:
+  the item is deleted and a note on the task links the sub-task. The task's
+  kanban card shows your own completion percentage, only when you have
+  non-cancelled items assigned to you.
 * *Technical Solution* tab (AI-driven projects): the **Questions** list,
   then the **Solution**. Add a row per question, with its round and the user
   it is addressed to, and drag the rows into order. Give a row its answer and
@@ -24,7 +26,8 @@ On the task form, which opens on Description:
   Set **Verification** to Automated test or Demo, and the **Automated test
   reference**, on the form of the case.
 * **Notes** button: counts the notes of the task and opens them in the
-  **Task Notes** list. It shows once the task has a note.
+  **Task Notes** list. It shows once the task has a note. On a template it
+  lists the notes the **Task Notes** menu leaves out.
 * *Pull Requests* tab (AI-driven projects): add the pull requests of the
   task. The list shows the link, state, merge date and deploy date of each.
   A pull request already recorded for another task is picked from the list
@@ -39,13 +42,16 @@ On the task form, which opens on Description:
 
 **Project > Checklist** lists the checklist items of the tasks you can read
 in the selected companies, opened on your own TODO items. Group by project,
-task, user or status.
+task, user or status. The assignee or the reviewer converts an item into a
+sub-task with **Convert to Sub-task** in the header of its form: the new
+sub-task opens in place of the item, without breadcrumbs back to it.
 
-**Project > Test Cases** lists the test cases of all tasks, opened on the
-ones Not run: a list, cards on a phone. Filter on Not run or Failed, group
-by project, task, status or verification. The header of a case's form
-gives it its result with the same buttons, next to its status bar: Not run,
-Passed and Failed, and the status of the case when it is another.
+**Project > Test Cases** lists the test cases of the tasks you can read,
+opened on the ones Not run: a list, cards on a phone. Filter on Not run or
+Failed, group by project, task, status or verification. The header of a
+case's form gives it its result with the same buttons, next to its status
+bar: Not run, Passed and Failed, and the status of the case when it is
+another.
 
 **Project > Pull Requests** lists all pull requests, the newest first: a
 list, cards on a phone. Search by URL, repository or task, filter on Open,
@@ -54,7 +60,8 @@ pull request, set **State**, **Merge Date** and **Deploy Date** when it is
 merged and deployed.
 
 **Project > Task Notes** lists the internal notes of the tasks you can read,
-archived tasks included, the newest first: a list, cards on a phone. A note
+archived tasks included, templates and the tasks of project templates left
+out, the newest first: a list, cards on a phone. A note
 of files alone is listed; a message to one user and a change of tracked
 fields are not. Filter on a category, search by contents, task or author,
 and group by category or by task: a task's group bears its current name.
@@ -78,9 +85,12 @@ A tool that keeps a checklist over RPC creates ``project.task.checklist.item``
 records with ``task_id``, ``name`` and ``user_id``, which defaults to the
 tool's own user, and reads the items of a task from ``checklist_item_ids``.
 It moves an item by writing ``state`` (``todo``, ``waiting``, ``done`` or
-``cancelled``) as the item's assignee or reviewer. It reaches only the items
-of the tasks its user can read; without ``allowed_company_ids`` in the
-context, those of all the user's companies.
+``cancelled``) as the item's assignee or reviewer, and turns items into
+sub-tasks with ``action_convert_to_subtask``, one sub-task under the task of
+each item. It reads only the items of the tasks its user can read, and
+creates, changes and deletes only those of the tasks its user can change;
+without ``allowed_company_ids`` in the context, those of all the user's
+companies. It reaches question rows and test cases the same way.
 
 A tool that keeps the questions of a task over RPC creates
 ``project.task.question`` records with ``task_id`` and ``question``, and
@@ -88,8 +98,7 @@ A tool that keeps the questions of a task over RPC creates
 rows of a task from ``question_ids``. It answers a row by writing
 ``answer``; ``state`` takes ``open``, ``answered`` or ``dropped``. A create or
 write that makes a row Answered fills ``answered_by_id`` and ``answered_on``
-unless it sends them. It reaches only the rows of the tasks its user can
-read.
+unless it sends them.
 
 A tool that gives test case results over RPC writes ``state`` on
 ``project.task.testcase``: ``not_run``, ``passed``, ``failed``, ``waiting``
