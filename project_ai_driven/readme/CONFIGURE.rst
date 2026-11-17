@@ -1,6 +1,7 @@
 * On a project, tick **AI-driven Project** (*Settings* tab, above
-  *Visibility*) to show the Technical Solution and Pull Requests tabs and the
-  Resolution on its tasks, and to hide the core priority star on them.
+  *Visibility*) to show the Technical Solution, Pull Requests and Sessions
+  tabs and the Resolution on its tasks, and to hide the core priority star
+  on them.
 * Below it, a Settings administrator ticks **Develops This Odoo** on the one
   AI-driven project whose tasks change this Odoo database: its tasks show
   their Modules. The field is shown to **Administration / Settings** only,
@@ -23,10 +24,10 @@
   The duplicate of a project copies each task with its type and its
   estimate, so it is refused only where a task sits in such a stage without
   them.
-* Checklist items, question rows and test cases are managed by **Project /
-  User**, a checklist item and a question row only by a user who can read
-  its task. The Checklist, Test Cases and Technical Solution tabs are hidden
-  from users without that group.
+* Checklist items, question rows, session rows and test cases are managed
+  by **Project / User**, a checklist item, a question row and a session row
+  only by a user who can read its task. The Checklist, Test Cases, Technical
+  Solution and Sessions tabs are hidden from users without that group.
 * Pull requests are read by every internal user and created and edited by
   **Project / User**. No access right allows deleting one.
 * The Modules of a task, on the form and in the task search, are shown to
