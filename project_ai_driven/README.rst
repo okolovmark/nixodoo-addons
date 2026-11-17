@@ -89,6 +89,21 @@ by default: other followers receive the posts of others only after opting
 into *All checklist updates* on the task or on its project. The same context
 key silences these posts for an account without an email address.
 
+The assignee or the reviewer of an item converts it into a sub-task of its
+task, whatever its state, in a project with **Sub-tasks** turned on, so never
+on a task without a project. The sub-task takes the item's description as
+its title, its assignee, and the date of its deadline in the user's time
+zone, or no deadline. Its parent is the task, its project the task's, its
+stage the first unfolded stage of that project; it takes no default of the
+screen the conversion starts from. The assignee and the reviewer follow it.
+When the reviewer converts an item assigned to another user, that user gets
+Odoo's *You have been assigned to* notice. The task gets an internal note,
+without a category, linking the sub-task, and the item is deleted. The
+conversion also takes the right to delete the item, and a first stage marked
+by the closing or the estimate rule refuses the sub-task, which has no
+Resolution, type or estimate. Any refusal leaves the item and the task as
+they were, with no sub-task.
+
 The task's kanban card shows the current user's completion percentage over
 their non-cancelled items and the number of their TODO and Waiting items. The
 **Checklist** menu opens on your own TODO items (the *My* and *TODO* filters
@@ -798,6 +813,10 @@ On the task form:
   gives it another assignee. The task's kanban card shows
   your own completion percentage, only when you have non-cancelled items
   assigned to you.
+* *Checklist* tab, in a project with Sub-tasks turned on: the assignee or
+  the reviewer converts an item into a sub-task with the level-down icon of
+  its row, after a confirmation. The item is deleted and the task gets a
+  note linking the sub-task.
 * *Test Cases* tab: add ordered cases with steps and expected results, then
   give each case its result with the icons of its row; a row offers the
   states other than its own (Passed, Failed, Not run, Waiting, Not
@@ -834,7 +853,9 @@ On the task form:
 
 **Project > Checklist** lists the checklist items of the tasks you can read
 in the selected companies, opened on your own TODO items. Group by project,
-task, user or status.
+task, user or status. **Convert to Sub-task**, in the header of an item's
+form, converts it as the icon of its row does, then opens the sub-task in
+place of the breadcrumbs.
 
 **Project > Test Cases** lists the test cases of all tasks, opened on the
 ones Not run: a list, cards on a phone. Filter on Not run or Failed, group
@@ -890,6 +911,15 @@ It moves an item by writing ``state`` (``todo``, ``waiting``, ``done`` or
 ``cancelled``) as the item's assignee or reviewer. It reaches only the items
 of the tasks its user can read; without ``allowed_company_ids`` in the
 context, those of all the user's companies.
+
+It converts items into sub-tasks with ``action_convert_to_subtask``, each
+into a sub-task of its own task, as the assignee or the reviewer of every
+item: a refusal of one leaves them all. The method returns ``True``.
+``action_convert_to_subtask_open`` converts
+one item and returns the window action of its sub-task, the id in
+``res_id``. The note on the task is posted in the name of the tool's user,
+who needs an email address even with ``mail_auto_subscribe_no_notify``;
+that key silences the assignee's notice.
 
 A tool that keeps the questions of a task over RPC creates
 ``project.task.question`` records with ``task_id`` and ``question``, and
