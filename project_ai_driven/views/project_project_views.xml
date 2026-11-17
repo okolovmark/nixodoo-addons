@@ -8,6 +8,11 @@
             <xpath expr="//field[@name='privacy_visibility']" position="before">
                 <field name="is_ai_driven" />
                 <field
+                    name="develops_this_odoo"
+                    attrs="{'invisible': [('is_ai_driven', '=', False), ('develops_this_odoo', '=', False)]}"
+                    groups="base.group_system"
+                />
+                <field
                     name="pr_required_states"
                     widget="many2many_tags"
                     domain="[('project_ids', '=', id)]"
