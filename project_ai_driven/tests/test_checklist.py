@@ -488,12 +488,6 @@ class TestChecklistAccess(ProjectAiDrivenCommon):
         cls.visible_item = cls.Item.create({"name": "Visible item", "task_id": cls.task.id, **parties})
         cls.as_developer = cls.Item.with_user(cls.user_dev)
 
-    @classmethod
-    def _restrict_task_reading(cls, name, domain):
-        cls.env["ir.access"].create(
-            {"name": name, "model_id": cls.env["ir.model"]._get_id("project.task"), "operation": "r", "domain": domain},
-        )
-
     def _task_access_consulted(self, items):
         """Whether the search and the unlink check of items, in their env, consult the access of the task."""
         task_model = type(self.env["project.task"])
