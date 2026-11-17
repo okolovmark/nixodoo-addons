@@ -76,7 +76,7 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
     def test_the_assignee_converts_an_item_into_a_subtask_in_the_first_stage(self):
         item = self._new_item(deadline=DEADLINE)
         self.assertNotIn(self.reviewer.partner_id, self.task.message_partner_ids)
-        self.assertIsNone(item.with_user(self.user_dev).action_convert_to_subtask())
+        self.assertIs(item.with_user(self.user_dev).action_convert_to_subtask(), True)
         self.assertFalse(item.exists())
         subtask = self._subtasks(self.task)
         self.assertRecordValues(
