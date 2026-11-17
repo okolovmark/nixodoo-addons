@@ -78,7 +78,7 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
         self.user_dev.tz = "Asia/Manila"
         item = self._new_item(deadline=datetime(2026, 12, 1, 20, 0))
         self.assertNotIn(self.reviewer.partner_id, self.task.message_partner_ids)
-        self.assertIsNone(item.with_user(self.user_dev).action_convert_to_subtask())
+        self.assertIs(item.with_user(self.user_dev).action_convert_to_subtask(), True)
         self.assertFalse(item.exists())
         subtask = self._subtasks(self.task)
         self.assertRecordValues(

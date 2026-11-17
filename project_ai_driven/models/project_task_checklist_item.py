@@ -82,6 +82,8 @@ class ProjectTaskChecklistItem(models.Model):
 
     def action_convert_to_subtask(self):
         self._convert_to_subtasks()
+        # XML-RPC cannot marshal None: a tool would get a fault after the conversion was saved
+        return True
 
     def action_convert_to_subtask_open(self):
         """Convert from the form of the item, which cannot reload a deleted
