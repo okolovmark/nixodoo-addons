@@ -2,7 +2,8 @@ from datetime import datetime
 
 from freezegun import freeze_time
 
-from odoo.exceptions import AccessError
+from odoo import Command
+from odoo.exceptions import AccessError, MissingError
 from odoo.tests import Form
 
 from ..models.project_task_question import is_blank_html
@@ -356,16 +357,35 @@ class TestQuestionAccess(ProjectAiDrivenCommon):
         hidden_question = self.hidden_question.with_user(self.user_dev)
         with self.assertRaises(AccessError):
             hidden_question.read(["question"])
-        with self.assertRaises(AccessError):
-            hidden_question.write({"answer": ANSWER})
+        # an answer is refused already by the read of the state before the write
+        for vals in ({"round": "Second round"}, {"state": "dropped"}, {"answer": ANSWER}):
+            with self.subTest(vals=vals), self.assertRaises(AccessError):
+                hidden_question.write(vals)
         with self.assertRaises(AccessError):
             hidden_question.unlink()
-        self.assertRecordValues(self.hidden_question, [{"state": "open", "answer": False}])
+        self.assertRecordValues(self.hidden_question, [{"state": "open", "answer": False, "round": False}])
         visible_question = self.visible_question.with_user(self.user_dev)
         visible_question.write({"answer": ANSWER})
         self.assertEqual(visible_question.state, "answered")
         visible_question.unlink()
         self.assertFalse(self.visible_question.exists())
+
+    def test_a_row_deleted_meanwhile_fails_the_access_check_as_missing(self):
+        """Two users with the task form open both delete the same row: the
+        second save fails, as core evaluates the access domain on a deleted record.
+        """
+        self.visible_question.unlink()
+        self.env.invalidate_all()
+        with self.assertRaises(MissingError):
+            self.task.with_user(self.user_dev).write({"question_ids": [Command.delete(self.visible_question.id)]})
+        deleted_question = self.visible_question.with_user(self.user_dev)
+        for operation in ("read", "write", "unlink"):
+            self.env.invalidate_all()
+            with self.subTest(operation=operation), self.assertRaises(MissingError):
+                deleted_question.check_access(operation)
+        self.env.invalidate_all()
+        with self.assertRaises((AccessError, MissingError)):
+            (deleted_question | self.hidden_question.with_user(self.user_dev)).check_access("unlink")
 
     def test_rows_cannot_be_added_to_a_task_the_user_cannot_read(self):
         with self.assertRaises(AccessError):

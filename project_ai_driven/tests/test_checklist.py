@@ -445,12 +445,18 @@ class TestChecklistNotification(ProjectAiDrivenCommon):
         self.assertIn(self.subscriber.partner_id, notified_of_others)
         own_message = self._checklist_comments("Order the screws")
         self.assertPostedTo(own_message, self.user_dev)
+        self.assertNotIn(self.subscriber.partner_id, own_message.notification_ids.res_partner_id)
 
     def test_creating_without_email_posts_without_the_flag(self):
         item = self.Item.with_user(self.user_no_email).create(self._item_vals("Review schematics"))
         self.assertEqual(item.task_id, self.task)
         message = self._checklist_comments("Review schematics")
         self.assertPostedTo(message, self.user_dev)
+        self.assertEqual(
+            message.notification_ids.res_partner_id,
+            (self.user_dev | self.subscriber).partner_id,
+            "the assignee and the follower who opted in",
+        )
         self.assertFalse(message.email_from, "the account has no address to send from")
 
     def test_creating_without_email_works_with_the_flag(self):
@@ -524,7 +530,7 @@ class TestChecklistAccess(ProjectAiDrivenCommon):
         with self.assertRaises(AccessError):
             hidden_item.read(["name"])
         with self.assertRaises(AccessError):
-            hidden_item.name
+            hidden_item.fetch(["name"])
         self.assertEqual(
             self.visible_item.with_user(self.user_dev).read(["name"]),
             [{"id": self.visible_item.id, "name": "Visible item"}],
@@ -573,6 +579,9 @@ class TestChecklistAccess(ProjectAiDrivenCommon):
             self.env.invalidate_all()
             with self.subTest(operation=operation), self.assertRaises(MissingError):
                 deleted_item.check_access(operation)
+        self.env.invalidate_all()
+        with self.assertRaises((AccessError, MissingError)):
+            (deleted_item | self.hidden_item.with_user(self.user_dev)).check_access("unlink")
 
     def test_items_of_a_task_in_a_company_the_user_has_not_selected_are_not_found_or_read(self):
         home_company, other_company = self.env["res.company"].create(

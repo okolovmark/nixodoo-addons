@@ -1,9 +1,12 @@
 from pathlib import Path
+from unittest.mock import patch
 
 from psycopg2.extras import Json
 
+from odoo.exceptions import ValidationError
 from odoo.modules.module import load_script
 from odoo.tests import TransactionCase
+from odoo.tools import config
 
 from .common import MODULE
 
@@ -17,6 +20,9 @@ STALE_FORM_ARCH = {
 }
 STALE_CARD_ARCH = {
     "en_US": '<templates position="before"><field name="kanban_subtasks"/></templates>',
+}
+STALE_CHECKLIST_ARCH = {
+    "en_US": '<xpath expr="//page[@name=\'description_page\']" position="after"><page name="checklist" string="Checklist"><field name="subtask_ids"/></page></xpath>',
 }
 # The card view of the checklist under the xml id of 20.0.2.4.1, which no data file names any more.
 FORMER_CARD_VIEW = "view_task_kanban_subtasks"
@@ -63,6 +69,23 @@ class TestBlankExtensionViewsMigration(TransactionCase):
 
         self.assertEqual(self._stored_arch(self.form_view), BLANK_ARCH)
         self.assertEqual(self._stored_arch(self.former_card_view), BLANK_ARCH)
+
+    def test_a_view_the_update_rewrites_validates_once_the_stale_ones_are_blanked(self):
+        """The update rewrites the checklist view first, while the form view
+        still names the fields questions and answers.
+        """
+        checklist_view = self.env.ref(f"{MODULE}.view_task_form2")
+        self._store_arch(checklist_view, STALE_CHECKLIST_ARCH)
+        # the update reads the stored archs, where --dev=xml reads the files
+        with patch.dict(config.options, {"dev_mode": []}):
+            with self.assertRaisesRegex(ValidationError, "questions"):
+                checklist_view.reset_arch(mode="hard")
+
+            self._migrate(EARLIER_VERSION)
+            checklist_view.reset_arch(mode="hard")
+
+            self.env.ref("project.view_task_form2")._check_xml()
+        self.assertIn("checklist_item_ids", self._stored_arch(checklist_view)["en_US"])
 
     def test_update_leaves_primary_views_and_views_of_other_modules_alone(self):
         kept_views = {xml_id: self.env.ref(xml_id) for xml_id in KEPT_VIEWS}
