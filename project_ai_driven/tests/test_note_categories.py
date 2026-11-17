@@ -42,7 +42,7 @@ CATEGORY_OPENINGS = {
     "<p><b>Bug Fix / Review Fix</b></p>": "bug_fix",
     "<p><b>Review Fix + Bug Fix</b></p>": "review_fix",
     "<p><b>Bug Fix (round 2)</b></p>": "bug_fix",
-    # the sanitizer stores inside a <span> a body that opens with an inline tag
+    # the sanitizer stores inside a <span> a body of inline content only and more than one node
     "<b>Progress</b> \u2014 Test Case Verification: 7/7 passed.": "progress",
     "<b>Review Fix</b> - posted without a paragraph": "review_fix",
     "<span><b>Progress</b> - posted without a paragraph</span>": "progress",
@@ -84,6 +84,9 @@ RAW_CATEGORY_OPENINGS = {
     '<SPAN class="x"><b>Deploy</b></SPAN>': "deploy",
     "<span>&nbsp;<b>Deploy</b></span>": "deploy",
     " \n<Span>\n<strong>User\u00a0Feedback:</strong></Span>": "user_feedback",
+    "&nbsp;<span><b>Deploy</b> - prod</span>": "deploy",
+    "\u00a0<span><b>Progress</b></span>": "progress",
+    "<Span\n><b>Review Fix</b></Span>": "review_fix",
     "<span><b>Bug Fix (round 2)</b></span>": "bug_fix",
     "<span><b>Review Fix + Bug Fix</b></span>": "review_fix",
 }
@@ -110,6 +113,11 @@ def _load_script(path):
     return script
 
 
+def _opens_with_a_span(body):
+    """Whether body opens with a <span>, read without the pattern under test."""
+    return str(body).replace("&nbsp;", " ").lstrip().lower().startswith("<span")
+
+
 class NoteCategoryCase(ProjectAiDrivenCommon):
     @classmethod
     def setUpClass(cls):
@@ -128,6 +136,32 @@ class NoteCategoryCase(ProjectAiDrivenCommon):
         self.task.date_deadline = (self.task.date_deadline or date(2026, 12, 1)) + timedelta(days=1)
         self._flush_tracking()
         return self.task.message_ids.filtered("tracking_value_ids")[0]
+
+    def _create_messages(self):
+        """A task note of every opening, posted, or written by SQL for the raw
+        ones, and category openings where no category counts. Returns the
+        messages and the (task id, category) each one has.
+        """
+        posted_bodies = {**CATEGORY_OPENINGS, **dict.fromkeys(NO_CATEGORY_OPENINGS, False)}
+        raw_bodies = {**RAW_CATEGORY_OPENINGS, **dict.fromkeys(RAW_NO_CATEGORY_OPENINGS, False)}
+        expected_values = {}
+        raw_messages = {}
+        for message_type in ("comment", "notification"):
+            for body, category in posted_bodies.items():
+                expected_values[self._log_note(body, message_type=message_type)] = (self.task.id, category)
+            for body, category in raw_bodies.items():
+                message = self._log_note("<p>to be replaced</p>", message_type=message_type)
+                raw_messages[message] = body
+                expected_values[message] = (self.task.id, category)
+        for body in CATEGORY_OPENINGS:
+            expected_values[self._log_note(body, subtype_xmlid="mail.mt_comment")] = (self.task.id, False)
+            expected_values[self._log_note(body, record=self.project)] = (False, False)
+        expected_values[self._log_tracking(TRACKING_BODY)] = (self.task.id, False)
+        self.env.flush_all()
+        for message, body in raw_messages.items():
+            self.env.cr.execute("UPDATE mail_message SET body = %s WHERE id = %s", (body, message.id))
+        self.env.invalidate_all()
+        return self.Message.concat(*expected_values), list(expected_values.values())
 
     def _categories(self, messages):
         return [message.note_category for message in messages]
@@ -247,32 +281,6 @@ class TestTaskMessageFill(NoteCategoryCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.other_task = cls.env["project.task"].create({"name": "Other Task", "project_id": cls.project.id})
-
-    def _create_messages(self):
-        """A task note of every opening, posted, or written by SQL for the raw
-        ones, and category openings where no category counts. Returns the
-        messages and the (task id, category) each one has.
-        """
-        posted_bodies = {**CATEGORY_OPENINGS, **dict.fromkeys(NO_CATEGORY_OPENINGS, False)}
-        raw_bodies = {**RAW_CATEGORY_OPENINGS, **dict.fromkeys(RAW_NO_CATEGORY_OPENINGS, False)}
-        expected_values = {}
-        raw_messages = {}
-        for message_type in ("comment", "notification"):
-            for body, category in posted_bodies.items():
-                expected_values[self._log_note(body, message_type=message_type)] = (self.task.id, category)
-            for body, category in raw_bodies.items():
-                message = self._log_note("<p>to be replaced</p>", message_type=message_type)
-                raw_messages[message] = body
-                expected_values[message] = (self.task.id, category)
-        for body in CATEGORY_OPENINGS:
-            expected_values[self._log_note(body, subtype_xmlid="mail.mt_comment")] = (self.task.id, False)
-            expected_values[self._log_note(body, record=self.project)] = (False, False)
-        expected_values[self._log_tracking(TRACKING_BODY)] = (self.task.id, False)
-        self.env.flush_all()
-        for message, body in raw_messages.items():
-            self.env.cr.execute("UPDATE mail_message SET body = %s WHERE id = %s", (body, message.id))
-        self.env.invalidate_all()
-        return self.Message.concat(*expected_values), list(expected_values.values())
 
     def _set_columns(self, messages, task_id, category):
         self.env.flush_all()
@@ -458,6 +466,17 @@ class TestSpanNoteUpdate(NoteCategoryCase):
 
         self.assertEqual(categorized_count, len(span_notes))
         self.assertEqual(self._stored_values(messages), expected_values)
+
+    def test_the_update_gives_a_span_note_of_every_opening_what_the_computes_give(self):
+        messages, expected_values = self._create_messages()
+        self.assertEqual(self._computed_values(messages), expected_values, "the computes")
+        span_messages = messages.filtered(lambda message: _opens_with_a_span(message.body))
+        self._set_category(span_messages, None)
+
+        categorized_count = categorize_span_notes(self.env.cr)
+
+        self.assertEqual(self._stored_values(messages), expected_values)
+        self.assertEqual(categorized_count, len(span_messages.filtered("note_category")))
 
     def test_a_second_update_changes_nothing_and_logs_one_line(self):
         messages, expected_values, _span_notes = self._create_span_messages()

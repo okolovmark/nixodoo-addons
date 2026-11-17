@@ -12,14 +12,7 @@ from psycopg2.extras import Json
 from odoo import SUPERUSER_ID, api
 from odoo.tools.sql import column_exists, create_column, create_index, rename_column, table_exists
 
-from .models.mail_message import (
-    NOTE_CATEGORIES,
-    NOTE_CATEGORY_PATTERNS,
-    NOTE_MODEL,
-    NOTE_SUBTYPE,
-    SPACE,
-    _any_case,
-)
+from .models.mail_message import NOTE_CATEGORIES, NOTE_CATEGORY_PATTERNS, NOTE_MODEL, NOTE_SUBTYPE, SPAN_OPENING
 from .models.project_pull_request import parse_pull_request_links
 from .models.project_task_question import get_visible_text, has_content, has_media, is_blank_html, parse_html
 from .models.project_task_testcase import OLD_STATES
@@ -762,7 +755,6 @@ TASK_NOTES_OPENING_WITH_A_SPAN_WITHOUT_CATEGORY = sql.SQL(
     "message.model = %(model)s AND message.subtype_id = %(subtype_id)s AND message.note_category IS NULL"
     " AND message.body ~ %(span_opening)s"
 )
-SPAN_OPENING = "^%s*<%s" % (SPACE, _any_case("span"))
 
 
 def pre_init_hook(cr):
@@ -878,10 +870,9 @@ def categorize_span_notes(cr):
     """Give their category, by SQL, the internal notes of tasks without one
     whose body opens with a <span>, and return how many were given one.
 
-    Before 16.0.2.8.1 only a <p> could come before the category, and the Html
-    sanitizer stores inside a <span> a body that opens with an inline tag.
-    Every other message has had its category since 16.0.2.8.0, so these
-    notes alone are read and written.
+    The Html sanitizer stores a body of inline content only and more than
+    one node inside a <span>. Only these notes are read and written: every
+    other message is taken to hold its category already.
     """
     env = api.Environment(cr, SUPERUSER_ID, {})
     env.flush_all()
@@ -903,8 +894,9 @@ def _get_note_category_params(env):
 
 
 def _fill_note_categories(cr, messages, params):
-    """Give the messages of the SQL condition messages the category of their
-    body; return the notes given each category, False for those cleared.
+    """Give the messages that the SQL condition `messages` selects the
+    category of their body; return the notes given each category, False for
+    those cleared.
     """
     cr.execute(FILL_NOTE_CATEGORIES.format(messages=messages), params)
     category_counts = dict.fromkeys((*NOTE_CATEGORIES, False), 0)
