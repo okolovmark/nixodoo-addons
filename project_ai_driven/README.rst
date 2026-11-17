@@ -120,7 +120,9 @@ the cases Not run, Failed and Waiting. The **Test Cases** menu opens
 filtered on the cases Not run; remove the *Not run* filter to see them all.
 Copying a task also copies its checklist items, keeping their states, and
 its test cases, keeping their status, Verified by, Verified on,
-Verification and Automated test reference.
+Verification and Automated test reference: a duplicate and its sub-tasks, a
+duplicated project, a task or project created from a template or made into
+one. The next occurrence of a recurring task gets neither.
 
 **Questions** (``project.task.question``)
 
@@ -147,7 +149,8 @@ A row is named by the text of its question, cut at 80 characters, or of its
 answer when the question is blank, or else by its task. A row is found,
 read, changed, deleted and created by the users who can read its task, as a
 checklist item is. Copying a task copies its rows with all their values,
-the status, Answered by and Answered on included.
+the status, Answered by and Answered on included, sub-tasks too; the next
+occurrence of a recurring task gets none.
 
 **Pull requests** (``project.pull.request``)
 
@@ -322,8 +325,9 @@ The category of a note:
 
 **Project > Task Notes** lists the internal notes of tasks: a message to one
 user, a tracking message and a message with neither a body nor a file are
-left out. Its domain names the model ``project.task``, so Odoo checks the
-access of the tasks in SQL. Odoo 20 lets any user group messages under that
+left out, and so are the notes of tasks the user cannot read, which Odoo
+would show to their author or recipients. Its domain names the model
+``project.task``, so Odoo checks the access of the tasks in SQL. Odoo 20 lets any user group messages under that
 check: the groups and their counts hold only notes of tasks the user can
 read. Groups by category come in the order of the categories, the notes
 without one last.
@@ -411,7 +415,9 @@ migration converts no data. The update:
   their columns: their text is not turned into question rows;
 * creates the checklist model ``project.task.checklist.item`` with an empty
   table. The items of the former ``project.task.subtask`` stay in the table
-  ``project_task_subtask``, which no model reads;
+  ``project_task_subtask``, which no model reads. Its foreign key on the
+  assignee restricts deletion: a user assigned to such an item cannot be
+  deleted until the table is dropped by hand;
 * creates the two *All checklist updates* subtypes under new external ids
   and deletes the former ones, with the follower subscriptions to them: tick
   *All checklist updates* again where it was ticked;
@@ -427,9 +433,9 @@ The update leaves:
   Such a case matches no filter and no kanban count of this version, and the
   completion of its task counts it as not passed, until it is given a
   result;
-* the external ids of selection values that ``mail`` and
-  ``phone_validation`` hold for the former checklist model; nothing reads
-  them;
+* the external ids that ``mail`` (selection values of the activity
+  fields) and ``phone_validation`` (the activity mixin inheritance) hold
+  for the former checklist model; nothing reads them;
 * the sizes the tasks have stored, until their hours change.
 
 **A database that has the 20.0 project_software installed**
@@ -447,8 +453,9 @@ What to expect:
   states as they are stored.
 * The checklist items and the Html ``questions`` and ``answers`` are not
   kept: ``project_ai_driven`` declares neither ``project.task.subtask`` nor
-  the two fields, so the uninstall drops them with their table and columns.
-  Export them first if they are needed.
+  the two fields. The uninstall drops the two fields with their columns and
+  leaves the items in the table ``project_task_subtask``, which no model
+  reads. Export them first if they are needed.
 * The project flag does not come along: tick **AI-driven Project** again on
   each project.
 * The views of ``project_software`` and its two checklist message subtypes

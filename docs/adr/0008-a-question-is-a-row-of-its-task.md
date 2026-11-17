@@ -11,7 +11,8 @@ The module does not declare the Html fields `questions` and `answers`.
 **What differs from 16.0.**
 
 - Nothing is converted (ADR 0001). 16.0 turns the Html of each task into rows by SQL. Here an update from an earlier 20.0 version deletes the two fields with their columns and their text, and the tasks start without rows.
-- The access of a row is the domain of its access right, not `project.task.access.mixin` (ADR 0007).
+- The access of a row is the domain of its access right, not `project.task.access.mixin` (ADR 0007). A row deleted meanwhile raises MissingError, as core does: two users deleting the same row from open task forms, the second save fails.
+- Copying a task copies its rows in every copy Odoo 20 makes, sub-tasks included, as lines of `copy_data` (ADR 0005); the next occurrence of a recurring task gets none, as on 16.0.
 
 **Consequences.**
 

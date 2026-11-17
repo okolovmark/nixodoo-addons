@@ -460,7 +460,9 @@ the cases Not run, Failed and Waiting. The <strong>Test Cases</strong> menu open
 filtered on the cases Not run; remove the <em>Not run</em> filter to see them all.
 Copying a task also copies its checklist items, keeping their states, and
 its test cases, keeping their status, Verified by, Verified on,
-Verification and Automated test reference.</p>
+Verification and Automated test reference: a duplicate and its sub-tasks, a
+duplicated project, a task or project created from a template or made into
+one. The next occurrence of a recurring task gets neither.</p>
 <p><strong>Questions</strong> (<tt class="docutils literal">project.task.question</tt>)</p>
 <p>The clarifying questions of a task, its <strong>Questions</strong> (<tt class="docutils literal">question_ids</tt>),
 are rows in an order of their own:</p>
@@ -485,7 +487,8 @@ answer; Dropped leaves them.</li>
 answer when the question is blank, or else by its task. A row is found,
 read, changed, deleted and created by the users who can read its task, as a
 checklist item is. Copying a task copies its rows with all their values,
-the status, Answered by and Answered on included.</p>
+the status, Answered by and Answered on included, sub-tasks too; the next
+occurrence of a recurring task gets none.</p>
 <p><strong>Pull requests</strong> (<tt class="docutils literal">project.pull.request</tt>)</p>
 <p>A pull request is a record of its own, shared by every task it belongs to:</p>
 <ul class="simple">
@@ -672,8 +675,9 @@ first. <tt class="docutils literal">&lt;b&gt;Progress <span class="pre">report&l
 </ul>
 <p><strong>Project &gt; Task Notes</strong> lists the internal notes of tasks: a message to one
 user, a tracking message and a message with neither a body nor a file are
-left out. Its domain names the model <tt class="docutils literal">project.task</tt>, so Odoo checks the
-access of the tasks in SQL. Odoo 20 lets any user group messages under that
+left out, and so are the notes of tasks the user cannot read, which Odoo
+would show to their author or recipients. Its domain names the model
+<tt class="docutils literal">project.task</tt>, so Odoo checks the access of the tasks in SQL. Odoo 20 lets any user group messages under that
 check: the groups and their counts hold only notes of tasks the user can
 read. Groups by category come in the order of the categories, the notes
 without one last.</p>
@@ -767,7 +771,9 @@ of the tasks, with their values;</li>
 their columns: their text is not turned into question rows;</li>
 <li>creates the checklist model <tt class="docutils literal">project.task.checklist.item</tt> with an empty
 table. The items of the former <tt class="docutils literal">project.task.subtask</tt> stay in the table
-<tt class="docutils literal">project_task_subtask</tt>, which no model reads;</li>
+<tt class="docutils literal">project_task_subtask</tt>, which no model reads. Its foreign key on the
+assignee restricts deletion: a user assigned to such an item cannot be
+deleted until the table is dropped by hand;</li>
 <li>creates the two <em>All checklist updates</em> subtypes under new external ids
 and deletes the former ones, with the follower subscriptions to them: tick
 <em>All checklist updates</em> again where it was ticked;</li>
@@ -782,9 +788,9 @@ does.</li>
 Such a case matches no filter and no kanban count of this version, and the
 completion of its task counts it as not passed, until it is given a
 result;</li>
-<li>the external ids of selection values that <tt class="docutils literal">mail</tt> and
-<tt class="docutils literal">phone_validation</tt> hold for the former checklist model; nothing reads
-them;</li>
+<li>the external ids that <tt class="docutils literal">mail</tt> (selection values of the activity
+fields) and <tt class="docutils literal">phone_validation</tt> (the activity mixin inheritance) hold
+for the former checklist model; nothing reads them;</li>
 <li>the sizes the tasks have stored, until their hours change.</li>
 </ul>
 <p><strong>A database that has the 20.0 project_software installed</strong></p>
@@ -801,8 +807,9 @@ path:</p>
 states as they are stored.</li>
 <li>The checklist items and the Html <tt class="docutils literal">questions</tt> and <tt class="docutils literal">answers</tt> are not
 kept: <tt class="docutils literal">project_ai_driven</tt> declares neither <tt class="docutils literal">project.task.subtask</tt> nor
-the two fields, so the uninstall drops them with their table and columns.
-Export them first if they are needed.</li>
+the two fields. The uninstall drops the two fields with their columns and
+leaves the items in the table <tt class="docutils literal">project_task_subtask</tt>, which no model
+reads. Export them first if they are needed.</li>
 <li>The project flag does not come along: tick <strong>AI-driven Project</strong> again on
 each project.</li>
 <li>The views of <tt class="docutils literal">project_software</tt> and its two checklist message subtypes
