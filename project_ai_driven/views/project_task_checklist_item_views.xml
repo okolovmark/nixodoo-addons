@@ -48,6 +48,14 @@
                                 icon="block"
                                 invisible="state == 'cancelled' or hide_button"
                             />
+                            <button
+                                name="action_convert_to_subtask"
+                                type="object"
+                                title="Convert to sub-task"
+                                icon="subdirectory_arrow_right"
+                                confirm="Convert this item into a sub-task of the task? The item is deleted."
+                                invisible="hide_button"
+                            />
                             <field name="reviewer_id" />
                             <field name="deadline" />
                         </list>
@@ -80,6 +88,15 @@
         <field name="model">project.task.checklist.item</field>
         <field name="arch" type="xml">
             <form string="Checklist Item">
+                <header>
+                    <button
+                        name="action_convert_to_subtask_open"
+                        string="Convert to Sub-task"
+                        type="object"
+                        confirm="Convert this item into a sub-task of the task? The item is deleted."
+                        invisible="hide_button"
+                    />
+                </header>
                 <sheet>
                     <group>
                         <field name="name" />
