@@ -219,6 +219,13 @@ server up. Where ``base_install_request``, installed with ``mail``, already
 lets every internal user read the module list, the access right changes
 nothing; without it, the field still works for project users.
 
+The update to 16.0.2.10.0 adds **Develops This Odoo** to projects, with its
+column, and the same field on tasks, related to the project and not stored.
+It has no migration and writes nothing on the projects: no project carries
+the flag after it, and the form hides the Modules of every task until one
+does. It can run with the server up. Afterwards a Settings administrator
+ticks the flag on the AI-driven project that develops the database.
+
 **Upgrading from project_software**
 
 ``project_software`` remains for one release as an empty module that depends
