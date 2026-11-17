@@ -45,6 +45,17 @@ class ProjectAiDrivenCommon(TransactionCase):
         return cls._create_user(name, login, email, extra_group="project.group_project_user")
 
     @classmethod
+    def _restrict_task_access(cls, name, domain):
+        cls.env["ir.access"].create(
+            {
+                "name": name,
+                "model_id": cls.env["ir.model"]._get_id("project.task"),
+                "operation": "crud",
+                "domain": domain,
+            },
+        )
+
+    @classmethod
     def _create_stage(cls, name, sequence, project=None, **values):
         return cls.env["project.task.type"].create(
             {"name": name, "sequence": sequence, "project_ids": [Command.link((project or cls.project).id)], **values},

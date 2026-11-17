@@ -1,13 +1,16 @@
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 
-from markupsafe import Markup, escape
+from markupsafe import escape
 
 from odoo import Command, api, fields, models
 from odoo.exceptions import ValidationError
 
 from .project_pull_request import parse_single_pull_request_link
-from .project_task_subtask import SUBTASK_STATES
+from .project_task_testcase import TESTCASE_STATES
+
+KANBAN_TESTCASE_STATES = ("not_run", "failed", "waiting")
+LINE_FIELDS = ("checklist_item_ids", "testcase_ids", "question_ids")
 
 # The largest estimate in hours of each size.
 SIZE_BANDS = ((2, "xs"), (6, "s"), (12, "m"), (32, "l"), (60, "xl"), (float("inf"), "xxl"))
@@ -24,8 +27,6 @@ class ProjectTask(models.Model):
     _inherit = "project.task"
 
     is_ai_driven = fields.Boolean(related="project_id.is_ai_driven")
-    questions = fields.Html()
-    answers = fields.Html()
     solution = fields.Html()
     priority_level = fields.Selection(
         [
@@ -65,12 +66,16 @@ class ProjectTask(models.Model):
         help="Follows the estimate in hours: XS up to 2 hours, S up to 6, M up to 12, L up to 32,"
         " XL up to 60, XXL above. Empty while the task has no estimate.",
     )
-    subtask_ids = fields.One2many("project.task.subtask", "task_id", groups="project.group_project_user")
-    default_user = fields.Many2one("res.users", compute="_compute_default_user")
+    checklist_item_ids = fields.One2many(
+        "project.task.checklist.item", "task_id", string="Checklist", groups="project.group_project_user"
+    )
     completion = fields.Integer("Completion", compute="_compute_completion")
     completion_xml = fields.Html(compute="_compute_completion_xml")
-    kanban_subtasks = fields.Html(compute="_compute_kanban_subtasks")
+    kanban_checklist = fields.Html(compute="_compute_kanban_checklist")
     testcase_ids = fields.One2many("project.task.testcase", "task_id", groups="project.group_project_user")
+    question_ids = fields.One2many(
+        "project.task.question", "task_id", string="Questions", groups="project.group_project_user"
+    )
     testcase_completion = fields.Integer(compute="_compute_testcase_completion")
     testcase_completion_xml = fields.Html(compute="_compute_testcase_completion")
     kanban_testcases = fields.Html(compute="_compute_kanban_testcases")
@@ -107,40 +112,27 @@ class ProjectTask(models.Model):
         copy=False,
         tracking=True,
     )
+    note_count = fields.Integer("Notes", compute="_compute_note_count")
 
     @api.depends("allocated_hours")
     def _compute_tshirt_estimate(self):
         for record in self:
             record.tshirt_estimate = get_size(record.allocated_hours)
 
-    @api.depends("user_ids", "create_uid")
-    def _compute_default_user(self):
-        for record in self:
-            if len(record.user_ids) <= 1:
-                if self.env.user != record.user_ids and self.env.user != record.create_uid:
-                    record.default_user = record.user_ids
-                else:
-                    if self.env.user != record.user_ids:
-                        record.default_user = record.user_ids
-                    elif self.env.user != record.create_uid:
-                        record.default_user = record.create_uid
-                    elif self.env.user == record.create_uid and self.env.user == record.user_ids:
-                        record.default_user = self.env.user
-            else:
-                record.default_user = False
-
-    @api.depends("subtask_ids.state", "subtask_ids.user_id")
+    @api.depends("checklist_item_ids.state", "checklist_item_ids.user_id")
+    @api.depends_context("uid")
     def _compute_completion(self):
         for record in self:
             record.completion = record.task_completion()
 
-    @api.depends("subtask_ids.state", "subtask_ids.user_id")
+    @api.depends("checklist_item_ids.state", "checklist_item_ids.user_id")
+    @api.depends_context("uid")
     def _compute_completion_xml(self):
         for record in self:
-            active_subtasks = record.subtask_ids and record.subtask_ids.filtered(
+            active_items = record.checklist_item_ids.filtered(
                 lambda x: x.user_id.id == record.env.user.id and x.state != "cancelled"
             )
-            if not active_subtasks:
+            if not active_items:
                 record.completion_xml = """
                     <div class="task_progress">
                     </div>
@@ -157,16 +149,17 @@ class ProjectTask(models.Model):
             </div>
             """
 
-    @api.depends("subtask_ids.state", "subtask_ids.user_id")
-    def _compute_kanban_subtasks(self):
+    @api.depends("checklist_item_ids.state", "checklist_item_ids.user_id")
+    @api.depends_context("uid")
+    def _compute_kanban_checklist(self):
         for record in self:
             result_string_td = ""
             result_string_wt = ""
-            if record.subtask_ids:
-                task_todo_ids = record.subtask_ids.filtered(
+            if record.checklist_item_ids:
+                task_todo_ids = record.checklist_item_ids.filtered(
                     lambda x: x.state == "todo" and x.user_id.id == record.env.user.id
                 )
-                task_waiting_ids = record.subtask_ids.filtered(
+                task_waiting_ids = record.checklist_item_ids.filtered(
                     lambda x: x.state == "waiting" and x.user_id.id == record.env.user.id
                 )
                 if task_todo_ids:
@@ -175,23 +168,23 @@ class ProjectTask(models.Model):
                 if task_waiting_ids:
                     tmp_string_wt = escape(f": {len(task_waiting_ids)}")
                     result_string_wt += f"<li><b>Waiting{tmp_string_wt}</b></li>"
-            record.kanban_subtasks = (
+            record.kanban_checklist = (
                 '<div class="kanban_subtasks"><ul>' + result_string_td + result_string_wt + "</ul></div>"
             )
 
     @api.depends("testcase_ids.state")
     def _compute_testcase_completion(self):
         for record in self:
-            user_task_ids = record.testcase_ids.filtered(lambda x: x.state != "cancelled")
-            if not user_task_ids:
+            applicable_cases = record.testcase_ids.filtered(lambda case: case.state != "not_applicable")
+            if not applicable_cases:
                 completion = 100
                 record.testcase_completion_xml = """
                     <div class="task_progress">
                     </div>
                     """
             else:
-                user_done_task_ids = user_task_ids.filtered(lambda x: x.state == "done")
-                completion = (len(user_done_task_ids) / len(user_task_ids)) * 100
+                passed_cases = applicable_cases.filtered(lambda case: case.state == "passed")
+                completion = (len(passed_cases) / len(applicable_cases)) * 100
                 record.testcase_completion_xml = f"""
                 <div class="task_progress">
                     <div class="progress_info">
@@ -205,20 +198,13 @@ class ProjectTask(models.Model):
     @api.depends("testcase_ids.state")
     def _compute_kanban_testcases(self):
         for record in self:
-            result_string_td = ""
-            result_string_wt = ""
-            if record.testcase_ids:
-                task_todo_ids = record.testcase_ids.filtered(lambda x: x.state == "todo")
-                task_waiting_ids = record.testcase_ids.filtered(lambda x: x.state == "waiting")
-                if task_todo_ids:
-                    tmp_string_td = escape(f": {len(task_todo_ids)}")
-                    result_string_td += f"<li><b>TODO{tmp_string_td}</b></li>"
-                if task_waiting_ids:
-                    tmp_string_wt = escape(f": {len(task_waiting_ids)}")
-                    result_string_wt += f"<li><b>Waiting{tmp_string_wt}</b></li>"
-            record.kanban_testcases = (
-                '<div class="kanban_subtasks"><ul>' + result_string_td + result_string_wt + "</ul></div>"
+            state_counts = Counter(record.testcase_ids.mapped("state"))
+            state_lines = "".join(
+                "<li><b>%s</b></li>" % escape("%s: %d" % (TESTCASE_STATES[state], state_counts[state]))
+                for state in KANBAN_TESTCASE_STATES
+                if state_counts[state]
             )
+            record.kanban_testcases = '<div class="kanban_subtasks"><ul>' + state_lines + "</ul></div>"
 
     @api.depends("pull_request_ids.url")
     def _compute_pr_uri(self):
@@ -245,6 +231,16 @@ class ProjectTask(models.Model):
         # The value written names a pull request to add; the field goes on reading the first one.
         with self.env.protecting([self._fields["pr_uri"]], self):
             self._compute_pr_uri()
+
+    # message_ids clears only the count cached within a transaction: an open form shows a new note on reload
+    @api.depends("message_ids")
+    @api.depends_context("uid", "allowed_company_ids")
+    def _compute_note_count(self):
+        # res_id, not task_id: the access check of mail.message reads the task ids from it
+        note_domain = [*self.env["mail.message"]._get_task_note_domain(with_templates=True), ("res_id", "in", self.ids)]
+        note_counts = dict(self.env["mail.message"]._read_group(note_domain, ["res_id"], ["__count"]))
+        for record in self:
+            record.note_count = note_counts.get(record.id, 0)
 
     @api.constrains("allocated_hours")
     def _check_estimate_is_a_number(self):
@@ -281,21 +277,20 @@ class ProjectTask(models.Model):
         """A task created from a template, or in a project created from one, is
         a new task to the closing rule: it takes no Resolution and no pull
         request of its source.
+
+        Every copy takes the lines of its source here, as core builds the
+        sub-tasks of a copy from their copy_data alone: from zero on a copy
+        from or into a template, else as they are. The next occurrence of a
+        recurring task takes none.
         """
         vals_list = super().copy_data(default=default)
-        if not self.env.context.get("copy_from_template"):
-            for task, vals in zip(self, vals_list):
+        keep_progress = not self._is_template_copy()
+        for task, vals in zip(self, vals_list):
+            if not self.env.context.get("copy_from_template"):
                 task._add_closing_values(vals)
+            if not self.env.context.get("copy_without_lines"):
+                task._add_line_values(vals, keep_progress)
         return vals_list
-
-    def copy(self, default=None):
-        copied_tasks = super().copy(default)
-        for task, copied_task in zip(self, copied_tasks):
-            for subtask in task.subtask_ids:
-                subtask.copy({"task_id": copied_task.id, "state": subtask.state})
-            for testcase in task.testcase_ids:
-                testcase.copy({"task_id": copied_task.id, "state": testcase.state})
-        return copied_tasks
 
     @api.model
     def _create(self, data_list):
@@ -310,6 +305,15 @@ class ProjectTask(models.Model):
         """
         self._log_stage_moves(vals_list)
         return super()._write_multi(vals_list)
+
+    def action_open_notes(self):
+        self.ensure_one()
+        action = self.env["ir.actions.act_window"]._for_xml_id("project_ai_driven.mail_message_action_task_note")
+        action["domain"] = [
+            *self.env["mail.message"]._get_task_note_domain(with_templates=True),
+            ("res_id", "=", self.id),
+        ]
+        return action
 
     def _log_stage_moves(self, vals_list):
         """Log the tasks whose values carry a stage, before their rows are
@@ -357,6 +361,34 @@ class ProjectTask(models.Model):
 
     def _is_stage_kept_in(self, vals):
         return bool(self.stage_id) and vals.get("stage_id") == self.stage_id.id
+
+    @api.model
+    def _is_template_copy(self):
+        """Whether the copy under way creates a task from a template, the tasks
+        of a project from a project template, or those of a project template
+        from a project: the context core gives each.
+        """
+        return bool(self.env.context.get("copy_from_template") or self.env.context.get("convert_to_template"))
+
+    def _add_line_values(self, vals, keep_progress):
+        """Complete the values of a copy with the lines of this task, unless the
+        values set them.
+        """
+        self.ensure_one()
+        for field_name, lines_values in self._get_line_copy_values(keep_progress).items():
+            vals.setdefault(field_name, [Command.create(line_values) for line_values in lines_values])
+
+    def _get_line_copy_values(self, keep_progress):
+        """Return {line field: [values of the copy of each line]} for the line
+        fields the user may read, as core copies no other field of a task.
+        keep_progress keeps the state, the result or the answer of each line,
+        and the deadline of an item or the comments of a case.
+        """
+        return {
+            field_name: self[field_name]._get_task_copy_values(keep_progress)
+            for field_name in LINE_FIELDS
+            if self.has_field_access(self._fields[field_name], "read")
+        }
 
     @api.model
     def _without_size(self, vals):
@@ -467,95 +499,10 @@ class ProjectTask(models.Model):
         ]
 
     def task_completion(self):
-        user_task_ids = self.subtask_ids.filtered(lambda x: x.user_id.id == self.env.user.id and x.state != "cancelled")
+        user_task_ids = self.checklist_item_ids.filtered(
+            lambda x: x.user_id.id == self.env.user.id and x.state != "cancelled"
+        )
         if not user_task_ids:
             return 100
         user_done_task_ids = user_task_ids.filtered(lambda x: x.state == "done")
         return (len(user_done_task_ids) / len(user_task_ids)) * 100
-
-    def send_subtask_email(
-        self,
-        subtask_name,
-        subtask_state,
-        subtask_reviewer_id,
-        subtask_user_id,
-        old_name=None,
-    ):
-        """Notify the subtask reviewer/assignee of a checklist change.
-
-        Honour mail_auto_subscribe_no_notify: the notification is a
-        message_post to the reviewer/assignee, and an integration writing
-        checklist items (e.g. an RPC service account, often without an
-        email address to send from) asks for a silent write with that key.
-        Same guard as core has in _task_message_auto_subscribe_notify for
-        the assignment notification.
-        """
-        if self.env.context.get("mail_auto_subscribe_no_notify"):
-            return
-        for record in self:
-            body = ""
-            reviewer = self.env["res.users"].browse(subtask_reviewer_id)
-            user = self.env["res.users"].browse(subtask_user_id)
-            state = SUBTASK_STATES[subtask_state]
-            if subtask_state == "done":
-                state = '<span style="color:#080">' + state + "</span>"
-            if subtask_state == "todo":
-                state = '<span style="color:#A00">' + state + "</span>"
-            if subtask_state == "cancelled":
-                state = '<span style="color:#777">' + state + "</span>"
-            if subtask_state == "waiting":
-                state = '<span style="color:#b818ce">' + state + "</span>"
-            partner_ids = []
-            subtype = "project_ai_driven.subtasks_subtype"
-            if user == self.env.user and reviewer == self.env.user:
-                body = Markup("<p><strong>" + state + "</strong>: ") + escape(subtask_name)
-                subtype = False
-            elif self.env.user == reviewer:
-                body = (
-                    Markup("<p>")
-                    + escape(user.name)
-                    + Markup(", <br><strong>")
-                    + Markup(state)
-                    + Markup("</strong>: ")
-                    + escape(subtask_name)
-                )
-                partner_ids = [user.partner_id.id]
-            elif self.env.user == user:
-                body = (
-                    Markup("<p>")
-                    + escape(reviewer.name)
-                    + ", "
-                    + Markup('<em style="color:#999">I updated checklist item assigned to me:</em> <br><strong>')
-                    + Markup(state + "</strong>: ")
-                    + escape(subtask_name)
-                )
-                partner_ids = [reviewer.partner_id.id]
-            else:
-                body = (
-                    Markup("<p>")
-                    + escape(user.name)
-                    + ", "
-                    + escape(reviewer.name)
-                    + Markup(', <em style="color:#999">I updated checklist item, now its assigned to ')
-                    + escape(user.name)
-                    + Markup(": </em> <br><strong>")
-                    + Markup(state + "</strong>: ")
-                    + escape(subtask_name)
-                )
-                partner_ids = [user.partner_id.id, reviewer.partner_id.id]
-            if old_name:
-                body = (
-                    body
-                    + Markup('<br><em style="color:#999">Updated from</em><br><strong>')
-                    + Markup(state + "</strong>: ")
-                    + escape(old_name)
-                    + Markup("</p>")
-                )
-            else:
-                body = body + Markup("</p>")
-            record.message_post(
-                message_type="comment",
-                body=body,
-                subtype_xmlid=subtype,
-                partner_ids=partner_ids,
-            )
