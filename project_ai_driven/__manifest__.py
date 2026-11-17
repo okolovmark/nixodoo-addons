@@ -1,7 +1,7 @@
 {
     "name": "Project AI-driven",
-    "summary": "Task attributes, a checklist, test cases, pull requests and sessions for AI-driven projects, a stage log of every task",
-    "version": "16.0.2.12.0",
+    "summary": "Task attributes, a checklist, test cases, pull requests and sessions for AI-driven projects, a stage log of every task, the images of task texts as task attachments",
+    "version": "16.0.2.13.0",
     "category": "Services/Project",
     "author": "Mark Okolov",
     "website": "https://github.com/okolovmark/nixodoo-addons",

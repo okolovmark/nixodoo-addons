@@ -5,7 +5,8 @@ sessions that worked on a task, the project that develops this Odoo and the
 installed modules its tasks touch, the internal notes of tasks by category,
 and two rules on the stages a project marks: a Resolution to enter some, a
 task type and an estimate to enter others. The module also logs the stage
-changes of every task of the database.
+changes of every task of the database, and keeps the images of every task's
+texts as attachments of the task.
 
 **Task attributes** (``project.task``)
 
@@ -393,6 +394,54 @@ can read, and a group opens on the user's own domain with the condition of
 the group. The group-by fields are category, task, author, date, model,
 message type and subtype; any other group-by, and any other grouped read of
 messages, stays refused to users who are not administrators.
+
+**Images in task texts** (``project.task.image.mixin``)
+
+The images of a task's texts are attachments of the task, on every task of
+the database, in an AI-driven project or not. The texts are the stored Html
+fields, neither computed nor translated, of the task (**Description**,
+**Solution**, the general comments of its test cases), of its question rows
+(**Question**, **Answer**) and of its test cases (**Steps to execute**,
+**Expected results**, **Comments**), those other modules add to these models
+included.
+
+* A create or a write that saves a text turns each ``<img>`` whose ``src``
+  is a base64 inline image (``data:image/...;base64,...``), in any letter
+  case and with an entity-encoded scheme too, into an attachment of the
+  task, and its ``src`` into ``/web/image/<id>?access_token=<token>``, as
+  core mail does with the images of a message. Only the ``src`` changes. The
+  image of a question row or a test case goes to the row's task.
+* The attachment takes the name in the image's ``data-filename``,
+  ``data-file-name`` or ``alt``, the first that is not blank, or else
+  ``image-<n>.<type>``, numbered per task within the save. The same image
+  twice in one save is one attachment.
+* The attachment is created under ``sudo()``, with the user who saves as its
+  creator, once the save has passed its own access checks: a save the user
+  may not make creates none. The new text is stored without a second write:
+  no other chatter message, and no write logic of another module runs again.
+* Core reads the image first (``ir.attachment._check_contents``), as for
+  every attachment upload, and resizes it as described under
+  *Configuration*. An image it cannot read (markup, an image too large to
+  open, a truncated file) stays inline and the save passes. A lack of
+  memory, the CPU time limit of a worker and a database error fail the save.
+* The images show among the attachments of the task's chatter. Deleting the
+  task deletes them.
+
+A task, a question row or a test case created with a text that shows an
+image of another task's attachment (``/web/image/<id>``), as a duplicated
+task, the next task of a recurrence or a create from another task's text
+does, gets its own copy of that attachment, with its own access token, and
+its text links the copy. A question row or a test case moved to another
+task copies the images of its texts the same way. A copy outlives the task
+it was made from. Only an image the user saving may see is copied: one they
+can read, or one whose link carries the attachment's access token. Under
+``sudo()``, the superuser included, only a link with the attachment's own
+access token is copied. Any other link stays as it is, and so does a link
+to another task's image that a write pastes.
+
+Texts saved before 16.0.2.13.0 keep their inline images until the text is
+saved again or ``_move_inline_images_to_attachments`` runs on its task (see
+*Usage*).
 
 **Former names**
 
