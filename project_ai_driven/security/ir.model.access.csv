@@ -5,3 +5,4 @@ access_task_question,project.task.question,model_project_task_question,project.g
 access_project_pull_request_internal,project.pull.request.internal,model_project_pull_request,base.group_user,1,0,0,0
 access_project_pull_request_user,project.pull.request.user,model_project_pull_request,project.group_project_user,1,1,1,0
 access_project_task_stage_log_system,project.task.stage.log.system,model_project_task_stage_log,base.group_system,1,0,0,0
+access_ir_module_module_project_user,ir.module.module.project.user,base.model_ir_module_module,project.group_project_user,1,0,0,0
