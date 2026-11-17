@@ -128,7 +128,9 @@ class ProjectTaskChecklistItem(models.Model):
         return subtasks
 
     def _get_subtask_values(self):
-        """No stage: the task takes the default one of its project, its first.
+        """No stage: in the cleaned context core gives the sub-task the first
+        unfolded stage of its project by sequence (the first folded one when all
+        are folded), and none to a template without a project.
         A sub-task of a template is a template, as core's Sub-tasks tab makes it.
         """
         self.ensure_one()

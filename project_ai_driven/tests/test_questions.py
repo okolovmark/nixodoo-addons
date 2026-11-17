@@ -1,3 +1,4 @@
+import unittest
 from datetime import datetime
 
 from freezegun import freeze_time
@@ -357,12 +358,14 @@ class TestQuestionAccess(ProjectAiDrivenCommon):
         hidden_question = self.hidden_question.with_user(self.user_dev)
         with self.assertRaises(AccessError):
             hidden_question.read(["question"])
+        # in place: Odoo's assertRaises rolls back what a refused write or unlink would leave behind;
         # an answer is refused already by the read of the state before the write
         for vals in ({"round": "Second round"}, {"state": "dropped"}, {"answer": ANSWER}):
-            with self.subTest(vals=vals), self.assertRaises(AccessError):
+            with self.subTest(vals=vals), unittest.TestCase.assertRaises(self, AccessError):
                 hidden_question.write(vals)
-        with self.assertRaises(AccessError):
+        with unittest.TestCase.assertRaises(self, AccessError):
             hidden_question.unlink()
+        self.hidden_question.invalidate_recordset()
         self.assertRecordValues(self.hidden_question, [{"state": "open", "answer": False, "round": False}])
         visible_question = self.visible_question.with_user(self.user_dev)
         visible_question.write({"answer": ANSWER})

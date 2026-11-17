@@ -53,6 +53,11 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
             ],
         )
 
+    def _assignment_notifications(self, task):
+        return self.env["mail.message"].search(
+            [("model", "=", "project.task"), ("res_id", "=", task.id), ("message_type", "=", "user_notification")],
+        )
+
     def assertLeftInPlace(self, item, task):
         self.assertTrue(item.exists())
         self.assertFalse(self._subtasks(task))
@@ -97,6 +102,22 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
         self.assertRecordValues(subtask, [{"name": "Write the migration", "user_ids": self.user_dev.ids}])
         self.assertNoteLinks(self.task, "Write the migration", subtask, self.reviewer)
 
+    def test_the_reviewer_converting_an_item_notifies_its_assignee_of_the_subtask(self):
+        item = self._new_item().with_context(mail_auto_subscribe_no_notify=False)
+        item.with_user(self.reviewer).action_convert_to_subtask()
+        notification = self._assignment_notifications(self._subtasks(self.task))
+        self.assertEqual(len(notification), 1)
+        self.assertEqual(notification.notification_ids.res_partner_id, self.user_dev.partner_id)
+        self.assertEqual(notification.author_id, self.reviewer.partner_id)
+        self.assertEqual(notification.subject, "You have been assigned to Write the migration")
+
+    def test_the_assignee_converting_their_own_item_is_not_notified(self):
+        item = self._new_item().with_context(mail_auto_subscribe_no_notify=False)
+        item.with_user(self.user_dev).action_convert_to_subtask()
+        subtask = self._subtasks(self.task)
+        self.assertEqual(subtask.user_ids, self.user_dev)
+        self.assertFalse(self._assignment_notifications(subtask))
+
     def test_another_project_user_is_refused_the_conversion_before_anything_is_created(self):
         item = self._new_item()
         outsider = self._create_project_user("Outsider", "project_ai_driven_outsider", "outsider@example.com")
@@ -109,6 +130,11 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
         item = self._new_item()
         item.with_user(self.user_dev).action_convert_to_subtask()
         self.assertFalse(self._subtasks(self.task).date_deadline, "not the deadline of the task")
+
+    def test_the_subtask_takes_the_first_unfolded_stage_of_the_project(self):
+        self.stage_backlog.fold = True
+        self._new_item().with_user(self.user_dev).action_convert_to_subtask()
+        self.assertEqual(self._subtasks(self.task).stage_id, self.stage_progress)
 
     def test_a_subtask_refused_by_the_first_stage_of_the_project_leaves_the_item(self):
         self.project.estimate_required_states = self.stage_backlog
@@ -157,7 +183,8 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
         template_without_project = self.env["project.task"].create(
             {"name": "Template without Project", "is_template": True, "user_ids": [Command.set(self.user_dev.ids)]},
         )
-        for template in (template_in_project, template_without_project):
+        no_stage = self.env["project.task.type"]
+        for template, stage in ((template_in_project, self.stage_backlog), (template_without_project, no_stage)):
             with self.subTest(template=template.name):
                 template.with_user(self.user_dev).check_access("write")
                 item = self._new_item(task_id=template.id)
@@ -166,7 +193,14 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
                 subtask = self._subtasks(template)
                 self.assertRecordValues(
                     subtask,
-                    [{"is_template": True, "project_id": template.project_id.id, "user_ids": self.user_dev.ids}],
+                    [
+                        {
+                            "is_template": True,
+                            "project_id": template.project_id.id,
+                            "user_ids": self.user_dev.ids,
+                            "stage_id": stage.id,
+                        },
+                    ],
                 )
                 self.assertNoteLinks(template, "Write the migration", subtask, self.user_dev)
 
@@ -180,10 +214,19 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
             default_tag_ids=tag.ids,
             default_milestone_id=milestone.id,
             default_name="Calling view name",
+            default_stage_id=self.stage_progress.id,
         ).action_convert_to_subtask()
         self.assertRecordValues(
             self._subtasks(self.task),
-            [{"name": "Write the migration", "is_template": False, "tag_ids": [], "milestone_id": False}],
+            [
+                {
+                    "name": "Write the migration",
+                    "is_template": False,
+                    "tag_ids": [],
+                    "milestone_id": False,
+                    "stage_id": self.stage_backlog.id,
+                },
+            ],
         )
 
     def test_items_converted_together_become_each_a_subtask_of_its_own_task(self):

@@ -558,11 +558,13 @@ class TestChecklistAccess(ProjectAiDrivenCommon):
 
     def test_items_of_a_task_the_user_cannot_write_are_not_written_or_deleted(self):
         hidden_item = self.hidden_item.with_user(self.user_dev)
+        # in place: Odoo's assertRaises rolls back what a refused write or unlink would leave behind
         for vals in ({"deadline": "2026-12-01 10:00:00"}, {"state": "done"}):
-            with self.subTest(vals=vals), self.assertRaises(AccessError):
+            with self.subTest(vals=vals), unittest.TestCase.assertRaises(self, AccessError):
                 hidden_item.write(vals)
-        with self.assertRaises(AccessError):
+        with unittest.TestCase.assertRaises(self, AccessError):
             hidden_item.unlink()
+        self.hidden_item.invalidate_recordset()
         self.assertRecordValues(self.hidden_item, [{"state": "todo", "deadline": False}])
         visible_item = self.visible_item.with_user(self.user_dev)
         visible_item.write({"state": "done"})
