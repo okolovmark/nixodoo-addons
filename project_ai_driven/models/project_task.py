@@ -111,6 +111,7 @@ class ProjectTask(models.Model):
         copy=False,
         tracking=True,
     )
+    note_count = fields.Integer("Notes", compute="_compute_note_count")
 
     @api.depends("allocated_hours")
     def _compute_tshirt_estimate(self):
@@ -227,6 +228,15 @@ class ProjectTask(models.Model):
         with self.env.protecting([self._fields["pr_uri"]], self):
             self._compute_pr_uri()
 
+    # message_ids clears only the count cached within a transaction: an open form shows a new note on reload
+    @api.depends("message_ids")
+    def _compute_note_count(self):
+        # res_id, not task_id: the access check of mail.message reads the task ids from it
+        note_domain = [*self.env["mail.message"]._get_task_note_domain(), ("res_id", "in", self.ids)]
+        note_counts = dict(self.env["mail.message"]._read_group(note_domain, ["res_id"], ["__count"]))
+        for record in self:
+            record.note_count = note_counts.get(record.id, 0)
+
     @api.constrains("allocated_hours")
     def _check_estimate_is_a_number(self):
         """A NaN passes no comparison of the rules, the JSON the web client
@@ -293,6 +303,12 @@ class ProjectTask(models.Model):
         """
         self._log_stage_moves(vals_list)
         return super()._write_multi(vals_list)
+
+    def action_open_notes(self):
+        self.ensure_one()
+        action = self.env["ir.actions.act_window"]._for_xml_id("project_ai_driven.mail_message_action_task_note")
+        action["domain"] = [*self.env["mail.message"]._get_task_note_domain(), ("res_id", "=", self.id)]
+        return action
 
     def _log_stage_moves(self, vals_list):
         """Log the tasks whose values carry a stage, before their rows are
