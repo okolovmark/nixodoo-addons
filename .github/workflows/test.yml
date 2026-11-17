@@ -29,7 +29,11 @@ jobs:
 
   test:
     runs-on: ubuntu-22.04
-    container: ghcr.io/oca/oca-ci/py3.12-odoo20.0:latest
+    container:
+      image: ghcr.io/oca/oca-ci/py3.12-odoo20.0:latest
+      # an init as PID 1 reaps the processes a closed browser leaves behind: without one
+      # they stay zombies, and Odoo 20 logs a WARNING after every browser test
+      options: --init
     name: test with Odoo 20.0
     services:
       postgres:
