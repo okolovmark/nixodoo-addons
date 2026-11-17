@@ -31,12 +31,14 @@ def _any_case(text):
 
 
 def _get_note_category_pattern(label):
+    # the Html sanitizer stores inside a <span> a body that opens with an inline tag
     return (
-        "^{space}*(?:<{p}(?:{space}[^>]*)?>{space}*)?<(?:{b}|{strong})(?:{space}[^>]*)?>{space}*"
+        "^{space}*(?:<(?:{p}|{span})(?:{space}[^>]*)?>{space}*)?<(?:{b}|{strong})(?:{space}[^>]*)?>{space}*"
         "{label}{space}*(?:</(?:{b}|{strong})>|[-:/+(\u2013\u2014])"
     ).format(
         space=SPACE,
         p=_any_case("p"),
+        span=_any_case("span"),
         b=_any_case("b"),
         strong=_any_case("strong"),
         label=(SPACE + "+").join(_any_case(word) for word in label.split()),
@@ -106,9 +108,9 @@ class MailMessage(models.Model):
     @api.depends("body", "model", "subtype_id", "tracking_value_ids")
     def _compute_note_category(self):
         """An internal note of a task, of any message type, that tracks no
-        field, whose body opens, after at most one <p>, with a category in <b>
-        or <strong>: alone in it, or followed there by a separator and more
-        words.
+        field, whose body opens, after at most one <p> or <span>, with a
+        category in <b> or <strong>: alone in it, or followed there by a
+        separator and more words.
         """
         note_subtype_id = self.env["ir.model.data"]._xmlid_to_res_id(NOTE_SUBTYPE)
         body_field = self._fields["body"]
