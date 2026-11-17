@@ -15,7 +15,6 @@ from odoo.tools.sql import column_exists, create_column, create_index, rename_co
 from .models.mail_message import NOTE_CATEGORIES, NOTE_CATEGORY_PATTERNS, NOTE_MODEL, NOTE_SUBTYPE, SPAN_OPENING
 from .models.project_pull_request import parse_pull_request_links
 from .models.project_task_question import get_visible_text, has_content, has_media, is_blank_html, parse_html
-from .models.project_task_testcase import OLD_STATES
 
 _logger = logging.getLogger(__name__)
 
@@ -91,10 +90,13 @@ DROPPED_FIELDS = (
     ("project.task", "difficulty"),
     ("project.task", "knowledge_area_level"),
     ("project.task", "tester_id"),
+    ("project.task.testcase", "passed"),
 )
 DROPPED_FOREIGN_KEYS = ("project_task_tester_id_fkey",)
-# Deleted from this module since, and declared anew by the module that replaces the legacy one, which
-# keeps them: only their nodes go from the views of this module.
+# The relations of the task whose sub-views, in the views of the task, show a model of DROPPED_FIELDS.
+TASK_SUB_VIEW_MODELS = {"testcase_ids": "project.task.testcase"}
+# Deleted from this module since and left to the module that replaces the legacy one: only their
+# nodes go from the views of this module.
 MOVED_FIELDS = (("project.task", "questions"), ("project.task", "answers"))
 # Deleted from the test case model since; the checklist model still has methods of these names.
 DROPPED_TEST_CASE_BUTTONS = ("change_state_done", "change_state_todo", "change_state_waiting", "change_state_cancelled")
@@ -651,7 +653,8 @@ RECOMPUTE_TASK_SIZES = """
        AND project_task.tshirt_estimate IS DISTINCT FROM sized.size
 """
 
-# Takes the translation as a JSON object of old value to new value: OLD_STATES of the test case model.
+OLD_TEST_CASE_STATES = {"todo": "not_run", "done": "passed", "cancelled": "not_applicable"}
+# Takes the translation as a JSON object of old value to new value: OLD_TEST_CASE_STATES.
 CONVERT_TEST_CASE_STATES = """
     WITH converted AS (
         UPDATE project_task_testcase testcase
@@ -661,11 +664,6 @@ CONVERT_TEST_CASE_STATES = """
      RETURNING translation.old_state
     )
     SELECT old_state, count(*) FROM converted GROUP BY old_state
-"""
-CORRECT_PASSED_FLAGS = """
-    UPDATE project_task_testcase
-       SET passed = (state = 'passed')
-     WHERE passed IS DISTINCT FROM (state = 'passed')
 """
 
 QUESTION_COLUMNS = ("questions", "answers")
@@ -811,8 +809,8 @@ def post_init_hook(cr, registry):
     that exist already have a past to log, too, and the column of their size
     may hold sizes from before the size followed the hours, and hours that
     are not a number. Their test cases may hold the states of the old
-    selection, and a passed flag set apart from the state. Their questions
-    and answers may still be the two Html columns of the legacy module.
+    selection. Their questions and answers may still be the two Html columns
+    of the legacy module.
     """
     env = api.Environment(cr, SUPERUSER_ID, {})
     convert_old_pr_uri_values(env)
@@ -945,31 +943,26 @@ def recompute_task_sizes(cr):
 
 
 def convert_test_case_states(cr):
-    """Give every test case stored with a state of the old selection its new
-    value, and every passed flag the value its state computes; return the
-    cases converted per old value and the count of flags corrected.
+    """Give every test case stored with a state of the old selection, a key
+    of OLD_TEST_CASE_STATES, its new value; return the cases converted per old
+    value.
 
     An update only reflects the new selection and deletes the rows of the old
-    values at its end: the cases keep the values they hold. The flag column is
-    older than its compute, which an update does not run on the rows that
-    exist. The cases are written by SQL: they are not results given anew, so
-    no write date and no verification stamp. A second run finds nothing left
-    to change.
+    values at its end: the cases keep the values they hold. The cases are
+    written by SQL: they are not results given anew, so no write date and no
+    verification stamp. A second run finds nothing left to change.
     """
     env = api.Environment(cr, SUPERUSER_ID, {})
     env.flush_all()
-    cr.execute(CONVERT_TEST_CASE_STATES, [Json(OLD_STATES)])
-    converted_counts = dict.fromkeys(OLD_STATES, 0)
+    cr.execute(CONVERT_TEST_CASE_STATES, [Json(OLD_TEST_CASE_STATES)])
+    converted_counts = dict.fromkeys(OLD_TEST_CASE_STATES, 0)
     converted_counts.update(cr.fetchall())
-    cr.execute(CORRECT_PASSED_FLAGS)
-    corrected_flag_count = cr.rowcount
-    env["project.task.testcase"].invalidate_model(["state", "passed"])
+    env["project.task.testcase"].invalidate_model(["state"])
     _logger.info(
-        "Test case states converted: %s; %d passed flags corrected",
-        ", ".join("%d %s to %s" % (count, old, OLD_STATES[old]) for old, count in converted_counts.items()),
-        corrected_flag_count,
+        "Test case states converted: %s",
+        ", ".join("%d %s to %s" % (count, old, OLD_TEST_CASE_STATES[old]) for old, count in converted_counts.items()),
     )
-    return converted_counts, corrected_flag_count
+    return converted_counts
 
 
 def convert_questions_to_rows(cr, is_update=False):
@@ -1426,7 +1419,8 @@ def forget_dropped_fields(cr):
     then the stored arch of a view of this module still names them, and it is
     validated against the fields of the model as soon as another view of the
     same form is loaded, before its own data file rewrites it. Their nodes are
-    taken out of every translation of the arch; emptying the arch, as for the
+    taken out of every translation of the arch, those in the sub-views of the
+    relations in TASK_SUB_VIEW_MODELS included; emptying the arch, as for the
     views in SPLIT_VIEWS, would lose the translated terms the database alone
     holds.
 
@@ -1439,7 +1433,7 @@ def forget_dropped_fields(cr):
     for model, name in DROPPED_FIELDS + MOVED_FIELDS:
         field_names[model].add(name)
     cleared_view_ids = _rewrite_module_views(
-        cr, field_names, lambda model, arch: _remove_field_nodes(arch, field_names[model])
+        cr, field_names, lambda model, arch: _remove_dropped_field_nodes(model, arch, field_names)
     )
     constraints = api.Environment(cr, SUPERUSER_ID, {})["ir.model.constraint"]
     constraints.flush_model()
@@ -1452,6 +1446,19 @@ def forget_dropped_fields(cr):
             len(cleared_view_ids),
             forgotten_key_count,
         )
+
+
+def _remove_dropped_field_nodes(model, arch, field_names):
+    """Return arch, of a view of model, without the nodes of the fields in
+    field_names[model] and, in a view of the task, without the nodes of the
+    fields in field_names[sub-view model] in the sub-views of each relation in
+    TASK_SUB_VIEW_MODELS.
+    """
+    arch = _remove_field_nodes(arch, field_names[model])
+    if model == "project.task":
+        for relation, sub_view_model in TASK_SUB_VIEW_MODELS.items():
+            arch = _remove_sub_view_nodes(arch, "field", relation, field_names[sub_view_model])
+    return arch
 
 
 def _remove_field_nodes(arch, field_names):
@@ -1490,26 +1497,26 @@ def forget_dropped_test_case_buttons(cr):
     cleared_view_ids = _rewrite_module_views(
         cr,
         ("project.task",),
-        lambda _model, arch: _remove_sub_view_buttons(arch, "testcase_ids", DROPPED_TEST_CASE_BUTTONS),
+        lambda _model, arch: _remove_sub_view_nodes(arch, "button", "testcase_ids", DROPPED_TEST_CASE_BUTTONS),
     )
     if cleared_view_ids:
         _logger.info("Dropped test case buttons forgotten: taken out of %d views", len(cleared_view_ids))
 
 
-def _remove_sub_view_buttons(arch, field_name, button_names):
-    """Return arch without the buttons in button_names whose closest enclosing
-    field is field_name: the buttons of its sub-views.
+def _remove_sub_view_nodes(arch, tag, field_name, names):
+    """Return arch without the tag nodes named in names whose closest
+    enclosing field is field_name: the buttons or fields of its sub-views.
 
     An extension written as <field name="..." position="after"> counts as that
-    field, so a button it places next to the field goes too. A button added
+    field, so a node it places next to the field goes too. A node added
     through <xpath expr="//field[@name='...']/tree" position="inside"> has no
     field ancestor and stays.
     """
     root = etree.fromstring(arch)
     nodes = [
         node
-        for node in root.iterdescendants("button")
-        if node.get("name") in button_names and node.xpath("ancestor::field[1]/@name") == [field_name]
+        for node in root.iterdescendants(tag)
+        if node.get("name") in names and node.xpath("ancestor::field[1]/@name") == [field_name]
     ]
     for node in nodes:
         node.getparent().remove(node)
