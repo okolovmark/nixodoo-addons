@@ -276,6 +276,8 @@ ADDED_CONSTRAINTS = (
     "project_task_session%",
     "mail_message_task_id%",
     "project_task_ir_module_module_rel%",
+    # registered here only where this module created the table; elsewhere the module that did keeps them
+    "project_task__uat_user_rel%",
 )
 # Fields of the legacy module that this module leaves to whatever replaces it.
 LEGACY_QUESTION_FIELDS = (("project.task", "questions"), ("project.task", "answers"))
