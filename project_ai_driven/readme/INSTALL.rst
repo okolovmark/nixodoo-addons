@@ -226,6 +226,9 @@ the flag after it, and the form hides the Modules of every task until one
 does. It can run with the server up. Afterwards a Settings administrator
 ticks the flag on the AI-driven project that develops the database.
 
+The update to 16.0.2.10.1 has no migration and writes nothing on existing
+records; it can run with the server up.
+
 **Upgrading from project_software**
 
 ``project_software`` remains for one release as an empty module that depends

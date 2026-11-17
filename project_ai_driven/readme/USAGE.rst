@@ -4,9 +4,12 @@ On the task form:
   tags. **Size** shows the size of the estimate and cannot be edited.
 * *Checklist* tab: add items, each with an **Assigned to** user, yourself
   unless you pick another, and an optional deadline. You are the reviewer of
-  the items you add. The assignee or the reviewer moves an item with the
-  state icons (TODO, Waiting, Done, Cancelled), changes its description or
-  gives it another assignee. The task's kanban card shows
+  the items you add. A new task or sub-task, from the dialog of its parent's
+  *Sub-tasks* tab too, saves with the items added before its first save:
+  they are created right after the task, as items added to it once saved.
+  The assignee or the reviewer moves an item with the state icons (TODO,
+  Waiting, Done, Cancelled), changes its description or gives it another
+  assignee. The task's kanban card shows
   your own completion percentage, only when you have non-cancelled items
   assigned to you.
 * *Test Cases* tab: add ordered cases with steps and expected results, then
@@ -100,7 +103,10 @@ no module.
 A tool that keeps a checklist over RPC creates ``project.task.checklist.item``
 records with ``task_id``, ``name`` and ``user_id``, which defaults to the
 tool's own user, and reads the items of a task from ``checklist_item_ids``.
-It moves an item by writing ``state`` (``todo``, ``waiting``, ``done`` or
+Items sent with ``Command.create`` in the ``checklist_item_ids`` of a task
+being created are created right after the task, with the access rights of
+the calling user: a portal collaborator gets an access error. It moves an
+item by writing ``state`` (``todo``, ``waiting``, ``done`` or
 ``cancelled``) as the item's assignee or reviewer. It reaches only the items
 of the tasks its user can read; without ``allowed_company_ids`` in the
 context, those of all the user's companies.
