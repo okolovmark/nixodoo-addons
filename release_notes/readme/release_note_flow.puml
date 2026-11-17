@@ -1,5 +1,5 @@
 @startuml release_note_flow
-' Flow: a release note from the pull request to the users' OdooBot chats.
+' Flow: a release note from the pull request to the users' main menu.
 ' Preview: Alt+D (PlantUML extension)
 
 skinparam shadowing false
@@ -29,32 +29,38 @@ is_published = False
 endif
 :Deployed by is set
 = the user who ran the deploy;
+:a demo video of the change
+may be attached to the note;
 
 |Deployer|
 :open Release Notes > Unpublished,
-read the note, press each button,
-check Models;
+read the note, watch the video,
+press each button, check Models;
 :press Publish;
 if (current user = Deployed by
 and at least one model?) then (yes)
   :is_published, Published by,
 Published date set;
-  if (is_notified?) then (no)
-    |OdooBot|
-    :direct chat to each active internal user
-who can read one of the note's models
-(no email);
-    :is_notified = True (sent once);
-  else (yes)
-    :nothing is sent again;
-  endif
+  :is_notified = True;
+  :open web clients of the note's users
+reload the announcement (bus);
 else (no)
   |Deployer|
   :UserError, nothing published;
 endif
 
 |Users|
-:read the chat, open the note,
-filter / group Release Notes by tag;
+:the main menu icon counts the new notes;
+the menu's panel names the newest
+(only users who can read one of its models
+and existed when it was published);
+if (View or Skip?) then (View)
+  :the newest note opens,
+the pager walks the other new ones;
+else (Skip)
+endif
+:the note is seen by that user
+(opening it any other way counts too)
+and no longer announced to them;
 stop
 @enduml

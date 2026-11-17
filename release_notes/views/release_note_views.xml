@@ -4,7 +4,7 @@
         <field name="name">release.note.view.form</field>
         <field name="model">release.note</field>
         <field name="arch" type="xml">
-            <form duplicate="0">
+            <form duplicate="0" js_class="release_note_form">
                 <header>
                     <button name="action_publish" string="Publish" type="object" class="oe_highlight"
                             groups="release_notes.group_release_note_manager"
@@ -17,12 +17,13 @@
                     <widget name="web_ribbon" title="Published" bg_color="bg-success"
                             attrs="{'invisible': [('is_published', '=', False)]}"/>
                     <field name="is_published" invisible="1" readonly="1"/>
+                    <field name="ticket_url" invisible="1"/>
                     <div class="oe_title">
                         <h1><field name="name" placeholder="Title"/></h1>
                     </div>
                     <group>
                         <group>
-                            <field name="key" attrs="{'readonly': [('id', '!=', False)]}"/>
+                            <field name="key" widget="release_note_key" attrs="{'readonly': [('id', '!=', False)]}"/>
                             <field name="summary"/>
                             <field name="tag_ids" widget="many2many_tags" options="{'color_field': 'color'}"/>
                             <field name="model_ids" widget="many2many_tags" groups="release_notes.group_release_note_manager"/>
@@ -34,6 +35,8 @@
                             <field name="is_notified" groups="release_notes.group_release_note_manager"/>
                         </group>
                     </group>
+                    <field name="demo_attachment_id" widget="release_note_video" nolabel="1"
+                           attrs="{'invisible': [('demo_attachment_id', '=', False)]}"/>
                     <field name="body" nolabel="1"/>
                 </sheet>
                 <div class="oe_chatter">
