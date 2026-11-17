@@ -1,7 +1,8 @@
 Additions to project tasks for AI-driven development: task attributes,
 clarifying questions as rows with their answers, the technical solution, a
-checklist and test cases per task, pull requests as records, the internal
-notes of tasks by category, and two rules on the stages a project marks: a
+checklist and test cases per task, pull requests as records, the installed
+modules a task touches, the internal notes of tasks by category, and two
+rules on the stages a project marks: a
 Resolution to enter some, a task type and an estimate to enter others. The
 module also logs the stage changes of every task of the database.
 
@@ -215,6 +216,31 @@ rule. A stage marked for both rules refuses for the Resolution first.
 
 The next task of a recurrence takes the task type of the last one, as it
 takes its estimate.
+
+**Modules of a task** (``project.task``)
+
+* **Modules** (``module_ids``): the installed modules the task touches,
+  records of the module list (``ir.module.module``). On the tasks of an
+  AI-driven project the form shows them after the Resolution, as tags
+  bearing their technical names, and offers only installed modules. A
+  duplicated task starts without modules.
+* A create or a write refuses a module it adds that is not installed;
+  *To be upgraded* and *To be removed* count as installed, *To be
+  installed* does not. The refusal names the modules, and the whole call is
+  refused. A module already on a task stays there when it is uninstalled:
+  the task saves with it, and a write that keeps it or links it again to
+  that task passes.
+* **Module Names** (``module_names``), not stored and on no view: the
+  technical names of the modules, sorted, separated by ``", "``; ``False``
+  without modules.
+* The task search has a **Module** field: it finds tasks by a module's
+  technical name or title.
+* Both fields, and the **Module** search, are for **Project / User** only.
+  Project users read the module list, by an access right of this module.
+* Under the context key ``module_technical_name`` a module is named by its
+  technical name instead of its title. The picker passes it, with a list
+  and cards of the technical name and the title, without buttons; the Apps
+  menu keeps the views of ``base``.
 
 **The stage log** (``project.task.stage.log``)
 

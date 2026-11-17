@@ -10,6 +10,7 @@ from . import test_pull_request
 from . import test_questions
 from . import test_stage_log
 from . import test_stage_log_past
+from . import test_task_modules
 from . import test_task_size
 from . import test_task_views
 from . import test_test_cases

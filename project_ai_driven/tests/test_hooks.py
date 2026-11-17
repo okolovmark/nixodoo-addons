@@ -181,6 +181,8 @@ ADDED_FIELDS = (
     ("project.task", "note_count"),
     ("project.task", "question_ids"),
     ("project.task", "resolution"),
+    ("project.task", "module_ids"),
+    ("project.task", "module_names"),
     ("project.task.testcase", "verified_by_id"),
     ("project.task.testcase", "verified_on"),
     ("project.task.testcase", "verification_kind"),
@@ -212,9 +214,14 @@ ADDED_RECORDS = (
     ("ir.actions.act_window", "mail_message_action_task_note"),
     ("ir.ui.menu", "mail_message_menu_task_note"),
     ("ir.ui.view", "project_task_view_form_inherit_notes"),
+    ("ir.ui.view", "project_task_view_search_inherit_ai_driven"),
+    ("ir.ui.view", "ir_module_module_view_tree_task_picker"),
+    ("ir.ui.view", "ir_module_module_view_kanban_task_picker"),
+    ("ir.model.access", "access_ir_module_module_project_user"),
     # models this module only extends, and did not extend at the cut
     ("ir.model", "model_project_task_recurrence"),
     ("ir.model", "model_mail_message"),
+    ("ir.model", "model_ir_module_module"),
     *(
         ("ir.model.fields.selection", "selection__%s__%s" % (field, value))
         for field, values in (
@@ -236,6 +243,7 @@ ADDED_CONSTRAINTS = (
     "project_task_stage_log%",
     "project_task_question%",
     "mail_message_task_id%",
+    "project_task_ir_module_module_rel%",
 )
 # Fields of the legacy module that this module leaves to whatever replaces it.
 LEGACY_QUESTION_FIELDS = (("project.task", "questions"), ("project.task", "answers"))
