@@ -9,11 +9,15 @@ class ProjectTaskType(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        """Refuse a new stage of a Public or Private project unless the user is an Admin of one of its projects."""
         stages = super().create(vals_list)
         stages._ensure_restricted_project_admin()
         return stages
 
     def write(self, vals):
+        """Refuse changing a stage of, or adding a stage to, a Public or Private project
+        unless the user is an Admin of one of those projects.
+        """
         # before the check in sudo, whose message names the projects
         self.check_access("write")
         self._ensure_restricted_project_admin()

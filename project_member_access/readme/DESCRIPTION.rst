@@ -87,7 +87,9 @@ For each model and operation the module adds an access restriction, an
 ``ir.access`` row without a group, ``outside OR allow``: *outside* is a
 record of a Standard project or of no project, *allow* the role condition
 for the current user. Restrictions are AND-ed with every permission, so it
-takes access away inside Public and Private projects only. Where a
+takes access away inside Public and Private projects only. The rows for
+creating, changing and deleting members are *allow* alone; in a Standard
+project *allow* takes in Project Administrators. Where a
 permission of Odoo could still deny inside (a Team Members only Visibility,
 a missing follower), a permission row of the module grants the same
 ``inside AND allow``. A task is read where its project is read
@@ -97,7 +99,10 @@ of the project, computed from its members and never written directly:
 ``member_user_ids``, ``contributor_user_ids``, ``editor_user_ids`` and
 ``admin_user_ids``, each holding a role and those above it. What a row
 cannot say about a write is checked in ``create`` and ``write``. The
-superuser and ``sudo()`` pass every check.
+superuser, ``sudo()`` and Settings administrators pass the rows and the
+role checks; the rules on the members and their last Admin, on the people
+of a Private project, on the project that develops this Odoo and on the
+share wizards hold for them too.
 
 ``readme/access_model.puml`` draws the model and the rows; the design
 record is ``docs/adr/0013-a-project-s-access-is-a-mode-and-member-roles.md``

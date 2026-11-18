@@ -106,6 +106,7 @@ class ProjectProject(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        """Refuse values for the role user sets; a project created Public or Private keeps no access token."""
         for vals in vals_list:
             self._ensure_role_users_not_written(vals)
         projects = super().create(vals_list)
@@ -113,6 +114,9 @@ class ProjectProject(models.Model):
         return projects
 
     def write(self, vals):
+        """Refuse values for the role user sets. A Public or Private project keeps no access
+        token, and turning one Public or Private clears the tokens of all its tasks.
+        """
         self._ensure_role_users_not_written(vals)
         result = super().write(vals)
         if "access_mode" in vals:
@@ -125,6 +129,7 @@ class ProjectProject(models.Model):
         return self.sudo()._filter_reading_recipients(self, recipients_data)
 
     def action_open_share_project_wizard(self):
+        """Show a refusal in place of the share wizard of a Public or Private project."""
         if self._get_restricted_projects():
             return self._get_share_refusal()
         return super().action_open_share_project_wizard()

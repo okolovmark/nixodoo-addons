@@ -1,20 +1,18 @@
 **Roles in a Public or Private project**
 
-============================================== ====== =========== ====== =====
-Action                                         Reader Contributor Editor Admin
-============================================== ====== =========== ====== =====
-Read tasks, post in the chatter                yes    yes         yes    yes
-Create a task, or move one in                  no     yes         yes    yes
-Edit an own task (creator, assignee, UAT user) yes    yes         yes    yes
-Edit somebody else's task                      no     no          yes    yes
-Move the stage of a task one is assigned to,   yes    yes         yes    yes
-close it or reopen it
-Move the stage of another task, close or       no     no          yes    yes
-reopen it
-Change assignees, on create too                no     no          no     yes
-Delete a task                                  no     no          no     yes
-Members, Access, stages, milestones, updates   no     no          no     yes
-============================================== ====== =========== ====== =====
+================================================================== ====== =========== ====== =====
+Action                                                             Reader Contributor Editor Admin
+================================================================== ====== =========== ====== =====
+Read tasks, post in the chatter                                    yes    yes         yes    yes
+Create a task, or move one in                                      no     yes         yes    yes
+Edit an own task (creator, assignee, UAT user)                     yes    yes         yes    yes
+Edit somebody else's task                                          no     no          yes    yes
+Move the stage of a task one is assigned to, close it or reopen it yes    yes         yes    yes
+Move the stage of another task, close or reopen it                 no     no          yes    yes
+Change assignees, on create too                                    no     no          no     yes
+Delete a task                                                      no     no          no     yes
+Members, Access, stages, milestones, updates                       no     no          no     yes
+================================================================== ====== =========== ====== =====
 
 Without a role, an internal user is a Reader of a Public project, a Project
 Administrator a Reader of every project, and a Settings administrator an

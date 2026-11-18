@@ -9,11 +9,15 @@ class ProjectPullRequest(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        """Refuse pull requests linked to a task of a Public or Private project the user cannot edit."""
         pull_requests = super().create(vals_list)
         pull_requests._ensure_restricted_tasks_written()
         return pull_requests
 
     def write(self, vals):
+        """Refuse the change unless the user edits every task of a Public or Private project
+        linked to these pull requests, before the write and, for the tasks linked, after it.
+        """
         self._ensure_restricted_tasks_written()
         result = super().write(vals)
         if "task_ids" in vals:
@@ -22,6 +26,7 @@ class ProjectPullRequest(models.Model):
         return result
 
     def unlink(self):
+        """Refuse unless the user edits every task of a Public or Private project linked to these pull requests."""
         self._ensure_restricted_tasks_written()
         return super().unlink()
 

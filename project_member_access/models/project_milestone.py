@@ -5,6 +5,7 @@ class ProjectMilestone(models.Model):
     _inherit = "project.milestone"
 
     def write(self, vals):
+        """A milestone moved to another project is also checked against that project's write restriction."""
         result = super().write(vals)
         if "project_id" in vals:
             # the write restriction was checked on the project the milestone leaves

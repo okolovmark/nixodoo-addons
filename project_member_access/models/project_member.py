@@ -40,6 +40,10 @@ class ProjectMember(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        """Add members, refused unless the user is an Admin of the project, or a Project
+        Administrator adding the members of a Standard project or the first ones of a
+        project made Public or Private.
+        """
         # read before the rows exist: a new row lets its own user read a Private project
         readable_projects = (
             self.env["project.project"]
@@ -51,6 +55,9 @@ class ProjectMember(models.Model):
         return members
 
     def write(self, vals):
+        """Change the role of members: a member keeps their project and user, and the last
+        Admin of a Public or Private project keeps the Admin role.
+        """
         # before the checks in sudo, whose messages name the project
         self.check_access("write")
         self._ensure_project_and_user_kept(vals)

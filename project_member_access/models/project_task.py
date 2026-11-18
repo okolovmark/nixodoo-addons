@@ -32,6 +32,9 @@ class ProjectTask(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        """In a Public or Private project a new task keeps no access token, only an Admin
+        creates it with assignees, and only an assignee, an Editor or an Admin creates it closed.
+        """
         tasks = super().create(vals_list)
         tasks._revoke_access_tokens()
         if not (self.env.su or self.env.user._is_system()):
@@ -40,6 +43,11 @@ class ProjectTask(models.Model):
         return tasks
 
     def write(self, vals):
+        """Check, by the role of the user in a Public or Private project, what the access
+        rows cannot: the assignees, a move of stage, closing and reopening, a task entering
+        by its own move or its parent's, and the sub-tasks a task carries out. Tasks in such
+        a project keep no access token.
+        """
         is_role_checked = not (self.env.su or self.env.user._is_system())
         if is_role_checked and ROLE_CHECKED_FIELDS & vals.keys():
             # before the checks in sudo, whose messages name the task and its project
@@ -72,6 +80,7 @@ class ProjectTask(models.Model):
         return super()._portal_ensure_token()
 
     def action_open_share_task_wizard(self):
+        """Show a refusal in place of the share wizard of a task of a Public or Private project."""
         restricted_projects = self.sudo().project_id._get_restricted_projects()
         if restricted_projects:
             return restricted_projects._get_share_refusal()

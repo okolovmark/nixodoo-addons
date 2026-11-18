@@ -5,6 +5,7 @@ class ProjectUpdate(models.Model):
     _inherit = "project.update"
 
     def write(self, vals):
+        """An update moved to another project is also checked against that project's write restriction."""
         result = super().write(vals)
         if "project_id" in vals:
             # the write restriction was checked on the project the update leaves

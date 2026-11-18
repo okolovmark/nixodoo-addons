@@ -9,6 +9,7 @@ class PortalShare(models.TransientModel):
 
     @api.model_create_multi
     def create(self, vals_list):
+        """Refuse a share wizard of a Public or Private project or of one of its tasks."""
         self._ensure_not_shared_inside(vals_list)
         return super().create(vals_list)
 
