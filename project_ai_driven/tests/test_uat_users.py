@@ -4,6 +4,7 @@ from odoo import Command
 from odoo.tests import Form, tagged
 from odoo.tests.common import TransactionCase, new_test_user
 from odoo.tools.safe_eval import safe_eval
+from odoo.tools.view_validation import get_expression_field_names
 
 from .common import MODULE
 
@@ -89,10 +90,10 @@ class TestUatUsers(TransactionCase):
         users["archived"].active = False
         task = self.env["project.task"].create({"name": "Accepted task", "company_id": company.id})
         arch = self.env.ref("project.view_task_form2")._get_combined_arch()
-        domain = safe_eval(
-            arch.xpath(ASSIGNEES + "/following-sibling::field[@name='uat_user_ids']")[0].get("domain"),
-            {"company_id": company.id},
-        )
+        domain_text = arch.xpath(ASSIGNEES + "/following-sibling::field[@name='uat_user_ids']")[0].get("domain")
+        # evaluated as the web client does, on the task's values of the fields it names
+        values = task.web_read({fname: {} for fname in get_expression_field_names(domain_text)})[0]
+        domain = safe_eval(domain_text, values)
         candidates = self.env["res.users"].with_context(active_test=False).search(domain)
         self.assertEqual({name for name, user in users.items() if user in candidates}, {"picked", "of both companies"})
         task.uat_user_ids = users["picked"] | users["archived"]

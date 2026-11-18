@@ -1,12 +1,14 @@
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, ValidationError
+from odoo.tools import SQL
 
 from .project_member import RESTRICTED_ACCESS_MODES
 from odoo.addons.project.models.project_task import CLOSED_STATES
 
-ROLE_CHECKED_FIELDS = {"project_id", "user_ids", "stage_id", "state"}
+ROLE_CHECKED_FIELDS = {"project_id", "user_ids", "uat_user_ids", "stage_id", "state"}
 # The project of a task follows them, and a sub-task shown under its parent follows its parent's.
 PROJECT_MOVING_FIELDS = {"project_id", "parent_id"}
+STAGE_SETTING_FIELDS = {"project_id", "stage_id"}
 
 
 class ProjectTask(models.Model):
@@ -14,6 +16,28 @@ class ProjectTask(models.Model):
 
     # read by the task card, which hides its share entry inside
     project_access_mode = fields.Selection(related="project_id.access_mode", string="Project Access")
+    # read by the people pickers of the task form
+    project_member_user_ids = fields.Many2many(related="project_id.member_user_ids", string="Project Member Users")
+    is_assignee_change_allowed = fields.Boolean(compute="_compute_is_assignee_change_allowed")
+    is_uat_user_change_allowed = fields.Boolean(compute="_compute_is_uat_user_change_allowed")
+
+    @api.depends("project_id.access_mode", "project_id.admin_user_ids")
+    @api.depends_context("uid")
+    def _compute_is_assignee_change_allowed(self):
+        is_role_checked = self._is_role_checked()
+        user = self.env.user
+        for record in self:
+            # judged on the task as saved, so that a value typed before a change of project reaches the save; a new
+            # task, saved in no project, keeps them editable to clear those a screen fills in: its create checks them
+            record.is_assignee_change_allowed = not is_role_checked or record._origin._may_change_assignees(user)
+
+    @api.depends("user_ids", "project_id.access_mode", "project_id.editor_user_ids")
+    @api.depends_context("uid")
+    def _compute_is_uat_user_change_allowed(self):
+        is_role_checked = self._is_role_checked()
+        user = self.env.user
+        for record in self:
+            record.is_uat_user_change_allowed = not is_role_checked or record._origin._may_change_uat_users(user)
 
     @api.constrains("user_ids", "uat_user_ids", "project_id")
     def _check_private_project_people_are_members(self):
@@ -33,22 +57,27 @@ class ProjectTask(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         """In a Public or Private project a new task keeps no access token, only an Admin
-        creates it with assignees, and only an assignee, an Editor or an Admin creates it closed.
+        creates it with assignees or on a stage the project does not list, only an assignee,
+        an Editor or an Admin creates it closed or with UAT users.
         """
+        is_role_checked = self._is_role_checked()
+        listed_stages = self._get_restricted_listed_stages() if is_role_checked else set()
         tasks = super().create(vals_list)
         tasks._revoke_access_tokens()
-        if not (self.env.su or self.env.user._is_system()):
+        if is_role_checked:
             tasks._ensure_admin_assigns_on_create()
+            tasks._ensure_uat_users_allowed_on_create()
             tasks._ensure_closing_allowed_on_create()
+            tasks._ensure_stages_listed_on_create(listed_stages)
         return tasks
 
     def write(self, vals):
         """Check, by the role of the user in a Public or Private project, what the access
-        rows cannot: the assignees, a move of stage, closing and reopening, a task entering
-        by its own move or its parent's, and the sub-tasks a task carries out. Tasks in such
-        a project keep no access token.
+        rows cannot: the assignees and UAT users, a move of stage, a stage the project does
+        not list, closing and reopening, a task entering by its own move or its parent's,
+        and the sub-tasks a task carries out. Tasks in such a project keep no access token.
         """
-        is_role_checked = not (self.env.su or self.env.user._is_system())
+        is_role_checked = self._is_role_checked()
         if is_role_checked and ROLE_CHECKED_FIELDS & vals.keys():
             # before the checks in sudo, whose messages name the task and its project
             self.check_access("write")
@@ -58,6 +87,9 @@ class ProjectTask(models.Model):
         if former_projects and is_role_checked:
             # before the write: a sub-task that left is judged by the rows of its new project
             writable_sub_tasks = self._get_restricted_sub_tasks(former_projects)._filtered_access("write")
+        former_placements = (
+            self._get_former_placements() if is_role_checked and STAGE_SETTING_FIELDS & vals.keys() else {}
+        )
         result = super().write(vals)
         if former_projects:
             entered_tasks = self._get_entered_tasks(former_projects)
@@ -65,6 +97,8 @@ class ProjectTask(models.Model):
                 entered_tasks._ensure_entering_allowed()
                 self._ensure_carried_sub_tasks_written(former_projects, writable_sub_tasks)
             entered_tasks._revoke_access_tokens()
+        if former_placements:
+            self._ensure_stages_listed_on_write(former_placements)
         self._revoke_access_tokens()
         return result
 
@@ -94,39 +128,116 @@ class ProjectTask(models.Model):
                     self.env._("Only an Admin of %s creates a task with assignees in it.", project.display_name)
                 )
 
+    def _ensure_uat_users_allowed_on_create(self):
+        for task in self.sudo().filtered(
+            lambda record: record.uat_user_ids and record.project_id.access_mode in RESTRICTED_ACCESS_MODES
+        ):
+            task._ensure_uat_users_change_allowed()
+
     def _ensure_closing_allowed_on_create(self):
         for task in self.sudo().filtered(
             lambda record: record.state in CLOSED_STATES and record.project_id.access_mode in RESTRICTED_ACCESS_MODES
         ):
             task._ensure_moving_on_allowed()
 
+    @api.model
+    def _get_restricted_listed_stages(self):
+        """{(project id, stage id)} of the stages the Public and Private projects list, archived
+        ones included, read before a create: core adds the stage of a new task to its project
+        when the project lacks it, whatever gave the stage, the values, the context or a default.
+        """
+        projects = self.env["project.project"]
+        projects.flush_model(["access_mode"])
+        stages_field = projects._fields["type_ids"]
+        rows = self.env.execute_query(
+            SQL(
+                "SELECT rel.%s, rel.%s FROM %s rel JOIN %s project ON project.id = rel.%s"
+                " WHERE project.access_mode IN %s",
+                SQL.identifier(stages_field.column1),
+                SQL.identifier(stages_field.column2),
+                SQL.identifier(stages_field.relation),
+                SQL.identifier(projects._table),
+                SQL.identifier(stages_field.column1),
+                RESTRICTED_ACCESS_MODES,
+            )
+        )
+        return set(rows)
+
+    def _ensure_stages_listed_on_create(self, listed_stages):
+        for task in self.sudo().filtered(
+            lambda record: record.stage_id and record.project_id.access_mode in RESTRICTED_ACCESS_MODES
+        ):
+            if (task.project_id.id, task.stage_id.id) not in listed_stages:
+                task._ensure_unlisted_stage_allowed()
+
+    def _get_former_placements(self):
+        return {task.id: (task.project_id, task.stage_id) for task in self.sudo()}
+
+    def _ensure_stages_listed_on_write(self, former_placements):
+        for task in self.sudo():
+            if (
+                (task.project_id, task.stage_id) != former_placements[task.id]
+                and task.stage_id
+                and task.stage_id not in task.project_id.with_context(active_test=False).type_ids
+            ):
+                task._ensure_unlisted_stage_allowed()
+
+    def _ensure_unlisted_stage_allowed(self):
+        """Refuse this task of a Public or Private project on a stage the project does not
+        list, unless the user is an Admin of the project: a stage of such a project is
+        changed by its Admins only, and core adds the stage of a new task to its project.
+        """
+        project = self.project_id
+        if project.access_mode in RESTRICTED_ACCESS_MODES and self.env.user not in project.admin_user_ids:
+            raise AccessError(
+                self.env._(
+                    "Only an Admin of %s puts a task on a stage the project does not list.", project.display_name
+                )
+            )
+
     def _ensure_member_role_allows(self, vals):
         """Refuse what the role of the user does not let them write on a task that stays
-        in its Public or Private project: the assignees, the stage, closing or reopening
-        it. A task moved to another project is judged by that project, after the write.
+        in its Public or Private project: the assignees, the UAT users, the stage, closing or
+        reopening it. A task moved to another project is judged by that project, after the write.
         """
         user = self.env.user
-        assignees_field = self._fields["user_ids"]
         for task in self.sudo():
             project = task.project_id
             if project.access_mode not in RESTRICTED_ACCESS_MODES or vals.get("project_id", project.id) != project.id:
                 continue
-            assignees = task.user_ids
-            if "user_ids" in vals:
-                assignees = assignees.browse(assignees_field.convert_to_cache(vals["user_ids"], task))
-            if assignees != task.user_ids and user not in project.admin_user_ids:
+            if task._is_people_changed("user_ids", vals) and not task._may_change_assignees(user):
                 raise AccessError(
                     self.env._("Only an Admin of %s changes the assignees of its tasks.", project.display_name)
                 )
+            if task._is_people_changed("uat_user_ids", vals):
+                task._ensure_uat_users_change_allowed()
             if task._is_moved_on(vals):
                 task._ensure_moving_on_allowed()
+
+    def _is_people_changed(self, fname, vals):
+        """Whether vals change the users of the people field fname of this task, a clearing included."""
+        if fname not in vals:
+            return False
+        return set(self._fields[fname].convert_to_cache(vals[fname], self)) != set(self[fname].ids)
+
+    def _ensure_uat_users_change_allowed(self):
+        """Refuse setting the UAT users of this task unless the user is one of its assignees
+        or an Editor or Admin of its project.
+        """
+        if not self._is_assignee_or_editor(self.env.user):
+            raise AccessError(
+                self.env._(
+                    "Only an assignee of %(task)s, or an Editor or Admin of %(project)s, sets its UAT users.",
+                    task=self.display_name,
+                    project=self.project_id.display_name,
+                )
+            )
 
     def _ensure_moving_on_allowed(self):
         """Refuse moving this task to another stage, closing or reopening it, unless the
         user is one of its assignees or an Editor or Admin of its project.
         """
-        user = self.env.user
-        if user not in self.user_ids and user not in self.project_id.editor_user_ids:
+        if not self._is_assignee_or_editor(self.env.user):
             raise AccessError(
                 self.env._(
                     "Only an assignee of %(task)s, or an Editor or Admin of %(project)s, moves it to another"
@@ -143,6 +254,21 @@ class ProjectTask(models.Model):
         is_stage_moved = "stage_id" in vals and vals["stage_id"] != self.stage_id.id
         is_closing_changed = "state" in vals and (vals["state"] in CLOSED_STATES) != (self.state in CLOSED_STATES)
         return is_stage_moved or is_closing_changed
+
+    def _is_role_checked(self):
+        return not (self.env.su or self.env.user._is_system())
+
+    def _may_change_assignees(self, user):
+        project = self.sudo().project_id
+        return project.access_mode not in RESTRICTED_ACCESS_MODES or user in project.admin_user_ids
+
+    def _may_change_uat_users(self, user):
+        task = self.sudo()
+        return task.project_id.access_mode not in RESTRICTED_ACCESS_MODES or task._is_assignee_or_editor(user)
+
+    def _is_assignee_or_editor(self, user):
+        task = self.sudo()
+        return user in task.user_ids or user in task.project_id.editor_user_ids
 
     def _get_former_projects(self):
         """Return {task id: project} of self and of all their sub-tasks, archived included."""
@@ -175,6 +301,13 @@ class ProjectTask(models.Model):
             if task.user_ids and user not in project.admin_user_ids:
                 raise AccessError(
                     self.env._("Only an Admin of %s moves a task with assignees into it.", project.display_name)
+                )
+            # entering is a create there: UAT users take who may set them on create
+            if task.uat_user_ids and not task._is_assignee_or_editor(user):
+                raise AccessError(
+                    self.env._(
+                        "Only an Editor or Admin of %s moves a task with UAT users into it.", project.display_name
+                    )
                 )
 
     def _get_restricted_sub_tasks(self, former_projects):

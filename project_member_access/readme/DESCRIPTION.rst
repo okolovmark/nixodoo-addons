@@ -45,6 +45,12 @@ Besides the access rows, a create or a write is refused when:
   with assignees;
 * anyone but an assignee of the task, an Editor or an Admin moves it to
   another stage, closes it (Done, Cancelled), on create too, or reopens it;
+* anyone but an assignee of the task, an Editor or an Admin sets its UAT
+  users: changes or clears them, creates the task with them or moves it in
+  with them;
+* anyone but an Admin puts a task on a stage the project does not list, on
+  create, whatever gave the stage, a default of the user's own included, by
+  a change of stage or with a move into the project;
 * a task enters the project, by its own move or its parent's, and the user
   is not a Contributor, Editor or Admin of it, or not an Admin when the
   task has assignees;
@@ -64,6 +70,12 @@ the first Admins, themselves or other users, of a project made Public or
 Private. The refusals of the module name no record the user cannot read;
 Odoo's own record access error lists the refused records to an internal
 user with Technical Features.
+
+On the task form of such a project, the Assignees are read-only for anyone
+but an Admin, and the UAT users for anyone who may not set them, by the
+project the task is saved in: a value typed before a change of project
+reaches the save, which judges it. A new task keeps both editable, and the
+save checks them. In a Private project both pickers offer its members only.
 
 **Notifications**
 

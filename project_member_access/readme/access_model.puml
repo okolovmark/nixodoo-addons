@@ -76,7 +76,10 @@ note as Rows
   <b>Checked in create / write</b>
   assignees: Admin
   stage, closing (on create too), reopening: assignee, Editor or Admin
-  task moving in: Contributor (with assignees: Admin)
+  UAT users (on create too): assignee, Editor or Admin
+  stage the project does not list: Admin
+  task moving in: Contributor (with assignees: Admin,
+    with UAT users: Editor)
   sub-tasks carried out with their parent: write on each
   milestone, update moving in: Admin
   stage: Project Administrator and Admin of one of its

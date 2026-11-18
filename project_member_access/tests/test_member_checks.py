@@ -107,7 +107,7 @@ class TestMemberChecks(MemberAccessCommon):
         is moved: by an assignee, an Editor or an Admin.
         """
         task = self._create_task(self.public_project, self.contributor)
-        task.uat_user_ids = self.reader
+        task.with_user(self.editor).uat_user_ids = self.reader
         for user in self.reader | self.contributor:
             with self.subTest(user=user.login):
                 for state in (APPROVED, CHANGES_REQUESTED):
@@ -295,6 +295,165 @@ class TestMemberChecks(MemberAccessCommon):
     def test_a_settings_administrator_creates_a_task_with_assignees(self):
         task = self._create_task(self.private_project, self.sysadmin, user_ids=[Command.set(self.reader.ids)])
         self.assertEqual(task.user_ids, self.reader)
+
+    def test_uat_users_are_changed_by_an_assignee_an_editor_or_an_admin(self):
+        task = self._create_task(self.public_project, self.contributor).with_env(self.env)
+        task.write({"user_ids": [Command.set(self.reader.ids)], "uat_user_ids": [Command.set(self.outsider.ids)]})
+        changes = (
+            [Command.link(self.editor.id)],
+            [Command.unlink(self.outsider.id)],
+            [Command.clear()],
+            [Command.set([])],
+            False,
+            [self.editor.id],
+            (self.editor.id,),
+        )
+        for user in self.contributor | self.outsider:
+            for uat_user_ids in changes:
+                with (
+                    self.subTest(user=user.login, uat_user_ids=uat_user_ids),
+                    self.assertRefused(AccessError, "or an Editor or Admin of Public, sets its UAT users"),
+                ):
+                    task.with_user(user).write({"uat_user_ids": uat_user_ids})
+            # the same users, or no command, is no change
+            for uat_user_ids in ([Command.set(self.outsider.ids)], []):
+                task.with_user(user).write({"uat_user_ids": uat_user_ids, "name": "Same UAT users"})
+                self.assertEqual(task.uat_user_ids, self.outsider)
+        for user in self.reader | self.editor | self.admin:
+            task.with_user(user).write({"uat_user_ids": [Command.set(user.ids)]})
+            self.assertEqual(task.uat_user_ids, user)
+        task.with_user(self.reader).write({"uat_user_ids": False})
+        self.assertFalse(task.uat_user_ids)
+
+    def test_a_task_is_created_with_uat_users_by_editors_only(self):
+        for project in self.public_project | self.private_project:
+            with self.subTest(project=project.name):
+                with self.assertRefused(AccessError, "or an Editor or Admin of %s, sets its UAT users" % project.name):
+                    self._create_task(project, self.contributor, uat_user_ids=[Command.set(self.reader.ids)])
+                with self.assertRefused(AccessError, "sets its UAT users"):
+                    self.env["project.task"].with_context(
+                        default_project_id=project.id, default_uat_user_ids=[Command.link(self.reader.id)]
+                    ).with_user(self.contributor).create({"name": "Tested by default"})
+                for user in self.editor | self.admin:
+                    task = self._create_task(project, user, uat_user_ids=[Command.set(self.reader.ids)])
+                    self.assertEqual(task.uat_user_ids, self.reader)
+
+    def test_moving_a_task_with_uat_users_in_takes_an_editor(self):
+        task = self._create_task(self.standard_project, uat_user_ids=[Command.set(self.reader.ids)])
+        with self.assertRefused(AccessError, "Only an Editor or Admin of Public moves a task with UAT users"):
+            task.with_user(self.contributor).write({"project_id": self.public_project.id})
+        task.with_user(self.editor).write({"project_id": self.public_project.id})
+        self.assertEqual(task.project_id, self.public_project)
+
+    def test_a_sub_task_with_uat_users_follows_its_parent_in_only_as_the_role_allows(self):
+        parent = self._create_task(self.standard_project, self.contributor)
+        sub_task = self._create_task(
+            self.standard_project, name="Sub-task", parent_id=parent.id, uat_user_ids=[Command.set(self.reader.ids)]
+        )
+        with self.assertRefused(AccessError, "Only an Editor or Admin of Public moves a task with UAT users"):
+            parent.with_user(self.contributor).write({"project_id": self.public_project.id})
+        parent.with_user(self.editor).write({"project_id": self.public_project.id})
+        self.assertEqual((parent | sub_task).project_id, self.public_project)
+        self.assertEqual(sub_task.uat_user_ids, self.reader)
+
+    def test_uat_users_of_a_standard_task_keep_no_role_check(self):
+        task = self._create_task(self.standard_project, self.outsider, uat_user_ids=[Command.set(self.reader.ids)])
+        task.with_user(self.outsider).write({"uat_user_ids": [Command.set(self.outsider.ids)]})
+        self.assertEqual(task.uat_user_ids, self.outsider)
+
+    def _create_stage_of(self, project):
+        return self.env["project.task.type"].create(
+            {"name": "%s only" % project.name, "project_ids": [Command.link(project.id)]}
+        )
+
+    def test_a_task_takes_a_stage_its_project_does_not_list_from_an_admin_only(self):
+        standard_stage = self._create_stage_of(self.standard_project)
+        for project in self.public_project | self.private_project:
+            with (
+                self.subTest(project=project.name),
+                self.assertRefused(AccessError, "Only an Admin of %s puts a task on a stage" % project.name),
+            ):
+                self._create_task(project, self.contributor, stage_id=standard_stage.id)
+        self._lead(self.private_project, self.reader)
+        with self.assertRefused(AccessError, "Only an Admin of Private puts a task on a stage"):
+            self.private_reader_task.with_user(self.reader).write({"stage_id": standard_stage.id})
+        self._lead(self.private_project, self.editor)
+        with self.assertRefused(AccessError, "Only an Admin of Private puts a task on a stage"):
+            self.private_task.with_user(self.editor).write({"stage_id": standard_stage.id})
+
+        self._lead(self.private_project, self.admin)
+        self.private_task.with_user(self.admin).write({"stage_id": standard_stage.id})
+        self.assertEqual(self.private_task.stage_id, standard_stage)
+        self.assertEqual(standard_stage.project_ids, self.standard_project, "core adds no stage on a write")
+        admin_task = self._create_task(self.public_project, self.admin, stage_id=standard_stage.id)
+        self.assertEqual(admin_task.stage_id, standard_stage)
+        self.assertIn(self.public_project, standard_stage.project_ids, "core adds the stage of a new task")
+        sysadmin_task = self._create_task(self.private_project, self.sysadmin, stage_id=standard_stage.id)
+        self.assertEqual(sysadmin_task.stage_id, standard_stage)
+
+    def test_a_stage_a_personal_default_gives_is_judged_where_the_task_lands(self):
+        """Core fills a stage the values do not give from the defaults, a user's own included,
+        and adds it to the project of the new task.
+        """
+        standard_stage = self._create_stage_of(self.standard_project)
+        for user in self.contributor | self.admin:
+            self.env["ir.default"].with_user(user).set("project.task", "stage_id", standard_stage.id, user_id=True)
+        for project in self.public_project | self.private_project:
+            with (
+                self.subTest(project=project.name),
+                self.assertRefused(AccessError, "Only an Admin of %s puts a task on a stage" % project.name),
+            ):
+                self._create_task(project, self.contributor)
+        self.assertEqual(self._create_task(self.standard_project, self.contributor).stage_id, standard_stage)
+        admin_task = self._create_task(self.public_project, self.admin)
+        self.assertEqual(admin_task.stage_id, standard_stage)
+        self.assertIn(self.public_project, standard_stage.project_ids)
+        self.env["ir.default"].with_user(self.contributor).set(
+            "project.task", "stage_id", self.stage_done.id, user_id=True
+        )
+        self.assertEqual(self._create_task(self.private_project, self.contributor).stage_id, self.stage_done)
+
+    def test_an_archived_stage_the_project_lists_stays_listed(self):
+        archived_stage = self._create_stage_of(self.public_project)
+        archived_stage.active = False
+        task = self._create_task(self.public_project, self.contributor, stage_id=archived_stage.id)
+        self.assertEqual(task.stage_id, archived_stage)
+        self._lead(self.public_project, self.editor)
+        self.public_task.with_user(self.editor).write({"stage_id": archived_stage.id})
+        self.assertEqual(self.public_task.stage_id, archived_stage)
+
+    def test_a_listed_stage_and_a_standard_project_keep_no_stage_check(self):
+        task = self._create_task(self.public_project, self.contributor, stage_id=self.stage_done.id)
+        self.assertEqual(task.stage_id, self.stage_done)
+        quick_created_task = (
+            self.env["project.task"]
+            .with_context(default_project_id=self.public_project.id, default_stage_id=self.stage_done.id)
+            .with_user(self.contributor)
+            .create({"name": "In the Done column"})
+        )
+        self.assertEqual(quick_created_task.stage_id, self.stage_done)
+        public_stage = self._create_stage_of(self.public_project)
+        standard_task = self._create_task(self.standard_project, self.outsider, stage_id=public_stage.id)
+        self.assertEqual(standard_task.stage_id, public_stage)
+        unlisted_stage = self.env["project.task.type"].create({"name": "Of no project"})
+        self._lead(self.standard_project, self.outsider)
+        standard_task.with_user(self.outsider).write({"stage_id": unlisted_stage.id})
+        self.assertEqual(standard_task.stage_id, unlisted_stage)
+
+    def test_a_task_moved_in_gets_a_stage_of_its_new_project_unless_it_brings_one(self):
+        """Core gives a task moved to another project a stage of that project, unless the write names a stage."""
+        standard_stage = self._create_stage_of(self.standard_project)
+        task = self._create_task(self.standard_project, self.contributor, stage_id=standard_stage.id)
+        task.with_user(self.contributor).write({"project_id": self.public_project.id})
+        self.assertEqual((task.project_id, task.stage_id), (self.public_project, self.stage_todo))
+
+        task = self._create_task(self.standard_project, self.contributor, stage_id=standard_stage.id)
+        with self.assertRefused(AccessError, "Only an Admin of Public puts a task on a stage"):
+            task.with_user(self.contributor).write(
+                {"project_id": self.public_project.id, "stage_id": standard_stage.id}
+            )
+        task.with_user(self.admin).write({"project_id": self.public_project.id, "stage_id": standard_stage.id})
+        self.assertEqual((task.project_id, task.stage_id), (self.public_project, standard_stage))
 
     def test_a_pull_request_of_a_private_task_is_changed_by_its_editors(self):
         grant_pull_request_unlink(self.env)
