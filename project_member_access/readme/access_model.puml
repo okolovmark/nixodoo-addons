@@ -1,0 +1,93 @@
+@startuml access_model
+' Data model and access rows of project_member_access.
+' Preview: Alt+D (PlantUML extension)
+
+hide empty members
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam defaultFontName Helvetica
+
+class "project.project" as Project {
+  access_mode : standard | public | private
+  member_ids : One2many
+  .. stored, computed from member_ids ..
+  member_user_ids : reader and above
+  contributor_user_ids : contributor and above
+  editor_user_ids : editor and above
+  admin_user_ids : admin
+}
+class "project.member" as Member {
+  {field} project_id : Many2one (cascade)
+  {field} user_id : Many2one (internal user)
+  role : reader | contributor | editor | admin
+  {field} unique(project_id, user_id)
+}
+class "res.users" as User {
+  _project_member_access_domain(model, operation, grant)
+}
+class "project.task" as Task {
+  create_uid
+  user_ids : Assignees
+  uat_user_ids : UAT users
+  state
+}
+class "checklist item / question row / test case / session" as Line {
+  task_id
+}
+class "project.pull.request" as PullRequest {
+  task_ids : Many2many
+}
+class "burndown / milestone / update" as ProjectRecord {
+  project_id
+}
+
+Project "1" *-- "*" Member : member_ids
+Member "*" --> "1" User : user_id
+Project ..> User : role user sets
+Task "*" --> "0..1" Project : project_id
+Line "*" --> "1" Task : task_id
+PullRequest "*" -- "*" Task : task_ids
+ProjectRecord "*" --> "1" Project : project_id
+
+note as Rows
+  <b>ir.access rows, per model and operation</b>
+  restriction (no group):  outside OR allow
+  permission (a group):  inside AND allow
+  (where a permission of Odoo could still deny inside)
+
+  outside = Standard project, or no project
+  inside  = Public or Private project
+
+  <b>allow</b>, for the current user
+  read: Public, or member (Project Administrator: any)
+  task read: its project is read
+  task create: contributor_user_ids
+  task write: readable and (own task or editor_user_ids)
+    own task = its creator, an assignee or a UAT user
+  task unlink: admin_user_ids
+  project, milestone, update writes: admin_user_ids
+  member rows: admin_user_ids (Standard: Project Administrator too)
+  member create by a Project Administrator: all, checked in create
+  pull request read: no task, or a task the task restriction passes
+  Settings administrator: all; portal user: none
+
+  lines: their task's rows, through project_ai_driven
+
+  <b>Checked in create / write</b>
+  assignees: Admin
+  stage, closing (on create too), reopening: assignee, Editor or Admin
+  UAT users (on create too): assignee, Editor or Admin
+  stage the project does not list: Admin
+  task moving in: Contributor (with assignees: Admin,
+    with UAT users: Editor)
+  sub-tasks carried out with their parent: write on each
+  milestone, update moving in: Admin
+  stage: Project Administrator and Admin of one of its
+    Public or Private projects
+  pull request: write on each restricted task
+  member rows: added by an Admin (first Admins: Project
+    Administrator), last active Admin kept
+  share wizards: refused
+end note
+Rows .. User
+@enduml

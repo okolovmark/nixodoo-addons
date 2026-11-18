@@ -501,7 +501,7 @@ class TestTaskBrief(ProjectAiDrivenCommon):
 
     def test_header(self):
         task = self.brief_task
-        task.state = "03_approved"
+        task.write({"state": "03_approved", "uat_user_ids": [Command.set(self.user_dev.ids)]})
         header = get_sections(self._brief())[""]
         self.assertTrue(header.startswith("# %s Brief of a task\n\n" % self._key(task)), header)
         expected_lines = [
@@ -513,6 +513,7 @@ class TestTaskBrief(ProjectAiDrivenCommon):
             "- Priority: High",
             "- Deadline: 2026-12-01 17:00:00 UTC",
             "- Assignees: Developer, Project Lead",
+            "- UAT users: Developer",
             "- Author: Project Lead, created %s" % self._since(task.create_date),
             "- Resolution: Code",
             "- Modules: project",
@@ -522,21 +523,14 @@ class TestTaskBrief(ProjectAiDrivenCommon):
         for line in expected_lines:
             self.assertIn("\n%s\n" % line, header + "\n")
 
-    def test_header_shows_the_fields_other_modules_declare(self):
+    def test_header_shows_the_planned_start_a_module_declares(self):
         # a task without sub-tasks: a module may take the planned window of a parent from its sub-tasks
         task = self.blocker_task
-        expected_lines = []
-        if "planned_date_begin" in task._fields:
-            task.write({"planned_date_begin": EARLIER, "date_deadline": LATER})
-            expected_lines.append("- Planned start: %s" % self._since(EARLIER))
-        if "uat_user_ids" in task._fields:
-            task.uat_user_ids = self.user_dev
-            expected_lines.append("- UAT users: Developer")
-        if not expected_lines:
-            self.skipTest("no module installed declares a planned start or UAT users")
+        if "planned_date_begin" not in task._fields:
+            self.skipTest("no module installed declares a planned start")
+        task.write({"planned_date_begin": EARLIER, "date_deadline": LATER})
         header = get_sections(self._brief(task))[""]
-        for line in expected_lines:
-            self.assertIn("\n%s\n" % line, header + "\n")
+        self.assertIn("\n- Planned start: %s\n" % self._since(EARLIER), header + "\n")
 
     def test_modules_only_on_a_task_of_the_project_that_develops_this_odoo(self):
         self.assertIn("\n- Modules: project\n", self._brief())

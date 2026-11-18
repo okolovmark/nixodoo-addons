@@ -111,6 +111,14 @@ images until they are saved again, or until
 ``_move_inline_images_to_attachments`` runs on the task, which covers them
 from this version on.
 
+The update to 20.0.2.16.0 adds the **UAT users** of a task
+(``uat_user_ids``, table ``project_task__uat_user_rel``) and puts them on
+the task form after the Assignees; a copy of a task starts without them.
+It has no migration and writes nothing on the tasks. A database where
+another module already declares the same field on the same table keeps the
+table and its rows; when a new version of that module no longer declares
+the field, update both in the same run.
+
 **A database that has the 20.0 project_software installed**
 
 ``project_software`` is the former name of this module. Such a database is

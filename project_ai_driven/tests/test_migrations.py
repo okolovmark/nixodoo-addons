@@ -76,6 +76,14 @@ class TestBlankExtensionViewsMigration(TransactionCase):
         self.assertEqual(self._stored_arch(self.form_view), BLANK_ARCH)
         self.assertEqual(self._stored_arch(self.former_card_view), BLANK_ARCH)
 
+    def _patch_registry_as_updating(self):
+        """The registry as the update of this module leaves it: views of the modules loaded after it,
+        which may extend what this module adds to the form, are not combined yet.
+        """
+        module = self.env["ir.module.module"].search([("name", "=", MODULE)])
+        dependencies = module.upstream_dependencies(exclude_states=("uninstalled", "uninstallable", "to remove"))
+        return patch.multiple(self.registry, ready=False, _init_modules={*dependencies.mapped("name"), MODULE})
+
     def test_a_view_the_update_rewrites_validates_once_the_stale_ones_are_blanked(self):
         """The update rewrites the checklist view first, while the form view
         still names the fields questions and answers.
@@ -83,7 +91,7 @@ class TestBlankExtensionViewsMigration(TransactionCase):
         checklist_view = self.env.ref(f"{MODULE}.view_task_form2")
         self._store_arch(checklist_view, STALE_CHECKLIST_ARCH)
         # the update reads the stored archs, where --dev=xml reads the files
-        with patch.dict(config.options, {"dev_mode": []}):
+        with patch.dict(config.options, {"dev_mode": []}), self._patch_registry_as_updating():
             with self.assertRaisesRegex(ValidationError, "questions"):
                 checklist_view.reset_arch(mode="hard")
 

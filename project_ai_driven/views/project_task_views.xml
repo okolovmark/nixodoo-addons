@@ -177,6 +177,14 @@
                     domain="[('state', 'in', ('installed', 'to upgrade', 'to remove'))]"
                 />
             </xpath>
+            <xpath expr="//sheet//field[@name='user_ids'][not(ancestor::field)]" position="after">
+                <field
+                    name="uat_user_ids"
+                    widget="many2many_avatar_user"
+                    options="{'no_open': True, 'no_quick_create': True}"
+                    domain="[('share', '=', False), ('active', '=', True), '|', ('company_id', '=?', company_id), ('company_ids', 'in', company_id)]"
+                />
+            </xpath>
             <!-- the two stars of the form itself, wherever in the sheet another module puts them -->
             <xpath expr="//sheet//field[@name='priority'][not(ancestor::field)]" position="attributes">
                 <attribute name="invisible">is_ai_driven</attribute>

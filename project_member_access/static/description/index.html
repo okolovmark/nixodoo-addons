@@ -1,0 +1,690 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils: https://docutils.sourceforge.io/" />
+<title>Project Member Access</title>
+<style type="text/css">
+
+/*
+:Author: David Goodger (goodger@python.org)
+:Id: $Id: html4css1.css 9511 2024-01-13 09:50:07Z milde $
+:Copyright: This stylesheet has been placed in the public domain.
+
+Default cascading style sheet for the HTML output of Docutils.
+Despite the name, some widely supported CSS2 features are used.
+
+See https://docutils.sourceforge.io/docs/howto/html-stylesheets.html for how to
+customize this style sheet.
+*/
+
+/* used to remove borders from tables and images */
+.borderless, table.borderless td, table.borderless th {
+  border: 0 }
+
+table.borderless td, table.borderless th {
+  /* Override padding for "table.docutils td" with "! important".
+     The right padding separates the table cells. */
+  padding: 0 0.5em 0 0 ! important }
+
+.first {
+  /* Override more specific margin styles with "! important". */
+  margin-top: 0 ! important }
+
+.last, .with-subtitle {
+  margin-bottom: 0 ! important }
+
+.hidden {
+  display: none }
+
+.subscript {
+  vertical-align: sub;
+  font-size: smaller }
+
+.superscript {
+  vertical-align: super;
+  font-size: smaller }
+
+a.toc-backref {
+  text-decoration: none ;
+  color: black }
+
+blockquote.epigraph {
+  margin: 2em 5em ; }
+
+dl.docutils dd {
+  margin-bottom: 0.5em }
+
+object[type="image/svg+xml"], object[type="application/x-shockwave-flash"] {
+  overflow: hidden;
+}
+
+/* Uncomment (and remove this text!) to get bold-faced definition list terms
+dl.docutils dt {
+  font-weight: bold }
+*/
+
+div.abstract {
+  margin: 2em 5em }
+
+div.abstract p.topic-title {
+  font-weight: bold ;
+  text-align: center }
+
+div.admonition, div.attention, div.caution, div.danger, div.error,
+div.hint, div.important, div.note, div.tip, div.warning {
+  margin: 2em ;
+  border: medium outset ;
+  padding: 1em }
+
+div.admonition p.admonition-title, div.hint p.admonition-title,
+div.important p.admonition-title, div.note p.admonition-title,
+div.tip p.admonition-title {
+  font-weight: bold ;
+  font-family: sans-serif }
+
+div.attention p.admonition-title, div.caution p.admonition-title,
+div.danger p.admonition-title, div.error p.admonition-title,
+div.warning p.admonition-title, .code .error {
+  color: red ;
+  font-weight: bold ;
+  font-family: sans-serif }
+
+/* Uncomment (and remove this text!) to get reduced vertical space in
+   compound paragraphs.
+div.compound .compound-first, div.compound .compound-middle {
+  margin-bottom: 0.5em }
+
+div.compound .compound-last, div.compound .compound-middle {
+  margin-top: 0.5em }
+*/
+
+div.dedication {
+  margin: 2em 5em ;
+  text-align: center ;
+  font-style: italic }
+
+div.dedication p.topic-title {
+  font-weight: bold ;
+  font-style: normal }
+
+div.figure {
+  margin-left: 2em ;
+  margin-right: 2em }
+
+div.footer, div.header {
+  clear: both;
+  font-size: smaller }
+
+div.line-block {
+  display: block ;
+  margin-top: 1em ;
+  margin-bottom: 1em }
+
+div.line-block div.line-block {
+  margin-top: 0 ;
+  margin-bottom: 0 ;
+  margin-left: 1.5em }
+
+div.sidebar {
+  margin: 0 0 0.5em 1em ;
+  border: medium outset ;
+  padding: 1em ;
+  background-color: #ffffee ;
+  width: 40% ;
+  float: right ;
+  clear: right }
+
+div.sidebar p.rubric {
+  font-family: sans-serif ;
+  font-size: medium }
+
+div.system-messages {
+  margin: 5em }
+
+div.system-messages h1 {
+  color: red }
+
+div.system-message {
+  border: medium outset ;
+  padding: 1em }
+
+div.system-message p.system-message-title {
+  color: red ;
+  font-weight: bold }
+
+div.topic {
+  margin: 2em }
+
+h1.section-subtitle, h2.section-subtitle, h3.section-subtitle,
+h4.section-subtitle, h5.section-subtitle, h6.section-subtitle {
+  margin-top: 0.4em }
+
+h1.title {
+  text-align: center }
+
+h2.subtitle {
+  text-align: center }
+
+hr.docutils {
+  width: 75% }
+
+img.align-left, .figure.align-left, object.align-left, table.align-left {
+  clear: left ;
+  float: left ;
+  margin-right: 1em }
+
+img.align-right, .figure.align-right, object.align-right, table.align-right {
+  clear: right ;
+  float: right ;
+  margin-left: 1em }
+
+img.align-center, .figure.align-center, object.align-center {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+table.align-center {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.align-left {
+  text-align: left }
+
+.align-center {
+  clear: both ;
+  text-align: center }
+
+.align-right {
+  text-align: right }
+
+/* reset inner alignment in figures */
+div.align-right {
+  text-align: inherit }
+
+/* div.align-center * { */
+/*   text-align: left } */
+
+.align-top    {
+  vertical-align: top }
+
+.align-middle {
+  vertical-align: middle }
+
+.align-bottom {
+  vertical-align: bottom }
+
+ol.simple, ul.simple {
+  margin-bottom: 1em }
+
+ol.arabic {
+  list-style: decimal }
+
+ol.loweralpha {
+  list-style: lower-alpha }
+
+ol.upperalpha {
+  list-style: upper-alpha }
+
+ol.lowerroman {
+  list-style: lower-roman }
+
+ol.upperroman {
+  list-style: upper-roman }
+
+p.attribution {
+  text-align: right ;
+  margin-left: 50% }
+
+p.caption {
+  font-style: italic }
+
+p.credits {
+  font-style: italic ;
+  font-size: smaller }
+
+p.label {
+  white-space: nowrap }
+
+p.rubric {
+  font-weight: bold ;
+  font-size: larger ;
+  color: maroon ;
+  text-align: center }
+
+p.sidebar-title {
+  font-family: sans-serif ;
+  font-weight: bold ;
+  font-size: larger }
+
+p.sidebar-subtitle {
+  font-family: sans-serif ;
+  font-weight: bold }
+
+p.topic-title {
+  font-weight: bold }
+
+pre.address {
+  margin-bottom: 0 ;
+  margin-top: 0 ;
+  font: inherit }
+
+pre.literal-block, pre.doctest-block, pre.math, pre.code {
+  margin-left: 2em ;
+  margin-right: 2em }
+
+pre.code .ln { color: gray; } /* line numbers */
+pre.code, code { background-color: #eeeeee }
+pre.code .comment, code .comment { color: #5C6576 }
+pre.code .keyword, code .keyword { color: #3B0D06; font-weight: bold }
+pre.code .literal.string, code .literal.string { color: #0C5404 }
+pre.code .name.builtin, code .name.builtin { color: #352B84 }
+pre.code .deleted, code .deleted { background-color: #DEB0A1}
+pre.code .inserted, code .inserted { background-color: #A3D289}
+
+span.classifier {
+  font-family: sans-serif ;
+  font-style: oblique }
+
+span.classifier-delimiter {
+  font-family: sans-serif ;
+  font-weight: bold }
+
+span.interpreted {
+  font-family: sans-serif }
+
+span.option {
+  white-space: nowrap }
+
+span.pre {
+  white-space: pre }
+
+span.problematic, pre.problematic {
+  color: red }
+
+span.section-subtitle {
+  /* font-size relative to parent (h1..h6 element) */
+  font-size: 80% }
+
+table.citation {
+  border-left: solid 1px gray;
+  margin-left: 1px }
+
+table.docinfo {
+  margin: 2em 4em }
+
+table.docutils {
+  margin-top: 0.5em ;
+  margin-bottom: 0.5em }
+
+table.footnote {
+  border-left: solid 1px black;
+  margin-left: 1px }
+
+table.docutils td, table.docutils th,
+table.docinfo td, table.docinfo th {
+  padding-left: 0.5em ;
+  padding-right: 0.5em ;
+  vertical-align: top }
+
+table.docutils th.field-name, table.docinfo th.docinfo-name {
+  font-weight: bold ;
+  text-align: left ;
+  white-space: nowrap ;
+  padding-left: 0 }
+
+/* "booktabs" style (no vertical lines) */
+table.docutils.booktabs {
+  border: 0px;
+  border-top: 2px solid;
+  border-bottom: 2px solid;
+  border-collapse: collapse;
+}
+table.docutils.booktabs * {
+  border: 0px;
+}
+table.docutils.booktabs th {
+  border-bottom: thin solid;
+  text-align: left;
+}
+
+h1 tt.docutils, h2 tt.docutils, h3 tt.docutils,
+h4 tt.docutils, h5 tt.docutils, h6 tt.docutils {
+  font-size: 100% }
+
+ul.auto-toc {
+  list-style-type: none }
+
+</style>
+</head>
+<body>
+<div class="document" id="project-member-access">
+<h1 class="title">Project Member Access</h1>
+
+<!-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! This file is generated by oca-gen-addon-readme !!
+!! changes will be overwritten.                   !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! source digest: sha256:e1dfac970589137317b64fe0849c679cec324612860fa1f2c441bf0a16613b63
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! -->
+<p><a class="reference external image-reference" href="https://odoo-community.org/page/development-status"><img alt="Beta" src="https://img.shields.io/badge/maturity-Beta-yellow.png" /></a> <a class="reference external image-reference" href="http://www.gnu.org/licenses/lgpl-3.0-standalone.html"><img alt="License: LGPL-3" src="https://img.shields.io/badge/license-LGPL--3-blue.png" /></a> <a class="reference external image-reference" href="https://github.com/okolovmark/nixodoo-addons/tree/20.0/project_member_access"><img alt="okolovmark/nixodoo-addons" src="https://img.shields.io/badge/github-okolovmark%2Fnixodoo--addons-lightgray.png?logo=github" /></a></p>
+<p>A project gets an <strong>Access</strong> mode and members with a role: Reader,
+Contributor, Editor or Admin. In a Public or Private project the roles, not
+the project’s Visibility, its Team Members or its followers, decide who reads
+the project and its tasks and who changes them.</p>
+<p><strong>Access modes</strong> (<tt class="docutils literal">project.project</tt>, <tt class="docutils literal">access_mode</tt>)</p>
+<ul class="simple">
+<li><strong>Standard</strong>, the default: the project’s Visibility decides, as without
+this module; its members change nothing.</li>
+<li><strong>Public</strong>: every internal user reads the project and its tasks, as a
+Reader where they hold no role.</li>
+<li><strong>Private</strong>: only its members read them.</li>
+</ul>
+<p>Project Administrators read every project, Private included, and act as
+Readers where they hold no role. Settings administrators are Admin of every
+project. Portal users, Team Members and followers get nothing from a Public
+or Private project. A role opens nothing a user’s Odoo groups do not:
+creating or deleting a task takes Project / User rights, saving the project
+form and changing stages Project / Administrator rights. The rights of each
+role are in <em>Usage</em>.</p>
+<p><strong>What follows the project</strong></p>
+<p>Inside a Public or Private project:</p>
+<ul class="simple">
+<li>Checklist items, question rows, test cases and agent sessions follow
+their task, as <tt class="docutils literal">project_ai_driven</tt> makes them do: read with it, changed
+by whoever may edit it.</li>
+<li>The burndown chart, milestones and project updates are read by whoever
+reads the project; milestones and updates are changed, and moved into the
+project, by its Admins. Task Analysis is read by Project Administrators
+only, as in Odoo.</li>
+<li>A pull request is read by whoever reads one of its tasks, and changed,
+linked or deleted only by whoever edits each of its tasks in such
+projects. Linking a known link to one’s own task stays open.</li>
+<li>A stage of the project, one shared with other projects included, is
+changed only by a Project Administrator who is an Admin of one of the
+Public or Private projects it belongs to.</li>
+</ul>
+<p><strong>Checks on writes</strong></p>
+<p>Besides the access rows, a create or a write is refused when:</p>
+<ul class="simple">
+<li>anyone but an Admin changes the assignees of a task, or creates a task
+with assignees;</li>
+<li>anyone but an assignee of the task, an Editor or an Admin moves it to
+another stage, closes it (Done, Cancelled), on create too, or reopens it;</li>
+<li>anyone but an assignee of the task, an Editor or an Admin sets its UAT
+users: changes or clears them, creates the task with them or moves it in
+with them;</li>
+<li>anyone but an Admin puts a task on a stage the project does not list, on
+create, whatever gave the stage, a default of the user’s own included, by
+a change of stage or with a move into the project;</li>
+<li>a task enters the project, by its own move or its parent’s, and the user
+is not a Contributor, Editor or Admin of it, or not an Admin when the
+task has assignees;</li>
+<li>a task leaves the project and carries along sub-tasks the user may not
+edit there;</li>
+<li>in a Private project, a user who is not a member is set as assignee or
+UAT user; tasks that carry one when the project turns Private keep them;</li>
+<li>the last Admin of the project is removed or given a lower role, or the
+project is made Public or Private without an Admin; an archived user is
+no Admin (archiving the user of the last Admin is not refused: a Settings
+administrator then names a new Admin);</li>
+<li>the project that develops this Odoo is made Private.</li>
+</ul>
+<p>A member row keeps its project and its user. Members are added by an Admin
+of the project, or by a Project Administrator to a Standard project and as
+the first Admins, themselves or other users, of a project made Public or
+Private. The refusals of the module name no record the user cannot read;
+Odoo’s own record access error lists the refused records to an internal
+user with Technical Features.</p>
+<p>On the task form of such a project, the Assignees are read-only for anyone
+but an Admin, and the UAT users for anyone who may not set them, by the
+project the task is saved in: a value typed before a change of project
+reaches the save, which judges it. A new task keeps both editable, and the
+save checks them. In a Private project both pickers offer its members only.</p>
+<p><strong>Notifications</strong></p>
+<p>Notifications of such a project, of its tasks, milestones and updates, by
+email or in the Discuss inbox, reach only the users who can read them; a
+recipient known by email address only gets none. The followers list itself
+does not change.</p>
+<p><strong>Portal links</strong></p>
+<p>Portal links do not open such a project or its tasks: their access tokens
+are cleared when the project becomes Public or Private, or a task moves into
+it; while it stays so, the project and its tasks keep no token, its share
+buttons are hidden, and the share actions, the <em>Share</em> entries of the gear
+menu included, and the share wizards are refused. Attachments keep theirs:
+such a token opens that one file only.</p>
+<p><strong>How it works</strong></p>
+<p>For each model and operation the module adds an access restriction, an
+<tt class="docutils literal">ir.access</tt> row without a group, <tt class="docutils literal">outside OR allow</tt>: <em>outside</em> is a
+record of a Standard project or of no project, <em>allow</em> the role condition
+for the current user. Restrictions are AND-ed with every permission, so it
+takes access away inside Public and Private projects only. The rows for
+creating, changing and deleting members are <em>allow</em> alone; in a Standard
+project <em>allow</em> takes in Project Administrators. Where a
+permission of Odoo could still deny inside (a Team Members only Visibility,
+a missing follower), a permission row of the module grants the same
+<tt class="docutils literal">inside AND allow</tt>. A task is read where its project is read
+(<tt class="docutils literal">('project_id', 'access', 'read')</tt>). The domains come from
+<tt class="docutils literal">res.users._project_member_access_domain</tt> and read four stored user sets
+of the project, computed from its members and never written directly:
+<tt class="docutils literal">member_user_ids</tt>, <tt class="docutils literal">contributor_user_ids</tt>, <tt class="docutils literal">editor_user_ids</tt> and
+<tt class="docutils literal">admin_user_ids</tt>, each holding a role and those above it. What a row
+cannot say about a write is checked in <tt class="docutils literal">create</tt> and <tt class="docutils literal">write</tt>. The
+superuser, <tt class="docutils literal">sudo()</tt> and Settings administrators pass the rows and the
+role checks; the rules on the members and their last Admin, on the people
+of a Private project, on the project that develops this Odoo and on the
+share wizards hold for them too.</p>
+<p><tt class="docutils literal">readme/access_model.puml</tt> draws the model and the rows; the design
+record is <tt class="docutils literal"><span class="pre">docs/adr/0013-a-project-s-access-is-a-mode-and-member-roles.md</span></tt>
+in this repository.</p>
+<p><strong>Table of contents</strong></p>
+<div class="contents local topic" id="contents">
+<ul class="simple">
+<li><a class="reference internal" href="#configuration" id="toc-entry-1">Configuration</a></li>
+<li><a class="reference internal" href="#usage" id="toc-entry-2">Usage</a></li>
+<li><a class="reference internal" href="#known-issues-roadmap" id="toc-entry-3">Known issues / Roadmap</a></li>
+<li><a class="reference internal" href="#bug-tracker" id="toc-entry-4">Bug Tracker</a></li>
+<li><a class="reference internal" href="#credits" id="toc-entry-5">Credits</a><ul>
+<li><a class="reference internal" href="#authors" id="toc-entry-6">Authors</a></li>
+<li><a class="reference internal" href="#contributors" id="toc-entry-7">Contributors</a></li>
+<li><a class="reference internal" href="#maintainers" id="toc-entry-8">Maintainers</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="configuration">
+<h1><a class="toc-backref" href="#toc-entry-1">Configuration</a></h1>
+<p>A new project, and every project of a database that installs the module,
+is Standard: nothing changes until a project is switched.</p>
+<p><strong>Make a project Public or Private</strong></p>
+<p>As a Project Administrator, on the project form:</p>
+<ol class="arabic simple">
+<li><em>Settings</em> tab: set <strong>Access</strong> to Public or Private. The Visibility, the
+Team Members and the share button are hidden, and the <em>Members</em> tab
+appears. The <em>Share</em> entry of the gear menu stays and is refused.</li>
+<li><em>Members</em> tab: add the users with their role, at least one Admin, and
+save. A Project Administrator names the first Admins of the project; from
+then on only its Admins and Settings administrators change its members,
+its Access and its other settings.</li>
+<li>For a Private project, add every assignee and UAT user of its tasks as a
+member first: only members are set on its tasks afterwards, and only
+members read it.</li>
+<li>Give the project stages of its own: a stage it shares with a Standard
+project is changed only by a Project Administrator who is an Admin of
+one of the Public or Private projects the stage belongs to.</li>
+</ol>
+<p>The project form and the stages are saved with Project / Administrator
+rights: an Admin who keeps the members or the stages needs them too. The
+project that develops this Odoo cannot be Private.</p>
+<p><strong>Back to Standard</strong></p>
+<p>An Admin sets <strong>Access</strong> to Standard: the Visibility decides again, and the
+members stay on the project, hidden, acting on nothing.</p>
+</div>
+<div class="section" id="usage">
+<h1><a class="toc-backref" href="#toc-entry-2">Usage</a></h1>
+<p><strong>Roles in a Public or Private project</strong></p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="70%" />
+<col width="6%" />
+<col width="12%" />
+<col width="6%" />
+<col width="5%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">Action</th>
+<th class="head">Reader</th>
+<th class="head">Contributor</th>
+<th class="head">Editor</th>
+<th class="head">Admin</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>Read tasks, post in the chatter</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr><td>Create a task, or move one in</td>
+<td>no</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr><td>Edit an own task (creator, assignee, UAT user)</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr><td>Edit somebody else’s task</td>
+<td>no</td>
+<td>no</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr><td>Move the stage of a task one is assigned to, close it or reopen it</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr><td>Move the stage of another task, close or reopen it</td>
+<td>no</td>
+<td>no</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr><td>Change assignees, on create too</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>yes</td>
+</tr>
+<tr><td>Change the UAT users of a task one is assigned to</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr><td>Change the UAT users of another task, or create a task with them</td>
+<td>no</td>
+<td>no</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr><td>Put a task on a stage the project does not list</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>yes</td>
+</tr>
+<tr><td>Delete a task</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>yes</td>
+</tr>
+<tr><td>Members, Access, stages, milestones, updates</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>yes</td>
+</tr>
+</tbody>
+</table>
+<p>Without a role, an internal user is a Reader of a Public project, a Project
+Administrator a Reader of every project, and a Settings administrator an
+Admin of every project.</p>
+<p><strong>Work in such a project</strong></p>
+<ul class="simple">
+<li>Create tasks without assignees unless you are an Admin: clear the
+Assignees a screen fills in (the <em>Sub-tasks</em> tab of a task copies the
+parent’s, <em>My Tasks</em> and <em>All Tasks</em> add you); an Admin assigns them.
+Leave the UAT users empty too unless you are an Editor or an Admin: an
+assignee of the task sets them afterwards.</li>
+<li>Move a task along the stages, and mark it Done or Cancelled or reopen it,
+when you are one of its assignees; Editors and Admins do so on any task.
+The creator and the UAT users of a task set its other states, Changes
+Requested and Approved included. A task moved into the project without a
+stage takes one of the project’s; only an Admin brings in a stage the
+project does not list.</li>
+<li>Admins keep the <em>Members</em> tab of the project form: add a user with a
+role, change a role, remove a member. A member’s user is not changed:
+remove the member and add the other user. The last Admin stays until
+another member is Admin.</li>
+<li>Following a task or the project, or being one of its Team Members, opens
+nothing: a user who cannot read it gets no notification of it, and no
+portal link opens it.</li>
+</ul>
+</div>
+<div class="section" id="known-issues-roadmap">
+<h1><a class="toc-backref" href="#toc-entry-3">Known issues / Roadmap</a></h1>
+<ul class="simple">
+<li>An Admin of a Public or Private project can move a task in with new
+assignees and move it out again; a module restricting assignee changes in
+Standard projects does not see that change.</li>
+<li>Inside a Public or Private project only an Admin converts a checklist
+item that has an assignee into a sub-task: the sub-task is created with
+the item’s assignee.</li>
+<li>The quick-create card, the kanban cards and the lists of tasks keep the
+Assignees editable and offer non-members of a Private project: the save
+refuses what the task form does not offer.</li>
+<li>Uninstalling the module drops the Access modes and the members: every
+project is left to its Visibility again.</li>
+</ul>
+</div>
+<div class="section" id="bug-tracker">
+<h1><a class="toc-backref" href="#toc-entry-4">Bug Tracker</a></h1>
+<p>Bugs are tracked on <a class="reference external" href="https://github.com/okolovmark/nixodoo-addons/issues">GitHub Issues</a>.
+In case of trouble, please check there if your issue has already been reported.
+If you spotted it first, help us to smash it by providing a detailed and welcomed
+<a class="reference external" href="https://github.com/okolovmark/nixodoo-addons/issues/new?body=module:%20project_member_access%0Aversion:%2020.0%0A%0A**Steps%20to%20reproduce**%0A-%20...%0A%0A**Current%20behavior**%0A%0A**Expected%20behavior**">feedback</a>.</p>
+<p>Do not contact contributors directly about support or help with technical issues.</p>
+</div>
+<div class="section" id="credits">
+<h1><a class="toc-backref" href="#toc-entry-5">Credits</a></h1>
+<div class="section" id="authors">
+<h2><a class="toc-backref" href="#toc-entry-6">Authors</a></h2>
+<ul class="simple">
+<li>Mark Okolov</li>
+</ul>
+</div>
+<div class="section" id="contributors">
+<h2><a class="toc-backref" href="#toc-entry-7">Contributors</a></h2>
+<ul class="simple">
+<li>Mark Okolov &lt;<a class="reference external" href="https://github.com/okolovmark">https://github.com/okolovmark</a>&gt;</li>
+</ul>
+</div>
+<div class="section" id="maintainers">
+<h2><a class="toc-backref" href="#toc-entry-8">Maintainers</a></h2>
+<p>This module is part of the <a class="reference external" href="https://github.com/okolovmark/nixodoo-addons/tree/20.0/project_member_access">okolovmark/nixodoo-addons</a> project on GitHub.</p>
+<p>You are welcome to contribute.</p>
+</div>
+</div>
+</div>
+</body>
+</html>

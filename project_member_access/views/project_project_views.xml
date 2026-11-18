@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="project_project_view_form_inherit_member_access" model="ir.ui.view">
+        <field name="name">project.project.view.form.inherit.project_member_access</field>
+        <field name="model">project.project</field>
+        <field name="inherit_id" ref="project.edit_project" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='privacy_visibility']" position="before">
+                <field name="access_mode" widget="radio" />
+            </xpath>
+            <xpath expr="//field[@name='privacy_visibility']" position="attributes">
+                <attribute name="invisible">access_mode != 'standard'</attribute>
+            </xpath>
+            <xpath expr="//field[@name='allowed_internal_user_ids']/.." position="attributes">
+                <attribute name="invisible" add="access_mode != 'standard'" separator="or" />
+            </xpath>
+            <xpath
+                expr="//group[@name='visibility']/button[@name='%(project.project_share_wizard_action)d']"
+                position="attributes"
+            >
+                <attribute name="invisible" add="access_mode != 'standard'" separator="or" />
+            </xpath>
+            <xpath expr="//field[@name='access_instruction_message']/.." position="attributes">
+                <attribute name="invisible" add="access_mode != 'standard'" separator="or" />
+            </xpath>
+            <xpath expr="//page[@name='settings']" position="before">
+                <page name="members" string="Members" invisible="access_mode == 'standard'">
+                    <field name="member_ids" mode="list,kanban">
+                        <list editable="bottom">
+                            <!-- a member changes role, not user: remove and add instead -->
+                            <field
+                                name="user_id"
+                                widget="many2one_avatar_user"
+                                options="{'no_create': True}"
+                                readonly="id"
+                            />
+                            <field name="role" />
+                        </list>
+                        <kanban class="o_kanban_mobile">
+                            <templates>
+                                <t t-name="card" class="flex-row align-items-center gap-2">
+                                    <field
+                                        name="user_id"
+                                        widget="many2one_avatar_user"
+                                        options="{'display_avatar_name': True}"
+                                    />
+                                    <field
+                                        name="role"
+                                        widget="badge"
+                                        decoration-info="role == 'admin'"
+                                        class="ms-auto"
+                                    />
+                                </t>
+                            </templates>
+                        </kanban>
+                        <form>
+                            <group>
+                                <field name="user_id" options="{'no_create': True}" readonly="id" />
+                                <field name="role" />
+                            </group>
+                        </form>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+    <!-- the id of the 16.0 view on the kanban: a database upgraded from 16.0 updates that view -->
+    <record id="project_project_view_kanban_inherit_member_access" model="ir.ui.view">
+        <field name="name">project.project.view.card.inherit.project_member_access</field>
+        <field name="model">project.project</field>
+        <field name="inherit_id" ref="project.view_project_card" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='privacy_visibility']" position="after">
+                <field name="access_mode" />
+            </xpath>
+            <xpath expr="//a[@name='action_open_share_project_wizard']" position="attributes">
+                <attribute name="t-if" add="record.access_mode.raw_value == 'standard'" separator="and" />
+            </xpath>
+        </field>
+    </record>
+</odoo>

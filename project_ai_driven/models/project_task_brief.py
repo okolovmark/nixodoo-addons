@@ -5,7 +5,7 @@ from odoo import api, fields, models
 from .html_markdown import get_linked_attachment_ids, html_to_markdown
 
 # Declared by other modules, so read only where the model has them.
-OPTIONAL_BRIEF_FIELDS = ("key", "planned_date_begin", "effective_hours", "uat_user_ids")
+OPTIONAL_BRIEF_FIELDS = ("key", "planned_date_begin", "effective_hours")
 BRIEF_TASK_FIELDS = (
     "name",
     "project_id",
@@ -18,6 +18,7 @@ BRIEF_TASK_FIELDS = (
     "priority_level",
     "date_deadline",
     "user_ids",
+    "uat_user_ids",
     "create_uid",
     "create_date",
     "resolution",
