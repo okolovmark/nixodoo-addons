@@ -302,10 +302,18 @@ class TestTaskModules(ProjectAiDrivenCommon):
         other_task = self._create_task(self.module_base)
         tasks = self.Task.with_user(self.user_dev)
 
-        for search_view in ("project.view_task_search_form", "project.view_task_search_form_base"):
+        for search_view in ("project.view_task_search_form", "project.view_task_search_form_project_base"):
             module_nodes = self._module_nodes(self.user_dev, search_view, "search")
             self.assertEqual([node.get("string") for node in module_nodes], ["Module"], search_view)
         for searched_name in ("project_ai_driven_upgrading", "Upgrading Module"):
             found_tasks = tasks.search([("module_ids", "ilike", searched_name)])
             self.assertIn(self.task, found_tasks)
             self.assertNotIn(other_task, found_tasks)
+
+    def test_the_task_analysis_search_carries_no_module(self):
+        # The task analysis search inherits the shared task search base on a model without modules.
+        report_search = self.env.ref("project.view_task_project_user_search")
+        report_search._check_xml()
+        arch = self.env["report.project.task.user"].get_views([(report_search.id, "search")])["views"]["search"]["arch"]
+
+        self.assertFalse(etree.fromstring(arch).xpath(MODULES_NODE))
