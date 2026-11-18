@@ -347,6 +347,27 @@ class TestTaskDeadline(TeamDashboardCommon):
 
         self.assertEqual(task.with_user(self.planner_utc_plus_8).date_deadline, date(2026, 3, 3))
 
+    def test_a_deadline_saved_with_a_move_into_another_ai_driven_project_stays(self):
+        # Keyed projects: the move gives the task a new key, a write whose tracking reads the Deadline.
+        first_project, second_project = (
+            self.env["project.project"]
+            .with_context(test_project_key=True)
+            .create([{"name": "Keyed One", "is_ai_driven": True}, {"name": "Keyed Two", "is_ai_driven": True}])
+        )
+        task = self.Task.with_context(test_project_key=True).create(
+            {"name": "Moving", "project_id": first_project.id, "planned_date_end": MIDDAY_UTC}
+        )
+        # saved in an earlier request: Odoo tracks no record created in the current one
+        self.env.cr.flush()
+
+        task.write({"project_id": second_project.id, "date_deadline": date(2026, 4, 1)})
+
+        self.assertEqual((task.key, task.date_deadline), ("%s-1" % second_project.key, date(2026, 4, 1)))
+        self._move_the_start_alone(task)
+        self.assertEqual(task.date_deadline, date(2026, 4, 1))
+        task.planned_date_end = datetime(2026, 3, 9, 12)
+        self.assertEqual(task.date_deadline, date(2026, 3, 9))
+
     def test_flagging_a_project_leaves_the_deadlines_of_its_tasks_until_their_planned_end_changes(self):
         undated = self._create_task("Undated", project=self.project_plain, planned_date_end=MIDDAY_UTC)
         dated = self._create_task(

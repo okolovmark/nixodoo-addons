@@ -114,7 +114,8 @@ class Task(models.Model):
 
     def write(self, vals):
         self._check_subtask_driven_dates(vals)
-        result = super().write(vals)
+        with self.env.protecting(self._get_given_deadline_fields(vals), self):
+            result = super().write(vals)
         if "depend_on_ids" in vals or "dependent_ids" in vals:
             self._prune_dependency_lags()
         if "child_ids" in vals:
@@ -263,6 +264,15 @@ class Task(models.Model):
             lambda task: not self.env.is_to_compute(plan_field, task)
             and not any(task[field_name] for field_name in DEADLINE_PLAN_FIELDS)
         )
+
+    def _get_given_deadline_fields(self, vals):
+        """Return the Deadline and the fields of its plan when vals gives the Deadline, else none.
+        The write protects them through its whole chain, which Odoo does in its own write alone: a
+        nested write that reads the Deadline (the new key of a moved task) would otherwise align it
+        against the plan recorded before."""
+        if "date_deadline" not in vals:
+            return []
+        return [self._fields[field_name] for field_name in ("date_deadline", *DEADLINE_PLAN_FIELDS)]
 
     def _record_deadline_plan(self):
         """Record the current plan of the tasks as the one their Deadline follows. A Deadline set by
