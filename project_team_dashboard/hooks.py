@@ -5,7 +5,7 @@ from psycopg2 import sql
 
 from odoo import SUPERUSER_ID, api, models
 
-from .models.project_task import local_date
+from .models.project_task import DEADLINE_PLAN_FIELDS, local_date
 
 _logger = logging.getLogger(__name__)
 
@@ -16,7 +16,11 @@ ADOPTED_MODELS = ("project.baseline", "project.baseline.line", "project.task.dep
 MODEL_RECORDS = tuple(("ir.model", "model_" + model.replace(".", "_")) for model in ADOPTED_MODELS)
 # Of the Many2one fields this module adds to models of other modules: Odoo registers a foreign key
 # only when it creates it.
-ADOPTED_FOREIGN_KEYS = ("project_project_baseline_id_fkey", "res_users_dashboard_default_project_id_fkey")
+ADOPTED_FOREIGN_KEYS = (
+    "project_project_baseline_id_fkey",
+    "project_task_date_deadline_project_id_fkey",
+    "res_users_dashboard_default_project_id_fkey",
+)
 ADOPTED_RECORDS = (
     ("ir.model.constraint", "constraint_project_task_dependency_lag_task_depends_on_uniq"),
     ("ir.model.access", "access_project_baseline_manager"),
@@ -101,14 +105,31 @@ ADOPT_VIEW_FILE = """
      WHERE id IN %(view_ids)s
        AND left(arch_fs, length(%(holder)s) + 1) = %(holder)s || '/'
 """
+RECORD_DEADLINE_PLANS = """
+    UPDATE project_task
+       SET date_deadline_planned_end = planned_date_end, date_deadline_project_id = project_id
+     WHERE (date_deadline_planned_end, date_deadline_project_id) IS DISTINCT FROM (planned_date_end, project_id)
+"""
+# The time zone is the first assignee's (in the order of res.users) that has one, else the last writer's.
 OPEN_AI_DRIVEN_TASKS_WITH_A_PLANNED_END = """
-    SELECT task.id, task.planned_date_end, task.date_deadline, author.tz
+    SELECT task.id, task.planned_date_end, task.date_deadline, COALESCE(
+               (SELECT assignee_partner.tz
+                  FROM project_task_user_rel assignment
+                  JOIN res_users assignee ON assignee.id = assignment.user_id
+                  JOIN res_partner assignee_partner ON assignee_partner.id = assignee.partner_id
+                 WHERE assignment.task_id = task.id
+                   AND assignee_partner.tz <> ''
+                 ORDER BY assignee_partner.name, assignee.login
+                 LIMIT 1),
+               author.tz
+           )
       FROM project_task task
       JOIN project_project project ON project.id = task.project_id
       LEFT JOIN project_task_type stage ON stage.id = task.stage_id
       LEFT JOIN res_users writer ON writer.id = task.write_uid
       LEFT JOIN res_partner author ON author.id = writer.partner_id
      WHERE project.is_ai_driven
+       AND task.active
        AND task.planned_date_end IS NOT NULL
        AND stage.fold IS NOT TRUE
 """
@@ -213,9 +234,13 @@ def roll_up_planned_dates(env):
 
 
 def align_deadlines_with_planned_ends(env):
-    """Set the Deadline of the open tasks of AI-driven projects to the date of their planned end,
-    in the time zone of the user who last wrote each task. In SQL, so their write dates stay."""
+    """Record the plan of every task as the one its Deadline follows, then set the Deadline of the
+    open tasks (stage not folded, not archived) of AI-driven projects to the date of their planned
+    end, in the time zone of their first assignee that has one, else of the user who last wrote the
+    task, else UTC. In SQL, so write dates stay; the other tasks keep their Deadline until their
+    planned end or project changes."""
     env.flush_all()
+    env.cr.execute(RECORD_DEADLINE_PLANS)
     env.cr.execute(OPEN_AI_DRIVEN_TASKS_WITH_A_PLANNED_END)
     task_ids_by_deadline = defaultdict(list)
     for task_id, planned_date_end, date_deadline, tz_name in env.cr.fetchall():
@@ -224,7 +249,7 @@ def align_deadlines_with_planned_ends(env):
             task_ids_by_deadline[deadline].append(task_id)
     for deadline, task_ids in task_ids_by_deadline.items():
         env.cr.execute("UPDATE project_task SET date_deadline = %s WHERE id IN %s", (deadline, tuple(task_ids)))
-    env["project.task"].invalidate_model(["date_deadline"])
+    env["project.task"].invalidate_model(["date_deadline", *DEADLINE_PLAN_FIELDS])
     _logger.info(
         "Deadline aligned with the planned end on %s open tasks of AI-driven projects",
         sum(len(task_ids) for task_ids in task_ids_by_deadline.values()),
