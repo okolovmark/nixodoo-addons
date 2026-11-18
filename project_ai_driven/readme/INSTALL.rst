@@ -271,24 +271,26 @@ session already was: a user who cannot read that task gets an access error.
 
 **Upgrading from project_software**
 
-``project_software`` remains for one release as an empty module that depends
-on this one, so updating it installs this module. Before any data file is
-loaded, the ``pre_init_hook`` takes over everything ``project_software``
-owns: models, fields, views, access rights, menus and message subtypes keep
-their database ids, so checklist items, test cases, field values and
-follower subscriptions stay as they are. It renames the flag where the
-database stores it: the column, the field on every model that has it, and
-the view archs, record rule domains, filters and window actions that name
-it.
+``project_software`` is the former name of this module. The release that
+renamed it kept ``project_software`` as an empty module that depended on
+this one, so that updating it installed this module; the release after it
+removed the empty module.
 
-What the upgrade needs:
-
-* ``addons.yaml`` lists both modules for that release, also when it pins a
-  commit.
-* The deploy runs an update of ``project_software`` (``-u
-  project_software``) with the server stopped: the hook renames the flag's
-  column, which running code still reads. A restart without the update
-  leaves ``project_software`` and the modules that depend on it unloaded.
+* A database updated through the rename release has both installed,
+  ``project_software`` owning nothing. Uninstall ``project_software`` once
+  no installed module depends on it, and drop it from ``addons.yaml``. With
+  its code gone and the module still installed, Odoo logs ``Some modules are
+  not loaded, some dependencies or manifest may be missing`` at every start
+  until it is uninstalled.
+* A database from before the rename installs this module (``-i
+  project_ai_driven``) with the server stopped. Before any data file is
+  loaded, the ``pre_init_hook`` takes over everything ``project_software``
+  owns: models, fields, views, access rights, menus and message subtypes
+  keep their database ids, so checklist items, test cases, field values and
+  follower subscriptions stay as they are. It renames the flag where the
+  database stores it: the column, the field on every model that has it, and
+  the view archs, record rule domains, filters and window actions that name
+  it. ``project_software`` is then empty and is uninstalled as above.
 * A module that depends on ``project_software`` switches, in the same
   deploy, its dependency and its external id references to
   ``project_ai_driven`` and the flag to ``is_ai_driven``. The hook rewrites
@@ -297,8 +299,6 @@ What the upgrade needs:
   ``project_project_view_form_inherit_ai_driven``.
 * Text naming the flag elsewhere (server action code, automated action
   domains, export templates) is not rewritten: change it by hand.
-* ``project_software`` is uninstalled, once no installed module depends on
-  it, before the release that removes it, and dropped from ``addons.yaml``.
 
 A dependent module that is renamed as well can call three functions of
 ``odoo.addons.project_ai_driven.hooks`` from its own ``pre_init_hook``:
