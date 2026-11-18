@@ -1,0 +1,557 @@
+/* Team Dashboard Styles */
+
+.o_team_dashboard {
+    background-color: #f8f9fa;
+    height: 100%;
+}
+
+/* Override Odoo's overflow:hidden on .o_action for our dashboard */
+html .o_web_client > .o_action_manager > .o_action.o_team_dashboard {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+}
+
+.o_team_dashboard_toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+/* Dashboard mode toggle */
+.o_team_dashboard_toolbar .o_dashboard_mode_btn.btn-primary {
+    font-weight: 600;
+}
+
+/* Search wrapper dropdowns (shared style for project/user/dept) */
+.o_user_search_dropdown,
+.o_dept_search_dropdown {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* Member cards */
+.o_member_card {
+    transition: box-shadow 0.2s ease;
+}
+
+.o_member_card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.o_member_card.border-danger {
+    border-width: 2px !important;
+}
+
+.o_member_card .card-header {
+    background-color: #fff;
+    border-bottom: 1px solid #e9ecef;
+}
+
+/* Task links */
+.o_task_link {
+    color: #495057;
+}
+
+.o_task_link:hover {
+    color: #0d6efd;
+}
+
+/* Queue toggle */
+.o_queue_toggle {
+    color: #6c757d;
+}
+
+.o_queue_toggle:hover {
+    color: #495057;
+}
+
+/* Queue list items */
+.o_queue_list > div:last-child {
+    border-bottom: none !important;
+}
+
+/* Progress bar overrides */
+.o_member_card .progress {
+    border-radius: 3px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .o_team_dashboard_toolbar {
+        flex-wrap: wrap;
+    }
+
+    .o_team_dashboard_toolbar > div {
+        width: 100%;
+    }
+}
+
+/* ---- Gantt Chart ---- */
+
+.o_gantt_container {
+    background: #fff;
+    min-height: 400px;
+    display: flex;
+    flex-direction: column;
+}
+
+.o_gantt_toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 11;
+}
+
+.o_gantt_timeline_wrapper {
+    flex: 1 1 auto;
+    padding: 12px;
+}
+
+.o_gantt_empty_state {
+    padding: 40px 20px;
+}
+
+/* vis-timeline overrides for clean look */
+.o_gantt_container .vis-timeline {
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    font-family: inherit;
+}
+
+.o_gantt_container .vis-item {
+    border-radius: 4px;
+    border: none;
+    font-size: 12px;
+    overflow: hidden;
+}
+.o_gantt_container .vis-item .vis-item-overflow {
+    overflow: visible;
+}
+.o_gantt_container .vis-item .vis-item-content {
+    padding: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.o_gantt_container .vis-item.vis-selected {
+    outline: 2px solid #0d6efd;
+    outline-offset: 1px;
+}
+
+/* Stage colors - overridden by inline linear-gradient when progress data exists */
+.o_gantt_container .vis-item.gantt-stage {
+    background-color: rgba(170, 183, 184, 0.3);
+    color: white;
+}
+.o_gantt_container .vis-item.vis-range.gantt-overdue {
+    border: 2px solid #c0392b !important;
+}
+.o_gantt_container .vis-item.vis-point.gantt-overdue .gantt-milestone-diamond {
+    outline: 2px solid #c0392b;
+}
+.o_gantt_legend_overdue {
+    background: transparent;
+    border: 2px solid #c0392b;
+}
+
+/* Progress label inside gantt items */
+.o_gantt_container .vis-item .gantt-progress-label {
+    display: inline-block;
+    width: 100%;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+    text-shadow: 0 0 3px rgba(0,0,0,0.4);
+    line-height: 24px;
+    box-sizing: border-box;
+}
+
+/* Group labels (left sidebar) */
+.o_gantt_container .vis-label .vis-inner {
+    font-size: 13px;
+    padding: 4px 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.o_gantt_container .vis-label .gantt-task-key {
+    color: #6c757d;
+    font-weight: 600;
+    margin-right: 4px;
+}
+.o_gantt_container .vis-label .gantt-subtask-indicator {
+    color: #17a2b8;
+    margin-right: 2px;
+}
+
+/* Row hover highlight - both the sidebar label and the timeline row */
+.o_gantt_container .vis-foreground .vis-group:hover {
+    background-color: rgba(13, 110, 253, 0.06) !important;
+}
+.o_gantt_container .vis-labelset .vis-label:hover {
+    background-color: rgba(13, 110, 253, 0.06) !important;
+}
+
+/* Nesting group (parent) - flex layout so arrow + label align on one line */
+.o_gantt_container .vis-label.vis-nesting-group {
+    display: flex !important;
+    align-items: center !important;
+    overflow: hidden;
+}
+.o_gantt_container .vis-label.vis-nesting-group::before {
+    margin-left: 6px;
+    margin-right: 2px;
+    flex-shrink: 0;
+    font-family: FontAwesome;
+    color: var(--bs-secondary);
+    text-align: center;
+}
+.o_gantt_container .vis-label.vis-nesting-group.expanded::before {
+    content: "\f0d7";
+}
+.o_gantt_container .vis-label.vis-nesting-group.collapsed::before {
+    content: "\f0da";
+}
+.o_gantt_container .vis-label.vis-nesting-group .vis-inner {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+}
+.o_gantt_container .vis-ltr .vis-labelset .vis-label.vis-nested-group {
+    background-color: var(--bs-gray-100);
+}
+.o_gantt_container .vis-ltr .vis-labelset .vis-label.vis-nested-group .vis-inner {
+    padding-left: 0;
+}
+.o_gantt_container .vis-ltr .vis-labelset .vis-label.vis-nested-group { padding-left: 80px; }
+.o_gantt_container .vis-ltr .vis-labelset .vis-label.vis-group-level-1 { padding-left: 16px; }
+.o_gantt_container .vis-ltr .vis-labelset .vis-label.vis-group-level-2 { padding-left: 32px; }
+.o_gantt_container .vis-ltr .vis-labelset .vis-label.vis-group-level-3 { padding-left: 48px; }
+.o_gantt_container .vis-ltr .vis-labelset .vis-label.vis-group-level-4 { padding-left: 64px; }
+
+/* Red bottom border on the last subtask row to visually close the group */
+.o_gantt_container .vis-foreground .vis-group.gantt-last-nested {
+    border-bottom: 2px solid #ec7063 !important;
+}
+.o_gantt_container .vis-labelset .vis-label.gantt-last-nested {
+    border-bottom: 2px solid #ec7063 !important;
+}
+
+/* Today line */
+.o_gantt_container .vis-current-time {
+    background-color: #e74c3c;
+    width: 2px;
+}
+
+/* Make group label open-task icon clickable */
+.o_gantt_open_task {
+    cursor: pointer;
+    color: #6c757d;
+    margin-right: 4px;
+    font-size: 11px;
+}
+.o_gantt_open_task:hover {
+    color: #0d6efd;
+}
+
+/* vis-timeline handles internal scrolling via maxHeight option;
+   the time axis header is pinned automatically. */
+
+/* Faceted search bar */
+.o_gantt_faceted_input {
+    background: #fff;
+}
+.o_gantt_faceted_input:focus-within {
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+.o_gantt_facet {
+    font-size: 12px;
+    font-weight: 500;
+    padding: 2px 6px;
+    white-space: nowrap;
+    background-color: #e9ecef;
+    color: #495057;
+}
+.o_gantt_facet .o_gantt_facet_label {
+    opacity: 0.8;
+}
+.o_gantt_search_input {
+    font-size: 13px;
+    background: transparent;
+}
+.o_gantt_search_dropdown {
+    max-height: 260px;
+    overflow-y: auto;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 1060;
+}
+.o_gantt_search_dropdown .dropdown-item {
+    padding: 5px 12px;
+}
+.o_gantt_search_dropdown .dropdown-item:hover {
+    background-color: #e9ecef;
+}
+
+/* Legend dots */
+.o_gantt_legend_dot {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+/* Scale button group active state */
+.o_gantt_toolbar .btn-group .btn.active {
+    background-color: #6c757d;
+    color: #fff;
+    border-color: #6c757d;
+}
+
+/* View toggle button group */
+.o_team_dashboard_toolbar .btn-group .btn.active {
+    background-color: #6c757d;
+    color: #fff;
+    border-color: #6c757d;
+}
+
+/* Dependency arrows SVG overlay */
+.o_gantt_arrows_svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    overflow: visible;
+    z-index: 3;
+}
+
+/* Milestone diamond item - override all vis-item defaults */
+.o_gantt_container .vis-item.vis-point.gantt-milestone {
+    background: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+}
+.o_gantt_container .vis-item.vis-point.gantt-milestone .vis-item-content {
+    padding: 0 !important;
+    overflow: visible !important;
+}
+.o_gantt_container .vis-item.vis-point.gantt-milestone .vis-dot {
+    display: none !important;
+}
+.gantt-milestone-diamond {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    transform: rotate(45deg);
+    border: 2px solid rgba(0,0,0,0.25);
+    border-radius: 2px;
+}
+.o_gantt_legend_diamond {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: #6c757d;
+    transform: rotate(45deg);
+    border-radius: 1px;
+}
+
+/* ---- Overlapping Task Warning (Requirement 5) ---- */
+
+.o_gantt_container .vis-item.gantt-overlap {
+    border: 2px dashed #dc3545 !important;
+    box-shadow: 0 0 4px rgba(220, 53, 69, 0.4);
+}
+
+.o_gantt_overlap_banner {
+    background-color: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 4px;
+    padding: 8px 16px;
+    margin: 8px 12px 0 12px;
+    font-size: 13px;
+    color: #664d03;
+}
+
+.o_gantt_overlap_banner .fa {
+    color: #e65100;
+    margin-right: 6px;
+}
+
+/* ---- Multi-project gantt selector ---- */
+
+.o_gantt_multiproject_tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+}
+
+.o_gantt_multiproject_tags .o_project_tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background: #0d6efd;
+    color: #fff;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: default;
+}
+
+.o_gantt_multiproject_tags .o_project_tag .o_remove_project_tag {
+    cursor: pointer;
+    font-size: 10px;
+    opacity: 0.8;
+}
+
+.o_gantt_multiproject_tags .o_project_tag .o_remove_project_tag:hover {
+    opacity: 1;
+}
+
+/* ---- Member card Closed button ---- */
+
+.o_member_closed_tasks {
+    font-size: 0.75em;
+    cursor: pointer;
+}
+
+.o_gantt_container .vis-labelset .vis-label .vis-inner {
+    display: flex;
+    align-items: center;
+    box-sizing: border-box;
+    padding-right: 8px;
+}
+.o_gantt_container .o_gantt_label_name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.o_gantt_container .o_gantt_cell {
+    flex: none;
+    box-sizing: border-box;
+    min-height: 18px;
+    padding: 0 6px;
+    border-left: 1px solid #dee2e6;
+    line-height: 18px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: normal;
+    color: #495057;
+}
+.o_gantt_container .o_gantt_cols_off .o_gantt_cell {
+    display: none;
+}
+.o_gantt_container .o_gantt_cell_num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.o_gantt_cols_header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    display: flex;
+    justify-content: flex-end;
+    align-items: flex-end;
+    box-sizing: border-box;
+    pointer-events: none;
+}
+.o_gantt_container .o_gantt_cols_header .o_gantt_cell {
+    padding-bottom: 4px;
+    border-bottom: 1px solid #dee2e6;
+    font-weight: 600;
+    color: #6c757d;
+    pointer-events: auto;
+}
+.o_gantt_container .o_gantt_unscheduled_name {
+    cursor: pointer;
+}
+.o_gantt_container .o_gantt_unscheduled_name:hover {
+    text-decoration: underline;
+}
+.o_gantt_container .vis-label.gantt-unscheduled-group {
+    background-color: #fff8e1;
+}
+
+.o_gantt_container .vis-item .o_gantt_dep_handle {
+    display: none;
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 10px;
+    height: 100%;
+    cursor: crosshair;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 0 4px 4px 0;
+}
+.o_gantt_container .vis-item:hover .o_gantt_dep_handle {
+    display: block;
+}
+.o_gantt_arrows_svg .o_gantt_dep_hit {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 10;
+    pointer-events: stroke;
+    cursor: pointer;
+}
+.o_gantt_link_overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 2000;
+}
+.o_gantt_link_overlay line {
+    stroke: #0d6efd;
+    stroke-width: 2;
+    stroke-dasharray: 5, 3;
+}
+body.o_gantt_linking,
+body.o_gantt_linking * {
+    cursor: crosshair !important;
+}
+.o_gantt_container {
+    position: relative;
+}
+.o_gantt_dep_popover {
+    position: absolute;
+    z-index: 1070;
+    width: 240px;
+}
+
+.o_gantt_container .vis-item.gantt-baseline {
+    height: 5px;
+    background-color: #adb5bd;
+    border-radius: 2px;
+    z-index: 0;
+}
+.o_gantt_container .vis-item.gantt-stage-history {
+    border: none;
+    border-radius: 3px;
+    cursor: default;
+}
+.o_gantt_container .gantt-stage-history-label {
+    color: #6c757d;
+    font-size: 0.85em;
+}
+
+.o_gantt_container .vis-item.gantt-summary {
+    opacity: 0.6;
+    border-radius: 2px;
+}
+
+.o_gantt_container .vis-label.o_gantt_found,
+.o_gantt_container .vis-group.o_gantt_found {
+    background-color: rgba(245, 176, 65, 0.25);
+    transition: background-color 0.3s;
+}
