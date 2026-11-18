@@ -1,0 +1,10 @@
+.o_support_request_menu {
+    // The menu class lands on the bottom sheet of a touch screen too, which keeps the screen's width.
+    &.o_popover {
+        width: 22.5rem;
+    }
+
+    .o_support_request_tickets {
+        max-height: 21rem;
+    }
+}

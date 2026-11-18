@@ -500,7 +500,7 @@ class TestTaskBrief(ProjectAiDrivenCommon):
         return task.read(["brief"])[0]["brief"]
 
     def _key(self, task):
-        return ("key" in task._fields and task.key) or "#%d" % task.id
+        return task.key or "#%d" % task.id
 
     def _since(self, value):
         return "%s UTC" % fields.Datetime.to_string(value)

@@ -8,6 +8,9 @@
              which this one places its own next to, whatever the ids of the three -->
         <field name="priority">20</field>
         <field name="arch" type="xml">
+            <xpath expr="//h1/field[@name='name']" position="before">
+                <field name="key" readonly="1" invisible="not key" class="flex-shrink-0 w-auto me-2" />
+            </xpath>
             <xpath expr="//page[@name='checklist']" position="after">
                 <page
                     name="technical_solution"
@@ -213,11 +216,25 @@
         </field>
     </record>
 
+    <record id="project_task_view_search_form_inherit_ai_driven" model="ir.ui.view">
+        <field name="name">project.task.view.search.form.inherit.project_ai_driven</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project.view_task_search_form" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='name']" position="attributes">
+                <attribute name="filter_domain">['|', ('name', 'ilike', self), ('key', 'ilike', self)]</attribute>
+            </xpath>
+        </field>
+    </record>
+
     <record id="view_task_tree2" model="ir.ui.view">
         <field name="name">project.task.inherit.view.tree</field>
         <field name="model">project.task</field>
         <field name="inherit_id" ref="project.view_task_tree2" />
         <field name="arch" type="xml">
+            <xpath expr="//list/field[@name='name']" position="before">
+                <field name="key" />
+            </xpath>
             <xpath expr="//field[@name='tag_ids']" position="before">
                 <field name="task_type" string="Task Type" optional="show" />
             </xpath>
@@ -242,6 +259,12 @@
         <field name="model">project.task</field>
         <field name="inherit_id" ref="project.view_task_card" />
         <field name="arch" type="xml">
+            <xpath expr="//card/field[@name='stage_id']" position="after">
+                <field name="url" />
+            </xpath>
+            <xpath expr="//t[@t-name='card']//field[@name='name']" position="before">
+                <a t-if="record.key.raw_value" t-att-href="record.url.raw_value" class="me-1 text-nowrap"><field name="key" /></a>
+            </xpath>
             <xpath expr="//footer/field[@name='priority']" position="attributes">
                 <attribute name="invisible">is_ai_driven</attribute>
             </xpath>

@@ -1,11 +1,13 @@
-The module has no install hook. Installing it is all a database needs, but
-for the two cases below. The install adds two columns to the message table
+Installing the module is all a database needs, but for the two cases below.
+Its install hook gives the projects and the tasks that exist their keys, as
+the update to 20.0.2.17.0 does (below). The install adds two columns to the
+message table
 and computes them for every message through the ORM: the table stays locked
 until the module is loaded, which takes long on a large message table.
 
 **A database that has an earlier 20.0 version installed**
 
-The module has two migrations. ``0.0.0/pre-migration.py`` runs on every
+The module has three migrations. ``0.0.0/pre-migration.py`` runs on every
 version change of the module. Before the data files load, it blanks the
 stored arch of the module's extension views, which still name fields and
 buttons of the earlier version, so that an update from any earlier version
@@ -13,8 +15,9 @@ passes without dev flags. The data files rewrite each view they name; a view
 no file names any more is deleted at the end of the update. Translations of
 those views made in the interface are lost with the blanked arch, on every
 version change: the module ships none. ``20.0.2.15.0/post-migration.py``
-converts the test case states of 20.0.2.4.1 and earlier (below); it is the
-only migration that converts data. The update:
+converts the test case states of 20.0.2.4.1 and earlier and
+``20.0.2.17.0/post-migration.py`` gives the projects and tasks their keys
+(below); they are the only migrations that write data. The update:
 
 * deletes the fields **Difficulty**, **Knowledge Area Level** and **Tester**
   of the tasks, with their values;
@@ -45,8 +48,8 @@ The update leaves:
   for the former checklist model; nothing reads them;
 * the sizes the tasks have stored, until their hours change.
 
-Of the versions below, only 20.0.2.15.0 has a migration of its own, next to
-the blanking that runs on every version change.
+Of the versions below, only 20.0.2.15.0 and 20.0.2.17.0 have a migration of
+their own, next to the blanking that runs on every version change.
 
 The update to 20.0.2.9.0 adds the **Modules** of a task: it creates the
 table ``project_task_ir_module_module_rel``, the two views of the module
@@ -118,6 +121,27 @@ It has no migration and writes nothing on the tasks. A database where
 another module already declares the same field on the same table keeps the
 table and its rows; when a new version of that module no longer declares
 the field, update both in the same run.
+
+The update to 20.0.2.17.0 adds the task keys (*Task keys* in the
+description): the columns ``key`` of projects and tasks with their unique
+constraints, and ``task_key_sequence_id`` of projects. Its migration, as the
+install hook does, gives the keys the database lacks:
+
+* Each project without a key, archived ones included, gets one from its
+  name and a sequence. A name without letters or digits gives no key: that
+  project stays without one until somebody types one, which its form
+  requires on the next save. Its tasks created from then on get keys; those
+  it had stay without one, since ``_set_missing_keys`` leaves a project that
+  has a key alone. Call ``_number_keyless_tasks`` on that project from a
+  shell to number them.
+* The tasks without a key of those projects, archived and folded ones
+  included, get the next numbers of the project's sequence in the order
+  they were created, and the sequence moves past them. One SQL statement
+  writes their keys, so their last update date does not change.
+* A project that has a key, and its tasks, are left alone.
+* A run with ``test_enable`` gives no keys, since keys are off in a test
+  run: run the update without it, or call ``_set_missing_keys`` on
+  ``project.project`` from a shell afterwards.
 
 **A database that has the 20.0 project_software installed**
 
