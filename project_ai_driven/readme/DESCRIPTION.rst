@@ -5,9 +5,10 @@ sessions that worked on a task, the project that develops this Odoo and the
 installed modules its tasks touch, the internal notes of tasks by category,
 and two rules on the stages a project marks: a Resolution to enter some, a
 task type and an estimate to enter others. The module also logs the stage
-changes of every task of the database, and keeps the images of the texts of
+changes of every task of the database, keeps the images of the texts of
 every task, question row and test case as attachments of the record holding
-the text.
+the text, and gives every task a brief: the whole task in Markdown, in one
+read.
 
 **Task attributes** (``project.task``)
 
@@ -527,6 +528,85 @@ Texts saved before 20.0.2.13.0 keep their inline images until the text is
 saved again or ``_move_inline_images_to_attachments`` runs on its task (see
 *Usage*).
 
+**Task brief** (``project.task``)
+
+**Brief** (``brief``) is the whole task as Markdown text, for an agent or a
+tool that reads tasks over RPC. It is computed for the user who reads it,
+in the language and the companies of their context, and not stored. It is
+on no view, cannot be exported, and is left out of a read that names no
+fields; a read that names ``brief`` gets it. Its help text is the reference
+for the forms of urls it rewrites.
+
+A brief holds, in this order, each part only when it has something to show:
+
+* The header: the task's key, or ``#<id>`` where no module gives tasks a
+  key, and its title; then the project, the stage and since when, the
+  status (``state``), the task type, the estimate and its size, the
+  priority, the planned start, the deadline, the hours spent, the
+  assignees, the UAT users, the author and the creation date, the
+  Resolution, the modules on a task of the project that develops this Odoo,
+  the tags, and the link to the task form (``/odoo/project.task/<id>``).
+  The key, the planned start, the hours spent and the UAT users show where
+  a module declares their fields (``key``, ``planned_date_begin``,
+  ``effective_hours``, ``uat_user_ids``).
+* Related tasks: the parent, the sub-tasks, the tasks it is blocked by and
+  those it blocks, each with its key, title and stage.
+* Pull requests, with their state, merge date and deploy date.
+* The Description.
+* The question rows, each with its id, status, round, addressee, who
+  answered and when, its question and its answer.
+* The Solution.
+* The checklist, its progress counting the Done items over the items not
+  cancelled; each item with its id, state, assignee, reviewer and deadline.
+* The test cases: the general comments, then each case in its order with
+  its id, status, verification (who, when, how), automated test reference,
+  steps, expected results and comments.
+* The sessions, the newest first.
+* The last 10 internal notes with a body, of those the task's **Notes**
+  button lists, oldest first, each with its date, author and category.
+  Nothing else is cut.
+* The attachments of the task, each with its name, id, type and size. The
+  images of a question row or a test case are attachments of the row: they
+  show as pointers in its texts, not in this list.
+
+Times are in UTC, the deadline included. The texts become Markdown
+(headings, emphasis, links, lists, tables, code) with no markup left; the
+headings of a text sit below the section that holds it.
+
+* An image or a link that names an attachment, of the task, of a row or of
+  any other record, by a relative url or a url on the host of this database
+  (``get_base_url()``, a website's domain where it applies), in any url
+  form, becomes a pointer: ``![image: <name>](attachment <id>)`` for an
+  image, ``[file: <name>](attachment <id>)`` for a bare link and
+  ``[<link text>](attachment <id>)`` for a link with a text of its own;
+  ``![image](attachment <id>)`` and ``[file](attachment <id>)`` without a
+  name.
+* An inline image the save has not moved to an attachment shows as
+  ``[image not yet moved to an attachment]``: its data never enters the
+  brief.
+* Tokens and credentials are removed from urls: a url loses its user and
+  password, its query and fragment parameters named like a token, and the
+  ``hash`` and ``pid`` that sign a portal link. That holds for the url of a
+  link or an image, and on a best-effort basis for a url that stands as a
+  word in a text or in code. A token written loose, outside a url, stays.
+* A link of a scheme other than http(s) or mailto keeps only its text.
+* User text that would open a Markdown heading, list, quote, code fence or
+  HTML block at the start of a line is escaped, and names are put on one
+  line, so a text cannot open a section of the brief.
+
+A reader who cannot read the task is refused, as a read of it is. What the
+reader may not read is left out: the lines (question rows, checklist items,
+test cases, sessions, pull requests), the related tasks, the parent
+included, the notes and the attachments under their access rights, the
+companies not selected in their context included; and the fields their
+groups keep from them, such as the question rows, checklist, test cases,
+sessions and modules for a user outside **Project / User**. A many-to-one
+value of the header (the project, the stage, the author) shows its name as a
+read of the task does. Archived sub-tasks, blocking and blocked tasks and
+assignees are left out, also under a context with ``active_test`` false; an
+archived parent or user in a many-to-one value (such as Author, Verified by
+or Addressed to) still shows.
+
 **Coming from 16.0**
 
 The module's models, fields and selection values carry the names of the
@@ -592,3 +672,8 @@ The module's models, fields and selection values carry the names of the
   task, and only a link to another task's image is copied.
 * Odoo 20 stores markup given as an image and a truncated TIFF as they come,
   so they become attachments; on 16.0 they stay inline.
+* The brief's header shows the task's status (``state``), which Odoo 16 does
+  not have, a deadline with its time, the planned start where a module
+  declares ``planned_date_begin`` (on 16.0 the planned window of
+  ``planned_date_start`` and ``planned_date_end``), and links the task as
+  ``/odoo/project.task/<id>``.

@@ -81,6 +81,10 @@ keeps its inline images until it is saved again, or until a migration or a
 script calls ``_move_inline_images_to_attachments`` on its task (see
 *Usage*).
 
+The update to 20.0.2.14.0 adds the **Brief** of a task, computed on each
+read that names it. It has no migration, adds no column, stores nothing and
+writes nothing on existing records.
+
 **A database that has the 20.0 project_software installed**
 
 ``project_software`` is the former name of this module. Such a database is

@@ -9,4 +9,5 @@ from . import project_task_session
 from . import project_task_testcase
 from . import project_task_stage_log
 from . import project_task
+from . import project_task_brief
 from . import project_task_recurrence

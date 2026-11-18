@@ -220,3 +220,30 @@ over the tasks in batches.
   ``write_uid``; the default stores them as a save does, which updates both.
   A returned text the caller does not store keeps its inline images, and
   the next run attaches them again.
+
+An agent or a tool reads a whole task with one read that names the brief:
+``read([<task id>], ["brief"])`` on ``project.task``, or ``search_read`` with
+``["brief"]`` as its fields. A read that names no fields, ``read()`` or a
+``search_read`` without fields, leaves the brief out, so that it does not
+compute one brief per task it returns; a read of several tasks that names
+``brief`` computes one brief each. The brief holds what the tool's user may
+read, and a task they cannot read raises an access error.
+
+The rows of the brief carry the ids a tool acts on: ``### Question <id>``
+for a question row, ``- <id> <state>: <description>`` for a checklist item,
+``### Test case <id>: <name>`` for a test case, and ``(attachment <id>, ...)``
+in the attachments list. A pointer in a text names an ``ir.attachment``, of
+the task or of the row whose text shows it:
+
+* ``![image: <name>](attachment <id>)``, or ``![image](attachment <id>)``,
+  an image;
+* ``[file: <name>](attachment <id>)``, or ``[file](attachment <id>)``, a
+  bare link to a file;
+* ``[<link text>](attachment <id>)``, a link with a text of its own.
+
+The tool reads the file it needs from ``ir.attachment`` by that id, under
+its own rights. ``[image not yet moved to an attachment]`` stands for an
+inline image of a text saved before 20.0.2.13.0. Notes older than the last
+10 are read with ``search_read`` on ``mail.message``, as above. The help
+text of the field is the reference for the tokens and credentials removed
+from urls, and for the forms that may keep them.

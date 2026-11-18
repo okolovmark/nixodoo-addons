@@ -99,3 +99,12 @@
   that record's attachment in a copied text, and the link breaks when that
   record is deleted.
 * An image taken out of a text stays an attachment of its record.
+* The brief removes tokens from a url that stands as a word of a text or of
+  code on a best-effort basis: a url split by markup (bold, a line break),
+  or holding a brace, ``<`` or ``>``, or a bracket or a quote in its query,
+  may keep its token. A token written loose, outside a url, stays as
+  written.
+* The brief is computed on each read that names it, for each task of the
+  read: a read of many tasks naming ``brief`` costs one brief per task.
+* The brief holds the last 10 internal notes of the task; older ones are
+  read from ``mail.message``.
