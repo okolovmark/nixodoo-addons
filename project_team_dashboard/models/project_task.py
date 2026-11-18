@@ -1,15 +1,43 @@
 from collections import defaultdict
 
+import pytz
+
 from odoo import Command, _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
 from odoo.tools.sql import column_exists, create_column
 
 PLANNED_DATE_FIELDS = ("planned_date_start", "planned_date_end")
+# The fields of the plan the Deadline follows, and the field each records.
+DEADLINE_PLAN_SOURCES = {"date_deadline_planned_end": "planned_date_end", "date_deadline_project_id": "project_id"}
+DEADLINE_PLAN_FIELDS = tuple(DEADLINE_PLAN_SOURCES)
+
+
+def local_date(utc_datetime, tz_name):
+    """Return the date of a naive UTC datetime in the time zone tz_name, in UTC when it is empty or unknown."""
+    try:
+        time_zone = pytz.timezone(tz_name or "UTC")
+    except pytz.UnknownTimeZoneError:
+        time_zone = pytz.utc
+    return pytz.utc.localize(utc_datetime).astimezone(time_zone).date()
 
 
 class Task(models.Model):
     _inherit = "project.task"
 
+    date_deadline = fields.Date(compute="_compute_date_deadline", store=True, readonly=False)
+    date_deadline_planned_end = fields.Datetime(
+        string="Planned End of the Deadline",
+        compute="_compute_date_deadline",
+        store=True,
+        help="The planned end the Deadline last followed, or was set against.",
+    )
+    date_deadline_project_id = fields.Many2one(
+        "project.project",
+        string="Project of the Deadline",
+        compute="_compute_date_deadline",
+        store=True,
+        help="The project the Deadline last followed the planned end in, or was set in.",
+    )
     planned_date_start = fields.Datetime(
         compute="_compute_planned_date_start",
         store=True,
@@ -27,6 +55,28 @@ class Task(models.Model):
         compute_sudo=True,
         help="The task has active sub-tasks: its planned dates span theirs, and stay empty while none is dated.",
     )
+
+    # Not on project_id.is_ai_driven: flagging a project leaves the Deadlines of its tasks alone.
+    @api.depends(*DEADLINE_PLAN_SOURCES.values())
+    def _compute_date_deadline(self):
+        """In an AI-driven project the Deadline becomes the date of the planned end for the user who
+        saves, a rolled-up one included, when the planned end or the project differs from the plan
+        the Deadline last followed. Odoo also runs this when a dependency of the planned end changes
+        and leaves it as it was (a stage change under project_timeline): the Deadline stays then.
+        Every saved task records its plan, so that ticking AI-driven Project aligns nothing; a task
+        without a planned end keeps its Deadline.
+
+        The record a form edits records only a plan its Deadline follows, so that a project changed
+        and changed back on the form aligns nothing; the form carries that plan from one onchange to
+        the next."""
+        for task in self:
+            plan = task._get_deadline_plan()
+            followed_plan = task._get_followed_deadline_plan()
+            should_align = bool(task.planned_date_end) and task.project_id.is_ai_driven and plan != followed_plan
+            if should_align:
+                task.date_deadline = local_date(task.planned_date_end, self.env.user.tz)
+            # the followed plan is in cache now: assigning it unchanged writes nothing
+            task.update(dict(zip(DEADLINE_PLAN_FIELDS, plan if should_align or task.id else followed_plan)))
 
     @api.depends("child_ids.planned_date_start", "child_ids.planned_date_end", "child_ids.active")
     def _compute_planned_date_start(self):
@@ -50,21 +100,28 @@ class Task(models.Model):
 
     def _auto_init(self):
         self._init_planned_date_columns()
+        self._init_deadline_plan_columns()
         return super()._auto_init()
 
     @api.model_create_multi
     def create(self, vals_list):
         tasks = super().create(vals_list)
+        # picked before the re-queue, which queues the plan of the parents too
+        tasks_given_a_deadline = tasks._without_deadline_plan()
         tasks._recompute_planned_dates_from_subtasks()
+        tasks_given_a_deadline._record_deadline_plan()
         return tasks
 
     def write(self, vals):
         self._check_subtask_driven_dates(vals)
-        result = super().write(vals)
+        with self.env.protecting(self._get_given_deadline_fields(vals), self):
+            result = super().write(vals)
         if "depend_on_ids" in vals or "dependent_ids" in vals:
             self._prune_dependency_lags()
         if "child_ids" in vals:
             self._recompute_planned_dates_from_subtasks()
+        if "date_deadline" in vals:
+            self._record_deadline_plan()
         return result
 
     @api.returns("self", lambda value: value.id)
@@ -160,9 +217,10 @@ class Task(models.Model):
             self.env.remove_to_compute(date_field, parents)
 
     def _recompute_planned_dates_from_subtasks(self):
-        """Re-queue the roll-up that a create/write writing planned dates and sub-tasks together protected."""
+        """Re-queue the roll-up that a create/write writing planned dates and sub-tasks together
+        protected, and the Deadline: computed meanwhile, it followed the planned end given."""
         parents = self.filtered("child_ids")
-        for field_name in PLANNED_DATE_FIELDS:
+        for field_name in (*PLANNED_DATE_FIELDS, "date_deadline", *DEADLINE_PLAN_FIELDS):
             self.env.add_to_compute(self._fields[field_name], parents)
 
     @api.model
@@ -172,6 +230,56 @@ class Task(models.Model):
         for field_name in PLANNED_DATE_FIELDS:
             if not column_exists(self.env.cr, self._table, field_name):
                 create_column(self.env.cr, self._table, field_name, "timestamp")
+
+    @api.model
+    def _init_deadline_plan_columns(self):
+        """Create a missing column of the plan the Deadline follows in SQL, filled with the current
+        plan of every task: added by the ORM, it would be computed on every task and align the
+        Deadlines of closed ones. The install hook and the update migration record the plan again
+        after the roll-up, then align the open tasks."""
+        for field_name, source_name in DEADLINE_PLAN_SOURCES.items():
+            if not column_exists(self.env.cr, self._table, field_name):
+                create_column(self.env.cr, self._table, field_name, self._fields[field_name].column_type[1])
+                self.env.cr.execute('UPDATE "%s" SET "%s" = "%s"' % (self._table, field_name, source_name))
+
+    def _get_deadline_plan(self):
+        """Return the plan the Deadline follows: the current values of its sources."""
+        return tuple(self[source_name] for source_name in DEADLINE_PLAN_SOURCES.values())
+
+    def _get_followed_deadline_plan(self):
+        """Return the plan the Deadline last followed. The record a form edits holds it in cache when
+        the form carries it; otherwise it is the saved task's, since the record reads it empty while
+        it is being computed."""
+        plan_fields = [self._fields[field_name] for field_name in DEADLINE_PLAN_FIELDS]
+        is_in_cache = all(self.env.cache.contains(self, field) for field in plan_fields)
+        task = self if is_in_cache else self._origin
+        return tuple(task[field.name] for field in plan_fields)
+
+    def _without_deadline_plan(self):
+        """Return the tasks whose plan is neither recorded nor to compute: those given a Deadline, by
+        their values or a default of any kind. A task whose plan Odoo computed already is left out:
+        its Deadline follows the roll-up that the create re-queues."""
+        plan_field = self._fields["date_deadline_planned_end"]
+        return self.filtered(
+            lambda task: not self.env.is_to_compute(plan_field, task)
+            and not any(task[field_name] for field_name in DEADLINE_PLAN_FIELDS)
+        )
+
+    def _get_given_deadline_fields(self, vals):
+        """Return the Deadline and the fields of its plan when vals gives the Deadline, else none.
+        The write protects them through its whole chain, which Odoo does in its own write alone: a
+        nested write that reads the Deadline (the new key of a moved task) would otherwise align it
+        against the plan recorded before."""
+        if "date_deadline" not in vals:
+            return []
+        return [self._fields[field_name] for field_name in ("date_deadline", *DEADLINE_PLAN_FIELDS)]
+
+    def _record_deadline_plan(self):
+        """Record the current plan of the tasks as the one their Deadline follows. A Deadline set by
+        hand needs it: Odoo computes none of the fields that share a compute with a field it is given."""
+        with self.env.protecting([self._fields[field_name] for field_name in DEADLINE_PLAN_FIELDS], self):
+            for task in self:
+                task.update(dict(zip(DEADLINE_PLAN_FIELDS, task._get_deadline_plan())))
 
     def _check_subtask_driven_dates(self, vals):
         """Refuse a write that changes the planned dates of a task planned from its sub-tasks.
