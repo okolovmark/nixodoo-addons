@@ -511,9 +511,10 @@ item that starts like one has its bracket escaped.
   link or an image, and on a best-effort basis for a url that stands as a
   word in a text or in code. A token written loose, outside a url, stays.
 * A link of a scheme other than http(s) or mailto keeps only its text.
-* User text that would open a Markdown heading, list, quote, code fence or
-  HTML block at the start of a line is escaped, and names are put on one
-  line, so a text cannot open a section of the brief.
+* User text that would open a Markdown heading, list, quote, code fence (of
+  three backticks or more), table row or HTML block at the start of a line is
+  escaped, a table delimiter row too, and names are put on one line, so a text
+  cannot open a section of the brief.
 
 A reader who cannot read the task is refused, as a read of it is. What the
 reader may not read is left out: the lines (question rows, checklist items,
