@@ -39,6 +39,17 @@ class TestSupportRequestTour(HttpCase):
         )[0]
         # Keys stay off in tests: the key is given by hand.
         open_bug.key = "ZQT-1"
+        # Core's task form names a widget of partner_autocomplete, which a minimal install
+        # lacks: the request opens on a plain form so the tour does not depend on it.
+        self.env["ir.ui.view"].create(
+            {
+                "name": "project.task.view.form.support.request.tour",
+                "model": "project.task",
+                "type": "form",
+                "priority": 1,
+                "arch": '<form><sheet><field name="name"/></sheet></form>',
+            }
+        )
 
         self.start_tour("/odoo", "project_support_request_tour", login=filer.login)
 
