@@ -520,8 +520,10 @@ project, the stage, the author) shows its name as a read of the task does.
 
 ``project_software`` is the former name of this module and
 ``is_software_project`` the former name of its flag; the features were first
-cut from a project-specific module. What a database that has
-``project_software`` or that module installed needs is under *Installation*.
+cut from a project-specific module. The empty ``project_software`` that
+stood in for this module for one release is removed. What a database that
+has ``project_software`` or that module installed needs is under
+*Installation*.
 
 ``project.task.subtask`` is the former name of the checklist model, and
 ``subtask_ids`` and ``kanban_subtasks`` those of the task fields
