@@ -46,3 +46,9 @@
   has no email address passes ``mail_auto_subscribe_no_notify`` in the
   context; without it Odoo refuses to send the notification and the write
   fails.
+* The images that task texts give to attachments follow core's system
+  parameters for every attachment upload: an image larger than
+  ``base.image_autoresize_max_px`` (``1920x1920`` by default, ``0`` to keep
+  every size), of a type listed in ``base.image_autoresize_extensions``
+  (``png,jpeg,bmp,tiff``), is resized at the quality of
+  ``base.image_autoresize_quality`` (``80``).

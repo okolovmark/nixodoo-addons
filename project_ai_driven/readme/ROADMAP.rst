@@ -81,3 +81,15 @@
   the bold, and nothing between the bold and the category.
 * The eight categories and their spelling are fixed in the module:
   ``Bugfix`` or ``Deployment`` in bold is no category.
+* An image is attached once per save: the same image pasted again in a later
+  save becomes another attachment of the task.
+* Only the ``src`` of an ``<img>`` is read. An image in a ``srcset``, a
+  ``<picture>`` source or a CSS background stays as it is, inline or linked,
+  and so does an absolute link to another task's image
+  (``https://<host>/web/image/<id>``): a copy of the text still links the
+  source task's attachment.
+* A file of another task linked as ``/web/content/<id>`` keeps pointing at
+  that task's attachment in a copied text, and the link breaks when that
+  task is deleted.
+* An image taken out of a text, and the images of a deleted question row or
+  test case, stay among the attachments of the task.

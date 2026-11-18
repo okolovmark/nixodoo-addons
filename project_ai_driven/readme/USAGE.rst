@@ -57,6 +57,11 @@ On the task form:
   moving the task to a stage that requires them. The refusal names what is
   missing.
 
+An image pasted or dropped into a text of a task, of a question row or of a
+test case becomes an attachment of the task when the record is saved: it
+shows among the attachments of the task's chatter, and the text shows it
+from there. A duplicated task gets its own copies of the images.
+
 **Project > Checklist** lists the checklist items of the tasks you can read
 in the selected companies, opened on your own TODO items. Group by project,
 task, user or status. **Convert to Sub-task**, in the header of an item's
@@ -194,3 +199,28 @@ with ``task_id``, ``previous_stage_id``, ``stage_id``, ``stage_name``,
 or ``creation``). The log holds the stages of every task, so code that
 shows it to other users reads it with ``sudo()``, for the tasks those users
 can read.
+
+A tool that writes a text over RPC may send its images inline, as
+``<img src="data:image/png;base64,..." data-filename="...">``: the create or
+write makes each an attachment of the task, and a read of the text gives the
+``/web/image/<id>?access_token=<token>`` link in its place. To show an image
+of another task in a new task, question row or test case, it sends the link
+as it read it, access token included: the new record gets its own copy.
+
+A migration or an ``odoo shell`` script moves the inline images of texts
+saved before 16.0.2.13.0 with
+``_move_inline_images_to_attachments(dry_run=False, store=True)`` on the
+tasks, a private method that RPC cannot call. It covers the texts of the
+tasks and of their question rows and test cases, and returns ``records``
+(the tasks and rows whose texts change), ``images`` (the attachments
+created), ``bytes`` (their size before core resizes them) and ``texts``
+(``{record: {field name: new text}}``). An image core cannot read stays
+inline and counts nowhere.
+
+* ``dry_run=True`` creates and changes nothing, counts as a run would, and
+  returns empty ``texts``.
+* ``store=False`` creates the attachments and leaves the texts to the
+  caller, which can store them by SQL to keep ``write_date`` and
+  ``write_uid``; the default stores them as a save does, which updates both.
+  A returned text the caller does not store keeps its inline images, and
+  the next run attaches them again.

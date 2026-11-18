@@ -208,6 +208,7 @@ ADDED_RECORDS = (
     ("ir.ui.view", "project_task_view_calendar_inherit_ai_driven"),
     ("ir.ui.view", "project_task_testcase_view_kanban"),
     ("ir.model", "model_project_task_access_mixin"),
+    ("ir.model", "model_project_task_image_mixin"),
     ("ir.model", "model_project_task_question"),
     ("ir.model.access", "access_task_question"),
     ("ir.model", "model_project_task_session"),

@@ -9,6 +9,7 @@ from odoo.osv import expression
 from odoo.tools.misc import clean_context
 
 from .project_pull_request import parse_single_pull_request_link
+from .project_task_image_mixin import ImageMover
 from .project_task_testcase import TESTCASE_STATES
 
 KANBAN_TESTCASE_STATES = ("not_run", "failed", "waiting")
@@ -32,7 +33,9 @@ def _is_create_command(command):
 
 
 class ProjectTask(models.Model):
-    _inherit = "project.task"
+    _name = "project.task"
+    # the mixin comes below core: its write sees every task core writes, those of a recurrence too
+    _inherit = ["project.task", "project.task.image.mixin"]
 
     is_ai_driven = fields.Boolean(related="project_id.is_ai_driven")
     develops_this_odoo = fields.Boolean(related="project_id.develops_this_odoo")
@@ -515,6 +518,37 @@ class ProjectTask(models.Model):
                 self.filtered(lambda record: not record.planned_hours > 0),
             ),
         ]
+
+    def _get_image_task(self):
+        return self
+
+    @api.model
+    def _get_image_task_fname(self):
+        return None
+
+    def _move_inline_images_to_attachments(self, dry_run=False, store=True):
+        """Move the inline images of these tasks and of their lines to
+        attachments of the tasks, as a save does: for texts saved before.
+
+        Returns {"records": the tasks and lines changed, "images": the
+        attachments created, "bytes": their size before core resizes them,
+        "texts": {record: {field name: new text}}}. An image core cannot read
+        stays inline and counts nowhere. dry_run changes nothing and counts as
+        a run would. store=False creates the attachments and leaves the texts
+        to the caller, to store without changing write_date and write_uid.
+        """
+        mover = ImageMover(self.env, dry_run=dry_run)
+        new_texts = {}
+        for records in (self, self.question_ids, self.testcase_ids):
+            new_texts.update(records._get_moved_image_texts(mover, records._get_image_fields()))
+        if store and not dry_run:
+            self._store_texts(new_texts)
+        return {
+            "records": len(new_texts),
+            "images": mover.image_count,
+            "bytes": mover.byte_count,
+            "texts": {} if dry_run else new_texts,
+        }
 
     def task_completion(self):
         user_task_ids = self.checklist_item_ids.filtered(

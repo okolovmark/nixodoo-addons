@@ -234,6 +234,12 @@ The update to 16.0.2.12.0 adds the sessions of a task: the table
 **Sessions** tab of the task form. It has no migration and writes nothing
 on the tasks, which start without sessions.
 
+The update to 16.0.2.13.0 makes the images of task texts attachments of the
+task when a text is saved. It has no migration and writes nothing on
+existing records: a text saved before keeps its inline images until it is
+saved again, or until a migration or a script calls
+``_move_inline_images_to_attachments`` on its task (see *Usage*).
+
 **Upgrading from project_software**
 
 ``project_software`` remains for one release as an empty module that depends
