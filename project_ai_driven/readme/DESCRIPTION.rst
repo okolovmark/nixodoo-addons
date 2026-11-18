@@ -115,8 +115,6 @@ Passed, Failed, Waiting or Not applicable.
   than Not run sets it to Manual when it is empty.
 * **Automated test reference**: the automated test that verifies the case,
   such as a test selector. Not run leaves it.
-* **Passed** (``passed``) is stored, read-only and follows the status: set
-  for Passed only.
 
 The task carries general comments and a completion percentage: its Passed
 cases over all its cases but the Not applicable ones. Its kanban card counts

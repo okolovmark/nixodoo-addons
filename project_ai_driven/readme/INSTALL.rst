@@ -36,13 +36,11 @@ install does the same.
 
 The update to 16.0.2.5.0 converts the **Status** of every test case: TODO
 becomes Not run, Done Passed, Cancelled Not applicable, and Waiting stays.
-**Passed** (``passed``) is then set from the status wherever it disagrees:
-set for Passed, cleared for any other status. The install that takes over
-``project_software`` or the project-specific module it was cut from does it
-too. SQL statements store the values and write nothing else on the cases:
-the last update date stays, and **Verified by**, **Verified on** and
-**Verification** stay empty on a converted case. The server log gets the
-number of cases converted per former value and of flags corrected; a second
+The install that takes over ``project_software`` or the project-specific
+module it was cut from does it too. One SQL statement stores the values and
+writes nothing else on the cases: the last update date stays, and **Verified
+by**, **Verified on** and **Verification** stay empty on a converted case.
+The server log gets the number of cases converted per former value; a second
 run changes none. Odoo deletes the former values of the selection at the end
 of the update. A saved filter, a default or a server action that names a
 former value is not rewritten: change it by hand.
@@ -243,6 +241,21 @@ saved again, or until a migration or a script calls
 The update to 16.0.2.14.0 adds the **Brief** of a task, computed on each
 read that names it. It has no migration, adds no column, stores nothing and
 writes nothing on existing records.
+
+The update to 16.0.2.15.0 deletes the test case field **Passed**
+(``passed``) with its column, at its end; the install that takes over
+``project_software`` or the project-specific module it was cut from deletes
+it too. A create or write that sends ``passed``, or a former state value
+(``todo``, ``done``, ``cancelled``), fails with Odoo's ``ValueError``. Before
+the data files are loaded, the pre-migration takes ``passed`` out of the
+stored views of this module, in every translation, the test case sub-views
+of the task form included; the update would otherwise fail validating the
+task form. A view outside this module that names it is not rewritten:
+change it by hand.
+
+Run the update with the server stopped: dropping the column takes an
+exclusive lock on the test case table, and workers running the previous code
+read the column.
 
 **Upgrading from project_software**
 

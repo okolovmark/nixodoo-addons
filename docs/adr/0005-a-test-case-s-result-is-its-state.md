@@ -9,6 +9,7 @@ From 16.0.2.5.0 the state is the only result: Not run (the default), Passed, Fai
 A Passed or a Failed is a verification. A create or a write that sets one records Verified by, the user who makes it (also under `sudo()`), and Verified on, now, unless the call gives them. Setting the same result again is a new verification and is stamped again. Not run takes the result back: it clears Verified by, Verified on and Verification, and leaves the Automated test reference, which names a test, not a run. Waiting and Not applicable leave the stamp as it is. Verification says how the result was reached: Manual, Automated test or Demo. The result buttons on the task's case list, the phone cards and the case form are a person's verdict and set Manual where the case has no kind yet; the Not run button only clears.
 
 For the rollout, create and write translate the former values (`todo` to `not_run`, `done` to `passed`, `cancelled` to `not_applicable`) and drop a sent `passed`, `passed` true without a state counting as Passed, so a client written for the former selection keeps working. The translation goes with the flag, in a later version.
+  - 2026-11-18: 16.0.2.15.0 removes the flag and the translation, as planned: a sent `passed` or former value fails with Odoo's `ValueError`, and the update deletes the flag with its column.
 
 Rejected: keeping `todo`, `done` and `cancelled` as keys under new labels. The screen would be right and the API, which agents read, still wrong.
 

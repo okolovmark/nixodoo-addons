@@ -38,7 +38,7 @@ from ..hooks import (
     SPLIT_VIEWS,
     _model_name_columns,
     _reference_columns,
-    _remove_sub_view_buttons,
+    _remove_sub_view_nodes,
     _rewrite_module_views,
     forget_checklist_activities,
     forget_dropped_fields,
@@ -52,19 +52,39 @@ from ..models.mail_message import NOTE_CATEGORIES
 from odoo.addons.base.models.ir_model import selection_xmlid
 
 EMPTY_ARCH = "<data/>"
-# The nodes that named the fields in DROPPED_FIELDS in the two task form views that had them,
-# cut down to one arch; the page title is its translated term.
+# The nodes that named the fields in DROPPED_FIELDS in the task form views that had them, the
+# cases' sub-view included, cut down to one arch; the page title is its translated term.
 OLD_ARCH = (
     "<data>"
     '<xpath expr="//page[2]" position="after">'
-    '<page string="%s"><group><field name="tester_id"/></group><field name="testcase_ids"/></page>'
+    '<page string="%s"><group><field name="tester_id"/></group>'
+    '<field name="testcase_ids"><form><field name="name"/><field name="passed"/></form></field></page>'
     "</xpath>"
     """<xpath expr="//field[@name='tag_ids']" position="before">"""
     '<field name="difficulty"/><field name="knowledge_area_level"/><field name="task_type"/>'
     "</xpath>"
     "</data>"
 )
-KEPT_FIELDS = ["testcase_ids", "task_type"]
+KEPT_FIELDS = ["testcase_ids", "name", "task_type"]
+# The case form before its passed flag was deleted; the group title is its translated term.
+OLD_CASE_FORM_ARCH = '<form><group string="%s"><field name="state"/><field name="passed"/></group></form>'
+OLD_CASE_FORM_ARCHS = {"en_US": OLD_CASE_FORM_ARCH % "Result", "fr_FR": OLD_CASE_FORM_ARCH % "Résultat"}
+KEPT_CASE_FORM_FIELDS = ["state"]
+PASSED_SUB_VIEW_ARCH = (
+    "<data>"
+    '<xpath expr="//page[2]" position="after">'
+    '<page string="Test Cases"><field name="testcase_ids"><form><field name="passed"/></form></field></page>'
+    "</xpath>"
+    "</data>"
+)
+# The passed flag in the sub-view of another relation, whose model never had it.
+OTHER_SUB_VIEW_ARCH = (
+    "<data>"
+    '<xpath expr="//page[1]" position="before">'
+    '<page string="Checklist"><field name="checklist_item_ids"><tree><field name="passed"/></tree></field></page>'
+    "</xpath>"
+    "</data>"
+)
 # The Technical Solution page before its questions and answers became rows; the page title is its translated term.
 OLD_QUESTIONS_ARCH = (
     "<data>"
@@ -117,6 +137,7 @@ BUTTONS_MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.5.
 CHECKLIST_MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.6.0" / "pre-migration.py"
 ACTIVITIES_MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.6.1" / "pre-migration.py"
 QUESTIONS_MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.7.0" / "pre-migration.py"
+PASSED_MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.15.0" / "pre-migration.py"
 CHECKLIST_LIST_NODE = '<field name="checklist_item_ids">'
 # How the checklist page of the task form named its list, and the default assignee of a new line.
 FORMER_CHECKLIST_LIST_NODE = '<field name="subtask_ids">'
@@ -696,13 +717,16 @@ class TestTakeOverFromFormerModule(PreInitHookCase):
 
     def test_forgets_the_fields_deleted_since(self):
         view = self.env.ref("%s.view_task_form2_testcase" % MODULE)
+        case_form = self.env.ref("%s.project_task_testcase_view_form" % MODULE)
         self._store_arch(view, en_US=OLD_ARCH % "Test Cases")
+        self._store_arch(case_form, **OLD_CASE_FORM_ARCHS)
         registrations = self._register_foreign_keys(self.module)
         self._simulate_former_module()
 
         pre_init_hook(self.env.cr)
 
         self.assertEqual(self._stored_field_names(view), {"en_US": KEPT_FIELDS})
+        self.assertEqual(self._stored_field_names(case_form), dict.fromkeys(OLD_CASE_FORM_ARCHS, KEPT_CASE_FORM_FIELDS))
         self.assertFalse(registrations.exists())
 
     def test_forgets_the_questions_and_answers_it_left(self):
@@ -982,7 +1006,9 @@ class TestTakeOverFromLegacyModule(PreInitHookCase):
         field_ids = self._create_deleted_fields()
         registrations = self._register_foreign_keys(self.legacy_module)
         view = self.env.ref("%s.view_task_form2_testcase" % MODULE)
+        case_form = self.env.ref("%s.project_task_testcase_view_form" % MODULE)
         self._store_arch(view, en_US=OLD_ARCH % "Test Cases")
+        self._store_arch(case_form, **OLD_CASE_FORM_ARCHS)
         self._simulate_legacy_module()
 
         pre_init_hook(self.env.cr)
@@ -994,6 +1020,7 @@ class TestTakeOverFromLegacyModule(PreInitHookCase):
             "held by this module, they are deleted when it is loaded without them",
         )
         self.assertEqual(self._stored_field_names(view), {"en_US": KEPT_FIELDS})
+        self.assertEqual(self._stored_field_names(case_form), dict.fromkeys(OLD_CASE_FORM_ARCHS, KEPT_CASE_FORM_FIELDS))
         self.assertFalse(registrations.exists())
 
     def test_forgets_the_test_case_buttons_deleted_since(self):
@@ -1141,7 +1168,7 @@ class TestTakeOverFromLegacyModule(PreInitHookCase):
         self.assertEqual(
             {name: legacy_external_ids.get(("ir.model.fields", name)) for name in field_ids},
             field_ids,
-            "taken by the module that replaces the legacy one, which keeps them",
+            "left to the module that replaces the legacy one",
         )
         self.assertFalse(set(field_ids) & {name for _model, name in self._external_ids(MODULE)})
 
@@ -1216,12 +1243,57 @@ class TestForgetDroppedFields(PreInitHookCase):
         script.migrate(self.env.cr, "16.0.2.6.1")
         self.assertEqual(self._stored_field_names(view), dict.fromkeys(OLD_QUESTIONS_ARCHS, KEPT_QUESTION_PAGE_FIELDS))
 
+    def test_the_passed_flag_of_the_cases_sub_view_no_longer_blocks_the_views_of_the_task_form(self):
+        other_view = self.env.ref("%s.view_task_form2" % MODULE)
+        self._store_arch(self.view, en_US=PASSED_SUB_VIEW_ARCH)
+        with self.assertRaises(ValidationError) as refusal:
+            other_view.write({"arch": other_view.arch})
+        self.assertIn('Field "passed" does not exist', refusal.exception.args[0])
+
+        forget_dropped_fields(self.env.cr)
+
+        self.env.invalidate_all()
+        other_view.write({"arch": other_view.arch})
+        self.assertEqual(self._stored_field_names(self.view), {"en_US": ["testcase_ids"]})
+
+    def test_takes_the_passed_flag_out_of_every_translation_of_the_case_form(self):
+        view = self.env.ref("%s.project_task_testcase_view_form" % MODULE)
+        self._store_arch(view, **OLD_CASE_FORM_ARCHS)
+
+        forget_dropped_fields(self.env.cr)
+
+        self.assertEqual(self._stored_field_names(view), dict.fromkeys(OLD_CASE_FORM_ARCHS, KEPT_CASE_FORM_FIELDS))
+        self.assertIn('string="Résultat"', self._stored_archs(view)["fr_FR"])
+
+    def test_migration_script_forgets_the_passed_flag_on_update_only(self):
+        spec = importlib.util.spec_from_file_location("pre_migration", PASSED_MIGRATION_SCRIPT)
+        script = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(script)
+        case_form = self.env.ref("%s.project_task_testcase_view_form" % MODULE)
+        self._store_arch(self.view, en_US=OLD_ARCH % "Test Cases")
+        self._store_arch(case_form, **OLD_CASE_FORM_ARCHS)
+
+        script.migrate(self.env.cr, None)
+        self.assertEqual(self._stored_archs(self.view), {"en_US": OLD_ARCH % "Test Cases"})
+        self.assertEqual(self._stored_archs(case_form), OLD_CASE_FORM_ARCHS)
+
+        script.migrate(self.env.cr, "16.0.2.14.0")
+        self.assertEqual(self._stored_field_names(self.view), {"en_US": KEPT_FIELDS})
+        self.assertEqual(self._stored_field_names(case_form), dict.fromkeys(OLD_CASE_FORM_ARCHS, KEPT_CASE_FORM_FIELDS))
+
     def test_leaves_the_field_of_a_sub_view_alone(self):
         self._store_arch(self.view, en_US=SUB_VIEW_ARCH)
 
         forget_dropped_fields(self.env.cr)
 
         self.assertEqual(self._stored_archs(self.view), {"en_US": SUB_VIEW_ARCH})
+
+    def test_leaves_the_passed_flag_of_the_sub_view_of_another_relation_alone(self):
+        self._store_arch(self.view, en_US=OTHER_SUB_VIEW_ARCH)
+
+        forget_dropped_fields(self.env.cr)
+
+        self.assertEqual(self._stored_archs(self.view), {"en_US": OTHER_SUB_VIEW_ARCH})
 
     def test_leaves_the_views_of_other_modules_alone(self):
         self.env.cr.execute(
@@ -1338,7 +1410,7 @@ class TestForgetDroppedTestCaseButtons(PreInitHookCase):
             [("testcase_ids", "change_state_done"), ("attachment_ids", "change_state_todo")],
         )
 
-        cleared_arch = _remove_sub_view_buttons(NESTED_BUTTONS_ARCH, "testcase_ids", DROPPED_TEST_CASE_BUTTONS)
+        cleared_arch = _remove_sub_view_nodes(NESTED_BUTTONS_ARCH, "button", "testcase_ids", DROPPED_TEST_CASE_BUTTONS)
 
         self.assertEqual(_sub_view_buttons(cleared_arch), [("attachment_ids", "change_state_todo")])
 
