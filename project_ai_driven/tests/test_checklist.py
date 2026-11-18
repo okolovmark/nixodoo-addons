@@ -786,9 +786,8 @@ class TestChecklistAccess(ProjectAiDrivenCommon):
 
     def test_an_item_moves_only_onto_a_task_the_user_reads(self):
         item = self.visible_item.with_user(self.user_dev)
-        unfollowed_task = self._create_unfollowed_task()
         with self.assertRaises(AccessError):
-            item.write({"task_id": unfollowed_task.id})
+            item.write({"task_id": self.hidden_task.id})
         other_task = self.env["project.task"].create({"name": "Other Task", "project_id": self.project.id})
         item.write({"task_id": other_task.id})
         self.assertEqual(self.as_developer.search([("id", "=", item.id), ("task_id", "=", other_task.id)]), item)

@@ -67,14 +67,6 @@ class ProjectAiDrivenCommon(TransactionCase):
             {"name": name, "sequence": sequence, "project_ids": [Command.link((project or cls.project).id)], **values},
         )
 
-    @classmethod
-    def _create_unfollowed_task(cls):
-        """A task of a followers-only project that no test user follows."""
-        project = cls.env["project.project"].create(
-            {"name": "Followers-only Project", "privacy_visibility": "followers"}
-        )
-        return cls.env["project.task"].create({"name": "Unfollowed Task", "project_id": project.id})
-
     def _flush_tracking(self):
         self.env.flush_all()
         self.env.cr.precommit.run()

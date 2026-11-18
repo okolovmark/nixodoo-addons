@@ -120,7 +120,8 @@ def is_blank_html(html_content):
 class ProjectTaskQuestion(models.Model):
     _name = "project.task.question"
     _description = "Task Question"
-    _inherit = ["project.task.access.mixin", "project.task.image.mixin"]
+    # image mixin first: its write moves the images after the access mixin's write checked the move
+    _inherit = ["project.task.image.mixin", "project.task.access.mixin"]
     _order = "sequence, id"
 
     task_id = fields.Many2one("project.task", "Task", ondelete="cascade", required=True, index=True)

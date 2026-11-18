@@ -3,6 +3,7 @@ import logging
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 from freezegun import freeze_time
 
@@ -12,8 +13,10 @@ from odoo.tests.common import Form, tagged
 from odoo.tools.sql import column_exists, rename_column
 
 from ..hooks import MODULE, QUESTION_CASES, QUESTION_COLUMNS, convert_questions_to_rows, post_init_hook
+from ..models.project_task_image_mixin import ImageMover, get_image_source
 from ..models.project_task_question import is_blank_html
 from .common import ProjectAiDrivenCommon
+from .test_inline_images import RED, data_uri, image_html, image_tag
 
 EARLIER = datetime(2026, 3, 2, 9, 0)
 LATER = datetime(2026, 3, 3, 15, 30)
@@ -382,12 +385,27 @@ class TestQuestionAccess(ProjectAiDrivenCommon):
 
     def test_a_row_moves_only_onto_a_task_the_user_reads(self):
         row = self.visible_question.with_user(self.user_dev)
-        unfollowed_task = self._create_unfollowed_task()
         with self.assertRaises(AccessError):
-            row.write({"task_id": unfollowed_task.id})
+            row.write({"task_id": self.hidden_task.id})
         other_task = self.env["project.task"].create({"name": "Other Task", "project_id": self.project.id})
         row.write({"task_id": other_task.id})
         self.assertEqual(self.as_developer.search([("id", "=", row.id), ("task_id", "=", other_task.id)]), row)
+
+    def test_a_row_refused_a_task_copies_no_image_onto_it(self):
+        answer = image_html(image_tag(data_uri(RED)))
+        row = self.env["project.task.question"].create({"task_id": self.task.id, "answer": answer})
+        row = row.with_user(self.user_dev)
+        other_task = self.env["project.task"].create({"name": "Other Task", "project_id": self.project.id})
+        with patch.object(ImageMover, "move", autospec=True, side_effect=ImageMover.move) as move:
+            with self.assertRaises(AccessError):
+                row.write({"task_id": self.hidden_task.id})
+            self.assertFalse(move.called, "the move is refused before the images are copied")
+            row.write({"task_id": other_task.id})
+        image_copy = self.env["ir.attachment"].search(
+            [("res_model", "=", "project.task"), ("res_id", "=", other_task.id)]
+        )
+        self.assertEqual(image_copy.datas, RED.encode())
+        self.assertEqual(row.answer, image_html(image_tag(get_image_source(image_copy))))
 
     def test_sudo_reaches_every_row(self):
         domain = [("task_id", "in", self.both_tasks.ids)]
