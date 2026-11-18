@@ -70,6 +70,31 @@ class TestTaskKeys(ProjectAiDrivenCommon):
         self.assertEqual(archived_project.key, "ZQX1")
         self.assertEqual(self.Project.create({"name": "Zulu Quebec Xray"}).key, "ZQX2")
 
+    def test_a_generated_key_keeps_only_letters_and_digits(self):
+        projects = self.Project.create(
+            [
+                {"name": "Zulu - Quebec [Golf]"},
+                {"name": "Zulu-Quebec_Hotel"},
+                {"name": "[Zqwerty]"},
+                {"name": "Zulu\tQuebec 7"},
+                {"name": "Zulu Quebec Ωmega"},
+            ]
+        )
+        punctuation_project = self.Project.create({"name": "- [ ] -"})
+        given_project = self.Project.create({"name": "Zulu Quebec Given", "key": "ZQ-[G]"})
+
+        self.assertEqual(projects.mapped("key"), ["ZQG", "ZUL", "ZQW", "ZQ7", "ZQΩ"])
+        self.assertFalse(punctuation_project.key)
+        self.assertEqual(given_project.key, "ZQ-[G]", "A key given is kept as it is")
+
+    def test_a_generated_key_with_its_counter_fits_the_key_size(self):
+        long_name = "Zulu Quebec Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India"
+
+        first_project = self.Project.create({"name": long_name})
+        second_project = self.Project.create({"name": long_name})
+
+        self.assertEqual((first_project | second_project).mapped("key"), ["ZQABCDEFGH", "ZQABCDEFG1"])
+
     def test_a_batch_create_keeps_every_project_with_its_key_and_sequence(self):
         company = self.env["res.company"].create({"name": "Zulu Quebec Company"})
 
@@ -136,6 +161,15 @@ class TestTaskKeys(ProjectAiDrivenCommon):
         self.assertEqual(self.parent_task.display_name, "ZQNEW-1 - Parent")
         self.assertEqual(self.key_project.task_key_sequence_id.prefix, "ZQNEW-")
         self.assertEqual(self.Task.create({"name": "Next", "project_id": self.key_project.id}).key, "ZQNEW-3")
+
+    def test_a_key_renamed_from_or_to_hyphens_spaces_and_brackets_keeps_each_task_number(self):
+        tasks = self.parent_task | self.sub_task
+
+        for key in ("ZQ-X", "ZQ [X-Y]", "ZQPLAIN"):
+            self.key_project.key = key
+            self.assertEqual(tasks.mapped("key"), ["%s-1" % key, "%s-2" % key])
+
+        self.assertEqual(self.Task.create({"name": "Next", "project_id": self.key_project.id}).key, "ZQPLAIN-3")
 
     def test_a_cleared_key_draws_no_key_until_the_project_has_one_again(self):
         self.key_project.key = False
@@ -250,6 +284,82 @@ class TestTaskKeys(ProjectAiDrivenCommon):
         self.assertEqual(moved_tasks.project_id, self.other_project)
         self.assertEqual(moved_tasks.mapped("key"), [False, False, False], "ZQT-1 and ZQX-1 would both become ZQBACK-1")
         self.assertEqual(next_task.key, "ZQBACK-1")
+
+    def test_a_task_taken_out_of_its_project_loses_its_key_with_the_sub_tasks_that_follow_it(self):
+        shown_sub_task = self.Task.create(
+            {"name": "Shown elsewhere", "parent_id": self.parent_task.id, "display_project_id": self.other_project.id}
+        )
+
+        self.parent_task.project_id = False
+
+        self.assertFalse(self.sub_task.project_id)
+        self.assertEqual((self.parent_task | self.sub_task).mapped("key"), [False, False])
+        self.assertRecordValues(shown_sub_task, [{"project_id": self.other_project.id, "key": "ZQOTHER-1"}])
+
+    def test_a_sub_task_moved_by_its_new_parent_or_displayed_project_gets_a_key_of_its_new_project(self):
+        other_parent = self.Task.create({"name": "Other parent", "project_id": self.other_project.id})
+        grandchild = self.Task.create({"name": "Grandchild", "parent_id": self.sub_task.id})
+        shown_sub_task = self.Task.create({"name": "Shown", "parent_id": self.parent_task.id})
+        private_sub_task = self.Task.create({"name": "Private", "parent_id": self.parent_task.id})
+
+        self.sub_task.parent_id = other_parent
+        shown_sub_task.display_project_id = self.other_project
+        private_sub_task.parent_id = self.Task.create({"name": "Private parent"})
+
+        self.assertEqual((self.sub_task | grandchild | shown_sub_task).project_id, self.other_project)
+        self.assertEqual(
+            (self.sub_task | grandchild | shown_sub_task).mapped("key"), ["ZQOTHER-2", "ZQOTHER-3", "ZQOTHER-4"]
+        )
+        self.assertRecordValues(private_sub_task, [{"project_id": False, "key": False}])
+        self.assertEqual(self.parent_task.key, "ZQX-1")
+
+    def test_a_copied_task_gets_the_next_key_of_its_project_or_none(self):
+        template_task = self.Task.create({"name": "Template", "project_id": self.key_project.id})
+        self.parent_task.project_id = False
+
+        out_of_project_copy = self.parent_task.copy()
+        template_copy_without_project = template_task.copy({"project_id": False})
+        template_copy = template_task.copy()
+
+        self.assertEqual(template_task.key, "ZQX-3")
+        self.assertFalse(out_of_project_copy.key)
+        self.assertFalse(template_copy_without_project.key)
+        self.assertEqual(template_copy.key, "ZQX-4")
+
+    def test_the_next_task_of_a_recurrence_taken_out_of_its_project_has_no_key(self):
+        self.key_project.allow_recurring_tasks = True
+        task = self.Task.create(
+            {
+                "name": "Every Monday",
+                "project_id": self.key_project.id,
+                "recurring_task": True,
+                "repeat_interval": 1,
+                "repeat_unit": "week",
+                "mon": True,
+                "repeat_type": "forever",
+            }
+        )
+
+        task.project_id = False
+        task.recurrence_id._create_next_task()
+
+        next_task = task.recurrence_id.task_ids - task
+        self.assertEqual(len(next_task), 1)
+        self.assertEqual((task | next_task).mapped("key"), [False, False])
+
+    def test_a_project_given_a_key_freed_by_a_rename_or_a_deletion_numbers_its_tasks_from_1(self):
+        gone_project = self.Project.create({"name": "Zulu Quebec Gone", "key": "ZQGONE"})
+        gone_task = self.Task.create({"name": "Taken out", "project_id": gone_project.id})
+        (self.parent_task | gone_task).project_id = False
+        self.key_project.key = "ZQRENAMED"
+        gone_project.unlink()
+
+        reused_projects = self.Project.create(
+            [{"name": "Zulu Quebec Reused", "key": "ZQX"}, {"name": "Zulu Quebec Again", "key": "ZQGONE"}]
+        )
+        first_tasks = self.Task.create([{"name": "First", "project_id": project.id} for project in reused_projects])
+
+        self.assertEqual(first_tasks.mapped("key"), ["ZQX-1", "ZQGONE-1"])
 
     def test_a_task_moved_into_a_marked_stage_with_its_resolution_passes_the_closing_rule(self):
         # The key is renewed after the write: a write of the project alone first would meet the rule

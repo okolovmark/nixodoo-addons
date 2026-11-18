@@ -1,13 +1,15 @@
 from odoo import api, fields, models
 
 TASK_URL = "/web#id=%s&view_type=form&model=project.task&action=%s"
+# A sub-task's project is computed from its parent and its displayed project.
+PROJECT_MOVING_FIELDS = ("project_id", "parent_id", "display_project_id")
 
 
 class ProjectTask(models.Model):
     _inherit = "project.task"
     _rec_names_search = ["key", "name"]
 
-    key = fields.Char(size=20, index=True)
+    key = fields.Char(size=20, index=True, copy=False)
     url = fields.Char(string="URL", compute="_compute_url")
 
     _sql_constraints = [("task_key_unique", "UNIQUE(key)", "Task key must be unique!")]
@@ -29,15 +31,19 @@ class ProjectTask(models.Model):
         return tasks
 
     def write(self, vals):
-        if not vals.get("project_id") or not self.env["project.project"]._gives_task_keys():
+        """A task that changes project gets the next key of its new project, or loses its key
+        outside a project, and so does each sub-task that moves with it, with its new parent or
+        with its own displayed project; a task written with its own project keeps its key.
+        """
+        if vals.keys().isdisjoint(PROJECT_MOVING_FIELDS) or not self.env["project.project"]._gives_task_keys():
             return super().write(vals)
-        rekeyed_tasks = self.filtered(lambda record: not record.key or record.project_id.id != vals["project_id"])
-        # Core moves archived sub-tasks with their parent too.
-        subtasks = rekeyed_tasks.with_context(active_test=False)._get_all_subtasks()
-        former_projects = {subtask: subtask.project_id for subtask in subtasks}
+        keyless_tasks = self.filtered(lambda record: not record.key) if "project_id" in vals else self.browse()
+        # Core moves archived sub-tasks with their parent too; its search for them reads active_test.
+        moving_tasks = self | self.with_context(active_test=False)._get_all_subtasks()
+        former_projects = {task: task.project_id for task in moving_tasks}
         result = super().write(vals)
-        moved_subtasks = subtasks.filtered(lambda record: record.project_id != former_projects[record])
-        (rekeyed_tasks | moved_subtasks).sorted("id")._set_next_key()
+        moved_tasks = moving_tasks.filtered(lambda record: record.project_id != former_projects[record])
+        (moved_tasks | keyless_tasks).sorted("id")._set_next_key()
         return result
 
     def name_get(self):
@@ -61,8 +67,9 @@ class ProjectTask(models.Model):
 
     def _set_next_key(self):
         """Give each task the next key of its project, in the order of self; a task whose project
-        gives none loses its key, which a later key of the project would rename into a collision.
-        Sudo: the key is the project's to give, and a portal user may not write it.
+        gives none, or that has no project, loses its key: a later key of the project would rename
+        it into a collision, and a reused key of its former project would draw it again. Sudo: the
+        key is the project's to give, and a portal user may not write it.
         """
         for task in self.sudo():
             key = task.project_id._get_next_task_key()

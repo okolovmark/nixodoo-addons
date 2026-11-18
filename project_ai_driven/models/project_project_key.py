@@ -3,9 +3,10 @@ from collections import Counter
 from odoo import _, api, fields, models
 from odoo.tools import config
 
+# The number after the last hyphen: a project key may hold hyphens of its own.
 RENAME_TASK_KEYS = """
     UPDATE project_task task
-       SET key = project.key || '-' || split_part(task.key, '-', 2)
+       SET key = project.key || '-' || substring(task.key from '[0-9]+$')
       FROM project_project project
      WHERE project.id = task.project_id
        AND project.id = %s
@@ -93,19 +94,27 @@ class ProjectProject(models.Model):
 
     @api.model
     def _generate_key(self, name, taken_keys=()):
-        """Return a free key made of the first letters of each word of name, or the first three
-        letters of a single word, followed by the lowest counter that makes it free. Archived
-        projects and taken_keys count. False without a name, and while keys are off.
+        """Return a free key made of the first letter or digit of each word of name, or the first
+        three of a single word, followed by the lowest counter that makes it free. Words are split
+        at whitespace and keep their letters and digits only; a word without any gives no initial.
+        Archived projects and taken_keys count. False without a name that has letters or digits,
+        and while keys are off.
+
+        The key with its counter is cut to the size of the column, which would cut it silently:
+        the search for a free key cuts its value too, and would never find one.
         """
         if self._is_task_key_off() or not name:
             return False
-        words = name.split(" ")
-        base_key = (words[0][:3] if len(words) == 1 else "".join(word[:1] for word in words)).upper()
+        words = [alnum_word for word in name.split() if (alnum_word := "".join(filter(str.isalnum, word)))]
+        if not words:
+            return False
+        base_key = (words[0][:3] if len(words) == 1 else "".join(word[0] for word in words)).upper()
+        key_size = self._fields["key"].size
         projects = self.with_context(active_test=False)
-        key, counter = base_key, 0
+        key, counter = base_key[:key_size], 0
         while key in taken_keys or projects.search_count([("key", "=", key)], limit=1):
             counter += 1
-            key = "%s%s" % (base_key, counter)
+            key = "%s%s" % (base_key[: key_size - len(str(counter))], counter)
         return key
 
     def _is_task_key_off(self):
