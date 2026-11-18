@@ -631,8 +631,8 @@ display name is its key before the name it has otherwise, so the
 breadcrumb, lists, cards and references show it, a portal user's included,
 and a name search finds projects and tasks by key, as does the search of
 their lists. A portal user reads a task's key and finds tasks by it, as
-everyone does. The task's ``url`` is the link to its form,
-``/odoo/action-project.action_view_task/<id>``.
+everyone does. The task's ``url`` is the link to its form in the web
+client, ``/odoo/action-project.action_view_task/<id>``.
 
 * A new project gets the initials of its name in upper case (the first
   three letters of a one-word name), followed by the lowest counter that
@@ -640,27 +640,33 @@ everyone does. The task's ``url`` is the link to its form,
   key: a word of none gives no initial, and a name of none gives no key.
   A key made of many words is cut to the 10 characters with its counter.
   The project form proposes the key from the name until one is set.
-* A task gets the next key of its project when it is created. Moved to
-  another project, it gets a key of the new one, and so do the sub-tasks
-  that move with it, archived ones included; moved to a project that gives
-  no key, or taken out of its project, they lose theirs. A sub-task given a
-  parent in another project moves into that project and gets a key of it.
-  A sub-task in a project of its own stays there with its key.
+* A task gets the next key of its project when it is created; a task
+  created with no project gets none, whatever project the context proposes
+  by default. Moved to another project, it gets a key of the new one, and
+  so do the sub-tasks that move with it, archived ones and those the user
+  cannot read included; moved to a project that gives no key, or taken out
+  of its project, they lose theirs. A sub-task given a parent in another
+  project moves into that project and gets a key of it. A sub-task in a
+  project of its own stays there with its key.
 * A copied task gets the next key of its own project, and none without a
   project: the copy keeps no key of its source. So does the next occurrence
   of a recurring task, and a task created from a template.
 * A new project key renames the keys of the project's tasks and the prefix
-  of its sequence. Each task keeps its number, the digits at the end of its
-  key, whatever hyphens the former project key held. A cleared key clears
-  the keys of its tasks; the project gives none until it has a key again,
-  and its sequence then goes on from its next number. The tasks created in
-  it or moved into it meanwhile stay without a key.
+  of its sequence. Each task keeps its number, the digits after the last
+  hyphen of its key, whatever hyphens the former project key held. A task
+  key that does not end in a hyphen and digits, one given by hand or by an
+  import, has no number to keep and stays as it is. A cleared key clears
+  the keys of its tasks, those included; the project gives none until it
+  has a key again, and its sequence then goes on from its next number. The
+  tasks created in it or moved into it meanwhile stay without a key.
 * A copied project gets a sequence of its own; a deleted project takes its
   sequence along.
 * ``/projects/<key>`` and ``/tasks/<key>`` open the form of the project or
   task of that key, whatever its case, among those the user can read; any
   other key opens the form of a new task or project. ``%`` and ``_`` in a
-  key are no wildcards.
+  key are no wildcards. The form is the web client's: a portal user's
+  ``/tasks/<key>`` finds the task but leads to the portal home (``/my``),
+  where Odoo sends a user outside the web client, not to the task.
 * In a run with ``test_enable`` keys are off, unless the context sets
   ``test_project_key``: the tests of other modules compare display names
   without keys.

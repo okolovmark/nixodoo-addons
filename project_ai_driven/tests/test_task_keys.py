@@ -10,6 +10,7 @@ from odoo.tests import tagged
 from odoo.tools.safe_eval import safe_eval
 
 from ..hooks import post_init_hook
+from ..models.project_task_key import ProjectTask as KeyedTask
 from .common import ProjectAiDrivenCommon
 
 KEY_PREFIX = "ZQ"
@@ -159,6 +160,22 @@ class TestTaskKeys(ProjectAiDrivenCommon):
         self.assertEqual(self.key_project.task_key_sequence_id.prefix, "ZQNEW-")
         self.assertEqual(self.Task.create({"name": "Next", "project_id": self.key_project.id}).key, "ZQNEW-3")
 
+    def test_a_new_project_key_renames_only_the_task_keys_ending_in_a_hyphen_and_digits(self):
+        hand_keyed_tasks = self.Task.create(
+            [{"name": "Hand %s" % number, "project_id": self.key_project.id} for number in range(2)]
+        )
+        hand_keyed_tasks[0].key = "ZQX-HAND"
+        hand_keyed_tasks[1].key = "ZQSPEC2"
+        project_tasks = self.parent_task | self.sub_task | hand_keyed_tasks
+
+        self.key_project.key = "ZQNEW"
+
+        self.assertEqual(project_tasks.mapped("key"), ["ZQNEW-1", "ZQNEW-2", "ZQX-HAND", "ZQSPEC2"])
+
+        self.key_project.key = False
+
+        self.assertEqual(project_tasks.mapped("key"), [False] * 4, "A cleared key clears every task key")
+
     def test_a_project_key_with_hyphens_renames_its_tasks_by_the_number_after_the_last_hyphen(self):
         self.key_project.key = "ZQ-[X]"
         self.key_project.key = "ZQ-Y"
@@ -268,20 +285,42 @@ class TestTaskKeys(ProjectAiDrivenCommon):
         self.assertEqual((self.parent_task | self.sub_task).mapped("key"), ["ZQT-1", "ZQT-2"])
 
     def test_an_archived_sub_task_moves_with_its_parent_and_gets_a_key_of_the_new_project(self):
+        # Archived at its create: the sub-task tree is read by SQL, which sees no unflushed archiving.
         archived_sub_task = self.Task.create(
-            {"name": "Archived sub-task", "parent_id": self.parent_task.id, "project_id": self.key_project.id}
+            {
+                "name": "Archived sub-task",
+                "parent_id": self.parent_task.id,
+                "project_id": self.key_project.id,
+                "active": False,
+            }
         )
-        archived_sub_task.active = False
+        sub_task_of_archived = self.Task.create({"name": "Under the archived", "parent_id": archived_sub_task.id})
         self.Task.create({"name": "Other", "project_id": self.other_project.id})
 
         self.parent_task.project_id = self.other_project
         self.other_project.key = "ZQMOVED"
 
-        self.assertEqual(archived_sub_task.project_id, self.other_project)
-        self.assertEqual(
-            (self.parent_task | self.sub_task | archived_sub_task).mapped("key"),
-            ["ZQMOVED-2", "ZQMOVED-3", "ZQMOVED-4"],
+        moved_tasks = self.parent_task | self.sub_task | archived_sub_task | sub_task_of_archived
+        self.assertEqual(moved_tasks.project_id, self.other_project)
+        self.assertEqual(moved_tasks.mapped("key"), ["ZQMOVED-2", "ZQMOVED-3", "ZQMOVED-4", "ZQMOVED-5"])
+
+    def test_a_new_parent_needs_no_read_access_to_the_sub_tasks_of_the_task(self):
+        hidden_project = self.Project.create({"name": "Zulu Quebec Hidden", "privacy_visibility": "followers"})
+        hidden_sub_task = self.Task.create(
+            {"name": "Hidden sub-task", "parent_id": self.parent_task.id, "project_id": hidden_project.id}
         )
+        new_parent_task = self.Task.create({"name": "New parent", "project_id": self.key_project.id})
+        readable_tasks = (self.parent_task | self.sub_task).with_user(self.user_dev)
+        self.assertFalse(hidden_sub_task.with_user(self.user_dev).has_access("read"))
+        self.env.invalidate_all()
+        # A caller that read what it can: the hidden sub-task is then fetched alone, which raises.
+        readable_tasks.mapped("project_id")
+
+        # This module's write, without project_member_access's, which reads every project as sudo first.
+        KeyedTask.write(readable_tasks[0], {"parent_id": new_parent_task.id})
+
+        self.assertEqual(self.parent_task.parent_id, new_parent_task)
+        self.assertEqual((self.parent_task | hidden_sub_task).mapped("key"), ["ZQX-1", "ZQH-1"])
 
     def test_tasks_moved_into_a_project_without_a_key_lose_theirs(self):
         third_task = self.Task.create(
@@ -315,6 +354,18 @@ class TestTaskKeys(ProjectAiDrivenCommon):
         self.assertFalse(copied_task.project_id)
         self.assertFalse(copied_task.key)
         self.assertEqual(task.key, "ZQX-3")
+
+    def test_a_task_given_no_project_draws_no_key_of_the_default_project(self):
+        source_task = self.Task.create({"name": "Source", "project_id": self.key_project.id})
+        default_project_tasks = self.Task.with_context(default_project_id=self.key_project.id)
+
+        created_task = default_project_tasks.create({"name": "No project", "project_id": False})
+        copied_task = source_task.with_context(default_project_id=self.key_project.id).copy({"project_id": False})
+        next_task = default_project_tasks.create({"name": "Next"})
+
+        self.assertFalse((created_task | copied_task).project_id)
+        self.assertEqual((created_task | copied_task).mapped("key"), [False, False])
+        self.assertEqual(next_task.key, "ZQX-4", "No number of the default project was drawn for them")
 
     def test_a_sub_task_given_a_parent_in_another_project_gets_a_key_of_that_project(self):
         other_parent_task = self.Task.create({"name": "Other parent", "project_id": self.other_project.id})
@@ -406,6 +457,10 @@ class TestMissingKeys(ProjectAiDrivenCommon):
         cls.keyed_project = cls.env["project.project"].create({"name": "Zulu Quebec Keyed", "key": "ZQKEPT"})
         cls.keyed_task = cls.env["project.task"].create({"name": "Keyed", "project_id": cls.keyed_project.id})
         cls.keyed_task.key = "ZQKEPT-7"
+        cls.symbol_named_project = cls.env["project.project"].create({"name": "- [ ]"})
+        cls.symbol_named_task = cls.env["project.task"].create(
+            {"name": "Under symbols", "project_id": cls.symbol_named_project.id}
+        )
         cls.env = cls.env(context=dict(cls.env.context, test_project_key=True))
 
     def _assert_keys_filled(self):
@@ -415,6 +470,23 @@ class TestMissingKeys(ProjectAiDrivenCommon):
         self.assertEqual(
             self.env["project.task"].create({"name": "Next", "project_id": self.keyless_project.id}).key, "ZQF-4"
         )
+        self.assertRecordValues(self.symbol_named_project, [{"key": False, "task_key_sequence_id": False}])
+        self.assertFalse(self.symbol_named_task.key, "A name without letters or digits gives no key")
+
+    def test_a_project_named_without_letters_or_digits_keys_its_tasks_once_given_a_key(self):
+        project = self.symbol_named_project.with_env(self.env)
+        self.env["project.project"]._set_missing_keys()
+
+        project.key = "ZQTYPED"
+        new_task = self.env["project.task"].create({"name": "New", "project_id": project.id})
+        self.env["project.project"]._set_missing_keys()
+
+        self.assertEqual(new_task.key, "ZQTYPED-1")
+        self.assertFalse(self.symbol_named_task.key, "Its former tasks keep none: the project no longer misses a key")
+
+        project._number_keyless_tasks()
+
+        self.assertEqual(self.symbol_named_task.key, "ZQTYPED-2")
 
     def test_projects_without_a_key_get_one_and_their_tasks_theirs(self):
         self.env.flush_all()

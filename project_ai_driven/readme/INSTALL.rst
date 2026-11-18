@@ -129,8 +129,11 @@ install hook does, gives the keys the database lacks:
 
 * Each project without a key, archived ones included, gets one from its
   name and a sequence. A name without letters or digits gives no key: that
-  project and its tasks stay without one, and its form asks for a key when
-  it is next saved.
+  project stays without one until somebody types one, which its form
+  requires on the next save. Its tasks created from then on get keys; those
+  it had stay without one, since ``_set_missing_keys`` leaves a project that
+  has a key alone. Call ``_number_keyless_tasks`` on that project from a
+  shell to number them.
 * The tasks without a key of those projects, archived and folded ones
   included, get the next numbers of the project's sequence in the order
   they were created, and the sequence moves past them. One SQL statement

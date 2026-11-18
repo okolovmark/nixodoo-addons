@@ -44,8 +44,8 @@ class ProjectTask(models.Model):
         """
         if "project_id" not in vals and "parent_id" not in vals:
             return super().write(vals)
-        # Core moves archived sub-tasks with their parent too.
-        moving_tasks = (self | self._get_all_subtasks()).with_context(active_test=False)
+        # Core moves archived sub-tasks with their parent too, and those the user cannot read.
+        moving_tasks = (self | self.with_context(active_test=False)._get_all_subtasks()).sudo()
         former_projects = {task: task.project_id for task in moving_tasks}
         result = super().write(vals)
         rekeyed_tasks = moving_tasks.filtered(lambda record: record.project_id != former_projects[record])
@@ -63,7 +63,7 @@ class ProjectTask(models.Model):
         if self.env.user._is_portal() and not self.env.su:
             return
         for vals in vals_list:
-            project_id = vals.get("project_id") or self.env.context.get("default_project_id")
+            project_id = vals["project_id"] if "project_id" in vals else self.env.context.get("default_project_id")
             if project_id:
                 vals["key"] = self.env["project.project"].browse(project_id)._get_next_task_key()
 

@@ -1,3 +1,5 @@
+from urllib.parse import urlsplit
+
 from odoo import Command
 from odoo.tests import HttpCase, new_test_user, tagged
 
@@ -32,7 +34,7 @@ class TestTaskKeyRoutes(HttpCase):
     def test_a_task_key_opens_its_task(self):
         self._assert_opens("/tasks/%s" % self.task.key.lower(), TASK_ACTION, self.task.id)
 
-    def test_a_portal_collaborator_opens_a_task_by_its_key(self):
+    def test_a_portal_collaborator_is_led_to_the_backend_form_of_a_task_by_its_key(self):
         portal_user = new_test_user(self.env, "project_ai_driven_key_routes_portal", groups="base.group_portal")
         self.project.write(
             {
@@ -44,6 +46,8 @@ class TestTaskKeyRoutes(HttpCase):
         self.authenticate(portal_user.login, portal_user.login)
 
         self._assert_opens("/tasks/%s" % self.task.key, TASK_ACTION, self.task.id)
+        landing_url = self.url_open("/tasks/%s" % self.task.key).url
+        self.assertEqual(urlsplit(landing_url).path, "/my", "The web client sends a portal user to the portal home")
 
     def test_an_unknown_key_opens_an_empty_form(self):
         self._assert_opens("/tasks/ZQROUTE-99", TASK_ACTION, "new")

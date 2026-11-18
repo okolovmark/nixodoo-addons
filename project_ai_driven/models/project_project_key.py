@@ -9,6 +9,7 @@ RENAME_TASK_KEYS = """
       FROM project_project project
      WHERE project.id = task.project_id
        AND project.id = %s
+       AND (project.key IS NULL OR task.key ~ '-[0-9]+$')
 """
 NUMBER_KEYLESS_TASKS = """
     UPDATE project_task task
@@ -159,8 +160,9 @@ class ProjectProject(models.Model):
             self._create_task_key_sequences()
 
     def _update_task_keys(self):
-        """Give the tasks of the project its new key, each keeping its number; a cleared key
-        clears theirs.
+        """Give the tasks of the project its new key, each keeping its number; a task key that does
+        not end in a hyphen and digits has no number to keep and stays as it is. A cleared key clears
+        every task key of the project.
         """
         self.ensure_one()
         self.flush_recordset(["key"])
