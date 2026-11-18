@@ -380,6 +380,15 @@ class TestQuestionAccess(ProjectAiDrivenCommon):
             self.as_developer.create({"question": QUESTION, "task_id": self.hidden_task.id})
         self.assertEqual(self.as_developer.create({"question": QUESTION, "task_id": self.task.id}).task_id, self.task)
 
+    def test_a_row_moves_only_onto_a_task_the_user_reads(self):
+        row = self.visible_question.with_user(self.user_dev)
+        unfollowed_task = self._create_unfollowed_task()
+        with self.assertRaises(AccessError):
+            row.write({"task_id": unfollowed_task.id})
+        other_task = self.env["project.task"].create({"name": "Other Task", "project_id": self.project.id})
+        row.write({"task_id": other_task.id})
+        self.assertEqual(self.as_developer.search([("id", "=", row.id), ("task_id", "=", other_task.id)]), row)
+
     def test_sudo_reaches_every_row(self):
         domain = [("task_id", "in", self.both_tasks.ids)]
         self.assertEqual(

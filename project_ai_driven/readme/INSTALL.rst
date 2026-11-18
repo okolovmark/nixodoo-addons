@@ -264,6 +264,11 @@ on the tasks. A database where another module already declares the same
 field on the same table keeps the table and its rows; when a new version of
 that module no longer declares the field, update both in the same run.
 
+The update to 16.0.2.16.1 has no migration and writes nothing on existing
+records; it can run with the server up. From it a checklist item or
+question row moved to another task is checked against the new task, as a
+session already was: a user who cannot read that task gets an access error.
+
 **Upgrading from project_software**
 
 ``project_software`` remains for one release as an empty module that depends

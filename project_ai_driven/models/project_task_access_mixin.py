@@ -10,6 +10,13 @@ class ProjectTaskAccessMixin(models.AbstractModel):
     _name = "project.task.access.mixin"
     _description = "Line Following the Access of its Task"
 
+    def write(self, vals):
+        result = super().write(vals)
+        if "task_id" in vals:
+            # again for the task a line moves to: core checked the task it leaves only
+            self.check_access_rule("write")
+        return result
+
     def _apply_ir_rules(self, query, mode="read"):
         """check_access_rule does not come through here: see _filter_access_rules_python."""
         super()._apply_ir_rules(query, mode)

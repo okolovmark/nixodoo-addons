@@ -15,6 +15,7 @@ Rejected: following the user's companies instead of the selected ones. The Check
 - Reading the task opens its items; changing an item's state, description or assignee still takes its assignee or reviewer.
 - A user who narrows the company switcher sees fewer items, as with tasks. An RPC call without `allowed_company_ids` reaches the items of the tasks of all the user's companies.
 - The items of a task the user cannot read are not found, counted or grouped, in the menu and in name searches. Reading, writing or deleting one, or creating one on such a task, raises an access error.
+  - 2026-11-18: from 16.0.2.16.1 a line moved to another task is checked against the new task: `write` checks the rule again after a write of `task_id`, as core checks only the task the line leaves.
 - A rule any module adds to `project.task` applies to the items without a change here.
   - 2026-11-17: 16.0.2.7.0 moves the two overrides into `project.task.access.mixin`; question rows (`project.task.question`, ADR 0008) follow the access of their task through it too.
   - 2026-11-17: in 16.0.2.12.0 session rows (`project.task.session`, ADR 0010) follow it too, and a create or a write of `task_id` checks read access on the task it names before anything else.
