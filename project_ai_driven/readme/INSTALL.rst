@@ -269,6 +269,12 @@ records; it can run with the server up. From it a checklist item or
 question row moved to another task is checked against the new task, as a
 session already was: a user who cannot read that task gets an access error.
 
+The update to 16.0.2.17.0 gives projects and tasks their keys (*Task keys*
+in the description). On a database where OCA ``project_key`` ran, the
+columns and the keys are there already and nothing changes; how this module
+takes its place is under *Coming from project_key*. Elsewhere the migration
+gives each project a key and its tasks theirs, as described there.
+
 **Upgrading from project_software**
 
 ``project_software`` is the former name of this module. The release that
@@ -379,6 +385,43 @@ Its code leaves the addons path in the deploy that uninstalls it. While the
 code is there, the labels stored for the shared fields are its own, *PR URI*
 and *PR Required States*, and they stay until the first update after it is
 gone.
+
+**Coming from project_key**
+
+This module declares ``key`` on the project and the task,
+``task_key_sequence_id`` on the project and ``url`` on the task under the
+names, types, columns and SQL constraints of OCA ``project_key``, and takes
+its place. Each project's sequence keeps its code
+``project.task.key.<project id>``, its prefix and its next number, and
+whatever reads or searches ``key`` keeps working.
+
+This module does not depend on ``project_key`` and does not uninstall it.
+While ``project_key`` is loaded it gives the keys as before: both would draw
+a number for every task. A module that depended on it, or an administrator,
+uninstalls it once this version is installed or updated, in the same run at
+the earliest, not before: the columns, the fields and the unique
+constraints stay only because this module declares them too. Uninstalled
+before, ``project_key`` drops the key columns with every project and task
+key; the update then gives the projects new keys from their names and
+numbers every task from 1, and the keys in messages and commits no longer
+lead to their tasks. Take its code off the addons path in the deploy that
+uninstalls it: left there, its labels stay in the database until the next
+update.
+
+The install (``post_init_hook``) and the update to 16.0.2.17.0 (migration
+script) give the keys a database lacks:
+
+* Each project without a key, archived ones included, gets one from its
+  name and a sequence, whether ``project_key`` is loaded or not.
+* The tasks without a key of those projects, archived and folded ones
+  included, get the next numbers of the project's sequence in the order
+  they were created, and the sequence moves past them. One SQL statement
+  writes their keys, so their last update date does not change.
+* A project that has a key, and its tasks, are left alone: on a database
+  where ``project_key`` ran, nothing changes.
+* A run with ``test_enable`` gives no keys, since keys are off in a test
+  run: run the update without it, or call ``_set_missing_keys`` on
+  ``project.project`` from a shell afterwards.
 
 **Filling the stage log**
 

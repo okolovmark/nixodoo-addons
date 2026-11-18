@@ -6,8 +6,9 @@ from odoo.osv import expression
 from .html_markdown import get_linked_attachment_ids, html_to_markdown
 
 # Declared by other modules, so read only where the model has them.
-OPTIONAL_BRIEF_FIELDS = ("key", "planned_date_start", "planned_date_end", "effective_hours", "uat_user_ids")
+OPTIONAL_BRIEF_FIELDS = ("planned_date_start", "planned_date_end", "effective_hours", "uat_user_ids")
 BRIEF_TASK_FIELDS = (
+    "key",
     "name",
     "project_id",
     "stage_id",
@@ -248,7 +249,7 @@ class ProjectTask(models.Model):
         return attachment_names
 
     def _get_brief_key(self, readable_fnames):
-        """The task's key where a module gives tasks one, else its id."""
+        """The task's key, else its id."""
         return (format_value(self, "key") if "key" in readable_fnames else "") or "#%d" % self.id
 
     def _get_brief_header(self, readable_fnames):
