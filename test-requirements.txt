@@ -1,1 +1,3 @@
 odoo-addon-web_responsive>=16.0dev,<16.1dev
+odoo-addon-project_timeline>=16.0dev,<16.1dev
+openpyxl
