@@ -8,7 +8,8 @@ task type and an estimate to enter others. The module also logs the stage
 changes of every task of the database, keeps the images of the texts of
 every task, question row and test case as attachments of the record holding
 the text, and gives every task a brief: the whole task in Markdown, in one
-read.
+read. Projects and their tasks get keys, such as ``PROJ-12``, that name them
+and open them by link.
 
 **Task attributes** (``project.task``)
 
@@ -547,16 +548,15 @@ for the forms of urls it rewrites.
 
 A brief holds, in this order, each part only when it has something to show:
 
-* The header: the task's key, or ``#<id>`` where no module gives tasks a
-  key, and its title; then the project, the stage and since when, the
-  status (``state``), the task type, the estimate and its size, the
+* The header: the task's key (*Task keys* below), or ``#<id>`` for a task
+  without one, and its title; then the project, the stage and since when,
+  the status (``state``), the task type, the estimate and its size, the
   priority, the planned start, the deadline, the hours spent, the
   assignees, the UAT users, the author and the creation date, the
   Resolution, the modules on a task of the project that develops this Odoo,
   the tags, and the link to the task form (``/odoo/project.task/<id>``).
-  The key, the planned start and the hours spent show where a module
-  declares their fields (``key``, ``planned_date_begin``,
-  ``effective_hours``).
+  The planned start and the hours spent show where a module declares their
+  fields (``planned_date_begin``, ``effective_hours``).
 * Related tasks: the parent, the sub-tasks, the tasks it is blocked by and
   those it blocks, each with its key, title and stage.
 * Pull requests, with their state, merge date and deploy date.
@@ -621,25 +621,74 @@ assignees are left out, also under a context with ``active_test`` false; an
 archived parent or user in a many-to-one value (such as Author, Verified by
 or Addressed to) still shows.
 
+**Task keys** (``project.project``, ``project.task``)
+
+Every project has a **Key** (``key``, up to 10 characters), and every task
+of a project a key of its own (``key``, up to 20 characters) such as
+``PROJ-12``: the key of its project and the next number of the project's
+**Key Sequence** (``task_key_sequence_id``). Both keys are unique. A task's
+display name is its key before the name it has otherwise, so the
+breadcrumb, lists, cards and references show it, a portal user's included,
+and a name search finds projects and tasks by key, as does the search of
+their lists. The task's ``url`` is the link to its form,
+``/odoo/action-project.action_view_task/<id>``.
+
+* A new project gets the initials of its name in upper case (the first
+  three letters of a one-word name), followed by the lowest counter that
+  makes it free; archived projects count. The project form proposes the key
+  from the name until one is set.
+* A task gets the next key of its project when it is created. Moved to
+  another project, it gets a key of the new one, and so do the sub-tasks
+  that move with it, archived ones included; moved to a project that gives
+  no key, they lose theirs. A sub-task in a project of its own stays there
+  with its key.
+* A new project key renames the keys of the project's tasks, each keeping
+  its number, and the prefix of its sequence. A cleared key clears the keys
+  of its tasks; the project gives none until it has a key again, and its
+  sequence then goes on from its next number. The tasks created in it or
+  moved into it meanwhile stay without a key.
+* A copied project gets a sequence of its own; a deleted project takes its
+  sequence along.
+* ``/projects/<key>`` and ``/tasks/<key>`` open the form of the project or
+  task of that key, whatever its case, among those the user can read; any
+  other key opens the form of a new task or project. ``%`` and ``_`` in a
+  key are no wildcards.
+* In a run with ``test_enable`` keys are off, unless the context sets
+  ``test_project_key``: the tests of other modules compare display names
+  without keys.
+
+The fields, constraints and sequences carry the names and columns of the
+16.0 branch, so a database upgraded from it keeps every key and the next
+number of every sequence. What the install and the update to 20.0.2.17.0
+give a database that lacks keys is under *Installation*.
+
 **Coming from 16.0**
 
 The module's models, fields and selection values carry the names of the
 16.0 branch, so a caller written for one branch works on the other, but for
 ``is_task_readable`` (below). What differs on 20.0:
 
-* The module has no install hook (see *Installation*). The 16.0 branch
-  takes over the records of the module's former name, turns old ``pr_uri``
-  text into pull request records, fills the stage log with the past of the
-  tasks, sets the size of every task from its hours, sets hours that are NaN
-  or infinite to zero, converts the test case states, renames the checklist
-  model with its table and external ids, turns the Html ``questions`` and
-  ``answers`` into question rows and fills the task and the category of
-  existing messages by SQL. Of these, this branch converts only the test
-  case states, by SQL in the migration of 20.0.2.15.0: a task that got such
-  hours under an earlier 20.0 version keeps them, and the constraint on the
-  estimate refuses its copies and its next occurrence until they are
-  corrected. The ORM computes the task and the category of existing messages
-  when the module adds their columns.
+* The install hook gives the keys a database lacks and nothing else (see
+  *Installation*). The 16.0 branch's also takes over the records of the
+  module's former name, turns old ``pr_uri`` text into pull request
+  records, fills the stage log with the past of the tasks, sets the size of
+  every task from its hours, sets hours that are NaN or infinite to zero,
+  converts the test case states, renames the checklist model with its table
+  and external ids, turns the Html ``questions`` and ``answers`` into
+  question rows and fills the task and the category of existing messages by
+  SQL. Of these, this branch converts only the test case states, by SQL in
+  the migration of 20.0.2.15.0: a task that got such hours under an earlier
+  20.0 version keeps them, and the constraint on the estimate refuses its
+  copies and its next occurrence until they are corrected. The ORM computes
+  the task and the category of existing messages when the module adds their
+  columns.
+* Task keys do not take the place of OCA ``project_key``: this branch gives
+  the keys whatever else is installed, and a database that ran
+  ``project_key`` on Odoo 20 is not provided for. The task's ``url`` and the
+  ``/projects/<key>`` and ``/tasks/<key>`` redirects lead to
+  ``/odoo/action-<action>/<id>`` URLs; an unknown key opens the form of a
+  new record, where 16.0 opens a form of no record. The task form shows the
+  key before the title at all times; on 16.0 outside edit mode only.
 * Checklist items, question rows, session rows and test cases follow the
   access of their task through the domains of their access rights, with the
   ``access`` operator of Odoo 20: reading follows the read access of the
