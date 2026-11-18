@@ -255,6 +255,15 @@ class TestHtmlToMarkdown(TransactionCase):
             "- \\# in an item\n\n> \\- in a quote",
         )
 
+    def test_a_long_fence_and_a_table_written_in_text_are_escaped(self):
+        self.assertMarkdown(
+            "<p>````<br>`````python<br>````a`b stays<br>| a | b |<br>|---|---|<br>a | b stays<br>--- | ---<br>"
+            ":-: | :--<br>a --- | stays</p>",
+            "\\````\n\\`````python\n````a`b stays\n\\| a | b |\n\\|---|---|\na | b stays\n\\--- | ---\n"
+            "\\:-: | :--\na --- | stays",
+        )
+        self.assertMarkdown('<ul class="o_checklist"><li>| a | b |</li></ul>', "- [ ] \\| a | b |")
+
     def test_merged_cells_keep_their_columns_and_the_caption_and_loose_text_stay(self):
         self.assertMarkdown(
             "<table><caption>Sizes</caption>Loose<tbody><tr><th colspan='2'>Wide</th><th rowspan='2'>Tall</th></tr>"
