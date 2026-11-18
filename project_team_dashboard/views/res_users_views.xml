@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="res_users_view_form_inherit_dashboard" model="ir.ui.view">
+        <field name="name">res.users.form.inherit.project_team_dashboard</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_form" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='notification_type']" position="after">
+                <field name="dashboard_default_project_id" />
+            </xpath>
+        </field>
+    </record>
+
+    <record id="res_users_preferences_form_inherit_dashboard" model="ir.ui.view">
+        <field name="name">res.users.preferences.form.inherit.project_team_dashboard</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_form_simple_modif" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='notification_type']" position="after">
+                <field name="dashboard_default_project_id" />
+            </xpath>
+        </field>
+    </record>
+</odoo>
