@@ -280,6 +280,19 @@ records; it can run with the server up. From it a portal user's write that
 sends a Size is refused instead of dropped, and a copy of a task takes no
 UAT users.
 
+The update to 16.0.2.17.3 renews the keys that tasks taken out of their
+project, and sub-tasks moved with a new parent or a project to show in,
+kept from before (migration script). It clears the key of each task
+without a project, and gives each task whose key does not start with the
+key of its project and a hyphen the next key of its project, or none when
+the project gives none, in the order the tasks were created; every other
+key stays.
+One SQL statement writes the keys, so the last update date of the tasks
+does not change, and the log counts the keys cleared and renewed. A run
+with ``test_enable`` changes nothing, since keys are off in a test run:
+run the update without it, or call ``_renew_stale_keys`` on
+``project.task`` from a shell afterwards.
+
 **Upgrading from project_software**
 
 ``project_software`` is the former name of this module. The release that

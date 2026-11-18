@@ -3,13 +3,15 @@ from collections import Counter
 from odoo import _, api, fields, models
 from odoo.tools import config
 
-# The number after the last hyphen: a project key may hold hyphens of its own.
+# By the number after the last hyphen, as a project key may hold hyphens of its own; any other key
+# stays, or the rename would clear it or give it the number of a key the sequence gave.
 RENAME_TASK_KEYS = """
     UPDATE project_task task
        SET key = project.key || '-' || substring(task.key from '[0-9]+$')
       FROM project_project project
      WHERE project.id = task.project_id
        AND project.id = %s
+       AND (project.key IS NULL OR task.key ~ '-[0-9]+$')
 """
 NUMBER_KEYLESS_TASKS = """
     UPDATE project_task task
@@ -164,8 +166,8 @@ class ProjectProject(models.Model):
             self._create_task_key_sequences()
 
     def _update_task_keys(self):
-        """Give the tasks of the project its new key, each keeping its number; a cleared key
-        clears theirs.
+        """Give the tasks of the project whose key ends in a hyphen and a number its new key, each
+        keeping its number; other keys stay. A cleared key clears the keys of all its tasks.
         """
         self.ensure_one()
         self.flush_recordset(["key"])
