@@ -533,12 +533,13 @@ projects and tasks by key. The task's ``url`` is the link to its form.
   from the name until one is set.
 * A task gets the next key of its project when it is created. Moved to
   another project, it gets a key of the new one, and so do the sub-tasks
-  that move with it, archived ones included; a project that gives no key
-  leaves the task its key.
+  that move with it, archived ones included; moved to a project that gives
+  no key, they lose theirs.
 * A new project key renames the keys of the project's tasks, each keeping
   its number, and the prefix of its sequence. A cleared key clears the keys
   of its tasks; the project gives none until it has a key again, and its
-  sequence then goes on from its next number.
+  sequence then goes on from its next number. The tasks created in it or
+  moved into it meanwhile stay without a key.
 * A copied project gets a sequence of its own; a deleted project takes its
   sequence along.
 * ``/projects/<key>`` and ``/tasks/<key>`` open the form of the project or

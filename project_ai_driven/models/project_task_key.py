@@ -60,10 +60,11 @@ class ProjectTask(models.Model):
                 vals["key"] = self.env["project.project"].browse(project_id)._get_next_task_key()
 
     def _set_next_key(self):
-        """Give each task the next key of its project, in the order of self. Sudo: the key is the
-        project's to give, and a portal user may not write it.
+        """Give each task the next key of its project, in the order of self; a task whose project
+        gives none loses its key, which a later key of the project would rename into a collision.
+        Sudo: the key is the project's to give, and a portal user may not write it.
         """
         for task in self.sudo():
             key = task.project_id._get_next_task_key()
-            if key:
+            if key or task.key:
                 task.key = key

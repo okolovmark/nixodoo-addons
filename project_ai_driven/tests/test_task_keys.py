@@ -235,6 +235,22 @@ class TestTaskKeys(ProjectAiDrivenCommon):
             ["ZQMOVED-2", "ZQMOVED-3", "ZQMOVED-4"],
         )
 
+    def test_tasks_moved_into_a_project_without_a_key_lose_theirs(self):
+        third_task = self.Task.create(
+            {"name": "Third", "project_id": self.Project.create({"name": "Zulu Quebec Third"}).id}
+        )
+        self.other_project.key = False
+
+        third_task.project_id = self.other_project
+        self.parent_task.project_id = self.other_project
+        self.other_project.key = "ZQBACK"
+        next_task = self.Task.create({"name": "Next", "project_id": self.other_project.id})
+
+        moved_tasks = third_task | self.parent_task | self.sub_task
+        self.assertEqual(moved_tasks.project_id, self.other_project)
+        self.assertEqual(moved_tasks.mapped("key"), [False, False, False], "ZQT-1 and ZQX-1 would both become ZQBACK-1")
+        self.assertEqual(next_task.key, "ZQBACK-1")
+
     def test_a_task_moved_into_a_marked_stage_with_its_resolution_passes_the_closing_rule(self):
         # The key is renewed after the write: a write of the project alone first would meet the rule
         # without the Resolution of the same write.
