@@ -1,6 +1,7 @@
 import logging
 from collections import defaultdict
 
+import pytz
 from psycopg2 import sql
 
 from odoo import SUPERUSER_ID, api, models
@@ -110,18 +111,17 @@ RECORD_DEADLINE_PLANS = """
        SET date_deadline_planned_end = planned_date_end, date_deadline_project_id = project_id
      WHERE (date_deadline_planned_end, date_deadline_project_id) IS DISTINCT FROM (planned_date_end, project_id)
 """
-# The time zone is the first assignee's (in the order of res.users) that has one, else the last writer's.
+# The time zones to try: the active assignees' in the order of res.users, then the last writer's if active.
 OPEN_AI_DRIVEN_TASKS_WITH_A_PLANNED_END = """
-    SELECT task.id, task.planned_date_end, task.date_deadline, COALESCE(
-               (SELECT assignee_partner.tz
-                  FROM project_task_user_rel assignment
-                  JOIN res_users assignee ON assignee.id = assignment.user_id
-                  JOIN res_partner assignee_partner ON assignee_partner.id = assignee.partner_id
-                 WHERE assignment.task_id = task.id
-                   AND assignee_partner.tz <> ''
-                 ORDER BY assignee_partner.name, assignee.login
-                 LIMIT 1),
-               author.tz
+    SELECT task.id, task.planned_date_end, task.date_deadline, array_append(
+               ARRAY(SELECT assignee_partner.tz
+                       FROM project_task_user_rel assignment
+                       JOIN res_users assignee ON assignee.id = assignment.user_id
+                       JOIN res_partner assignee_partner ON assignee_partner.id = assignee.partner_id
+                      WHERE assignment.task_id = task.id
+                        AND assignee.active
+                      ORDER BY assignee_partner.name, assignee.login),
+               CASE WHEN writer.active THEN author.tz END
            )
       FROM project_task task
       JOIN project_project project ON project.id = task.project_id
@@ -236,14 +236,15 @@ def roll_up_planned_dates(env):
 def align_deadlines_with_planned_ends(env):
     """Record the plan of every task as the one its Deadline follows, then set the Deadline of the
     open tasks (stage not folded, not archived) of AI-driven projects to the date of their planned
-    end, in the time zone of their first assignee that has one, else of the user who last wrote the
-    task, else UTC. In SQL, so write dates stay; the other tasks keep their Deadline until their
-    planned end or project changes."""
+    end, in the first known time zone of their active assignees, else of the user who last wrote
+    the task if active, else UTC. In SQL, so write dates stay; the other tasks keep their Deadline
+    until their planned end or project changes."""
     env.flush_all()
     env.cr.execute(RECORD_DEADLINE_PLANS)
     env.cr.execute(OPEN_AI_DRIVEN_TASKS_WITH_A_PLANNED_END)
     task_ids_by_deadline = defaultdict(list)
-    for task_id, planned_date_end, date_deadline, tz_name in env.cr.fetchall():
+    for task_id, planned_date_end, date_deadline, tz_names in env.cr.fetchall():
+        tz_name = next((tz_name for tz_name in tz_names if tz_name in pytz.all_timezones_set), None)
         deadline = local_date(planned_date_end, tz_name)
         if deadline != date_deadline:
             task_ids_by_deadline[deadline].append(task_id)

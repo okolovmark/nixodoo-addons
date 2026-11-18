@@ -13,9 +13,10 @@ Projects
   the module, or updating it to 16.0.1.1.0, sets the Deadline of the open
   tasks (stage not folded, not archived) of AI-driven projects that have a
   planned end to the day of that end, without changing their last-updated
-  date, in the time zone of the first assignee who has one, else of the
-  user who last changed the task, else UTC. Closed and archived tasks keep
-  their Deadline until their planned end changes.
+  date, in the time zone of the first active assignee who has a valid one,
+  else of the user who last changed the task if still active, else UTC.
+  Closed and archived tasks keep their Deadline until their planned end
+  changes.
 
 Users
 ~~~~~
