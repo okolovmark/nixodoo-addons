@@ -30,7 +30,7 @@ class "project.task" as Task {
   user_ids : Assignees
   uat_user_ids : UAT users
 }
-class "checklist item / question row / test case" as Line {
+class "checklist item / question row / test case / session" as Line {
   task_id
   project_id
 }

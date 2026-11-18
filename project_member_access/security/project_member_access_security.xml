@@ -134,7 +134,7 @@
         <field name="perm_create" eval="True" />
         <field name="perm_unlink" eval="True" />
     </record>
-    <!-- Checklist items and questions are read as their task is: project.task.access.mixin. Ids without
+    <!-- Checklist items, questions and sessions are read as their task is: project.task.access.mixin. Ids without
          the checklist table name, which a test of the checklist rename in project_ai_driven looks for. -->
     <record id="task_checklist_item_rule_member_access_write" model="ir.rule">
         <field name="name">Checklist Item: member access, write, create, unlink (all users)</field>
@@ -149,6 +149,15 @@
         <field name="name">Task Question: member access, write, create, unlink (all users)</field>
         <field name="model_id" ref="project_ai_driven.model_project_task_question" />
         <field name="domain_force">user._project_member_access_domain('project.task.question', 'write')</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="True" />
+        <field name="perm_create" eval="True" />
+        <field name="perm_unlink" eval="True" />
+    </record>
+    <record id="task_session_rule_member_access_write" model="ir.rule">
+        <field name="name">Task Session: member access, write, create, unlink (all users)</field>
+        <field name="model_id" ref="project_ai_driven.model_project_task_session" />
+        <field name="domain_force">user._project_member_access_domain('project.task.session', 'write')</field>
         <field name="perm_read" eval="False" />
         <field name="perm_write" eval="True" />
         <field name="perm_create" eval="True" />

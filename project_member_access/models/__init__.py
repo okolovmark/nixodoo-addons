@@ -5,6 +5,7 @@ from . import project_pull_request
 from . import project_task
 from . import project_task_checklist_item
 from . import project_task_question
+from . import project_task_session
 from . import project_task_testcase
 from . import project_task_type
 from . import project_update

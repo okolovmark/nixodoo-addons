@@ -129,6 +129,7 @@ class TestMemberAccessRules(MemberAccessCommon):
             ),
             self.env["project.task.question"].create({"question": "Which?", "task_id": self.private_task.id}),
             self.env["project.task.testcase"].create({"name": "Case", "task_id": self.private_task.id}),
+            self.env["project.task.session"].create({"session_id": "session-1", "task_id": self.private_task.id}),
         )
         users = self.reader | self.contributor | self.editor | self.admin | self.manager | self.sysadmin | self.outsider
         for line in lines:
@@ -151,6 +152,7 @@ class TestMemberAccessRules(MemberAccessCommon):
             self.env["project.task.checklist.item"].create({"name": "Check", "task_id": task.id}),
             self.env["project.task.question"].create({"question": "Which?", "task_id": task.id}),
             self.env["project.task.testcase"].create({"name": "Case", "task_id": task.id}),
+            self.env["project.task.session"].create({"session_id": "session-1", "task_id": task.id}),
         )
 
     def test_lines_of_an_own_task_are_written_whatever_the_role(self):
@@ -333,6 +335,20 @@ class TestMemberAccessRules(MemberAccessCommon):
             self.public_task.with_user(self.editor).unlink()
         self.public_task.with_user(self.admin).unlink()
         self.assertFalse(self.public_task.exists())
+
+    def test_a_session_is_logged_on_a_task_by_whoever_may_write_it(self):
+        Session = self.env["project.task.session"]
+        session_vals = {"session_id": "session-1", "task_id": self.private_task.id, "outcome": "Reviewed"}
+        with self.assertRaises(AccessError):
+            Session.with_user(self.reader).create(session_vals)
+        session = Session.with_user(self.editor).create(session_vals)
+        with self.assertRaises(AccessError, msg="the row of a logged session is written, not created"):
+            Session.with_user(self.reader).create(dict(session_vals, outcome="Read it"))
+        self.assertEqual(session.outcome, "Reviewed")
+        own_session = Session.with_user(self.reader).create(
+            {"session_id": "session-2", "task_id": self.private_reader_task.id}
+        )
+        self.assertEqual(own_session.user_id, self.reader)
 
     def test_standard_projects_are_left_to_the_other_rules(self):
         """Member rows of a Standard project are inert: the outsider is its Admin and

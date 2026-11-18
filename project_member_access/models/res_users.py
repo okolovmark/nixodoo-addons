@@ -11,6 +11,7 @@ ACCESS_PATHS = {
     "project.task.checklist.item": ("project_id", "task_id"),
     "project.task.question": ("project_id", "task_id"),
     "project.task.testcase": ("project_id", "task_id"),
+    "project.task.session": ("project_id", "task_id"),
     "project.pull.request": ("task_ids.project_id", "task_ids"),
     "report.project.task.user": ("project_id", None),
     "project.task.burndown.chart.report": ("project_id", None),

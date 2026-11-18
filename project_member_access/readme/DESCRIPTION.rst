@@ -22,8 +22,8 @@ Project / Administrator rights. The rights of each role are in *Usage*.
 
 Inside a Public or Private project:
 
-* Checklist items, question rows and test cases are read with their task,
-  and written, created and deleted by whoever may edit it.
+* Checklist items, question rows, test cases and sessions are read with
+  their task, and written, created and deleted by whoever may edit it.
 * Task Analysis, the burndown chart, milestones and project updates are
   read by whoever reads the project; milestones and updates are changed by
   its Admins.
