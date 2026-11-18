@@ -630,7 +630,11 @@ class TestClosingRule(ProjectAiDrivenCommon):
         arch = etree.fromstring(self.env["project.project"].get_view(view_type="form")["arch"])
         setting_ids = arch.xpath("//group[@name='group_tasks_managment']/setting/@id")
         flag_position = setting_ids.index("ai_driven_project_setting")
-        self.assertEqual(setting_ids[flag_position + 1], "pr_required_states_setting", "next to the flag")
+        self.assertEqual(
+            setting_ids[flag_position : flag_position + 3],
+            ["ai_driven_project_setting", "develops_this_odoo_setting", "pr_required_states_setting"],
+            "the flag, the develops-this-Odoo setting, then the stages",
+        )
         setting = arch.xpath("//setting[@id='pr_required_states_setting']")[0]
         stages_field = setting.xpath("field[@name='pr_required_states']")[0]
         self.assertEqual(setting.get("invisible"), "not is_ai_driven")

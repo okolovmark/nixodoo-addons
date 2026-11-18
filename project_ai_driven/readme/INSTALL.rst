@@ -55,6 +55,13 @@ nothing on the tasks, which start without modules. Where
 list, the access right changes nothing; without it, the field still works
 for project users.
 
+The update to 20.0.2.10.0 adds **Develops This Odoo** to projects, with its
+column, and the same field on tasks, related to the project and not stored.
+It has no migration and writes nothing on the projects: no project carries
+the flag after it, and the form hides the Modules of every task until one
+does. Afterwards a system administrator sets the flag on the AI-driven
+project that develops the database.
+
 **A database that has the 20.0 project_software installed**
 
 ``project_software`` is the former name of this module. Such a database is

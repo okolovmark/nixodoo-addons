@@ -3,6 +3,7 @@ from . import test_assignment_notification
 from . import test_checklist
 from . import test_checklist_subtask
 from . import test_closing_rule
+from . import test_develops_this_odoo
 from . import test_estimate_rule
 from . import test_line_access
 from . import test_migrations

@@ -124,7 +124,7 @@
                 <field
                     name="module_ids"
                     widget="many2many_tags"
-                    invisible="not is_ai_driven"
+                    invisible="not is_ai_driven or not develops_this_odoo"
                     options="{'no_create': True}"
                     context="{
                         'module_technical_name': True,

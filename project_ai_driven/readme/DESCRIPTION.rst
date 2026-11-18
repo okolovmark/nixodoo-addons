@@ -1,10 +1,11 @@
 Additions to project tasks for AI-driven development: task attributes,
 clarifying questions as rows with their answers, the technical solution, a
-checklist and test cases per task, pull requests as records, the installed
-modules a task touches, the internal notes of tasks by category, and two
-rules on the stages a project marks: a Resolution to enter some, a task type
-and an estimate to enter others. The module also logs the stage changes of
-every task of the database.
+checklist and test cases per task, pull requests as records, the project
+that develops this Odoo and the installed modules its tasks touch, the
+internal notes of tasks by category, and two rules on the stages a project
+marks: a Resolution to enter some, a task type and an estimate to enter
+others. The module also logs the stage changes of every task of the
+database.
 
 **Task attributes** (``project.task``)
 
@@ -293,16 +294,37 @@ Templates are outside this rule too.
 The next occurrence of a recurring task is a copy of the task, so it
 carries its task type and its estimate.
 
+**The project that develops this Odoo** (``project.project``)
+
+* **Develops This Odoo** (``develops_this_odoo``) marks the AI-driven
+  project whose tasks change the Odoo database the module runs in. One
+  project of the database carries it at most, archived projects included: a
+  second one is refused, and the refusal names the project that has it, also
+  to a user who cannot read that project. Setting it on a project that is
+  not AI-driven, or clearing **AI-driven Project** on the project that has
+  it, is refused.
+* Only a system administrator (``base.group_system``) sets or clears it, at
+  creation (a default of the context included) or in a write; a write that
+  leaves it as it is passes for any user. Only a system administrator
+  archives or deletes the project that carries it.
+* The project form shows it to system administrators, below **AI-driven
+  Project**, on a project that is AI-driven or carries it. A change is
+  tracked in the chatter of the project. A duplicated project starts without
+  it.
+* The task has the same field, related to its project, read-only and
+  readable by every user who reads the task.
+
 **Modules of a task** (``project.task``)
 
 * **Modules** (``module_ids``): the installed modules the task touches,
-  records of the module list (``ir.module.module``). On the tasks of an
-  AI-driven project the form shows them after the Resolution, as tags
-  bearing their technical names, and offers only installed modules. A
-  duplicated task starts without modules. A change of the modules is not
-  tracked: Odoo 20 writes tracked values into the text of the chatter
-  message, which every reader of the task reads, whatever the groups of the
-  field.
+  records of the module list (``ir.module.module``). On the tasks of the
+  project that develops this Odoo the form shows them after the Resolution,
+  as tags bearing their technical names, and offers only installed modules.
+  On the tasks of other projects the form hides them; they are kept, and the
+  project does not stop a create or a write of them. A duplicated task
+  starts without modules. A change of the modules is not tracked: Odoo 20
+  writes tracked values into the text of the chatter message, which every
+  reader of the task reads, whatever the groups of the field.
 * A create or a write refuses a module it adds that is not installed;
   *To be upgraded* and *To be removed* count as installed, *To be
   installed* does not. The refusal names the modules, and the whole call is
@@ -432,9 +454,9 @@ The module's models, fields and selection values carry the names of the
   category and is not in **Task Notes**.
 * A task opens on Description; Checklist, Technical Solution, Test Cases
   and Pull Requests follow it. On 16.0 Checklist is the first tab.
-* **AI-driven Project**, **Stages Requiring a Resolution** and **Stages
-  Requiring a Type and an Estimate** are settings under *Tasks Management*
-  on the project form.
+* **AI-driven Project**, **Develops This Odoo**, **Stages Requiring a
+  Resolution** and **Stages Requiring a Type and an Estimate** are settings
+  under *Tasks Management* on the project form.
 * A plain Duplicate keeps the stage of its source on Odoo 20, so it takes
   the Resolution and the pull requests as described above. On 16.0 only the
   tasks of a duplicated project keep their stage.

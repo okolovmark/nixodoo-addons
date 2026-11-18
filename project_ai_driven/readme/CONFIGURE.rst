@@ -1,8 +1,15 @@
 * On a project, switch on **AI-driven Project** (*Settings* tab, *Tasks
-  Management*) to show the Technical Solution and Pull Requests tabs, the
-  Resolution and the Modules on its tasks, and to hide the core priority
-  star on them.
-* Below it, on an AI-driven project, **Stages Requiring a Resolution** lists
+  Management*) to show the Technical Solution and Pull Requests tabs and the
+  Resolution on its tasks, and to hide the core priority star on them.
+* Below it, a system administrator (``base.group_system``) switches on
+  **Develops This Odoo** on the one AI-driven project whose tasks change
+  this Odoo database: its tasks show their Modules. The setting is shown to
+  system administrators only, on a project that is AI-driven or carries the
+  flag. One project carries it at most, archived projects included: to move
+  it, switch it off on the project that has it, then on on the other one.
+  Only a system administrator archives or deletes the project that carries
+  it.
+* Then, on an AI-driven project, **Stages Requiring a Resolution** lists
   the stages a task enters only with a Resolution, and with a pull request
   when the Resolution is Code. Only stages of the project can be picked.
   Leave it empty to switch the closing rule off.

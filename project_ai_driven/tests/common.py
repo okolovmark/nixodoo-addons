@@ -45,6 +45,14 @@ class ProjectAiDrivenCommon(TransactionCase):
         return cls._create_user(name, login, email, extra_group="project.group_project_user")
 
     @classmethod
+    def _set_develops_this_odoo(cls, project):
+        """The database may hold its own project that develops it, and one project at most does."""
+        cls.env["project.project"].with_context(active_test=False).search(
+            [("develops_this_odoo", "=", True), ("id", "!=", project.id)]
+        ).develops_this_odoo = False
+        project.develops_this_odoo = True
+
+    @classmethod
     def _restrict_task_access(cls, name, domain):
         cls.env["ir.access"].create(
             {
