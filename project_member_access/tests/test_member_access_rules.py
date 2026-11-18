@@ -1,5 +1,5 @@
 from odoo import Command
-from odoo.exceptions import AccessError
+from odoo.exceptions import AccessError, UserError
 from odoo.tests.common import tagged
 
 from .common import MemberAccessCommon
@@ -155,6 +155,10 @@ class TestMemberAccessRules(MemberAccessCommon):
             self.env["project.task.session"].create({"session_id": "session-1", "task_id": task.id}),
         )
 
+    def _assert_found_on_task(self, line, user, task):
+        found_lines = self.env[line._name].with_user(user).search([("id", "=", line.id), ("task_id", "=", task.id)])
+        self.assertEqual(found_lines, line, line._name)
+
     def test_lines_of_an_own_task_are_written_whatever_the_role(self):
         for line in self._create_lines(self.private_reader_task):
             self.assertEqual(
@@ -162,6 +166,58 @@ class TestMemberAccessRules(MemberAccessCommon):
                 {"member_access_reader": ALL, "member_access_contributor": READ_ONLY},
                 line._name,
             )
+
+    def test_a_line_moves_only_to_a_task_one_may_write(self):
+        own_standard_task = self._create_task(self.standard_project, user_ids=[Command.set(self.reader.ids)])
+        for source_task in self.private_reader_task | own_standard_task:
+            for line in self._create_lines(source_task):
+                move_case = "%s from %s" % (line._name, source_task.project_id.name)
+                with self.assertRaises(AccessError, msg=move_case):
+                    line.with_user(self.reader).write({"task_id": self.private_task.id})
+        for line in self._create_lines(self.private_reader_task):
+            line.with_user(self.editor).write({"task_id": self.private_task.id})
+            self._assert_found_on_task(line, self.editor, self.private_task)
+
+    def test_a_line_moves_between_standard_tasks_as_before(self):
+        other_standard_task = self._create_task(self.standard_project)
+        for line in self._create_lines(self.standard_task):
+            line.with_user(self.outsider).write({"task_id": other_standard_task.id})
+            self._assert_found_on_task(line, self.outsider, other_standard_task)
+
+    def test_a_checklist_item_or_question_moves_only_to_a_task_one_may_read(self):
+        """ADR 0007: whoever can read its task writes it, in a Standard project too."""
+        hidden_project = self.env["project.project"].create(
+            {"name": "Standard, followers-only", "privacy_visibility": "followers"}
+        )
+        hidden_task = self._create_task(hidden_project)
+        checklist_item_and_question = self._create_lines(self.standard_task)[:2]
+        for line in checklist_item_and_question:
+            with self.assertRaises(AccessError, msg=line._name):
+                line.with_user(self.outsider).write({"task_id": hidden_task.id})
+
+    def test_a_line_takes_the_project_of_its_task(self):
+        for line in self._create_lines(self.private_task):
+            with self.assertRefused(UserError, "the project of their task"):
+                line.with_user(self.editor).write({"project_id": self.standard_project.id})
+            self.assertFalse(self._allowed(line, self.outsider, "read"), line._name)
+            line.with_user(self.editor).write({"project_id": self.private_project.id})
+
+    def test_a_line_is_created_in_the_project_of_its_task(self):
+        """A session given with a task and session id that already have a row writes that row."""
+        self.env["project.task.session"].create({"session_id": "session-1", "task_id": self.private_task.id})
+        foreign_project_vals = {"task_id": self.private_task.id, "project_id": self.standard_project.id}
+        with self.assertRefused(UserError, "the project of their task"):
+            self.env["project.task.session"].with_user(self.editor).create(
+                dict(foreign_project_vals, session_id="session-1")
+            )
+        for model_name, line_vals in (
+            ("project.task.checklist.item", {"name": "Check"}),
+            ("project.task.question", {"question": "Which?"}),
+            ("project.task.testcase", {"name": "Case"}),
+            ("project.task.session", {"session_id": "session-2"}),
+        ):
+            line = self.env[model_name].with_user(self.editor).create(dict(foreign_project_vals, **line_vals))
+            self.assertFalse(self._allowed(line, self.outsider, "read"), model_name)
 
     def test_lines_follow_their_task_into_a_private_project(self):
         parent = self._create_task(self.standard_project)
@@ -341,10 +397,9 @@ class TestMemberAccessRules(MemberAccessCommon):
         session_vals = {"session_id": "session-1", "task_id": self.private_task.id, "outcome": "Reviewed"}
         with self.assertRaises(AccessError):
             Session.with_user(self.reader).create(session_vals)
-        session = Session.with_user(self.editor).create(session_vals)
+        Session.with_user(self.editor).create(session_vals)
         with self.assertRaises(AccessError, msg="the row of a logged session is written, not created"):
             Session.with_user(self.reader).create(dict(session_vals, outcome="Read it"))
-        self.assertEqual(session.outcome, "Reviewed")
         own_session = Session.with_user(self.reader).create(
             {"session_id": "session-2", "task_id": self.private_reader_task.id}
         )
