@@ -240,6 +240,10 @@ existing records: a text saved before keeps its inline images until it is
 saved again, or until a migration or a script calls
 ``_move_inline_images_to_attachments`` on its task (see *Usage*).
 
+The update to 16.0.2.14.0 adds the **Brief** of a task, computed on each
+read that names it. It has no migration, adds no column, stores nothing and
+writes nothing on existing records.
+
 **Upgrading from project_software**
 
 ``project_software`` remains for one release as an empty module that depends
