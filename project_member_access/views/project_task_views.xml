@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="project_task_view_card_inherit_member_access" model="ir.ui.view">
+        <field name="name">project.task.view.card.inherit.project_member_access</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project.view_task_card" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='project_privacy_visibility']" position="after">
+                <field name="project_access_mode" />
+            </xpath>
+            <xpath expr="//a[@name='%(project.portal_share_action)d']" position="attributes">
+                <attribute name="t-if" add="record.project_access_mode.raw_value == 'standard'" separator="and" />
+            </xpath>
+        </field>
+    </record>
+</odoo>
