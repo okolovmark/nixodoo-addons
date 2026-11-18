@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 from freezegun import freeze_time
 
@@ -7,8 +8,10 @@ from odoo import Command
 from odoo.exceptions import AccessError, MissingError
 from odoo.tests import Form
 
+from ..models.project_task_image_mixin import ImageMover, get_image_source
 from ..models.project_task_question import is_blank_html
 from .common import ProjectAiDrivenCommon
+from .test_inline_images import RED, data_uri, image_html, image_tag
 
 EARLIER = datetime(2026, 3, 2, 9, 0)
 LATER = datetime(2026, 3, 3, 15, 30)
@@ -394,6 +397,21 @@ class TestQuestionAccess(ProjectAiDrivenCommon):
         with self.assertRaises(AccessError):
             self.as_developer.create({"question": QUESTION, "task_id": self.hidden_task.id})
         self.assertEqual(self.as_developer.create({"question": QUESTION, "task_id": self.task.id}).task_id, self.task)
+
+    def test_a_row_refused_a_task_copies_no_image_onto_it(self):
+        self.task.description = image_html(image_tag(data_uri(RED)))
+        row = self.visible_question
+        row.answer = self.task.description
+        self.assertEqual(row.answer, self.task.description, "a write keeps the link to the task's image")
+        other_task = self.env["project.task"].create({"name": "Other Task", "project_id": self.project.id})
+        with patch.object(ImageMover, "move", autospec=True, side_effect=ImageMover.move) as move:
+            with self.assertRaises(AccessError):
+                row.with_user(self.user_dev).write({"task_id": self.hidden_task.id})
+            self.assertFalse(move.called, "the move is refused before the images are copied")
+            row.with_user(self.user_dev).write({"task_id": other_task.id})
+        image_copy = self.env["ir.attachment"].search([("res_model", "=", row._name), ("res_id", "=", row.id)])
+        self.assertEqual(image_copy.raw.to_base64(), RED)
+        self.assertEqual(row.answer, image_html(image_tag(get_image_source(image_copy))))
 
     def test_sudo_reaches_every_row(self):
         domain = [("task_id", "in", self.both_tasks.ids)]

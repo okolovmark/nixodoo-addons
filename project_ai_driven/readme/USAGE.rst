@@ -59,6 +59,12 @@ On the task form, which opens on Description:
   moving the task to a stage that requires them. The refusal names what is
   missing.
 
+An image pasted or dropped into a text of a task, of a question row or of a
+test case becomes an attachment of that record when it is saved, and the
+text shows it from there; the images of the Description and the Solution
+show among the attachments of the task's chatter. A duplicated task and its
+lines get their own copies of the images.
+
 **Project > Checklist** lists the checklist items of the tasks you can read
 in the selected companies, opened on your own TODO items. Group by project,
 task, user or status. The assignee or the reviewer converts an item into a
@@ -187,3 +193,30 @@ with ``task_id``, ``previous_stage_id``, ``stage_id``, ``stage_name``,
 writes). The log holds the stages of every task, also of tasks a user
 cannot read: code that shows it to other users reads it with ``sudo()``,
 for the tasks those users can read.
+
+A tool that writes a text over RPC may send its images inline, as
+``<img src="data:image/png;base64,..." data-filename="...">``: the create or
+write makes each an attachment of the record holding the text, and a read
+of the text gives the ``/web/image/<id>?access_token=<token>`` link in its
+place. To show an image of another task, question row or test case in a new
+record, it sends the link as it read it, access token included: the new
+record gets its own copy.
+
+A migration or an ``odoo shell`` script moves the inline images of texts
+saved before 20.0.2.13.0 with
+``_move_inline_images_to_attachments(dry_run=False, store=True)`` on the
+tasks, a private method that RPC cannot call. It covers the texts of the
+tasks and of their question rows and test cases, and returns ``records``
+(the tasks and rows whose texts change), ``images`` (the attachments
+created), ``bytes`` (their size before core resizes them) and ``texts``
+(``{record: {field name: new text}}``). An image core fails to read stays
+inline and counts nowhere. It holds every new text until it returns: run it
+over the tasks in batches.
+
+* ``dry_run=True`` creates and changes nothing, counts as a run would, and
+  returns empty ``texts``.
+* ``store=False`` creates the attachments and leaves the texts to the
+  caller, which can store them by SQL to keep ``write_date`` and
+  ``write_uid``; the default stores them as a save does, which updates both.
+  A returned text the caller does not store keeps its inline images, and
+  the next run attaches them again.

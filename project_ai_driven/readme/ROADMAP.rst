@@ -88,3 +88,14 @@
   request, also under ``sudo()``.
 * The stage name of a row is the source-language name (``en_US``) of the
   stage when the row was written.
+* An image is attached once per save: the same image pasted again in a later
+  save becomes another attachment of the record.
+* Only the ``src`` of an ``<img>`` is read. An image in a ``srcset``, a
+  ``<picture>`` source or a CSS background stays as it is, inline or linked,
+  and so does an absolute link to another record's image
+  (``https://<host>/web/image/<id>``): a copy of the text still links the
+  source record's attachment.
+* A file of another record linked as ``/web/content/<id>`` keeps pointing at
+  that record's attachment in a copied text, and the link breaks when that
+  record is deleted.
+* An image taken out of a text stays an attachment of its record.

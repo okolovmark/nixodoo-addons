@@ -74,6 +74,13 @@ The update to 20.0.2.12.0 adds the sessions of a task: the table
 **Sessions** tab of the task form. It has no migration and writes nothing
 on the tasks, which start without sessions.
 
+The update to 20.0.2.13.0 makes the images of the texts of tasks, question
+rows and test cases attachments of the record holding the text when a text
+is saved. It has no migration and converts no data: a text saved before
+keeps its inline images until it is saved again, or until a migration or a
+script calls ``_move_inline_images_to_attachments`` on its task (see
+*Usage*).
+
 **A database that has the 20.0 project_software installed**
 
 ``project_software`` is the former name of this module. Such a database is

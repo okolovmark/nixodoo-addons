@@ -23,6 +23,7 @@ VERIFICATION_FIELDS = ("verified_by_id", "verified_on", "verification_kind")
 class ProjectTaskTestcase(models.Model):
     _name = "project.task.testcase"
     _description = "Testcase"
+    _inherit = ["project.task.image.mixin"]
 
     sequence = fields.Integer(string="Sequence", default=10)
     state = fields.Selection(
