@@ -1,7 +1,7 @@
 {
     "name": "Project Member Access",
     "summary": "Public and Private projects whose members read and change them by role",
-    "version": "16.0.1.0.1",
+    "version": "16.0.1.0.2",
     "category": "Services/Project",
     "author": "Mark Okolov",
     "website": "https://github.com/okolovmark/nixodoo-addons",

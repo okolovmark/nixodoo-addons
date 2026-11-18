@@ -276,6 +276,26 @@ class TestMemberAccessRules(MemberAccessCommon):
         milestone.with_user(self.admin).unlink()
         self.assertFalse(milestone.exists())
 
+    def test_project_settings_move_into_a_project_by_its_admins_only(self):
+        """The write rules read a milestone or an update before the write, in the
+        project it leaves: moved, it is checked again in the project it enters.
+        """
+        values_by_model = {
+            "project.milestone": {"name": "Go-live"},
+            "project.update": {"name": "Week 1", "status": "on_track"},
+        }
+        for model_name, values in values_by_model.items():
+            for project in self.public_project | self.private_project:
+                for user in self.outsider | self.reader:
+                    with self.subTest(model=model_name, project=project.name, user=user.login):
+                        record = self.env[model_name].create({**values, "project_id": self.standard_project.id})
+                        record.with_user(user).write({"name": "Renamed"})
+                        with self.assertRaises(AccessError):
+                            record.with_user(user).write({"project_id": project.id})
+                record = self.env[model_name].create({**values, "project_id": self.standard_project.id})
+                record.with_user(self.admin).write({"project_id": project.id})
+                self.assertEqual(record.project_id, project)
+
     def test_an_admin_keeps_the_settings_of_a_followers_only_project_they_do_not_follow(self):
         self.assertNotIn(self.admin.partner_id, self.public_project.message_partner_ids)
         milestone = (

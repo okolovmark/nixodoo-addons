@@ -1,5 +1,6 @@
 from . import project_member
 from . import project_member_access_line_mixin
+from . import project_milestone
 from . import project_project
 from . import project_pull_request
 from . import project_task

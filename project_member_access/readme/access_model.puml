@@ -70,7 +70,11 @@ note as Rules
 
   <b>Checked in create / write</b>
   assignees: Admin; stage: assignee, Editor or Admin
-  task moving in: Contributor (with assignees: Admin)
+  UAT users (on create too): assignee, Editor or Admin
+  task moving in: Contributor (with assignees: Admin,
+    with UAT users: Editor)
+  sub-tasks carried out with their parent: write on each
+  milestone, update moving in: Admin
   stages of the project: Admin
   member rows: added by an Admin, last Admin kept
 end note
