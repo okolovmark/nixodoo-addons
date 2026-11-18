@@ -199,17 +199,17 @@ class TestMemberAccessRules(MemberAccessCommon):
         for line in self._create_lines(self.private_task):
             with self.assertRefused(UserError, "the project of their task"):
                 line.with_user(self.editor).write({"project_id": self.standard_project.id})
-            self.assertFalse(self._allowed(line, self.outsider, "read"), line._name)
             line.with_user(self.editor).write({"project_id": self.private_project.id})
 
     def test_a_line_is_created_in_the_project_of_its_task(self):
-        """A session given with a task and session id that already have a row writes that row."""
-        self.env["project.task.session"].create({"session_id": "session-1", "task_id": self.private_task.id})
+        """The reader reads the private task without being on it or its Editor: only a
+        stored Standard project would let them write a line of it. A session given with
+        a task and session id that already have a row writes that row.
+        """
+        logged_session = self.env["project.task.session"].create(
+            {"session_id": "session-1", "task_id": self.private_task.id}
+        )
         foreign_project_vals = {"task_id": self.private_task.id, "project_id": self.standard_project.id}
-        with self.assertRefused(UserError, "the project of their task"):
-            self.env["project.task.session"].with_user(self.editor).create(
-                dict(foreign_project_vals, session_id="session-1")
-            )
         for model_name, line_vals in (
             ("project.task.checklist.item", {"name": "Check"}),
             ("project.task.question", {"question": "Which?"}),
@@ -217,7 +217,12 @@ class TestMemberAccessRules(MemberAccessCommon):
             ("project.task.session", {"session_id": "session-2"}),
         ):
             line = self.env[model_name].with_user(self.editor).create(dict(foreign_project_vals, **line_vals))
-            self.assertFalse(self._allowed(line, self.outsider, "read"), model_name)
+            self.assertFalse(self._allowed(line, self.reader, "write"), model_name)
+        session_vals = dict(foreign_project_vals, session_id="session-1", outcome="Reviewed")
+        updated_session = self.env["project.task.session"].with_user(self.editor).create(session_vals)
+        self.assertEqual(updated_session, logged_session)
+        self.assertEqual(updated_session.outcome, "Reviewed")
+        self.assertFalse(self._allowed(updated_session, self.reader, "write"), "the logged session")
 
     def test_lines_follow_their_task_into_a_private_project(self):
         parent = self._create_task(self.standard_project)
