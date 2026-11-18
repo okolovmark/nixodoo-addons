@@ -1,0 +1,124 @@
+.o_timesheet_systray {
+    position: relative;
+    cursor: pointer;
+}
+
+.o_timesheet_systray_icon {
+    transition: opacity 0.2s;
+}
+
+.o_timesheet_systray_icon:hover {
+    opacity: 0.8;
+}
+
+.o_timesheet_systray_timer {
+    font-variant-numeric: tabular-nums;
+    font-size: 10px;
+    line-height: 1;
+    background-color: #198754;
+    color: #fff;
+    padding: 2px 6px;
+    border-radius: 10px;
+}
+
+.o_timesheet_systray_dropdown {
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    animation: tsDropdownIn 0.15s ease-out;
+}
+
+@keyframes tsDropdownIn {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.o_timesheet_systray_dropdown .bg-success-light {
+    background-color: rgba(40, 167, 69, 0.08) !important;
+}
+
+.o_timesheet_systray_dropdown .btn {
+    border-radius: 6px;
+    font-size: 12px;
+    padding: 4px 12px;
+}
+
+/* Label and icon colors - the widget's root is a div, which navbar.scss does not
+   paint, so both carry their own colour or they render dark on dark. */
+.o_ts_icon_label {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+
+.o_ts_icon_idle {
+    color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.o_ts_icon_running {
+    color: #6fdc6f !important;
+}
+
+.o_timesheet_systray_icon .o_ts_icon_running {
+    animation: tsPulse 2s ease-in-out infinite;
+}
+
+@keyframes tsPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+.o_timesheet_task_list {
+    max-height: 340px;
+    overflow-y: auto;
+}
+
+.o_timesheet_task_item {
+    transition: background-color 0.15s;
+}
+
+.o_timesheet_task_item:hover {
+    background-color: rgba(0, 0, 0, 0.03);
+}
+
+.o_timesheet_task_item:last-child {
+    border-bottom: none !important;
+}
+
+.o_ts_play_btn {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: 50%;
+    font-size: 11px;
+}
+
+.o_ts_play_btn:hover {
+    background-color: #198754 !important;
+    color: #fff !important;
+}
+
+.o_ts_task_key {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background-color: #e8e0f3;
+    color: #4a2d7a;
+    white-space: nowrap;
+    vertical-align: middle;
+    line-height: 1.4;
+}
