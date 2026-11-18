@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<templates xml:space="preserve">
+
+    <t t-name="project_support_request.SupportRequestSystray">
+        <Dropdown t-if="this.state.configured"
+                  position="'bottom-end'"
+                  state="this.dropdown"
+                  beforeOpen.bind="this.onBeforeOpen"
+                  menuClass="'o_support_request_menu p-0'">
+            <button class="o_support_request_systray" title="Support">
+                <i class="oi" data-icon="support" role="img" aria-label="Support" />
+                <span class="d-none d-md-inline ms-1">Support</span>
+                <span t-if="this.openCount" class="badge rounded-pill" t-out="this.openCount" />
+            </button>
+
+            <t t-set-slot="content">
+                <div class="nav nav-tabs nav-fill flex-nowrap" role="tablist">
+                    <button class="nav-link rounded-0 border-top-0"
+                            t-att-class="{ 'active fw-bold': this.state.activeTab === 'bugs' }"
+                            role="tab"
+                            name="bugs"
+                            t-on-click="() => this.onSwitchTab('bugs')">
+                        <i class="oi me-1" data-icon="bug_report" />Bugs
+                        <span t-if="this.state.bugsCount"
+                              class="badge rounded-pill ms-1"
+                              t-att-class="this.state.activeTab === 'bugs' ? 'text-bg-danger' : 'text-bg-secondary'"
+                              t-out="this.state.bugsCount" />
+                    </button>
+                    <button class="nav-link rounded-0 border-top-0"
+                            t-att-class="{ 'active fw-bold': this.state.activeTab === 'others' }"
+                            role="tab"
+                            name="others"
+                            t-on-click="() => this.onSwitchTab('others')">
+                        <i class="oi me-1" data-icon="confirmation_number" />Others
+                        <span t-if="this.state.othersCount"
+                              class="badge rounded-pill ms-1"
+                              t-att-class="this.state.activeTab === 'others' ? 'text-bg-primary' : 'text-bg-secondary'"
+                              t-out="this.state.othersCount" />
+                    </button>
+                </div>
+
+                <div t-if="this.state.loading" class="p-3 text-center text-muted">
+                    <i class="oi oi-spin me-1" data-icon="autorenew" />Loading...
+                </div>
+                <t t-else="">
+                    <div t-if="this.state.showCreateForm" class="o_support_request_form p-3 border-bottom bg-light">
+                        <input type="text"
+                               class="form-control form-control-sm mb-2"
+                               name="name"
+                               placeholder="Ticket title..."
+                               t-att-value="this.state.createName"
+                               t-on-input="this.onCreateNameInput"
+                               t-att-disabled="this.state.creating" />
+                        <select class="form-select form-select-sm mb-2"
+                                name="task_type"
+                                t-on-change="this.onCreateTypeChange"
+                                t-att-disabled="this.state.creating">
+                            <t t-foreach="this.state.taskTypes" t-as="taskType" t-key="taskType.value">
+                                <option t-att-value="taskType.value"
+                                        t-att-selected="this.state.createType === taskType.value"
+                                        t-out="taskType.label" />
+                            </t>
+                        </select>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-primary flex-fill"
+                                    name="create"
+                                    t-on-click="this.onSubmitCreate"
+                                    t-att-disabled="this.state.creating">
+                                <i t-if="this.state.creating" class="oi oi-spin me-1" data-icon="autorenew" />Create
+                            </button>
+                            <button class="btn btn-sm btn-secondary flex-fill"
+                                    name="cancel"
+                                    t-on-click="this.onCancelCreate"
+                                    t-att-disabled="this.state.creating">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+
+                    <div t-if="this.state.tickets.length" class="o_support_request_tickets list-group list-group-flush overflow-auto">
+                        <button t-foreach="this.visibleTickets" t-as="ticket" t-key="ticket.id"
+                                class="o_support_request_ticket list-group-item list-group-item-action d-flex align-items-center gap-2"
+                                t-on-click="() => this.openTicket(ticket.id)">
+                            <i class="oi oi-filled small"
+                               t-att-class="this.priorityClass(ticket.priority_level)"
+                               data-icon="circle" />
+                            <div class="flex-grow-1 overflow-hidden">
+                                <div class="text-truncate">
+                                    <span t-if="ticket.key" class="badge text-bg-light border me-1" t-out="ticket.key" />
+                                    <strong t-out="ticket.name" />
+                                </div>
+                                <small class="text-muted">
+                                    <t t-out="ticket.stage_name" /> · <t t-out="this.ticketAge(ticket.create_date)" />
+                                </small>
+                            </div>
+                            <i class="oi text-muted" data-icon="chevron_right" />
+                        </button>
+                        <button t-if="this.hasMoreTickets"
+                                class="list-group-item list-group-item-action text-center text-primary fw-bold"
+                                name="view_more"
+                                t-on-click="this.onShowMore">
+                            View more (<t t-out="this.remainingTicketCount" /> more)
+                        </button>
+                    </div>
+                    <div t-elif="!this.state.showCreateForm" class="p-3 text-center text-muted">
+                        <i class="oi oi-2x d-block mb-2" data-icon="check_circle" />
+                        <span class="fw-bold">No open tickets</span>
+                    </div>
+                </t>
+
+                <div class="d-flex border-top">
+                    <button t-if="!this.state.showCreateForm"
+                            class="btn btn-link flex-fill fw-bold"
+                            name="new_ticket"
+                            t-on-click="this.onShowCreateForm">
+                        <i class="oi me-1" data-icon="add" />New Ticket
+                    </button>
+                    <button class="btn btn-link flex-fill text-muted"
+                            name="view_closed"
+                            t-on-click="this.onViewClosed">
+                        <i class="oi me-1" data-icon="archive" />View Closed
+                    </button>
+                </div>
+            </t>
+        </Dropdown>
+    </t>
+
+</templates>

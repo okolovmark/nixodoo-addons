@@ -1,0 +1,10 @@
+// The phone shows the menu as a bottom sheet of the screen's width.
+@include media-breakpoint-up(md) {
+    .o_support_request_menu {
+        width: 22.5rem;
+    }
+}
+
+.o_support_request_tickets {
+    max-height: 21rem;
+}
