@@ -70,6 +70,14 @@ into *All checklist updates* on the task or on its project. The
 it silences the assignment notification of a task in Odoo itself: an
 integration writes tasks and checklist items with it and nobody is notified.
 
+The items a new task is created with, as ``Command.create`` in its
+``checklist_item_ids`` (a sub-task created from its parent included), are
+created right after the task, in their order, as items added to a saved
+task: their posts come after the creation message of the task, and the
+followers of *All checklist updates* on its project receive them. They are
+created with the access rights of the caller and without the ``default_*``
+keys of the context, which are the task's.
+
 The task's kanban card shows the current user's completion percentage over
 their non-cancelled items and the number of their TODO and Waiting items.
 These figures, the buttons of an item and the red of one's own TODO items

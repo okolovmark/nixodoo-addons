@@ -5,6 +5,7 @@ from markupsafe import escape
 
 from odoo import Command, api, fields, models
 from odoo.exceptions import ValidationError
+from odoo.tools.misc import clean_context
 
 from .project_pull_request import parse_single_pull_request_link
 from .project_task_testcase import TESTCASE_STATES
@@ -23,6 +24,11 @@ def get_size(hours):
         return False
     # a NaN, which only SQL can store, is under no bound
     return next((size for max_hours, size in SIZE_BANDS if hours <= max_hours), SIZE_BANDS[-1][1])
+
+
+def _is_create_command(command):
+    # A list from the web client, with a virtual id; a tuple from Command.create.
+    return isinstance(command, (list, tuple)) and command[0] == Command.CREATE
 
 
 class ProjectTask(models.Model):
@@ -285,11 +291,14 @@ class ProjectTask(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        vals_list, new_items_per_task = self._split_checklist_item_creations(vals_list)
         tasks = super().create(vals_list)
         # Sudo: a default of the context may set modules too, and a read checks the field's groups.
         tasks._check_modules_installed(tasks.sudo().module_ids)
         tasks._apply_closing_rule()
         tasks._apply_estimate_rule()
+        # The caller's env: an override may return the tasks in sudo, past the item's access rights.
+        tasks.with_env(self.env)._create_checklist_items(new_items_per_task)
         return tasks
 
     def write(self, vals):
@@ -344,6 +353,48 @@ class ProjectTask(models.Model):
             ("res_id", "=", self.id),
         ]
         return action
+
+    @api.model
+    def _split_checklist_item_creations(self, vals_list):
+        """Return vals_list without the checklist items it creates, and per task
+        the vals of those items, for _create_checklist_items. An item posts on
+        its task: inside the task's create that post comes before the task
+        posts its creation and subscribes its followers, so the project's
+        followers of all checklist updates miss it.
+
+        The items are created after the field's other commands: a create
+        followed by a Command.set or Command.clear in the same list survives.
+        Items a default_checklist_item_ids of the context gives are not split
+        and are created inside the task's create.
+        """
+        task_vals_list = []
+        new_items_per_task = []
+        for vals in vals_list:
+            commands = vals.get("checklist_item_ids") or []
+            new_items_vals = [command[2] for command in commands if _is_create_command(command)]
+            if new_items_vals:
+                vals = dict(vals)
+                other_commands = [command for command in commands if not _is_create_command(command)]
+                if other_commands:
+                    vals["checklist_item_ids"] = other_commands
+                else:
+                    del vals["checklist_item_ids"]
+            task_vals_list.append(vals)
+            new_items_per_task.append(new_items_vals)
+        return task_vals_list, new_items_per_task
+
+    def _create_checklist_items(self, new_items_per_task):
+        """Create the items of each task of self, in order, as a task saved first
+        and given its items right after gets them.
+        """
+        item_vals_list = [
+            {**item_vals, "task_id": task.id}
+            for task, new_items_vals in zip(self, new_items_per_task)
+            for item_vals in new_items_vals
+        ]
+        if item_vals_list:
+            # Without the default_* keys of the context: they are the task's, as for any inline line.
+            self.env["project.task.checklist.item"].with_context(clean_context(self.env.context)).create(item_vals_list)
 
     def _log_stage_moves(self, vals_list):
         """Log the tasks whose values carry a stage, before their rows are

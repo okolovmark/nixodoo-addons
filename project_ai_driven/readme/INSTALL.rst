@@ -62,6 +62,9 @@ the flag after it, and the form hides the Modules of every task until one
 does. Afterwards a system administrator sets the flag on the AI-driven
 project that develops the database.
 
+The update to 20.0.2.10.1 has no migration and writes nothing on existing
+records.
+
 **A database that has the 20.0 project_software installed**
 
 ``project_software`` is the former name of this module. Such a database is

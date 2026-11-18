@@ -4,7 +4,9 @@ On the task form, which opens on Description:
   tags. **Size** shows the size of the estimate and cannot be edited.
 * *Checklist* tab: add items, each with an **Assigned to** user, yourself
   unless you pick another, and an optional deadline. You are the reviewer of
-  the items you add. The assignee or the reviewer moves an item with the
+  the items you add. A new task or sub-task saves with the items added before
+  its first save: they are created right after the task, as items added to
+  it once saved. The assignee or the reviewer moves an item with the
   state icons (TODO, Waiting, Done, Cancelled), changes its description or
   gives it another assignee. They also convert it into a sub-task of the
   task with the *Convert to Sub-task* icon of its row, after a confirmation:
@@ -110,7 +112,10 @@ has no module.
 A tool that keeps a checklist over RPC creates ``project.task.checklist.item``
 records with ``task_id``, ``name`` and ``user_id``, which defaults to the
 tool's own user, and reads the items of a task from ``checklist_item_ids``.
-It moves an item by writing ``state`` (``todo``, ``waiting``, ``done`` or
+Items sent with ``Command.create`` in the ``checklist_item_ids`` of a task
+being created are created right after the task, with the access rights of
+the calling user: a portal collaborator gets an access error. It moves an
+item by writing ``state`` (``todo``, ``waiting``, ``done`` or
 ``cancelled``) as the item's assignee or reviewer, and turns items into
 sub-tasks with ``action_convert_to_subtask``, one sub-task under the task of
 each item, as the item's assignee, or as its reviewer where its user may read
