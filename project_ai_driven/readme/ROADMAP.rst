@@ -60,6 +60,12 @@
   them.
 * Question rows have no chatter: a change of status or answer leaves no
   trace but **Answered by** and **Answered on**.
+* Session rows have no chatter either: a session that writes its row again
+  replaces its date, and its outcome when it sends one; the former values
+  are not kept.
+* Two first creates of the same task and session in concurrent transactions
+  both find no row: the later one fails on the unique constraint, and
+  nothing retries it.
 * A note whose category is in bold inside a heading or a list, or coloured,
   gets no category: only one opening ``<p>`` or ``<span>`` may come before
   the bold, and nothing between the bold and the category.

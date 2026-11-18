@@ -114,6 +114,49 @@
                         </list>
                     </field>
                 </page>
+                <page
+                    name="sessions"
+                    string="Sessions"
+                    invisible="not is_ai_driven"
+                    groups="project.group_project_user"
+                >
+                    <field name="session_ids" mode="list,kanban">
+                        <list>
+                            <field name="date" />
+                            <field name="user_id" widget="many2one_avatar_user" />
+                            <!-- wide enough for a whole UUID next to the chatter of a wide screen -->
+                            <field name="session_id" width="280px" />
+                            <field name="outcome" />
+                        </list>
+                        <!-- the phone gets cards: the list does not fit its width -->
+                        <kanban class="o_kanban_mobile">
+                            <templates>
+                                <t t-name="card">
+                                    <field name="outcome" class="fw-bold text-break" t-if="record.outcome.raw_value" />
+                                    <field name="session_id" class="text-muted small text-break" />
+                                    <div class="text-muted small">
+                                        <t t-if="record.user_id.raw_value">
+                                            <field name="user_id" /> -
+                                        </t>
+                                        <field name="date" />
+                                    </div>
+                                </t>
+                            </templates>
+                        </kanban>
+                        <form>
+                            <group>
+                                <group>
+                                    <field name="session_id" />
+                                    <field name="outcome" />
+                                </group>
+                                <group>
+                                    <field name="user_id" widget="many2one_avatar_user" />
+                                    <field name="date" />
+                                </group>
+                            </group>
+                        </form>
+                    </field>
+                </page>
             </xpath>
             <xpath expr="//field[@name='tag_ids']" position="before">
                 <field name="priority_level" string="Priority" />

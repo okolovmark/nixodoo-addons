@@ -1,6 +1,7 @@
 * On a project, switch on **AI-driven Project** (*Settings* tab, *Tasks
-  Management*) to show the Technical Solution and Pull Requests tabs and the
-  Resolution on its tasks, and to hide the core priority star on them.
+  Management*) to show the Technical Solution, Pull Requests and Sessions
+  tabs and the Resolution on its tasks, and to hide the core priority star
+  on them.
 * Below it, a system administrator (``base.group_system``) switches on
   **Develops This Odoo** on the one AI-driven project whose tasks change
   this Odoo database: its tasks show their Modules. The setting is shown to
@@ -24,14 +25,14 @@
   A copy that keeps the stage of its source, a plain Duplicate or the
   duplication of a project, takes the type and the estimate of its source,
   so it is refused only where its source sits in such a stage without them.
-* Checklist items, question rows and test cases are managed by users with
-  the **User** access of *Project* (Settings > Users, the *Access Rights* tab
-  of a user). Such a user reads the lines of the tasks they can read and
-  creates, changes and deletes those of the tasks they can change: core
-  lets a project user read every task template without project, and so its
-  lines, but change them only where the template may be changed. The
-  Checklist, Test Cases and Technical Solution tabs are hidden from users
-  without that access.
+* Checklist items, question rows, session rows and test cases are managed
+  by users with the **User** access of *Project* (Settings > Users, the
+  *Access Rights* tab of a user). Such a user reads the lines of the tasks
+  they can read and creates, changes and deletes those of the tasks they can
+  change: core lets a project user read every task template without
+  project, and so its lines, but change them only where the template may be
+  changed. The Checklist, Test Cases, Technical Solution and Sessions tabs
+  are hidden from users without that access.
 * **Project > Task Notes** and the **Notes** button of the task form are
   shown to users with the **User** access of *Project*. They list the notes
   of the tasks the user can read; the menu leaves out those of templates.

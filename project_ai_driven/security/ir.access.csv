@@ -5,6 +5,8 @@ access_task_testcase_read,project.task.testcase.read,project.task.testcase,proje
 access_task_testcase_write,project.task.testcase.write,project.task.testcase,project.group_project_user,cud,"[('task_id', 'access', 'write')]"
 access_task_question_read,project.task.question.read,project.task.question,project.group_project_user,r,"[('task_id', 'access', 'read')]"
 access_task_question_write,project.task.question.write,project.task.question,project.group_project_user,cud,"[('task_id', 'access', 'write')]"
+access_task_session_read,project.task.session.read,project.task.session,project.group_project_user,r,"[('task_id', 'access', 'read')]"
+access_task_session_write,project.task.session.write,project.task.session,project.group_project_user,cud,"[('task_id', 'access', 'write')]"
 access_project_pull_request_internal,project.pull.request.internal,project.pull.request,base.group_user,r,
 access_project_pull_request_user,project.pull.request.user,project.pull.request,project.group_project_user,cru,
 access_project_task_stage_log_system,project.task.stage.log.system,project.task.stage.log,base.group_system,r,

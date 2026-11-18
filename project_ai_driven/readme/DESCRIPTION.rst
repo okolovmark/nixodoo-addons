@@ -1,11 +1,11 @@
 Additions to project tasks for AI-driven development: task attributes,
 clarifying questions as rows with their answers, the technical solution, a
-checklist and test cases per task, pull requests as records, the project
-that develops this Odoo and the installed modules its tasks touch, the
-internal notes of tasks by category, and two rules on the stages a project
-marks: a Resolution to enter some, a task type and an estimate to enter
-others. The module also logs the stage changes of every task of the
-database.
+checklist and test cases per task, pull requests as records, the agent
+sessions that worked on a task, the project that develops this Odoo and the
+installed modules its tasks touch, the internal notes of tasks by category,
+and two rules on the stages a project marks: a Resolution to enter some, a
+task type and an estimate to enter others. The module also logs the stage
+changes of every task of the database.
 
 **Task attributes** (``project.task``)
 
@@ -178,6 +178,42 @@ A row is named by the text of its question, cut at 80 characters, or of its
 answer when the question is blank, or else by its task. A row follows the
 access of its task as a checklist item does, through two access rights with
 the same domains.
+
+**Sessions** (``project.task.session``)
+
+The agent sessions that worked on a task, its **Sessions**
+(``session_ids``), are rows listed the newest first, one per task and
+session:
+
+* **Session** (``session_id``): the id of the agent session. No link is
+  stored; where the Entire CLI records sessions, ``entire session info
+  <id>`` opens it.
+* **Date**: when the session last wrote its row.
+* **Worked by** (``user_id``): an internal user, by default the one who
+  creates the row.
+* **Outcome**: what the session did, in one line.
+
+A task lists a session once. A create that names a task and a session that
+already have a row writes the values it gives onto that row and returns it
+in its place: the date becomes now unless the create gives one, and what it
+does not give, the user and the outcome included, stays. A batch that names
+a pair twice keeps the later values. The task and the session are read from
+the values or their defaults, so a session added to the task's
+``session_ids``, on the task form or with ``Command.create``, updates its
+row too. A write changes only what it names: editing a row leaves its date
+alone. A write that moves a row onto a task and session that have a row is
+refused.
+
+A row is named by its outcome, cut at 80 characters, or else by its
+session. A row follows the access of its task as a checklist item does,
+through two access rights with the same domains: it is read with the task,
+and created, changed and deleted with write access to it, also when a
+create updates a row. A create, and a write of the task, first checks that
+the user can read the task it names, so a create on a task the user cannot
+read is refused whether or not that task lists the session. The
+**Sessions** tab, after **Pull Requests**, shows the rows to project users
+on the tasks of an AI-driven project, as cards on a phone. Copying a task
+copies no session.
 
 **The lines of a copy**
 
@@ -451,14 +487,14 @@ The module's models, fields and selection values carry the names of the
   and its next occurrence until they are corrected. The ORM computes the
   task and the category of existing messages when the module adds their
   columns.
-* Checklist items, question rows and test cases follow the access of their
-  task through the domains of their access rights, with the ``access``
-  operator of Odoo 20: reading follows the read access of the task, a
-  change its write access. On 16.0 items and rows follow the read access of
-  their task for every operation, through two ORM overrides in
-  ``project.task.access.mixin``, which this branch does not have, and test
-  cases follow none: every project user reaches every case. On 16.0 an item
-  deleted meanwhile passes the access check.
+* Checklist items, question rows, session rows and test cases follow the
+  access of their task through the domains of their access rights, with the
+  ``access`` operator of Odoo 20: reading follows the read access of the
+  task, a change its write access. On 16.0 items, question rows and session
+  rows follow the read access of their task for every operation, through
+  two ORM overrides in ``project.task.access.mixin``, which this branch does
+  not have, and test cases follow none: every project user reaches every
+  case. On 16.0 an item deleted meanwhile passes the access check.
 * This branch has neither ``is_task_readable`` nor the grouped read of
   messages that 16.0 opens to project users on a domain naming it: Odoo 20
   groups messages for any user. A client that names ``is_task_readable``
@@ -466,8 +502,8 @@ The module's models, fields and selection values carry the names of the
 * A message that tracks changed fields is of type *Tracking* on Odoo 20,
   with the changes in its body after any note logged with them. It has no
   category and is not in **Task Notes**.
-* A task opens on Description; Checklist, Technical Solution, Test Cases
-  and Pull Requests follow it. On 16.0 Checklist is the first tab.
+* A task opens on Description; Checklist, Technical Solution, Test Cases,
+  Pull Requests and Sessions follow it. On 16.0 Checklist is the first tab.
 * **AI-driven Project**, **Develops This Odoo**, **Stages Requiring a
   Resolution** and **Stages Requiring a Type and an Estimate** are settings
   under *Tasks Management* on the project form.

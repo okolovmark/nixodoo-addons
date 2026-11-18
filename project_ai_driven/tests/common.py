@@ -53,12 +53,12 @@ class ProjectAiDrivenCommon(TransactionCase):
         project.develops_this_odoo = True
 
     @classmethod
-    def _restrict_task_access(cls, name, domain):
+    def _restrict_task_access(cls, name, domain, operation="crud"):
         cls.env["ir.access"].create(
             {
                 "name": name,
                 "model_id": cls.env["ir.model"]._get_id("project.task"),
-                "operation": "crud",
+                "operation": operation,
                 "domain": domain,
             },
         )

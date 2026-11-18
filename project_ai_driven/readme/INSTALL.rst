@@ -68,6 +68,12 @@ records.
 The update to 20.0.2.11.1 has no migration and writes nothing on existing
 records.
 
+The update to 20.0.2.12.0 adds the sessions of a task: the table
+``project_task_session``, its two access rights for project users,
+``access_task_session_read`` and ``access_task_session_write``, and the
+**Sessions** tab of the task form. It has no migration and writes nothing
+on the tasks, which start without sessions.
+
 **A database that has the 20.0 project_software installed**
 
 ``project_software`` is the former name of this module. Such a database is
