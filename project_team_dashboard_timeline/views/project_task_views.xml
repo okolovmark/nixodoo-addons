@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="project_task_view_form_planned_dates" model="ir.ui.view">
+        <field name="name">project.task.view.form.planned.dates.inherit.project_team_dashboard_timeline</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project_timeline.view_task_form2" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='planned_date_start']" position="before">
+                <field name="is_planned_from_subtasks" invisible="1" />
+            </xpath>
+            <xpath expr="//field[@name='planned_date_start']" position="attributes">
+                <attribute name="attrs">{'readonly': [('is_planned_from_subtasks', '=', True)]}</attribute>
+            </xpath>
+            <xpath expr="//field[@name='planned_date_end']" position="attributes">
+                <attribute name="attrs">{'readonly': [('is_planned_from_subtasks', '=', True)]}</attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="project_task_view_tree_planned_dates" model="ir.ui.view">
+        <field name="name">project.task.view.tree.planned.dates.inherit.project_team_dashboard_timeline</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project_timeline.view_task_tree2" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='planned_date_start']" position="before">
+                <field name="is_planned_from_subtasks" invisible="1" />
+            </xpath>
+            <xpath expr="//field[@name='planned_date_start']" position="attributes">
+                <attribute name="attrs">{'readonly': [('is_planned_from_subtasks', '=', True)]}</attribute>
+            </xpath>
+            <xpath expr="//field[@name='planned_date_end']" position="attributes">
+                <attribute name="attrs">{'readonly': [('is_planned_from_subtasks', '=', True)]}</attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- project_timeline shows the planned dates already: the copy of project_team_dashboard goes.
+         Applied right after that view, so its nodes are the first ones after the deadline. -->
+    <record id="view_task_form2_planned_dates_once" model="ir.ui.view">
+        <field name="name">project.task.form.planned.dates.once.inherit.project_team_dashboard_timeline</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project_team_dashboard.view_task_form2_planned_dates" />
+        <field name="arch" type="xml">
+            <xpath expr="//label[@name='planned_dates']" position="replace" />
+            <xpath expr="//div[@name='planned_dates']" position="replace" />
+        </field>
+    </record>
+
+    <record id="view_task_tree2_planned_dates_once" model="ir.ui.view">
+        <field name="name">project.task.tree.planned.dates.once.inherit.project_team_dashboard_timeline</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project_team_dashboard.view_task_tree2_planned_dates" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='date_deadline']/following-sibling::field[@name='is_planned_from_subtasks'][1]" position="replace" />
+            <xpath expr="//field[@name='date_deadline']/following-sibling::field[@name='planned_date_start'][1]" position="replace" />
+            <xpath expr="//field[@name='date_deadline']/following-sibling::field[@name='planned_date_end'][1]" position="replace" />
+        </field>
+    </record>
+</odoo>
