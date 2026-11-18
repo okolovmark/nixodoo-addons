@@ -1,0 +1,307 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <!-- Global rules: outside a Public or Private project, or allowed by the role. Rules of internal
+         users grant the same inside. Domains: res.users._project_member_access_domain -->
+    <record id="project_project_rule_member_access_read" model="ir.rule">
+        <field name="name">Project: member access, read (all users)</field>
+        <field name="model_id" ref="project.model_project_project" />
+        <field name="domain_force">user._project_member_access_domain('project.project', 'read')</field>
+        <field name="perm_read" eval="True" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="project_project_rule_member_access_read_grant" model="ir.rule">
+        <field name="name">Project: member access, read (internal users)</field>
+        <field name="model_id" ref="project.model_project_project" />
+        <field name="groups" eval="[Command.link(ref('base.group_user'))]" />
+        <field name="domain_force">user._project_member_access_domain('project.project', 'read', grant=True)</field>
+        <field name="perm_read" eval="True" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="project_project_rule_member_access_write" model="ir.rule">
+        <field name="name">Project: member access, write, unlink (all users)</field>
+        <field name="model_id" ref="project.model_project_project" />
+        <field name="domain_force">user._project_member_access_domain('project.project', 'write')</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="True" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="True" />
+    </record>
+    <record id="project_project_rule_member_access_write_grant" model="ir.rule">
+        <field name="name">Project: member access, write, unlink (internal users)</field>
+        <field name="model_id" ref="project.model_project_project" />
+        <field name="groups" eval="[Command.link(ref('base.group_user'))]" />
+        <field name="domain_force">user._project_member_access_domain('project.project', 'write', grant=True)</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="True" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="True" />
+    </record>
+    <record id="project_task_rule_member_access_read" model="ir.rule">
+        <field name="name">Task: member access, read (all users)</field>
+        <field name="model_id" ref="project.model_project_task" />
+        <field name="domain_force">user._project_member_access_domain('project.task', 'read')</field>
+        <field name="perm_read" eval="True" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="project_task_rule_member_access_read_grant" model="ir.rule">
+        <field name="name">Task: member access, read (internal users)</field>
+        <field name="model_id" ref="project.model_project_task" />
+        <field name="groups" eval="[Command.link(ref('base.group_user'))]" />
+        <field name="domain_force">user._project_member_access_domain('project.task', 'read', grant=True)</field>
+        <field name="perm_read" eval="True" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="project_task_rule_member_access_write" model="ir.rule">
+        <field name="name">Task: member access, write (all users)</field>
+        <field name="model_id" ref="project.model_project_task" />
+        <field name="domain_force">user._project_member_access_domain('project.task', 'write')</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="True" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="project_task_rule_member_access_write_grant" model="ir.rule">
+        <field name="name">Task: member access, write (internal users)</field>
+        <field name="model_id" ref="project.model_project_task" />
+        <field name="groups" eval="[Command.link(ref('base.group_user'))]" />
+        <field name="domain_force">user._project_member_access_domain('project.task', 'write', grant=True)</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="True" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="project_task_rule_member_access_create" model="ir.rule">
+        <field name="name">Task: member access, create (all users)</field>
+        <field name="model_id" ref="project.model_project_task" />
+        <field name="domain_force">user._project_member_access_domain('project.task', 'create')</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="True" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="project_task_rule_member_access_create_grant" model="ir.rule">
+        <field name="name">Task: member access, create (internal users)</field>
+        <field name="model_id" ref="project.model_project_task" />
+        <field name="groups" eval="[Command.link(ref('base.group_user'))]" />
+        <field name="domain_force">user._project_member_access_domain('project.task', 'create', grant=True)</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="True" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="project_task_rule_member_access_unlink" model="ir.rule">
+        <field name="name">Task: member access, unlink (all users)</field>
+        <field name="model_id" ref="project.model_project_task" />
+        <field name="domain_force">user._project_member_access_domain('project.task', 'unlink')</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="True" />
+    </record>
+    <record id="project_task_rule_member_access_unlink_grant" model="ir.rule">
+        <field name="name">Task: member access, unlink (internal users)</field>
+        <field name="model_id" ref="project.model_project_task" />
+        <field name="groups" eval="[Command.link(ref('base.group_user'))]" />
+        <field name="domain_force">user._project_member_access_domain('project.task', 'unlink', grant=True)</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="True" />
+    </record>
+    <record id="project_member_rule_member_access_read" model="ir.rule">
+        <field name="name">Project Member: member access, read (all users)</field>
+        <field name="model_id" ref="model_project_member" />
+        <field name="domain_force">user._project_member_access_domain('project.member', 'read')</field>
+        <field name="perm_read" eval="True" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="project_member_rule_member_access_write" model="ir.rule">
+        <field name="name">Project Member: member access, write, create, unlink (all users)</field>
+        <field name="model_id" ref="model_project_member" />
+        <field name="domain_force">user._project_member_access_domain('project.member', 'write')</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="True" />
+        <field name="perm_create" eval="True" />
+        <field name="perm_unlink" eval="True" />
+    </record>
+    <!-- Checklist items, questions and sessions are read as their task is: project.task.access.mixin. Ids without
+         the checklist table name, which a test of the checklist rename in project_ai_driven looks for. -->
+    <record id="task_checklist_item_rule_member_access_write" model="ir.rule">
+        <field name="name">Checklist Item: member access, write, create, unlink (all users)</field>
+        <field name="model_id" ref="project_ai_driven.model_project_task_checklist_item" />
+        <field name="domain_force">user._project_member_access_domain('project.task.checklist.item', 'write')</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="True" />
+        <field name="perm_create" eval="True" />
+        <field name="perm_unlink" eval="True" />
+    </record>
+    <record id="task_question_rule_member_access_write" model="ir.rule">
+        <field name="name">Task Question: member access, write, create, unlink (all users)</field>
+        <field name="model_id" ref="project_ai_driven.model_project_task_question" />
+        <field name="domain_force">user._project_member_access_domain('project.task.question', 'write')</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="True" />
+        <field name="perm_create" eval="True" />
+        <field name="perm_unlink" eval="True" />
+    </record>
+    <record id="task_session_rule_member_access_write" model="ir.rule">
+        <field name="name">Task Session: member access, write, create, unlink (all users)</field>
+        <field name="model_id" ref="project_ai_driven.model_project_task_session" />
+        <field name="domain_force">user._project_member_access_domain('project.task.session', 'write')</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="True" />
+        <field name="perm_create" eval="True" />
+        <field name="perm_unlink" eval="True" />
+    </record>
+    <record id="task_testcase_rule_member_access_read" model="ir.rule">
+        <field name="name">Test Case: member access, read (all users)</field>
+        <field name="model_id" ref="project_ai_driven.model_project_task_testcase" />
+        <field name="domain_force">user._project_member_access_domain('project.task.testcase', 'read')</field>
+        <field name="perm_read" eval="True" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="task_testcase_rule_member_access_write" model="ir.rule">
+        <field name="name">Test Case: member access, write, create, unlink (all users)</field>
+        <field name="model_id" ref="project_ai_driven.model_project_task_testcase" />
+        <field name="domain_force">user._project_member_access_domain('project.task.testcase', 'write')</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="True" />
+        <field name="perm_create" eval="True" />
+        <field name="perm_unlink" eval="True" />
+    </record>
+    <record id="project_pull_request_rule_member_access_read" model="ir.rule">
+        <field name="name">Pull Request: member access, read (all users)</field>
+        <field name="model_id" ref="project_ai_driven.model_project_pull_request" />
+        <field name="domain_force">user._project_member_access_domain('project.pull.request', 'read')</field>
+        <field name="perm_read" eval="True" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="report_project_task_user_rule_member_access_read" model="ir.rule">
+        <field name="name">Tasks Analysis: member access, read (all users)</field>
+        <field name="model_id" ref="project.model_report_project_task_user" />
+        <field name="domain_force">user._project_member_access_domain('report.project.task.user', 'read')</field>
+        <field name="perm_read" eval="True" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="report_project_task_user_rule_member_access_read_grant" model="ir.rule">
+        <field name="name">Tasks Analysis: member access, read (internal users)</field>
+        <field name="model_id" ref="project.model_report_project_task_user" />
+        <field name="groups" eval="[Command.link(ref('base.group_user'))]" />
+        <field name="domain_force">user._project_member_access_domain('report.project.task.user', 'read', grant=True)</field>
+        <field name="perm_read" eval="True" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="project_task_burndown_chart_report_rule_member_access_read" model="ir.rule">
+        <field name="name">Burndown Chart: member access, read (all users)</field>
+        <field name="model_id" ref="project.model_project_task_burndown_chart_report" />
+        <field name="domain_force">user._project_member_access_domain('project.task.burndown.chart.report', 'read')</field>
+        <field name="perm_read" eval="True" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="project_task_burndown_chart_report_rule_member_access_read_grant" model="ir.rule">
+        <field name="name">Burndown Chart: member access, read (internal users)</field>
+        <field name="model_id" ref="project.model_project_task_burndown_chart_report" />
+        <field name="groups" eval="[Command.link(ref('base.group_user'))]" />
+        <field name="domain_force">user._project_member_access_domain('project.task.burndown.chart.report', 'read', grant=True)</field>
+        <field name="perm_read" eval="True" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="project_milestone_rule_member_access_read" model="ir.rule">
+        <field name="name">Milestone: member access, read (all users)</field>
+        <field name="model_id" ref="project.model_project_milestone" />
+        <field name="domain_force">user._project_member_access_domain('project.milestone', 'read')</field>
+        <field name="perm_read" eval="True" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="project_milestone_rule_member_access_read_grant" model="ir.rule">
+        <field name="name">Milestone: member access, read (internal users)</field>
+        <field name="model_id" ref="project.model_project_milestone" />
+        <field name="groups" eval="[Command.link(ref('base.group_user'))]" />
+        <field name="domain_force">user._project_member_access_domain('project.milestone', 'read', grant=True)</field>
+        <field name="perm_read" eval="True" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="project_milestone_rule_member_access_write" model="ir.rule">
+        <field name="name">Milestone: member access, write, create, unlink (all users)</field>
+        <field name="model_id" ref="project.model_project_milestone" />
+        <field name="domain_force">user._project_member_access_domain('project.milestone', 'write')</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="True" />
+        <field name="perm_create" eval="True" />
+        <field name="perm_unlink" eval="True" />
+    </record>
+    <record id="project_milestone_rule_member_access_write_grant" model="ir.rule">
+        <field name="name">Milestone: member access, write, create, unlink (internal users)</field>
+        <field name="model_id" ref="project.model_project_milestone" />
+        <field name="groups" eval="[Command.link(ref('base.group_user'))]" />
+        <field name="domain_force">user._project_member_access_domain('project.milestone', 'write', grant=True)</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="True" />
+        <field name="perm_create" eval="True" />
+        <field name="perm_unlink" eval="True" />
+    </record>
+    <record id="project_update_rule_member_access_read" model="ir.rule">
+        <field name="name">Project Update: member access, read (all users)</field>
+        <field name="model_id" ref="project.model_project_update" />
+        <field name="domain_force">user._project_member_access_domain('project.update', 'read')</field>
+        <field name="perm_read" eval="True" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="project_update_rule_member_access_read_grant" model="ir.rule">
+        <field name="name">Project Update: member access, read (internal users)</field>
+        <field name="model_id" ref="project.model_project_update" />
+        <field name="groups" eval="[Command.link(ref('base.group_user'))]" />
+        <field name="domain_force">user._project_member_access_domain('project.update', 'read', grant=True)</field>
+        <field name="perm_read" eval="True" />
+        <field name="perm_write" eval="False" />
+        <field name="perm_create" eval="False" />
+        <field name="perm_unlink" eval="False" />
+    </record>
+    <record id="project_update_rule_member_access_write" model="ir.rule">
+        <field name="name">Project Update: member access, write, create, unlink (all users)</field>
+        <field name="model_id" ref="project.model_project_update" />
+        <field name="domain_force">user._project_member_access_domain('project.update', 'write')</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="True" />
+        <field name="perm_create" eval="True" />
+        <field name="perm_unlink" eval="True" />
+    </record>
+    <record id="project_update_rule_member_access_write_grant" model="ir.rule">
+        <field name="name">Project Update: member access, write, create, unlink (internal users)</field>
+        <field name="model_id" ref="project.model_project_update" />
+        <field name="groups" eval="[Command.link(ref('base.group_user'))]" />
+        <field name="domain_force">user._project_member_access_domain('project.update', 'write', grant=True)</field>
+        <field name="perm_read" eval="False" />
+        <field name="perm_write" eval="True" />
+        <field name="perm_create" eval="True" />
+        <field name="perm_unlink" eval="True" />
+    </record>
+</odoo>

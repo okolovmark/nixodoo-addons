@@ -257,6 +257,13 @@ Run the update with the server stopped: dropping the column takes an
 exclusive lock on the test case table, and workers running the previous code
 read the column.
 
+The update to 16.0.2.16.0 adds the **UAT users** of a task
+(``uat_user_ids``, table ``project_task__uat_user_rel``) and puts them on
+the task form after the Assignees. It has no migration and writes nothing
+on the tasks. A database where another module already declares the same
+field on the same table keeps the table and its rows; when a new version of
+that module no longer declares the field, update both in the same run.
+
 **Upgrading from project_software**
 
 ``project_software`` remains for one release as an empty module that depends

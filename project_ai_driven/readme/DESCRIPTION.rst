@@ -24,6 +24,9 @@ task in Markdown, in one read.
   neither call is refused. With Timesheets installed, its tab on the task
   shows the same field as *Allocated Hours* (*Allocated Days* where the
   company encodes timesheets in days).
+* **UAT users** (``uat_user_ids``): the users who run the acceptance tests
+  of the task, after the Assignees on the form of every task, picked among
+  active internal users. Changes are tracked.
 * The core priority star is hidden on the tasks of a project flagged
   **AI-driven Project**: on the form, the kanban card, the task list, the
   *Sub-tasks* and *Blocked By* lists of the form and the calendar popover.

@@ -212,6 +212,8 @@ ADDED_FIELDS = (
     ("project.task.testcase", "verified_on"),
     ("project.task.testcase", "verification_kind"),
     ("project.task.testcase", "test_reference"),
+    # held by the legacy module too, and left to it: this module declares it since 16.0.2.16.0
+    ("project.task", "uat_user_ids"),
 )
 ADDED_RECORDS = (
     ("ir.model", "model_project_pull_request"),
@@ -274,6 +276,8 @@ ADDED_CONSTRAINTS = (
     "project_task_session%",
     "mail_message_task_id%",
     "project_task_ir_module_module_rel%",
+    # registered here only where this module created the table; elsewhere the module that did keeps them
+    "project_task__uat_user_rel%",
 )
 # Fields of the legacy module that this module leaves to whatever replaces it.
 LEGACY_QUESTION_FIELDS = (("project.task", "questions"), ("project.task", "answers"))
@@ -1703,8 +1707,11 @@ class TestRenameChecklist(PreInitHookCase):
             },
         )
         checklist_external_ids = self._checklist_external_ids()
+        # a module extending the model holds its own external id of the model
         self.assertEqual(
-            {module for module, _name in checklist_external_ids}, {MODULE, OTHER_MODULE}, "without the activity fields"
+            {module for module, name in checklist_external_ids if name != "model_%s" % CHECKLIST_TABLE},
+            {MODULE, OTHER_MODULE},
+            "without the activity fields",
         )
         self._put_back_former_checklist_names()
         self.assertFalse(self._checklist_external_ids())

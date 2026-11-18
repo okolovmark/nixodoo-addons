@@ -2,6 +2,8 @@ On the task form:
 
 * Set **Priority**, **Estimate** (in hours) and **Task Type** next to the
   tags. **Size** shows the size of the estimate and cannot be edited.
+* Add the **UAT users**, the people who run the acceptance tests of the
+  task, after the Assignees.
 * *Checklist* tab: add items, each with an **Assigned to** user, yourself
   unless you pick another, and an optional deadline. You are the reviewer of
   the items you add. A new task or sub-task, from the dialog of its parent's

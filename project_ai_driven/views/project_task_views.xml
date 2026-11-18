@@ -9,6 +9,14 @@
                 <field name="is_ai_driven" invisible="1" />
                 <field name="develops_this_odoo" invisible="1" />
             </xpath>
+            <xpath expr="//field[@name='user_ids']" position="after">
+                <field
+                    name="uat_user_ids"
+                    widget="many2many_avatar_user"
+                    options="{'no_open': True, 'no_quick_create': True}"
+                    domain="[('share', '=', False), ('active', '=', True)]"
+                />
+            </xpath>
             <xpath expr="//page[2]" position="after">
                 <page
                     string="Technical Solution"
