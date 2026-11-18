@@ -1,0 +1,48 @@
+# Task keys live in project_ai_driven, under the names of OCA project_key
+
+Status: accepted (2026-11-18)
+
+A task is referred to by its key, PROJ-1234: in messages, in commits, in links to `/tasks/PROJ-1234`. The keys came from OCA `project_key`: a key per project made from the initials of its name, a sequence per project that numbers its tasks, the display name "KEY - name", a name search by key and two routes. Two of its defects were never fixed there: a batch create of projects keeps only the last one, and a portal collaborator cannot create a task in a shared project ("You cannot write on key fields in task."), because the key is written into the values core checks for a portal user.
+
+From 16.0.2.17.0 `project_ai_driven` gives the keys itself, so every database with the task module has them. Not a module of its own: the key is how a task is named, and a separate module would be one more for every database to install and keep.
+
+**The names stay.** The fields are declared under the names, types and sizes of `project_key`: `key` on the project (10 characters, indexed, not copied) and on the task (20 characters, indexed), `task_key_sequence_id` on the project (restrict on delete) and the computed `url` on the task, with the SQL constraints `project_key_unique` and `task_key_unique`. Each project's sequence keeps the code `project.task.key.<project id>` and the prefix `<KEY>-`. A database that ran `project_key` keeps its keys, its sequences and their next numbers, and every caller that reads or searches `key` keeps working.
+
+Rejected: new field names with a copy migration. Every caller would change in the same release, and uninstalling `project_key` would drop the columns that still held the only copy of the keys unless the copy had run first.
+
+**What it does, as project_key did.** A new project gets the initials of its name (the first three letters of a one-word name) in upper case, followed by the lowest counter that makes it free; archived projects count. The project form proposes the key from the name until one is set. A task gets the next key of its project when it is created. A task moved to another project gets a key of the new project, and so does each sub-task that moves with it; a task written with its own project keeps its key. A new project key renames the keys of its tasks, each keeping its number, and the prefix of its sequence. A deleted project takes its sequence along. `/projects/<key>` and `/tasks/<key>` redirect (301) to the form of the record whose key matches, case-insensitively, among those the user can read; an unknown key opens the form of no record.
+
+**What it does differently.**
+
+- A batch create keeps every project, each with its key and its sequence. Keys generated in one batch do not collide with each other or with the keys given in it.
+- A portal user's task gets its key right after it is created, written with sudo: core refuses a key in their values. Other users' tasks get it in the values, so the notifications sent from the create already name the task with it.
+- The key of a moved task is renewed after the write. `project_key` first wrote the project alone, which ran the rules on the stage change before the other values of the same write arrived (the consequence ADR 0002 names).
+- A sub-task created with its parent only, and a task created inside the create of its project, get a key too: `project_key` read the project from the values alone.
+- Only the sub-tasks core moves with their parent get keys of the new project, archived ones included. A sub-task that shows in a project of its own stays there with its key; `project_key` wrote the new project and a key on every sub-task that was not archived, and an archived one moved by core kept the former project's key, which a later rename of the new project's key then gave twice.
+- A key given in a write that also moves the task is replaced by the next key of the new project; in `project_key` the key given won.
+- A moved task keeps its key when the new project gives none: keys off in a test run, a project without a key or without a sequence. `project_key` cleared it.
+- A project without a key gets no sequence; `project_key` created one with the prefix `False-`. Setting a key later creates it.
+- A cleared key clears the keys of the project's tasks, as in `project_key`, and leaves its sequence as it is: the project gives no key until it has one again, and the sequence then goes on from its next number under the new prefix. `project_key` set the prefix to `False-` and went on numbering tasks `False-N`.
+- A rename of a key writes the name and the prefix of the sequence and nothing else; `project_key` also set its implementation, its code and its use of date ranges back to its own.
+- A copied project gets a sequence of its own and never the original's: the sequence is not copied with the project.
+- `/projects/<key>` and `/tasks/<key>` take the first match and read `%` and `_` in the key as themselves. In `project_key` they were wildcards: `/tasks/ABC_1` opened `ABC-1`, and a key matching several records, `/tasks/%` for one, failed with a server error.
+- The display name puts the key before the name other modules return; `project_key` replaced that name.
+- In a run with `test_enable`, keys stay off unless the context sets `test_project_key`, as in `project_key`: the tests of other modules compare display names without keys. Its other switch, off for the whole run that installed it with demo data, is dropped.
+
+**Missing keys.** A database where `project_key` never ran gets keys on install (post-init hook) and on the update to 16.0.2.17.0 (migration). Each project without a key gets one and a sequence, whether `project_key` is loaded or not: while it is, its write gives the key and no sequence, so the sequence is created here. The tasks without a key of those projects, archived and folded ones included, then get the next numbers of the project's sequence in the order they were created, and the sequence moves past them; a project that kept a sequence, one whose key was cleared under `project_key`, goes on from its next number. One SQL statement writes the task keys: a key given afterwards is no edit of the task, and its write date stays. A project that has a key, and its tasks, are left alone, so on a database that ran `project_key` nothing changes. An install or update run with `test_enable` fills no keys, since keys are off in a test run: run the update without it, or call `_set_missing_keys` on `project.project` afterwards.
+
+**Taking over a database with project_key.** Declaring the same fields gives this module an external id for each field and, by reflection, a row of its own for each unique constraint. An uninstall of `project_key` then keeps the columns, the fields and the constraints: Odoo drops them only when no installed module holds them too. The foreign key of `task_key_sequence_id` is reflected only by the module that created it, so its row stays registered to `project_key`; the key survives the uninstall all the same, because an uninstall drops constraints only through their external ids, and the row of a foreign key has none. Shown on throwaway databases: `project_key` and the previous version installed, this version updated, then `project_key` uninstalled with `button_immediate_uninstall`; this version installed next to `project_key`, then `project_key` uninstalled; `project_key` marked for removal and uninstalled at the end of the update of this module, with its code on the addons path and without it. Each time the columns, both unique constraints, the foreign key, every project and task key and the sequences with their next numbers came through unchanged, and display names, name search, the routes and the next keys worked.
+
+The order matters: `project_key` is uninstalled after this module holds the fields, in the run that updates it to 16.0.2.17.0 at the earliest. Uninstalled before, it is the only module holding them, and the uninstall drops the key columns with every project and task key; the update then gives the projects new keys from their names and numbers every task from 1, so the keys in messages and commits no longer lead to their tasks.
+
+**While project_key is loaded, it gives the keys.** Both would draw a number for every task, so keys would skip one, and both would create a sequence for every project. While `project_key` is in the registry this module's create, write, unlink and display name do what they did before 16.0.2.17.0, and the defects of `project_key` stay. It takes over once `project_key` is uninstalled.
+
+**Who uninstalls project_key.** Not this module, as for `project_task_pull_request` (ADR 0002): it does not depend on it, and a project decides what else relies on it. The project's own module drops its dependency and marks `project_key` for removal. Taking `project_key` off the addons path in the same deploy keeps its labels from staying in the database until the next update.
+
+**Consequences.**
+
+- The task form shows the key only on a read-only form, as `project_key` did; the breadcrumb, lists, cards and every reference show it.
+- A generated key may still clash with the key of a project the user cannot read, in another company for one: the counter searches what the user reads, as in `project_key`, and the unique constraint then refuses the project.
+- The 20.0 branch gets the same change when this work is forward-ported to it.
+
+Reversal cost: installing `project_key` again puts it back in charge of the same columns and sequences; nothing is converted on the way in or out.
