@@ -7,7 +7,8 @@ and two rules on the stages a project marks: a Resolution to enter some, a
 task type and an estimate to enter others. The module also logs the stage
 changes of every task of the database, keeps the images of every task's
 texts as attachments of the task, and gives every task a brief: the whole
-task in Markdown, in one read.
+task in Markdown, in one read. Projects and their tasks get keys, such as
+``PROJ-12``, that name them and open them by link.
 
 **Task attributes** (``project.task``)
 
@@ -456,15 +457,15 @@ for the forms of urls it rewrites.
 
 A brief holds, in this order, each part only when it has something to show:
 
-* The header: the task's key, or ``#<id>`` where no module gives tasks a
-  key, and its title; then the project, the stage and since when, the task
-  type, the estimate and its size, the priority, the planned window, the
-  deadline, the hours spent, the assignees, the UAT users, the author and
-  the creation date, the Resolution, the modules on a task of the project
-  that develops this Odoo, the tags, and the link to the task form. The key,
-  the planned window, the hours spent and the UAT users show where a module
-  declares their fields (``key``, ``planned_date_start`` and
-  ``planned_date_end``, ``effective_hours``, ``uat_user_ids``).
+* The header: the task's key (*Task keys* below), or ``#<id>`` for a task
+  without one, and its title; then the project, the stage and since when,
+  the task type, the estimate and its size, the priority, the planned
+  window, the deadline, the hours spent, the assignees, the UAT users, the
+  author and the creation date, the Resolution, the modules on a task of the
+  project that develops this Odoo, the tags, and the link to the task form.
+  The planned window, the hours spent and the UAT users show where a module
+  declares their fields (``planned_date_start`` and ``planned_date_end``,
+  ``effective_hours``, ``uat_user_ids``).
 * Related tasks: the parent, the sub-tasks, the tasks it is blocked by and
   those it blocks, each with its key, title and stage.
 * Pull requests, with their state, merge date and deploy date.
@@ -515,6 +516,48 @@ selected in their context included; and the fields their groups keep from
 them, such as the question rows, checklist, test cases, sessions and
 modules for a user outside **Project / User**. A many-to-one value (the
 project, the stage, the author) shows its name as a read of the task does.
+
+**Task keys** (``project.project``, ``project.task``)
+
+Every project has a **Key** (``key``, up to 10 characters), and every task
+of a project a key of its own (``key``, up to 20 characters) such as
+``PROJ-12``: the key of its project and the next number of the project's
+**Key Sequence** (``task_key_sequence_id``). Both keys are unique. A task's
+display name is its key before the name it has otherwise, so the
+breadcrumb, lists, cards and references show it, and a name search finds
+projects and tasks by key. The task's ``url`` is the link to its form.
+
+* A new project gets the initials of its name in upper case (the first
+  three letters of a one-word name), followed by the lowest counter that
+  makes it free; archived projects count. The project form proposes the key
+  from the name until one is set.
+* A task gets the next key of its project when it is created. Moved to
+  another project, it gets a key of the new one, and so do the sub-tasks
+  that move with it, archived ones included; moved to a project that gives
+  no key, they lose theirs.
+* A new project key renames the keys of the project's tasks, each keeping
+  its number, and the prefix of its sequence. A cleared key clears the keys
+  of its tasks; the project gives none until it has a key again, and its
+  sequence then goes on from its next number. The tasks created in it or
+  moved into it meanwhile stay without a key.
+* A copied project gets a sequence of its own; a deleted project takes its
+  sequence along.
+* ``/projects/<key>`` and ``/tasks/<key>`` open the form of the project or
+  task of that key, whatever its case, among those the user can read; any
+  other key opens an empty form. ``%`` and ``_`` in a key are no wildcards.
+* In a run with ``test_enable`` keys are off, unless the context sets
+  ``test_project_key``: the tests of other modules compare display names
+  without keys.
+
+The fields, constraints and sequences are those of OCA ``project_key``,
+under the same names and columns, and this module takes its place: a
+database that ran it keeps every key and the next number of every
+sequence. While ``project_key`` is loaded it gives the keys as before; this
+module gives them once it is uninstalled. Uninstall ``project_key`` only
+once this module is updated to 16.0.2.17.0, in the same run at the
+earliest: uninstalled before, it drops the key columns with every key. What
+the install and that update do is under *Installation* (*Coming from
+project_key*).
 
 **Former names**
 

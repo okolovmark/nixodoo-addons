@@ -20,6 +20,7 @@ Rejected: new field names with a copy migration. Every caller would change in th
 - `pr_uri` no longer takes text. Automation that wrote a note there for a task without a pull request sets the Resolution instead.
 - A link needs a repository before `/pull/N` (or `/merge_requests/N`, `/pull-requests/N`, `/pulls/N`) and a number of at most nine digits. It is stored as written, but for the scheme and host in lower case and anything after the number: two spellings of one path are two records.
 - A module that writes a task's new project on its own, before the other values of the same write, runs the rule before the Resolution of that write arrives. Setting the Resolution first avoids it.
+  - 2026-11-18: OCA `project_key` was such a module. From 16.0.2.17.0 this module gives the task keys, after the write (ADR 0014).
 - A subtask whose stage is recomputed from its parent, because the parent changed project or the subtask got another parent, is not checked.
 - A task that sits in a marked stage with neither a Resolution nor a pull request, as tasks from before this version can, stops the duplication of its project until it gets one.
 - A second pull request added to a task leaves no trace in its history: `pr_uri` does not change, and this version of Odoo tracks no many2many field.

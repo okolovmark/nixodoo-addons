@@ -5,6 +5,9 @@
         <field name="model">project.project</field>
         <field name="inherit_id" ref="project.edit_project" />
         <field name="arch" type="xml">
+            <xpath expr="//field[@name='partner_id']" position="before">
+                <field name="key" required="1" />
+            </xpath>
             <xpath expr="//field[@name='privacy_visibility']" position="before">
                 <field name="is_ai_driven" />
                 <field
@@ -26,6 +29,49 @@
                     options="{'no_create': True}"
                     attrs="{'invisible': [('is_ai_driven', '=', False)]}"
                 />
+            </xpath>
+        </field>
+    </record>
+    <record id="project_project_view_tree_inherit_ai_driven" model="ir.ui.view">
+        <field name="name">project.project.view.tree.inherit.project_ai_driven</field>
+        <field name="model">project.project</field>
+        <field name="inherit_id" ref="project.view_project" />
+        <field name="arch" type="xml">
+            <xpath expr="//tree/field[@name='name'][1]" position="after">
+                <field name="key" readonly="1" />
+            </xpath>
+        </field>
+    </record>
+    <record id="project_project_view_form_simplified_inherit_ai_driven" model="ir.ui.view">
+        <field name="name">project.project.view.form.simplified.inherit.project_ai_driven</field>
+        <field name="model">project.project</field>
+        <field name="inherit_id" ref="project.project_project_view_form_simplified" />
+        <field name="arch" type="xml">
+            <xpath expr="//div[@name='alias_def']" position="after">
+                <field name="key" />
+            </xpath>
+        </field>
+    </record>
+    <record id="project_project_view_kanban_inherit_ai_driven" model="ir.ui.view">
+        <field name="name">project.project.view.kanban.inherit.project_ai_driven</field>
+        <field name="model">project.project</field>
+        <field name="inherit_id" ref="project.view_project_kanban" />
+        <field name="arch" type="xml">
+            <xpath expr="//kanban/field[@name='display_name']" position="after">
+                <field name="key" />
+            </xpath>
+            <xpath expr="//t[@t-esc='record.display_name.value']" position="before">
+                <t t-if="record.key.raw_value"><t t-esc="record.key.value" /> - </t>
+            </xpath>
+        </field>
+    </record>
+    <record id="project_project_view_search_inherit_ai_driven" model="ir.ui.view">
+        <field name="name">project.project.view.search.inherit.project_ai_driven</field>
+        <field name="model">project.project</field>
+        <field name="inherit_id" ref="project.view_project_project_filter" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='name']" position="attributes">
+                <attribute name="filter_domain">['|', ('name', 'ilike', self), ('key', 'ilike', self)]</attribute>
             </xpath>
         </field>
     </record>

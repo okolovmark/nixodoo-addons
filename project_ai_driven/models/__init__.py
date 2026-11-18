@@ -1,6 +1,7 @@
 from . import ir_module_module
 from . import mail_message
 from . import project_project
+from . import project_project_key
 from . import project_pull_request
 from . import project_task_access_mixin
 from . import project_task_image_mixin
@@ -11,4 +12,5 @@ from . import project_task_testcase
 from . import project_task_stage_log
 from . import project_task
 from . import project_task_brief
+from . import project_task_key
 from . import project_task_recurrence
