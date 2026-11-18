@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="project_task_dependency_lag_rule_company" model="ir.rule">
+        <field name="name">Task dependency lag: multi-company</field>
+        <field name="model_id" ref="model_project_task_dependency_lag" />
+        <field name="domain_force">[
+            '|',
+            ('task_id.company_id', '=', False),
+            ('task_id.company_id', 'in', company_ids),
+        ]</field>
+    </record>
+
+    <record id="project_baseline_rule_company" model="ir.rule">
+        <field name="name">Project baseline: multi-company</field>
+        <field name="model_id" ref="model_project_baseline" />
+        <field name="domain_force">[('project_id.company_id', 'in', company_ids)]</field>
+    </record>
+
+    <record id="project_baseline_line_rule_company" model="ir.rule">
+        <field name="name">Project baseline line: multi-company</field>
+        <field name="model_id" ref="model_project_baseline_line" />
+        <field name="domain_force">[('baseline_id.project_id.company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>

@@ -1,0 +1,587 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<templates xml:space="preserve">
+
+    <!-- Main wrapper template (used as AbstractAction.template) -->
+    <t t-name="project_team_dashboard.TeamDashboardMain">
+        <div class="o_team_dashboard o_action">
+            <div class="o_team_dashboard_content" />
+        </div>
+    </t>
+
+    <!-- Dashboard content rendered via JS QWeb.render() -->
+    <t t-name="project_team_dashboard.TeamDashboardContent">
+        <!-- Toolbar: mode toggle + action buttons + view toggle -->
+        <div class="o_team_dashboard_toolbar d-flex align-items-center gap-2 px-3 py-2 bg-white border-bottom">
+            <!-- Dashboard Mode Toggle -->
+            <div class="btn-group btn-group-sm me-2" role="group">
+                <button t-attf-class="o_dashboard_mode_btn btn btn-sm #{dashboardMode === 'project' ? 'btn-primary' : 'btn-outline-primary'}"
+                        data-mode="project" title="View by Project">
+                    <i class="fa fa-folder-open me-1" />Project
+                </button>
+                <button t-attf-class="o_dashboard_mode_btn btn btn-sm #{dashboardMode === 'manager' ? 'btn-primary' : 'btn-outline-primary'}"
+                        data-mode="manager" title="View by Manager (subordinates)">
+                    <i class="fa fa-sitemap me-1" />Manager
+                </button>
+                <button t-attf-class="o_dashboard_mode_btn btn btn-sm #{dashboardMode === 'department' ? 'btn-primary' : 'btn-outline-primary'}"
+                        data-mode="department" title="View by Department">
+                    <i class="fa fa-building me-1" />Department
+                </button>
+            </div>
+
+            <!-- Project mode buttons -->
+            <t t-if="dashboardMode === 'project'">
+                <button class="o_open_project btn btn-sm btn-outline-primary">
+                    <i class="fa fa-folder-open me-1" /> Project
+                </button>
+                <button class="o_open_backlog btn btn-sm btn-outline-info">
+                    <i class="fa fa-list me-1" /> Backlog
+                </button>
+                <button class="o_open_kanban btn btn-sm btn-outline-secondary">
+                    <i class="fa fa-columns me-1" /> Kanban
+                </button>
+                <button class="o_open_my_kanban btn btn-sm btn-outline-secondary">
+                    <i class="fa fa-columns me-1" /> My Tasks
+                </button>
+            </t>
+
+            <div class="btn-group ms-auto" role="group">
+                <button class="o_view_cards btn btn-sm btn-outline-secondary active"
+                        title="Card View">
+                    <i class="fa fa-th-large" />
+                </button>
+                <t t-if="dashboardMode === 'project'">
+                    <button class="o_view_gantt btn btn-sm btn-outline-secondary"
+                            title="Gantt Chart">
+                        <i class="fa fa-bars" />
+                    </button>
+                </t>
+            </div>
+            <button class="o_team_dashboard_refresh btn btn-sm btn-outline-primary">
+                <i class="fa fa-refresh me-1" /> Refresh
+            </button>
+        </div>
+
+        <!-- Dashboard filter bar -->
+        <div class="o_dashboard_filter_bar d-flex align-items-center gap-3 px-3 py-2 bg-light border-bottom flex-wrap">
+            <!-- === Project mode filters === -->
+            <t t-if="dashboardMode === 'project'">
+                <div class="o_project_filter_wrapper d-flex align-items-center gap-2">
+                    <label class="fw-bold mb-0 small">Project:</label>
+                    <div class="o_project_search_wrapper position-relative" style="width: 280px;">
+                        <input
+                            type="text"
+                            class="o_project_search_input form-control form-control-sm"
+                            placeholder="Search project..."
+                            t-att-value="selectedProjectName"
+                            autocomplete="off"
+                        />
+                        <div class="o_project_search_dropdown dropdown-menu w-100" style="max-height: 300px; overflow-y: auto;">
+                            <t t-foreach="projects" t-as="proj">
+                                <a href="#"
+                                   class="dropdown-item o_project_search_item text-truncate"
+                                   t-att-data-project-id="proj.id"
+                                >
+                                    <t t-if="proj.key"><strong class="me-1"><t t-esc="proj.key" /></strong> - </t><t t-esc="proj.name" />
+                                </a>
+                            </t>
+                        </div>
+                    </div>
+                </div>
+            </t>
+
+            <!-- === Manager mode filters === -->
+            <t t-if="dashboardMode === 'manager'">
+                <div class="o_user_filter_wrapper d-flex align-items-center gap-2">
+                    <label class="fw-bold mb-0 small">Manager:</label>
+                    <div class="o_user_search_wrapper position-relative" style="width: 250px;">
+                        <input
+                            type="text"
+                            class="o_user_search_input form-control form-control-sm"
+                            placeholder="Search user..."
+                            t-att-value="managerName"
+                            autocomplete="off"
+                        />
+                        <div class="o_user_search_dropdown dropdown-menu w-100" style="max-height: 300px; overflow-y: auto;">
+                            <t t-foreach="managerUsers" t-as="usr">
+                                <a href="#"
+                                   class="dropdown-item o_user_search_item text-truncate"
+                                   t-att-data-user-id="usr.id"
+                                >
+                                    <t t-esc="usr.name" />
+                                </a>
+                            </t>
+                        </div>
+                    </div>
+                </div>
+                <div class="o_depth_wrapper d-flex align-items-center gap-2">
+                    <label class="fw-bold mb-0 small">Depth:</label>
+                    <select class="o_depth_select form-select form-select-sm" style="width: auto;">
+                        <option value="0" t-att-selected="maxDepth === 0 ? 'selected' : undefined">All levels</option>
+                        <option value="1" t-att-selected="maxDepth === 1 ? 'selected' : undefined">1 level</option>
+                        <option value="2" t-att-selected="maxDepth === 2 ? 'selected' : undefined">2 levels</option>
+                        <option value="3" t-att-selected="maxDepth === 3 ? 'selected' : undefined">3 levels</option>
+                        <option value="4" t-att-selected="maxDepth === 4 ? 'selected' : undefined">4 levels</option>
+                        <option value="5" t-att-selected="maxDepth === 5 ? 'selected' : undefined">5 levels</option>
+                    </select>
+                </div>
+            </t>
+
+            <!-- === Department mode filters === -->
+            <t t-if="dashboardMode === 'department'">
+                <div class="o_dept_filter_wrapper d-flex align-items-center gap-2">
+                    <label class="fw-bold mb-0 small">Department:</label>
+                    <div class="o_dept_search_wrapper position-relative" style="width: 300px;">
+                        <input
+                            type="text"
+                            class="o_dept_search_input form-control form-control-sm"
+                            placeholder="Search department..."
+                            t-att-value="departmentName"
+                            autocomplete="off"
+                        />
+                        <div class="o_dept_search_dropdown dropdown-menu w-100" style="max-height: 300px; overflow-y: auto;">
+                            <t t-foreach="departments" t-as="dept">
+                                <a href="#"
+                                   class="dropdown-item o_dept_search_item text-truncate"
+                                   t-att-data-dept-id="dept.id"
+                                >
+                                    <t t-esc="dept.complete_name || dept.name" />
+                                </a>
+                            </t>
+                        </div>
+                    </div>
+                </div>
+            </t>
+
+            <!-- Period selector (shared across all modes) -->
+            <div class="o_period_wrapper d-flex align-items-center gap-2">
+                <label class="fw-bold mb-0 small">Period:</label>
+                <select class="o_period_select form-select form-select-sm" style="width: auto;">
+                    <option value="this_week" t-att-selected="period === 'this_week' ? 'selected' : undefined">This Week</option>
+                    <option value="last_week" t-att-selected="period === 'last_week' ? 'selected' : undefined">Last Week</option>
+                    <option value="this_month" t-att-selected="period === 'this_month' ? 'selected' : undefined">This Month</option>
+                    <option value="last_month" t-att-selected="period === 'last_month' ? 'selected' : undefined">Last Month</option>
+                    <option value="custom" t-att-selected="period === 'custom' ? 'selected' : undefined">Custom Range</option>
+                </select>
+            </div>
+
+            <div t-attf-class="o_custom_dates d-flex align-items-center gap-2 #{period !== 'custom' ? 'd-none' : ''}">
+                <input type="date" class="o_date_start form-control form-control-sm" style="width: auto;" t-att-value="dateStart" />
+                <span>to</span>
+                <input type="date" class="o_date_end form-control form-control-sm" style="width: auto;" t-att-value="dateEnd" />
+            </div>
+
+            <div class="o_period_info ms-auto">
+                <small class="text-muted">
+                    <t t-if="dashboardMode === 'project'">
+                        <strong><t t-esc="data.project_name" /></strong>
+                    </t>
+                    <t t-if="dashboardMode === 'manager'">
+                        <strong><i class="fa fa-sitemap me-1" />Subordinates of <t t-esc="data.manager_name || ''" /></strong>
+                        <t t-if="data.project_count"> · <t t-esc="data.project_count" /> projects</t>
+                    </t>
+                    <t t-if="dashboardMode === 'department'">
+                        <strong><i class="fa fa-building me-1" /><t t-esc="data.department_name || ''" /></strong>
+                        <t t-if="data.project_count"> · <t t-esc="data.project_count" /> projects</t>
+                    </t>
+                    <t t-if="data.period_start and data.period_end">
+                         - <t t-esc="data.period_start" /> to <t t-esc="data.period_end" />
+                    </t>
+                </small>
+            </div>
+        </div>
+
+        <!-- Member cards grid -->
+        <div class="o_team_dashboard_grid p-3">
+            <t t-if="data.members and data.members.length">
+                <div class="row g-3">
+                    <t t-foreach="data.members" t-as="member">
+                        <div class="col-12 col-md-6 col-xl-4">
+                            <div t-attf-class="card h-100 o_member_card #{member.current_task and member.current_task.is_overdue ? 'border-danger' : ''}"
+                                 t-att-data-user-id="member.user_id || false">
+                                <!-- Card header: avatar + name + stats -->
+                                <div class="card-header d-flex align-items-center gap-2">
+                                    <t t-if="member.user_avatar_url">
+                                        <img
+                                            t-att-src="member.user_avatar_url"
+                                            class="rounded-circle"
+                                            width="40"
+                                            height="40"
+                                            style="object-fit: cover;"
+                                        />
+                                    </t>
+                                    <t t-else="">
+                                        <div class="rounded-circle bg-secondary d-flex align-items-center justify-content-center" style="width:40px;height:40px;">
+                                            <i class="fa fa-user text-white" />
+                                        </div>
+                                    </t>
+                                    <div class="flex-grow-1">
+                                        <h6 class="mb-0"><t t-esc="member.user_name" /></h6>
+                                        <small class="text-muted">
+                                            <t t-esc="member.total_open_tasks" /> tasks ·
+                                            <t t-if="member.total_remaining_hours >= 0">
+                                                <t t-esc="member.total_remaining_hours.toFixed(1)" />h remaining
+                                            </t>
+                                            <t t-else="">
+                                                <span class="text-danger fw-bold"><t t-esc="Math.abs(member.total_remaining_hours).toFixed(1)" />h over estimate</span>
+                                            </t>
+                                        </small>
+                                        <!-- Show project names in manager/department mode -->
+                                        <t t-if="(dashboardMode === 'manager' || dashboardMode === 'department') and member.project_names and member.project_names.length">
+                                            <div class="mt-1">
+                                                <t t-foreach="member.project_names" t-as="pname">
+                                                    <span class="badge bg-light text-dark border me-1" style="font-size:0.7em;"><t t-esc="pname" /></span>
+                                                </t>
+                                            </div>
+                                        </t>
+                                    </div>
+                                    <div class="text-end">
+                                        <span class="badge bg-light text-dark border" title="Hours logged in period">
+                                            <i class="fa fa-clock-o me-1" /><t t-esc="member.hours_logged_period.toFixed(1)" />h
+                                        </span>
+                                        <br />
+                                        <small class="text-muted" title="Hours logged today">
+                                            Today: <t t-esc="member.hours_logged_today.toFixed(1)" />h
+                                        </small>
+                                        <br />
+                                        <t t-if="dashboardMode === 'project'">
+                                            <a href="#"
+                                               class="o_member_backlog_link badge bg-info text-white mt-1"
+                                               t-att-data-user-id="member.user_id"
+                                               title="Open backlog for this member"
+                                            >
+                                                <i class="fa fa-list me-1" />Backlog
+                                            </a>
+                                            <a href="#"
+                                               class="o_member_kanban_link badge bg-info text-white mt-1"
+                                               t-att-data-user-id="member.user_id"
+                                               title="Open kanban for this member"
+                                            >
+                                                <i class="fa fa-columns me-1" />Kanban
+                                            </a>
+                                        </t>
+                                        <!-- Closed tickets button -->
+                                        <t t-if="member.user_id">
+                                            <a href="#"
+                                               class="o_member_closed_tasks badge bg-info text-white mt-1"
+                                               t-att-data-user-id="member.user_id"
+                                               title="View closed tasks for this member"
+                                            >
+                                                <i class="fa fa-check-circle me-1" />Closed
+                                            </a>
+                                        </t>
+                                    </div>
+                                </div>
+
+                                <div class="card-body p-2">
+                                    <!-- Current Task -->
+                                    <t t-if="member.current_task">
+                                        <div class="mb-2">
+                                            <div class="d-flex align-items-center gap-1 mb-1">
+                                                <span class="badge bg-success">Current</span>
+                                                <small class="text-muted"><t t-esc="member.current_task.stage_name" /></small>
+                                                <!-- Show project on task for multi-project modes -->
+                                                <t t-if="(dashboardMode === 'manager' || dashboardMode === 'department') and member.current_task.project_name">
+                                                    <span class="badge bg-light text-primary border ms-1" style="font-size:0.7em;">
+                                                        <t t-esc="member.current_task.project_name" />
+                                                    </span>
+                                                </t>
+                                            </div>
+                                            <a href="#"
+                                               class="o_task_link fw-bold text-decoration-none text-truncate d-block"
+                                               t-att-data-task-id="member.current_task.id"
+                                            >
+                                                <t t-if="member.current_task.is_subtask">
+                                                    <span class="text-info me-1" title="Subtask">↳</span>
+                                                </t>
+                                                <t t-if="member.current_task.key">
+                                                    <span class="text-muted me-1"><t t-esc="member.current_task.key" /></span>
+                                                </t>
+                                                <t t-esc="member.current_task.name" />
+                                            </a>
+                                            <t t-if="member.current_task.is_subtask and member.current_task.parent_key">
+                                                <small class="text-info d-block" style="font-size: 0.75em; padding-left: 1.2em;">sub of <t t-esc="member.current_task.parent_key" /></small>
+                                            </t>
+                                            <!-- Progress -->
+                                            <t t-if="member.current_task.planned_hours > 0">
+                                                <div class="progress mt-1" style="height: 6px;">
+                                                    <div
+                                                        class="progress-bar"
+                                                        role="progressbar"
+                                                        t-att-style="'width: ' + Math.min(member.current_task.progress, 100) + '%'"
+                                                        t-attf-class="progress-bar #{member.current_task.progress > 100 ? 'bg-danger' : member.current_task.progress > 80 ? 'bg-warning' : 'bg-success'}"
+                                                    />
+                                                </div>
+                                                <small class="text-muted">
+                                                    <t t-esc="member.current_task.remaining_hours.toFixed(1)" />h remaining
+                                                    / <t t-esc="member.current_task.planned_hours.toFixed(1)" />h estimated
+                                                </small>
+                                            </t>
+                                            <!-- ETA -->
+                                            <t t-if="member.current_task.planned_date_end">
+                                                <div>
+                                                    <small t-attf-class="#{member.current_task.is_overdue ? 'text-danger fw-bold' : 'text-muted'}">
+                                                        <i class="fa fa-calendar me-1" />
+                                                        Deadline: <t t-esc="member.current_task.planned_date_end" />
+                                                        <t t-if="member.current_task.is_overdue"> (OVERDUE)</t>
+                                                    </small>
+                                                </div>
+                                            </t>
+                                        </div>
+                                    </t>
+                                    <t t-else="">
+                                        <div class="mb-2 text-muted fst-italic">No active task</div>
+                                    </t>
+
+                                    <!-- Queue (in-progress excl. current) -->
+                                    <t t-if="member.queue and member.queue.length">
+                                        <div class="mb-1">
+                                            <button
+                                                class="o_queue_toggle btn btn-sm btn-link text-decoration-none p-0"
+                                                t-att-data-user-id="member.user_id || 'unassigned'"
+                                            >
+                                                <i class="fa fa-chevron-down me-1" />
+                                                <span class="fw-bold">In Progress Queue</span>
+                                                <span class="badge bg-secondary ms-1"><t t-esc="member.queue.length" /></span>
+                                            </button>
+                                            <div class="o_queue_list d-none mt-1" t-att-data-user-id="member.user_id || 'unassigned'">
+                                                <t t-foreach="member.queue" t-as="task">
+                                                    <div class="d-flex align-items-center gap-1 py-1 border-bottom" style="min-width:0">
+                                                        <a href="#"
+                                                           class="o_task_link text-decoration-none text-truncate flex-grow-1"
+                                                           t-att-data-task-id="task.id"
+                                                        >
+                                                            <t t-if="task.is_subtask"><span class="text-info" title="Subtask">↳ </span></t>
+                                                            <t t-if="task.is_subtask and task.parent_key"><small class="text-info ms-1">(<t t-esc="task.parent_key" />)</small></t>
+                                                            <t t-if="task.key"><small class="text-muted"><t t-esc="task.key" /></small> </t>
+                                                            <t t-esc="task.name" />
+                                                        </a>
+                                                        <small class="text-muted text-nowrap d-flex align-items-center gap-1">
+                                                            <t t-if="(dashboardMode === 'manager' || dashboardMode === 'department') and task.project_name">
+                                                                <span class="badge bg-light text-primary border" style="font-size:0.85em;"><t t-esc="task.project_name" /></span>
+                                                            </t>
+                                                            <span class="badge bg-light text-dark border" title="Remaining hours"><t t-esc="task.remaining_hours.toFixed(1)" />h</span>
+                                                            <t t-if="task.planned_date_end"><span class="badge bg-light text-dark border" title="Deadline"><i class="fa fa-calendar" /> <t t-esc="task.planned_date_end" /></span></t>
+                                                        </small>
+                                                    </div>
+                                                </t>
+                                            </div>
+                                        </div>
+                                    </t>
+
+                                    <!-- Backlog -->
+                                    <t t-if="member.backlog and member.backlog.length">
+                                        <div class="mb-1">
+                                            <button
+                                                class="o_queue_toggle btn btn-sm btn-link text-decoration-none p-0"
+                                                t-att-data-user-id="'backlog_' + (member.user_id || 'unassigned')"
+                                            >
+                                                <i class="fa fa-chevron-down me-1" />
+                                                <span>Backlog</span>
+                                                <span class="badge bg-secondary ms-1"><t t-esc="member.backlog.length" /></span>
+                                            </button>
+                                            <div class="o_queue_list d-none mt-1" t-att-data-user-id="'backlog_' + (member.user_id || 'unassigned')">
+                                                <t t-foreach="member.backlog" t-as="task">
+                                                    <div class="d-flex align-items-center gap-1 py-1 border-bottom" style="min-width:0">
+                                                        <a href="#"
+                                                           class="o_task_link text-decoration-none text-truncate flex-grow-1"
+                                                           t-att-data-task-id="task.id"
+                                                        >
+                                                            <t t-if="task.is_subtask"><span class="text-info" title="Subtask">↳ </span></t>
+                                                            <t t-if="task.is_subtask and task.parent_key"><small class="text-info ms-1">(<t t-esc="task.parent_key" />)</small></t>
+                                                            <t t-if="task.key"><small class="text-muted"><t t-esc="task.key" /></small> </t>
+                                                            <t t-esc="task.name" />
+                                                        </a>
+                                                        <small class="text-muted text-nowrap d-flex align-items-center gap-1">
+                                                            <t t-if="(dashboardMode === 'manager' || dashboardMode === 'department') and task.project_name">
+                                                                <span class="badge bg-light text-primary border" style="font-size:0.85em;"><t t-esc="task.project_name" /></span>
+                                                            </t>
+                                                            <span class="badge bg-light text-dark border" title="Remaining hours"><t t-esc="task.remaining_hours.toFixed(1)" />h</span>
+                                                            <t t-if="task.planned_date_end"><span class="badge bg-light text-dark border" title="Deadline"><i class="fa fa-calendar" /> <t t-esc="task.planned_date_end" /></span></t>
+                                                        </small>
+                                                    </div>
+                                                </t>
+                                            </div>
+                                        </div>
+                                    </t>
+
+                                    <!-- Other open tasks -->
+                                    <t t-if="member.other and member.other.length">
+                                        <div>
+                                            <button
+                                                class="o_queue_toggle btn btn-sm btn-link text-decoration-none p-0"
+                                                t-att-data-user-id="'other_' + (member.user_id || 'unassigned')"
+                                            >
+                                                <i class="fa fa-chevron-down me-1" />
+                                                <span>Other</span>
+                                                <span class="badge bg-secondary ms-1"><t t-esc="member.other.length" /></span>
+                                            </button>
+                                            <div class="o_queue_list d-none mt-1" t-att-data-user-id="'other_' + (member.user_id || 'unassigned')">
+                                                <t t-foreach="member.other" t-as="task">
+                                                    <div class="d-flex align-items-center gap-1 py-1 border-bottom" style="min-width:0">
+                                                        <a href="#"
+                                                           class="o_task_link text-decoration-none text-truncate flex-grow-1"
+                                                           t-att-data-task-id="task.id"
+                                                        >
+                                                            <t t-if="task.is_subtask"><span class="text-info" title="Subtask">↳ </span></t>
+                                                            <t t-if="task.is_subtask and task.parent_key"><small class="text-info ms-1">(<t t-esc="task.parent_key" />)</small></t>
+                                                            <t t-if="task.key"><small class="text-muted"><t t-esc="task.key" /></small> </t>
+                                                            <t t-esc="task.name" />
+                                                        </a>
+                                                        <small class="text-muted text-nowrap d-flex align-items-center gap-1">
+                                                            <t t-if="(dashboardMode === 'manager' || dashboardMode === 'department') and task.project_name">
+                                                                <span class="badge bg-light text-primary border" style="font-size:0.85em;"><t t-esc="task.project_name" /></span>
+                                                            </t>
+                                                            <span class="badge bg-light text-dark border" title="Remaining hours"><t t-esc="task.remaining_hours.toFixed(1)" />h</span>
+                                                            <t t-if="task.planned_date_end"><span class="badge bg-light text-dark border" title="Deadline"><i class="fa fa-calendar" /> <t t-esc="task.planned_date_end" /></span></t>
+                                                        </small>
+                                                    </div>
+                                                </t>
+                                            </div>
+                                        </div>
+                                    </t>
+                                </div>
+
+                                <!-- Card footer: summary stats -->
+                                <div class="card-footer d-flex justify-content-between small text-muted">
+                                    <span><i class="fa fa-bar-chart me-1" /><t t-esc="member.total_planned_hours.toFixed(1)" />h estimated</span>
+                                    <t t-if="member.estimated_completion">
+                                        <span title="Estimated completion based on work schedule and leaves">
+                                            <i class="fa fa-flag-checkered me-1" />ETA: <strong><t t-esc="member.estimated_completion" /></strong>
+                                        </span>
+                                    </t>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </div>
+            </t>
+            <t t-else="">
+                <div class="alert alert-info">
+                    <t t-if="dashboardMode === 'project'">
+                        No team members with open tasks found for this project.
+                    </t>
+                    <t t-if="dashboardMode === 'manager'">
+                        No subordinates with open tasks found. Select a manager above.
+                    </t>
+                    <t t-if="dashboardMode === 'department'">
+                        No department members with open tasks found. Select a department above.
+                    </t>
+                </div>
+            </t>
+        </div>
+
+        <!-- Gantt chart container (hidden by default, shown in gantt mode, project mode only) -->
+        <t t-if="dashboardMode === 'project'">
+            <div class="o_gantt_container d-none">
+                <div class="o_gantt_toolbar d-flex align-items-center gap-2 px-2 py-2 border-bottom bg-light flex-wrap">
+                    <div class="o_gantt_project_filter d-flex align-items-center gap-2">
+                        <label class="fw-bold mb-0 small">Projects:</label>
+                        <!-- Multi-project tags display -->
+                        <div class="o_gantt_multiproject_tags">
+                            <!-- Tags rendered by JS -->
+                        </div>
+                        <div class="o_project_search_wrapper position-relative" style="width: 200px;">
+                            <input
+                                type="text"
+                                class="o_gantt_project_add_input o_project_search_input form-control form-control-sm"
+                                placeholder="Add project..."
+                                autocomplete="off"
+                            />
+                            <div class="o_project_search_dropdown dropdown-menu w-100" style="max-height: 300px; overflow-y: auto;">
+                                <t t-foreach="projects" t-as="proj">
+                                    <a href="#"
+                                       class="dropdown-item o_project_search_item text-truncate"
+                                       t-att-data-project-id="proj.id"
+                                    >
+                                        <t t-if="proj.key"><strong class="me-1"><t t-esc="proj.key" /></strong> - </t><t t-esc="proj.name" />
+                                    </a>
+                                </t>
+                            </div>
+                        </div>
+                    </div>
+                    <label class="fw-bold mb-0 small">Scale:</label>
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button class="o_gantt_scale btn btn-outline-secondary" data-scale="day">Day</button>
+                        <button class="o_gantt_scale btn btn-outline-secondary active" data-scale="week">Week</button>
+                        <button class="o_gantt_scale btn btn-outline-secondary" data-scale="month">Month</button>
+                    </div>
+                    <button class="o_gantt_fit btn btn-sm btn-outline-secondary" title="Fit all">
+                        <i class="fa fa-arrows-alt me-1" />Fit All
+                    </button>
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button class="o_gantt_shift btn btn-outline-secondary" data-direction="-1" title="Earlier">
+                            <i class="fa fa-chevron-left" />
+                        </button>
+                        <button class="o_gantt_today btn btn-outline-secondary" title="Go to today">
+                            <i class="fa fa-crosshairs me-1" />Today
+                        </button>
+                        <button class="o_gantt_shift btn btn-outline-secondary" data-direction="1" title="Later">
+                            <i class="fa fa-chevron-right" />
+                        </button>
+                    </div>
+                    <button class="o_gantt_show_completed btn btn-sm btn-outline-secondary" title="Include completed/closed tasks">
+                        <i class="fa fa-eye me-1" />Show Closed
+                    </button>
+                    <button class="o_gantt_export_excel btn btn-sm btn-outline-secondary" title="Export as Excel Gantt chart">
+                        <i class="fa fa-file-excel-o me-1" />Export Excel
+                    </button>
+                    <button class="o_gantt_show_baseline btn btn-sm btn-outline-secondary" title="Show the baseline - a saved snapshot of every task's planned start and end - as a thin bar under each task bar, to compare the current plan with the original one.">
+                        <i class="fa fa-bars me-1" />Show Baseline
+                    </button>
+                    <button class="o_gantt_stage_history btn btn-sm btn-outline-secondary" title="Show which stages each task went through and when.">
+                        <i class="fa fa-history me-1" />Stage History
+                    </button>
+                    <button class="o_gantt_save_baseline btn btn-sm btn-outline-secondary d-none" title="Save today's planned start and end of every task as the baseline, replacing the previous snapshot. Project managers only.">
+                        <i class="fa fa-floppy-o me-1" />Save Baseline
+                    </button>
+                    <div class="o_gantt_columns_menu dropdown">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button"
+                                data-bs-toggle="dropdown" data-bs-auto-close="outside" title="Columns">
+                            <i class="fa fa-cog" />
+                        </button>
+                        <div class="o_gantt_columns_options dropdown-menu" />
+                    </div>
+                    <div class="d-flex align-items-center gap-1 ms-1">
+                        <label class="fw-bold mb-0 small">Group:</label>
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button class="o_gantt_group_by btn btn-outline-secondary" data-group="task">
+                                <i class="fa fa-tasks me-1" />Task
+                            </button>
+                            <button class="o_gantt_group_by btn btn-outline-secondary active" data-group="user">
+                                <i class="fa fa-users me-1" />User
+                            </button>
+                            <button class="o_gantt_group_by btn btn-outline-secondary" data-group="stage">
+                                <i class="fa fa-columns me-1" />Stage
+                            </button>
+                        </div>
+                    </div>
+                    <div class="o_gantt_search_box position-relative" style="flex:0 1 420px;">
+                        <div class="o_gantt_faceted_input d-flex flex-wrap align-items-center form-control form-control-sm gap-1"
+                             style="min-height:31px;cursor:text;">
+                            <!-- Facet chips rendered by JS -->
+                            <input type="text" class="o_gantt_search_input border-0 flex-grow-1 p-0"
+                                   placeholder="Search…" style="outline:none;min-width:80px;" />
+                        </div>
+                        <div class="o_gantt_search_dropdown dropdown-menu w-100" />
+                    </div>
+                    <div class="o_gantt_legend d-flex align-items-center gap-3 ms-auto small">
+                        <span class="o_gantt_no_dates_count d-none badge bg-warning text-dark" title="Click to view tasks without planned dates" style="font-size:11px;cursor:pointer;" />
+                        <span class="o_gantt_legend_stages d-flex align-items-center gap-3"/>
+                        <span class="d-flex align-items-center gap-1">
+                            <span class="o_gantt_legend_dot o_gantt_legend_overdue"/>
+                            Overdue
+                        </span>
+                        <span class="d-flex align-items-center gap-1">
+                            <span class="o_gantt_legend_diamond"/>
+                            Milestone
+                        </span>
+                    </div>
+                </div>
+                <!-- Overlap warning banner (populated by JS) -->
+                <div class="o_gantt_overlap_container" />
+                <div class="o_gantt_timeline_wrapper" />
+            </div>
+        </t>
+    </t>
+
+</templates>

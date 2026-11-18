@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="project_task_type_view_form_inherit" model="ir.ui.view">
+        <field name="name">project.task.type.form.inherit.project_team_dashboard</field>
+        <field name="model">project.task.type</field>
+        <field name="inherit_id" ref="project.task_type_edit" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='fold']" position="after">
+                <field name="is_in_progress" />
+                <field name="is_backlog" />
+            </xpath>
+        </field>
+    </record>
+
+    <record id="project_task_backlog_view_tree" model="ir.ui.view">
+        <field name="name">project.task.backlog.tree</field>
+        <field name="model">project.task</field>
+        <field name="arch" type="xml">
+            <tree
+                string="Backlog"
+                decoration-danger="planned_date_end and planned_date_end &lt; current_date"
+                decoration-muted="kanban_state == 'blocked'"
+                default_order="sequence, id"
+            >
+                <field name="sequence" widget="handle" />
+                <field name="key" string="Key" optional="show" />
+                <field name="name" string="Task" />
+                <field name="task_type" string="Task Type" optional="show" />
+                <field name="priority_level" optional="show" />
+                <field name="tshirt_estimate" optional="show" />
+                <field name="project_id" optional="hide" />
+                <field
+                    name="user_ids"
+                    widget="many2many_avatar_user"
+                    string="Assignees"
+                    optional="show"
+                />
+                <field name="stage_id" optional="hide" />
+                <field
+                    name="planned_date_start"
+                    string="Start"
+                    widget="date"
+                    optional="hide"
+                />
+                <field
+                    name="planned_date_end"
+                    string="Deadline"
+                    widget="date"
+                    optional="show"
+                />
+                <field name="planned_hours" string="Estimate (h)" optional="show" widget="float_time" />
+                <field
+                    name="tag_ids"
+                    widget="many2many_tags"
+                    options="{'color_field': 'color'}"
+                    optional="show"
+                />
+                <field name="kanban_state" invisible="1" />
+            </tree>
+        </field>
+    </record>
+
+    <record id="project_task_backlog_view_search" model="ir.ui.view">
+        <field name="name">project.task.backlog.search</field>
+        <field name="model">project.task</field>
+        <field name="arch" type="xml">
+            <search string="Search Backlog">
+                <field name="name" string="Task" />
+                <field name="key" string="Key" />
+                <field name="user_ids" string="Assignee" />
+                <field name="project_id" />
+                <field name="tag_ids" />
+                <field name="module_ids" string="Module" />
+                <field name="task_type" string="Task Type" />
+                <field name="stage_id" />
+                <separator />
+                <filter
+                    string="My Tasks"
+                    name="my_tasks"
+                    domain="[('user_ids', 'in', uid)]"
+                />
+                <filter
+                    string="Unassigned"
+                    name="unassigned"
+                    domain="[('user_ids', '=', False)]"
+                />
+                <separator />
+                <filter
+                    string="Blocked"
+                    name="blocked"
+                    domain="[('kanban_state', '=', 'blocked')]"
+                />
+                <filter
+                    string="Overdue"
+                    name="overdue"
+                    domain="[('planned_date_end', '&lt;', context_today().strftime('%Y-%m-%d'))]"
+                />
+                <separator />
+                <group expand="0" string="Group By">
+                    <filter
+                        string="Assignee"
+                        name="group_by_user"
+                        context="{'group_by': 'user_ids'}"
+                    />
+                    <filter
+                        string="Start Date"
+                        name="group_by_start"
+                        context="{'group_by': 'planned_date_start:week'}"
+                    />
+                    <filter
+                        string="Project"
+                        name="group_by_project"
+                        context="{'group_by': 'project_id'}"
+                    />
+                    <filter
+                        string="Type"
+                        name="group_by_task_type"
+                        context="{'group_by': 'task_type'}"
+                    />
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_project_task_backlog" model="ir.actions.act_window">
+        <field name="name">Backlog</field>
+        <field name="res_model">project.task</field>
+        <field name="view_mode">tree,form</field>
+        <field name="search_view_id" ref="project_task_backlog_view_search" />
+        <field name="domain">[('stage_id.is_backlog', '=', True)]</field>
+    </record>
+
+    <record id="action_open_backlog_server" model="ir.actions.server">
+        <field name="name">Open Backlog</field>
+        <field name="model_id" ref="project.model_project_task" />
+        <field name="state">code</field>
+        <field name="code">action = model.action_open_backlog()</field>
+    </record>
+
+    <record id="action_project_task_backlog_tree" model="ir.actions.act_window.view">
+        <field name="sequence">1</field>
+        <field name="view_mode">tree</field>
+        <field name="view_id" ref="project_task_backlog_view_tree" />
+        <field name="act_window_id" ref="action_project_task_backlog" />
+    </record>
+
+    <menuitem
+        id="menu_ai_driven_project_backlog"
+        name="Backlog"
+        parent="project.menu_main_pm"
+        action="action_open_backlog_server"
+        sequence="5"
+    />
+
+    <record id="action_team_dashboard" model="ir.actions.client">
+        <field name="name">Team Dashboard</field>
+        <field name="tag">project_team_dashboard</field>
+    </record>
+
+    <menuitem
+        id="menu_ai_driven_project_dashboard"
+        name="Team Dashboard"
+        parent="project.menu_main_pm"
+        action="action_team_dashboard"
+        sequence="6"
+    />
+</odoo>

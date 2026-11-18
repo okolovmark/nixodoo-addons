@@ -1,0 +1,742 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils: https://docutils.sourceforge.io/" />
+<title>Project Team Dashboard</title>
+<style type="text/css">
+
+/*
+:Author: David Goodger (goodger@python.org)
+:Id: $Id: html4css1.css 9511 2024-01-13 09:50:07Z milde $
+:Copyright: This stylesheet has been placed in the public domain.
+
+Default cascading style sheet for the HTML output of Docutils.
+Despite the name, some widely supported CSS2 features are used.
+
+See https://docutils.sourceforge.io/docs/howto/html-stylesheets.html for how to
+customize this style sheet.
+*/
+
+/* used to remove borders from tables and images */
+.borderless, table.borderless td, table.borderless th {
+  border: 0 }
+
+table.borderless td, table.borderless th {
+  /* Override padding for "table.docutils td" with "! important".
+     The right padding separates the table cells. */
+  padding: 0 0.5em 0 0 ! important }
+
+.first {
+  /* Override more specific margin styles with "! important". */
+  margin-top: 0 ! important }
+
+.last, .with-subtitle {
+  margin-bottom: 0 ! important }
+
+.hidden {
+  display: none }
+
+.subscript {
+  vertical-align: sub;
+  font-size: smaller }
+
+.superscript {
+  vertical-align: super;
+  font-size: smaller }
+
+a.toc-backref {
+  text-decoration: none ;
+  color: black }
+
+blockquote.epigraph {
+  margin: 2em 5em ; }
+
+dl.docutils dd {
+  margin-bottom: 0.5em }
+
+object[type="image/svg+xml"], object[type="application/x-shockwave-flash"] {
+  overflow: hidden;
+}
+
+/* Uncomment (and remove this text!) to get bold-faced definition list terms
+dl.docutils dt {
+  font-weight: bold }
+*/
+
+div.abstract {
+  margin: 2em 5em }
+
+div.abstract p.topic-title {
+  font-weight: bold ;
+  text-align: center }
+
+div.admonition, div.attention, div.caution, div.danger, div.error,
+div.hint, div.important, div.note, div.tip, div.warning {
+  margin: 2em ;
+  border: medium outset ;
+  padding: 1em }
+
+div.admonition p.admonition-title, div.hint p.admonition-title,
+div.important p.admonition-title, div.note p.admonition-title,
+div.tip p.admonition-title {
+  font-weight: bold ;
+  font-family: sans-serif }
+
+div.attention p.admonition-title, div.caution p.admonition-title,
+div.danger p.admonition-title, div.error p.admonition-title,
+div.warning p.admonition-title, .code .error {
+  color: red ;
+  font-weight: bold ;
+  font-family: sans-serif }
+
+/* Uncomment (and remove this text!) to get reduced vertical space in
+   compound paragraphs.
+div.compound .compound-first, div.compound .compound-middle {
+  margin-bottom: 0.5em }
+
+div.compound .compound-last, div.compound .compound-middle {
+  margin-top: 0.5em }
+*/
+
+div.dedication {
+  margin: 2em 5em ;
+  text-align: center ;
+  font-style: italic }
+
+div.dedication p.topic-title {
+  font-weight: bold ;
+  font-style: normal }
+
+div.figure {
+  margin-left: 2em ;
+  margin-right: 2em }
+
+div.footer, div.header {
+  clear: both;
+  font-size: smaller }
+
+div.line-block {
+  display: block ;
+  margin-top: 1em ;
+  margin-bottom: 1em }
+
+div.line-block div.line-block {
+  margin-top: 0 ;
+  margin-bottom: 0 ;
+  margin-left: 1.5em }
+
+div.sidebar {
+  margin: 0 0 0.5em 1em ;
+  border: medium outset ;
+  padding: 1em ;
+  background-color: #ffffee ;
+  width: 40% ;
+  float: right ;
+  clear: right }
+
+div.sidebar p.rubric {
+  font-family: sans-serif ;
+  font-size: medium }
+
+div.system-messages {
+  margin: 5em }
+
+div.system-messages h1 {
+  color: red }
+
+div.system-message {
+  border: medium outset ;
+  padding: 1em }
+
+div.system-message p.system-message-title {
+  color: red ;
+  font-weight: bold }
+
+div.topic {
+  margin: 2em }
+
+h1.section-subtitle, h2.section-subtitle, h3.section-subtitle,
+h4.section-subtitle, h5.section-subtitle, h6.section-subtitle {
+  margin-top: 0.4em }
+
+h1.title {
+  text-align: center }
+
+h2.subtitle {
+  text-align: center }
+
+hr.docutils {
+  width: 75% }
+
+img.align-left, .figure.align-left, object.align-left, table.align-left {
+  clear: left ;
+  float: left ;
+  margin-right: 1em }
+
+img.align-right, .figure.align-right, object.align-right, table.align-right {
+  clear: right ;
+  float: right ;
+  margin-left: 1em }
+
+img.align-center, .figure.align-center, object.align-center {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+table.align-center {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.align-left {
+  text-align: left }
+
+.align-center {
+  clear: both ;
+  text-align: center }
+
+.align-right {
+  text-align: right }
+
+/* reset inner alignment in figures */
+div.align-right {
+  text-align: inherit }
+
+/* div.align-center * { */
+/*   text-align: left } */
+
+.align-top    {
+  vertical-align: top }
+
+.align-middle {
+  vertical-align: middle }
+
+.align-bottom {
+  vertical-align: bottom }
+
+ol.simple, ul.simple {
+  margin-bottom: 1em }
+
+ol.arabic {
+  list-style: decimal }
+
+ol.loweralpha {
+  list-style: lower-alpha }
+
+ol.upperalpha {
+  list-style: upper-alpha }
+
+ol.lowerroman {
+  list-style: lower-roman }
+
+ol.upperroman {
+  list-style: upper-roman }
+
+p.attribution {
+  text-align: right ;
+  margin-left: 50% }
+
+p.caption {
+  font-style: italic }
+
+p.credits {
+  font-style: italic ;
+  font-size: smaller }
+
+p.label {
+  white-space: nowrap }
+
+p.rubric {
+  font-weight: bold ;
+  font-size: larger ;
+  color: maroon ;
+  text-align: center }
+
+p.sidebar-title {
+  font-family: sans-serif ;
+  font-weight: bold ;
+  font-size: larger }
+
+p.sidebar-subtitle {
+  font-family: sans-serif ;
+  font-weight: bold }
+
+p.topic-title {
+  font-weight: bold }
+
+pre.address {
+  margin-bottom: 0 ;
+  margin-top: 0 ;
+  font: inherit }
+
+pre.literal-block, pre.doctest-block, pre.math, pre.code {
+  margin-left: 2em ;
+  margin-right: 2em }
+
+pre.code .ln { color: gray; } /* line numbers */
+pre.code, code { background-color: #eeeeee }
+pre.code .comment, code .comment { color: #5C6576 }
+pre.code .keyword, code .keyword { color: #3B0D06; font-weight: bold }
+pre.code .literal.string, code .literal.string { color: #0C5404 }
+pre.code .name.builtin, code .name.builtin { color: #352B84 }
+pre.code .deleted, code .deleted { background-color: #DEB0A1}
+pre.code .inserted, code .inserted { background-color: #A3D289}
+
+span.classifier {
+  font-family: sans-serif ;
+  font-style: oblique }
+
+span.classifier-delimiter {
+  font-family: sans-serif ;
+  font-weight: bold }
+
+span.interpreted {
+  font-family: sans-serif }
+
+span.option {
+  white-space: nowrap }
+
+span.pre {
+  white-space: pre }
+
+span.problematic, pre.problematic {
+  color: red }
+
+span.section-subtitle {
+  /* font-size relative to parent (h1..h6 element) */
+  font-size: 80% }
+
+table.citation {
+  border-left: solid 1px gray;
+  margin-left: 1px }
+
+table.docinfo {
+  margin: 2em 4em }
+
+table.docutils {
+  margin-top: 0.5em ;
+  margin-bottom: 0.5em }
+
+table.footnote {
+  border-left: solid 1px black;
+  margin-left: 1px }
+
+table.docutils td, table.docutils th,
+table.docinfo td, table.docinfo th {
+  padding-left: 0.5em ;
+  padding-right: 0.5em ;
+  vertical-align: top }
+
+table.docutils th.field-name, table.docinfo th.docinfo-name {
+  font-weight: bold ;
+  text-align: left ;
+  white-space: nowrap ;
+  padding-left: 0 }
+
+/* "booktabs" style (no vertical lines) */
+table.docutils.booktabs {
+  border: 0px;
+  border-top: 2px solid;
+  border-bottom: 2px solid;
+  border-collapse: collapse;
+}
+table.docutils.booktabs * {
+  border: 0px;
+}
+table.docutils.booktabs th {
+  border-bottom: thin solid;
+  text-align: left;
+}
+
+h1 tt.docutils, h2 tt.docutils, h3 tt.docutils,
+h4 tt.docutils, h5 tt.docutils, h6 tt.docutils {
+  font-size: 100% }
+
+ul.auto-toc {
+  list-style-type: none }
+
+</style>
+</head>
+<body>
+<div class="document" id="project-team-dashboard">
+<h1 class="title">Project Team Dashboard</h1>
+
+<!-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! This file is generated by oca-gen-addon-readme !!
+!! changes will be overwritten.                   !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! source digest: sha256:1e50d3199a8ebf00a6475d7b4bef6ae751506073c1202fe4310be4133c972056
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! -->
+<p><a class="reference external image-reference" href="https://odoo-community.org/page/development-status"><img alt="Beta" src="https://img.shields.io/badge/maturity-Beta-yellow.png" /></a> <a class="reference external image-reference" href="http://www.gnu.org/licenses/lgpl-3.0-standalone.html"><img alt="License: LGPL-3" src="https://img.shields.io/badge/license-LGPL--3-blue.png" /></a> <a class="reference external image-reference" href="https://github.com/okolovmark/nixodoo-addons/tree/16.0/project_team_dashboard"><img alt="okolovmark/nixodoo-addons" src="https://img.shields.io/badge/github-okolovmark%2Fnixodoo--addons-lightgray.png?logo=github" /></a></p>
+<p>A team’s work in Project at a glance: a <strong>Team Dashboard</strong> of workload
+cards per member, a multi-project <strong>Gantt chart</strong> with dependency lags and
+baselines, a <strong>Backlog</strong> list, and planned dates of a task that roll up
+from its sub-tasks. It builds on <tt class="docutils literal">project_ai_driven</tt> (task type,
+estimate, size, modules of a task, stage log) and on <tt class="docutils literal">hr_timesheet</tt>
+(logged hours, employees).</p>
+<p>Stages (<tt class="docutils literal">project.task.type</tt>) gain two flags: <strong>In Progress Stage</strong>
+(tasks there are being worked on; the dashboard picks a member’s current
+task from them) and <strong>Backlog Stage</strong> (tasks there form the backlog).</p>
+<p><strong>Planned dates and sub-tasks</strong></p>
+<p>A task has a planned start and a planned end (<tt class="docutils literal">planned_date_start</tt>,
+<tt class="docutils literal">planned_date_end</tt>), on the task form and, hidden by default, in the task
+list. A task without sub-tasks keeps the planned dates it is given, and
+none until it is given some: assigning or closing the task sets none of
+them. An end before the start is refused. These are the fields of the OCA
+module <tt class="docutils literal">project_timeline</tt>, which this module does not need. With it
+installed, its computations are replaced by these, so its rules that take
+the assignment date as planned start and the closing date as planned end
+do not run (<tt class="docutils literal">project_team_dashboard_timeline</tt> keeps its fields on the
+form and list).</p>
+<p>A task with active sub-tasks takes its planned start and end from them: the
+earliest and the latest planned date of those sub-tasks, or no dates while
+none of them is dated. Archived sub-tasks are ignored, the deadline is
+never touched, and the roll-up climbs every level (Milestone &gt; Task &gt;
+Sub-task). Such a task is flagged <tt class="docutils literal">is_planned_from_subtasks</tt>: its planned
+dates are read-only on the task form and list, and a write that changes
+them is refused with a message to change the sub-tasks instead.</p>
+<p><strong>Backlog</strong></p>
+<p><strong>Project &gt; Backlog</strong> lists the tasks in a Backlog stage with Key, Task,
+Assignee, Type, Priority, Size and Estimate (h), filters <em>My Tasks</em>,
+<em>Unassigned</em>, <em>Blocked</em>, <em>Overdue</em> and groupings by Assignee, Start Date,
+Project and Type. Project users also search it by <strong>Module</strong>, a module’s
+technical name or title, as in the task search of <tt class="docutils literal">project_ai_driven</tt>.
+It opens filtered on the user’s <strong>Default Dashboard Project</strong> and on
+unassigned tasks. <strong>Estimate (h)</strong> is the task’s <strong>Estimate</strong> in hours,
+and <strong>Size</strong> the size <tt class="docutils literal">project_ai_driven</tt> computes from it.</p>
+<p><strong>Team Dashboard</strong></p>
+<p><strong>Project &gt; Team Dashboard</strong> is a client action with three modes:</p>
+<ul class="simple">
+<li><strong>View by Project</strong>: one card per user assigned to an open task of the
+project (plus an <em>Unassigned</em> card).</li>
+<li><strong>View by Manager</strong>: cards for the subordinates of a user, taken from the
+employee hierarchy down to a chosen depth (1 to 5 levels or all), across
+every project.</li>
+<li><strong>View by Department</strong>: cards for the users of a department.</li>
+</ul>
+<p>Each card shows the member’s current task (the most recently updated task in
+an In Progress stage), the queue of other in-progress tasks, the backlog,
+other open tasks, open task count, estimated and remaining hours, hours logged
+today and in the selected period (This Week, Last Week, This Month, Last
+Month or a custom range), and an estimated completion date. The estimate
+plans the remaining hours on the employee’s working schedule with leaves
+taken into account, and falls back to 5.7 hours a day when no employee or
+schedule exists. Links open the member’s kanban, backlog or closed tasks.</p>
+<p>Users carry a <strong>Default Dashboard Project</strong>, editable from their
+preferences.</p>
+<p><strong>Gantt Chart</strong></p>
+<p>The <strong>Gantt Chart</strong> view plots the planned dates of the selected projects’
+tasks on a timeline: Day, Week or Month scale paged a month at a time (a
+week on Day, a quarter on Month), grouped by user (the default), by task
+or by stage, optional completed tasks, a counter of tasks without dates,
+faceted search with a jump to any shown task by key or name,
+several projects at once. Bars take the colour of their stage (closed
+stages grey, legend built from the stages shown); an open task past its
+planned end gets a red outline. Dependencies are drawn as orange elbow
+connectors from the predecessor’s end into the successor’s start.
+<strong>Export Excel</strong> downloads the open tasks of the selected projects that
+have planned dates or a deadline as an .xlsx Gantt chart, sorted by start
+date; closed tasks are always left out, and the search facets and grouping
+are not applied. The chart is drawn with the vis-timeline library, which
+the module ships (<tt class="docutils literal"><span class="pre">static/lib/vis-timeline</span></tt>, MIT License).</p>
+<ul class="simple">
+<li><strong>Attribute columns</strong>: the left pane can show Assignees, Deadline, Estimate,
+Spent hours and Stage next to the task name, as a fixed-width grid
+with a header row; hours are right-aligned. The choice is stored per user
+(<tt class="docutils literal">res.users.gantt_columns</tt>); the first four are on by default. Columns
+are shown only while their total width plus 140 px for the task name fits
+in 60% of the chart width (all five need a chart about 1010 px wide);
+otherwise they are hidden. The pane re-measures after a window resize or a
+column change. A cell tooltip reads “&lt;Column&gt;: &lt;value&gt;”; a header tooltip
+explains the column. The column that repeats the grouping is left out:
+Assignees in Group by User, Stage in Group by Stage; its checkbox is greyed
+out there but keeps the stored choice.</li>
+<li><strong>Dependencies</strong>: dragging the handle of a task bar onto another bar makes
+the second task depend on the first (core <tt class="docutils literal">depend_on_ids</tt>). Clicking an
+arrow opens a popover to set its dependency lag or remove the link.</li>
+<li><strong>Dependency lag</strong> (<tt class="docutils literal">project.task.dependency.lag</tt>): calendar days per
+dependency, zero or more; no row means lag 0. The chart only checks it: a
+link whose successor starts before the predecessor’s end plus the lag is
+drawn red with a warning. No date moves automatically. Copying a task
+keeps the lags of the dependencies that are copied with it; removing a
+dependency removes its lag.</li>
+<li><strong>Baseline</strong> (<tt class="docutils literal">project.baseline</tt> / <tt class="docutils literal">project.baseline.line</tt>): <em>Save
+Baseline</em> (Project Managers) stores the planned start, planned end and
+deadline of every open task with at least one of these dates, one
+baseline per project shown. The new baseline becomes the project’s
+<strong>Active Baseline</strong> (<tt class="docutils literal">baseline_id</tt>) and replaces the previous one.
+<em>Show Baseline</em> draws it as grey bars under the tasks, and the tooltip
+shows the shift of the planned end, e.g. “+3 d vs baseline”. Turning
+<em>Show Baseline</em> on when no task shown has a baseline raises a warning
+pointing to <em>Save Baseline</em>.</li>
+<li><strong>Sub-tasks</strong>: grouped by task, user or stage, a sub-task row is nested
+under its parent’s row when both fall in the same group. Otherwise the
+sub-task is a top-level row labelled “sub-task of &lt;parent key&gt;” (no label
+when the user cannot read the parent). A parent’s bar is read-only when its
+dates come from its sub-tasks; other bars move and resize by whole days. In
+Group by User a task and its own sub-tasks never count as conflicting.</li>
+<li><strong>Unscheduled (N)</strong>: tasks with no planned dates and no deadline are
+listed in their own group at the end of the chart; a click opens the
+task.</li>
+<li><strong>Milestones</strong>: Milestone-type tasks and tasks with only a deadline are
+drawn as a diamond on their date, and exported as milestones in the
+Excel Gantt chart. A Milestone shown with its sub-task rows and spanning
+more than one date is drawn as a bar.</li>
+<li><strong>Stage History</strong> (off by default, in every grouping): each task
+row expands into one row per stage visit, in the stage’s colour and
+chained by orange connectors. The visits come from the stage log of
+<tt class="docutils literal">project_ai_driven</tt> (<tt class="docutils literal">project.task.stage.log</tt>, <em>The stage log</em> in
+that module), which holds every change of a task’s stage, with or
+without a line in the chatter, and are shown for the tasks the user can
+see. A row with a stage starts a visit at its date and ends the visit
+before it; a row with no stage only ends the visit before it. The
+history starts at the task’s first row. The visit a task is still in
+runs to now, or ends at its own start when its stage is closed (folded).
+A deleted stage keeps its name and shares the colour and the legend
+entry of tasks without a stage. A visit shorter than a day is drawn one
+day wide; history rows are read-only. The task row then shows a
+read-only summary bar from the start of the first visit to the end of
+the last one, in the current stage’s colour (the planned dates stay in
+its tooltip), and the User grouping’s conflict highlighting is off. A
+task with no row in the log keeps its own bar.</li>
+</ul>
+<p>Lags and baselines are read and written only through the Gantt methods,
+which check the user’s rights on the tasks and projects first.
+<tt class="docutils literal">readme/gantt_data_model.puml</tt> draws the models of the Gantt chart; the
+design record is
+<tt class="docutils literal"><span class="pre">docs/adr/0015-the-team-dashboard-needs-no-project-timeline-and-adopts-its-records-by-external-id.md</span></tt>
+in this repository.</p>
+<p><strong>Table of contents</strong></p>
+<div class="contents local topic" id="contents">
+<ul class="simple">
+<li><a class="reference internal" href="#installation" id="toc-entry-1">Installation</a></li>
+<li><a class="reference internal" href="#configuration" id="toc-entry-2">Configuration</a><ul>
+<li><a class="reference internal" href="#projects" id="toc-entry-3">Projects</a></li>
+<li><a class="reference internal" href="#users" id="toc-entry-4">Users</a></li>
+<li><a class="reference internal" href="#access" id="toc-entry-5">Access</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#usage" id="toc-entry-6">Usage</a><ul>
+<li><a class="reference internal" href="#plan-a-task" id="toc-entry-7">Plan a task</a></li>
+<li><a class="reference internal" href="#work-the-backlog" id="toc-entry-8">Work the backlog</a></li>
+<li><a class="reference internal" href="#team-dashboard" id="toc-entry-9">Team Dashboard</a></li>
+<li><a class="reference internal" href="#plan-in-the-gantt-chart" id="toc-entry-10">Plan in the Gantt chart</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#known-issues-roadmap" id="toc-entry-11">Known issues / Roadmap</a></li>
+<li><a class="reference internal" href="#bug-tracker" id="toc-entry-12">Bug Tracker</a></li>
+<li><a class="reference internal" href="#credits" id="toc-entry-13">Credits</a><ul>
+<li><a class="reference internal" href="#authors" id="toc-entry-14">Authors</a></li>
+<li><a class="reference internal" href="#contributors" id="toc-entry-15">Contributors</a></li>
+<li><a class="reference internal" href="#maintainers" id="toc-entry-16">Maintainers</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="installation">
+<h1><a class="toc-backref" href="#toc-entry-1">Installation</a></h1>
+<p>A database that has none of this module’s records needs nothing beyond
+installing it. The install creates the planned date columns of the task
+when <tt class="docutils literal">project_timeline</tt> has not created them, empty, and rolls the
+planned dates of every task with sub-tasks up from them; it logs <tt class="docutils literal">Planned
+dates rolled up from <span class="pre">sub-tasks</span> on &lt;n&gt; tasks</tt>.</p>
+<p><strong>A database that holds these records under another module</strong></p>
+<p>The Backlog, the Team Dashboard and the Gantt chart may be installed
+already under another module, which then hands them over: that module drops
+them from its code and depends on this one, and its update installs this
+module first.</p>
+<ul class="simple">
+<li>Update that module with the server stopped. Before any data file is
+loaded, the <tt class="docutils literal">pre_init_hook</tt> takes the records that module holds under
+the external ids of this module (models, fields, views, actions, menus,
+access and record rules, the constraint of the dependency lag), with the
+constraints and foreign keys registered for them, so every record keeps
+its database id: baselines, dependency lags, the stage flags and the
+default dashboard project of every user stay. The module is the one that
+holds the external id of <tt class="docutils literal">project.baseline</tt>.</li>
+<li>The same hook hands the two views of that module that extend the planned
+dates of <tt class="docutils literal">project_timeline</tt> to <tt class="docutils literal">project_team_dashboard_timeline</tt>,
+which installs itself in the same update and loads its views over them.
+Put both modules on the addons path: without the glue module, those two
+views stay as they are and the form shows the planned dates twice.</li>
+<li>A database where no other module holds the external id of
+<tt class="docutils literal">project.baseline</tt>, <tt class="docutils literal">project.baseline.line</tt> or
+<tt class="docutils literal">project.task.dependency.lag</tt> is left untouched, even where a module
+holds records of the same names, and a second run finds nothing to move.</li>
+</ul>
+</div>
+<div class="section" id="configuration">
+<h1><a class="toc-backref" href="#toc-entry-2">Configuration</a></h1>
+<div class="section" id="projects">
+<h2><a class="toc-backref" href="#toc-entry-3">Projects</a></h2>
+<ul class="simple">
+<li>Tick <strong>Task Dependencies</strong> on the project to link its tasks from the
+Gantt chart.</li>
+<li>On the project’s task stages (Project &gt; Configuration &gt; Task Stages,
+developer mode only) tick <strong>In Progress Stage</strong> on the working stages and
+<strong>Backlog Stage</strong> on the backlog stages; the Backlog list and the Team
+Dashboard read these flags.</li>
+</ul>
+</div>
+<div class="section" id="users">
+<h2><a class="toc-backref" href="#toc-entry-4">Users</a></h2>
+<ul class="simple">
+<li>Each user sets their <strong>Default Dashboard Project</strong> in Preferences (an
+administrator on the user form); the Backlog menu opens on it.</li>
+<li>The estimated completion of a member card plans on the working schedule
+of the user’s employee in the current company, or of the company: give
+each member an employee with a schedule for an estimate that skips
+weekends, leaves and public holidays.</li>
+</ul>
+</div>
+<div class="section" id="access">
+<h2><a class="toc-backref" href="#toc-entry-5">Access</a></h2>
+<p>Team Dashboard tasks are read with the user’s project rights, and so are the
+logged hours in View by Project mode. In the Manager and Department modes the
+logged hours of the listed users (across all projects), the employee hierarchy
+and the department members are read with elevated rights; the department
+picker list and the viewer’s own department are loaded with the user’s own
+rights.</p>
+<p>Who opens which team in those two modes follows the user’s employee:</p>
+<ul class="simple">
+<li><strong>View by Manager</strong>: the user themselves, or a manager one of whose
+employees reports to one of the user’s employees, directly or further down
+the hierarchy (the employee’s <em>Manager</em>), in any company.</li>
+<li><strong>View by Department</strong>: a department the user’s employee belongs to, or
+one it is the <em>Manager</em> of.</li>
+<li>A user with <strong>Timesheets: User: all timesheets</strong> (Administrator includes
+it) or <strong>Employees: Officer</strong> opens every manager and every department.
+So does every <strong>Project / Administrator</strong>: Odoo gives project
+administrators the first of these rights.</li>
+</ul>
+<p>A manager’s team is everyone below their employees, the manager left out,
+also where the hierarchy loops back: Odoo lets an employee manage their own
+manager, and the <em>Manager</em> of a department who belongs to it gets themselves
+as <em>Manager</em>.</p>
+<p>The pickers still list every user and department. Any other choice is
+refused: the user gets an error message, and the picker goes back to the
+manager or department shown before, whose cards stay on screen. Give a team
+lead an employee with the right <em>Manager</em> for them to see their team.</p>
+<p>Gantt chart: dependencies can be linked and lags edited by users with write
+access to the dependent task. Only <strong>Project / Administrator</strong> can save a
+baseline, and needs write access to the project. Project managers can read
+dependency lags and manage baselines directly; project users reach them only
+through the Gantt chart.</p>
+</div>
+</div>
+<div class="section" id="usage">
+<h1><a class="toc-backref" href="#toc-entry-6">Usage</a></h1>
+<div class="section" id="plan-a-task">
+<h2><a class="toc-backref" href="#toc-entry-7">Plan a task</a></h2>
+<ul class="simple">
+<li>The planned dates of a task are above its deadline on the task form;
+show them in the task list from its optional columns.</li>
+<li>A task with active sub-tasks shows its planned dates read-only: plan its
+sub-tasks and the task follows them.</li>
+</ul>
+</div>
+<div class="section" id="work-the-backlog">
+<h2><a class="toc-backref" href="#toc-entry-8">Work the backlog</a></h2>
+<p><strong>Project &gt; Backlog</strong> opens the Backlog-stage tasks of your Default
+Dashboard Project, filtered on <em>Unassigned</em>; remove that filter to see
+assigned tasks too. Reorder by drag, filter <em>My Tasks</em>, <em>Blocked</em> or
+<em>Overdue</em>, and group by Assignee, Start Date, Project or Type. To assign a
+task, open it.</p>
+</div>
+<div class="section" id="team-dashboard">
+<h2><a class="toc-backref" href="#toc-entry-9">Team Dashboard</a></h2>
+<p><strong>Project &gt; Team Dashboard</strong>:</p>
+<ol class="arabic simple">
+<li>Pick the mode: <strong>View by Project</strong> (type a project name), <strong>View by
+Manager</strong> (pick the manager and the <strong>Depth</strong>) or <strong>View by Department</strong>.</li>
+<li>Pick the <strong>Period</strong> for the logged-hours figures, or <em>Custom Range</em> with
+start and end dates.</li>
+<li>Read each member card: current task, queue, backlog, estimated and
+remaining hours, hours logged, estimated completion. Click a task key to
+open it, or the card links to the member’s kanban, backlog or closed
+tasks.</li>
+<li>Switch to <strong>Gantt Chart</strong> to see planned dates. Change the <strong>Scale</strong>
+(Day, Week, Month), page earlier or later with the arrows around
+<strong>Today</strong>, <strong>Group</strong> by user (the default), task or stage, press
+<strong>Show Closed</strong> to include completed/closed tasks, add more projects with
+the <em>Add project…</em> search, and press <strong>Export Excel</strong> for an .xlsx (the export
+always leaves out closed tasks).</li>
+</ol>
+</div>
+<div class="section" id="plan-in-the-gantt-chart">
+<h2><a class="toc-backref" href="#toc-entry-10">Plan in the Gantt chart</a></h2>
+<ul class="simple">
+<li>Columns: open the cog menu and tick the attribute columns to show; hover
+a column name there or in the header for what it holds. On a narrow
+screen the columns are hidden until the window is wide enough for them,
+or until fewer are ticked. Grouped by User or Stage, the column with the
+same information (Assignees or Stage) is not shown.</li>
+<li>Find a task: type its key or part of its name in the search box and pick
+it under <em>Go to task</em> (or press Enter for the first one); the chart
+scrolls to its bar, selects it and briefly highlights its row.</li>
+<li>Link tasks: hover the predecessor’s bar, drag the handle at its right end
+and drop it on the dependent task. Click the arrow to enter <strong>Lag, days</strong> and press
+<em>Save</em>, or press <em>Remove</em> to delete the dependency. A red arrow means the
+dependent task starts too early; move its dates yourself.</li>
+<li>Project Managers press <strong>Save Baseline</strong> to store the current plan; it
+replaces the project’s previous baseline. Press <strong>Show Baseline</strong> to
+compare the plan against it: the baseline is drawn as a thin bar under
+each task bar. When none of the tasks shown has a baseline yet, a warning
+says so and points to Save Baseline.</li>
+<li>Move or resize a bar to replan a task; it moves by whole days. The bar
+of a task planned from its sub-tasks does not move: drag its sub-tasks.</li>
+<li>Press <strong>Stage History</strong> to see under each task the stages it went
+through and how long it stayed in each. Every stage change counts,
+whoever made it: a move by a script or an assistant that left no line in
+the chatter shows too. A task older than the stage log with no stage
+change in its chatter shows its current stage alone, from its last stage
+update.</li>
+<li>Expand <strong>Unscheduled (N)</strong> to find tasks without any date and open
+them to plan them.</li>
+</ul>
+</div>
+</div>
+<div class="section" id="known-issues-roadmap">
+<h1><a class="toc-backref" href="#toc-entry-11">Known issues / Roadmap</a></h1>
+<ul class="simple">
+<li>The Gantt chart does not reschedule tasks: a violated dependency lag is
+only drawn red.</li>
+<li>Dependency lags count calendar days, not working days.</li>
+<li>Each project keeps a single baseline; saving a new one deletes the
+previous one, so there is no baseline history.</li>
+<li>The Gantt attribute columns cannot be sorted.</li>
+</ul>
+</div>
+<div class="section" id="bug-tracker">
+<h1><a class="toc-backref" href="#toc-entry-12">Bug Tracker</a></h1>
+<p>Bugs are tracked on <a class="reference external" href="https://github.com/okolovmark/nixodoo-addons/issues">GitHub Issues</a>.
+In case of trouble, please check there if your issue has already been reported.
+If you spotted it first, help us to smash it by providing a detailed and welcomed
+<a class="reference external" href="https://github.com/okolovmark/nixodoo-addons/issues/new?body=module:%20project_team_dashboard%0Aversion:%2016.0%0A%0A**Steps%20to%20reproduce**%0A-%20...%0A%0A**Current%20behavior**%0A%0A**Expected%20behavior**">feedback</a>.</p>
+<p>Do not contact contributors directly about support or help with technical issues.</p>
+</div>
+<div class="section" id="credits">
+<h1><a class="toc-backref" href="#toc-entry-13">Credits</a></h1>
+<div class="section" id="authors">
+<h2><a class="toc-backref" href="#toc-entry-14">Authors</a></h2>
+<ul class="simple">
+<li>Mark Okolov</li>
+</ul>
+</div>
+<div class="section" id="contributors">
+<h2><a class="toc-backref" href="#toc-entry-15">Contributors</a></h2>
+<ul class="simple">
+<li>Mark Okolov &lt;<a class="reference external" href="https://github.com/okolovmark">https://github.com/okolovmark</a>&gt;</li>
+</ul>
+</div>
+<div class="section" id="maintainers">
+<h2><a class="toc-backref" href="#toc-entry-16">Maintainers</a></h2>
+<p>This module is part of the <a class="reference external" href="https://github.com/okolovmark/nixodoo-addons/tree/16.0/project_team_dashboard">okolovmark/nixodoo-addons</a> project on GitHub.</p>
+<p>You are welcome to contribute.</p>
+</div>
+</div>
+</div>
+</body>
+</html>
