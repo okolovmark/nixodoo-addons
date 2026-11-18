@@ -394,6 +394,10 @@ class TestTaskBrief(ProjectAiDrivenCommon):
         cls.stage = cls._create_stage("In Progress", 10)
         cls.tags = cls.env["project.tags"].create([{"name": "Brief Backend"}, {"name": "Brief Urgent"}])
         cls._set_develops_this_odoo(cls.project)
+        timesheet_user = cls.env.ref("hr_timesheet.group_hr_timesheet_user", raise_if_not_found=False)
+        if timesheet_user:
+            # With hr_timesheet a read naming no fields reads the task's timesheet lines too.
+            cls.user_dev.write({"groups_id": [Command.link(timesheet_user.id)]})
         cls.module = cls.env["ir.module.module"].search([("name", "=", "project")])
         cls.parent_task = cls.Task.create({"name": "Parent of the brief", "project_id": cls.project.id})
         cls.brief_task = (

@@ -2,8 +2,16 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
     "use strict";
 
     var TeamDashboard = require("project_team_dashboard.team_dashboard");
+    var busTestEnv = require("@bus/../tests/helpers/mock_python_environment");
 
-    QUnit.module("project_team_dashboard", {}, function () {
+    QUnit.module("project_team_dashboard", {
+        // The bus test helpers fetch model definitions when the run begins. Run alone, these
+        // tests end before that request does, and leaving the page then aborts it: a global
+        // failure. Waiting for it here keeps the run whole.
+        before: function () {
+            return busTestEnv.startServer();
+        },
+    }, function () {
         QUnit.module("shiftGanttWindow");
 
         QUnit.test("the week scale moves the window by one month", function (assert) {

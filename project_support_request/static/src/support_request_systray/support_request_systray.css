@@ -1,0 +1,127 @@
+.o_odoo_requests_systray {
+    position: relative;
+    cursor: pointer;
+}
+
+.o_odoo_requests_icon {
+    transition: opacity 0.2s;
+}
+
+.o_odoo_requests_icon:hover {
+    opacity: 0.8;
+}
+
+.o_requests_icon_idle {
+    color: rgba(255, 255, 255, 0.7) !important;
+    font-size: 14px;
+}
+
+.o_requests_icon_label {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+
+.o_odoo_requests_badge {
+    font-size: 10px;
+    min-width: 18px;
+    padding: 2px 5px;
+    line-height: 1.2;
+}
+
+.o_odoo_requests_dropdown {
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    animation: requestsDropdownIn 0.15s ease-out;
+}
+
+@keyframes requestsDropdownIn {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.o_requests_tab {
+    border: none;
+    background: transparent;
+    padding: 8px 12px;
+    font-size: 12px;
+    transition: all 0.15s;
+    position: relative;
+}
+
+.o_requests_tab:hover {
+    background-color: rgba(0, 0, 0, 0.04);
+}
+
+.o_requests_tab_active {
+    color: #212529 !important;
+}
+
+.o_requests_tab_active::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 20%;
+    right: 20%;
+    height: 2px;
+    background-color: #714B67;
+    border-radius: 2px;
+}
+
+.o_odoo_requests_ticket_list {
+    max-height: 340px;
+    overflow-y: auto;
+}
+
+.o_odoo_requests_ticket_item {
+    transition: background-color 0.15s;
+    cursor: pointer;
+}
+
+.o_odoo_requests_ticket_item:hover {
+    background-color: rgba(0, 0, 0, 0.03);
+}
+
+.o_odoo_requests_ticket_item:last-child {
+    border-bottom: none !important;
+}
+
+.o_requests_priority_dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.o_requests_ticket_key {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background-color: #e8e0f3;
+    color: #4a2d7a;
+    white-space: nowrap;
+    vertical-align: middle;
+    line-height: 1.4;
+}
+
+.o_odoo_requests_dropdown .btn-sm {
+    font-size: 12px;
+    padding: 6px 12px;
+}
+
+.o_odoo_requests_dropdown .form-control-sm,
+.o_odoo_requests_dropdown .form-select-sm {
+    font-size: 12px;
+}
