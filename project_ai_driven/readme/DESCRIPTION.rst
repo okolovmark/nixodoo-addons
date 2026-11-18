@@ -101,13 +101,11 @@ its task (``action_convert_to_subtask``):
   gets its followers, its creator and those of the task, only once it is
   created. So a reviewer assigned to a task of a project open to its team
   members only, without being one of them, changes the task but does not
-  convert its items. On a task template without a project only the item's
-  assignee converts it, or a project manager who is its reviewer; on a
-  private task nobody does. The *Convert to
-  Sub-task* buttons show only to who may convert under these conditions,
-  computed for the user and for the companies selected in the company
-  switcher: an item of a task of a company left out of the selection shows
-  none.
+  convert its items. The *Convert to Sub-task* buttons show only to who may
+  convert under these conditions, those of templates and private tasks
+  below included, computed for the user and for the companies selected in
+  the company switcher: an item of a task of a company left out of the
+  selection shows none.
 * The sub-task takes the item's description as its title, its assignee and
   its deadline, and the project of the task, so also the company of that
   project when the user has several selected. It is given no stage: core
@@ -611,18 +609,17 @@ The module's models, fields and selection values carry the names of the
 16.0 branch, so a caller written for one branch works on the other, but for
 ``is_task_readable`` (below). What differs on 20.0:
 
-* The module has no install hook, and of its migrations only the one of
-  20.0.2.15.0 converts data, the former test case states, by SQL (see
-  *Installation*). The 16.0 branch takes over the records of the module's
-  former name, turns old ``pr_uri`` text into pull request records, fills
-  the stage log with the past of the tasks, sets the size of every task from
-  its hours, sets hours that are NaN or infinite to zero, converts the test
-  case states, renames the checklist model with its table and external ids,
-  turns the Html ``questions`` and ``answers`` into question rows and fills
-  the task and the category of existing messages by SQL. This branch does
-  none of it but the conversion of the test case states: a task that got
-  such hours under an earlier 20.0 version keeps them, and the constraint on
-  the estimate refuses its copies and its next occurrence until they are
+* The module has no install hook (see *Installation*). The 16.0 branch
+  takes over the records of the module's former name, turns old ``pr_uri``
+  text into pull request records, fills the stage log with the past of the
+  tasks, sets the size of every task from its hours, sets hours that are NaN
+  or infinite to zero, converts the test case states, renames the checklist
+  model with its table and external ids, turns the Html ``questions`` and
+  ``answers`` into question rows and fills the task and the category of
+  existing messages by SQL. Of these, this branch converts only the test
+  case states, by SQL in the migration of 20.0.2.15.0: a task that got such
+  hours under an earlier 20.0 version keeps them, and the constraint on the
+  estimate refuses its copies and its next occurrence until they are
   corrected. The ORM computes the task and the category of existing messages
   when the module adds their columns.
 * Checklist items, question rows, session rows and test cases follow the

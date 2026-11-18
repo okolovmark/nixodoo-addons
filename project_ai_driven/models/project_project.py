@@ -64,6 +64,9 @@ class ProjectProject(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        """Only a system administrator creates a project that develops this Odoo, by its values or by a default
+        of the context.
+        """
         # Before super(): an explicit flag meets the access error, not the constraints run inside it.
         if any(vals.get("develops_this_odoo") for vals in vals_list):
             self._ensure_develops_this_odoo_editable()
@@ -74,6 +77,9 @@ class ProjectProject(models.Model):
         return projects
 
     def write(self, vals):
+        """Only a system administrator sets or clears Develops This Odoo, or archives the project that carries
+        it; a write that leaves the flag as it is passes for any user.
+        """
         if "develops_this_odoo" in vals and self.filtered(
             lambda record: record.develops_this_odoo != bool(vals["develops_this_odoo"])
         ):

@@ -14,9 +14,9 @@ On the task form, which opens on Description:
   shows only to who may convert: on a task you may change, the assignee, or
   the reviewer when they may open the task's project. On a task template
   without a project the reviewer converts only as a project manager; a
-  private task shows no icon. The task's
-  kanban card shows your own completion percentage, only when you have
-  non-cancelled items assigned to you.
+  private task shows no icon. The task's kanban card shows your own
+  completion percentage, only when you have non-cancelled items assigned to
+  you.
 * *Technical Solution* tab (AI-driven projects): the **Questions** list,
   then the **Solution**. Add a row per question, with its round and the user
   it is addressed to, and drag the rows into order. Give a row its answer and
@@ -129,15 +129,14 @@ the calling user: a portal collaborator gets an access error. It moves an
 item by writing ``state`` (``todo``, ``waiting``, ``done`` or
 ``cancelled``) as the item's assignee or reviewer, and turns items into
 sub-tasks with ``action_convert_to_subtask``, one sub-task under the task of
-each item, as the item's assignee, or as its reviewer where its user may read
-the task's project or, on a task template without a project, is a project
-manager (never on a private task);
-``can_convert`` tells whether its user may, in the companies of
-``allowed_company_ids`` when the context has it. It reads only the items of the
-tasks its user can read, and creates, changes and deletes only those of the
-tasks its user can change; without ``allowed_company_ids`` in the context,
-those of all the user's companies. It reaches question rows and test cases
-the same way.
+each item, as the item's assignee, or as its reviewer where its user may
+read the task's project or, on a task template without a project, is a
+project manager (never on a private task); ``can_convert`` tells whether its
+user may, in the companies of ``allowed_company_ids`` when the context has
+it. It reads only the items of the tasks its user can read, and creates,
+changes and deletes only those of the tasks its user can change; without
+``allowed_company_ids`` in the context, those of all the user's companies.
+It reaches question rows and test cases the same way.
 
 A tool that keeps the questions of a task over RPC creates
 ``project.task.question`` records with ``task_id`` and ``question``, and
@@ -204,9 +203,9 @@ saved before 20.0.2.13.0 with
 ``_move_inline_images_to_attachments(dry_run=False, store=True)`` on the
 tasks, a private method that RPC cannot call. It covers the texts of the
 tasks and of their question rows and test cases, and returns ``records``
-(the tasks and rows whose texts change), ``images`` (the attachments
-created), ``bytes`` (their size before core resizes them) and ``texts``
-(``{record: {field name: new text}}``). An image core fails to read stays
+(how many tasks and rows have texts that change), ``images`` (how many
+attachments it creates), ``bytes`` (their size before core resizes them)
+and ``texts`` (``{record: {field name: new text}}``). An image core fails to read stays
 inline and counts nowhere. It holds every new text until it returns: run it
 over the tasks in batches.
 
@@ -226,10 +225,11 @@ compute one brief per task it returns; a read of several tasks that names
 ``brief`` computes one brief each. The brief holds what the tool's user may
 read, and a task they cannot read raises an access error.
 
-The rows of the brief carry the ids a tool acts on: ``### Question <id>``
-for a question row, ``- <id> <state>: <description>`` for a checklist item,
-``### Test case <id>: <name>`` for a test case, and ``(attachment <id>, ...)``
-in the attachments list. A pointer in a text names an ``ir.attachment``, of
+The rows of the brief carry the ids a tool acts on:
+``### Question <id> (<status>)`` for a question row,
+``- <id> <state>: <description>`` for a checklist item,
+``### Test case <id>: <name> (<status>)`` for a test case, and
+``(attachment <id>, ...)`` in the attachments list. A pointer in a text names an ``ir.attachment``, of
 the task or of the row whose text shows it:
 
 * ``![image: <name>](attachment <id>)``, or ``![image](attachment <id>)``,

@@ -45,44 +45,42 @@ The update leaves:
   for the former checklist model; nothing reads them;
 * the sizes the tasks have stored, until their hours change.
 
+Of the versions below, only 20.0.2.15.0 has a migration of its own, next to
+the blanking that runs on every version change.
+
 The update to 20.0.2.9.0 adds the **Modules** of a task: it creates the
 table ``project_task_ir_module_module_rel``, the two views of the module
 picker, the **Module** field of the task search and an access right that
-lets project users read the module list. It has no migration and writes
-nothing on the tasks, which start without modules. Where
-``base_install_request`` already lets every internal user read the module
-list, the access right changes nothing; without it, the field still works
-for project users.
+lets project users read the module list. It writes nothing on the tasks,
+which start without modules. Where ``base_install_request`` already lets
+every internal user read the module list, the access right changes
+nothing; without it, the field still works for project users.
 
 The update to 20.0.2.10.0 adds **Develops This Odoo** to projects, with its
 column, and the same field on tasks, related to the project and not stored.
-It has no migration and writes nothing on the projects: no project carries
-the flag after it, and the form hides the Modules of every task until one
-does. Afterwards a system administrator sets the flag on the AI-driven
-project that develops the database.
+It writes nothing on the projects: no project carries the flag after it,
+and the form hides the Modules of every task until one does. Afterwards a
+system administrator sets the flag on the AI-driven project that develops
+the database.
 
-The update to 20.0.2.10.1 has no migration and writes nothing on existing
-records.
-
-The update to 20.0.2.11.1 has no migration and writes nothing on existing
+The updates to 20.0.2.10.1 and 20.0.2.11.1 write nothing on existing
 records.
 
 The update to 20.0.2.12.0 adds the sessions of a task: the table
 ``project_task_session``, its two access rights for project users,
 ``access_task_session_read`` and ``access_task_session_write``, and the
-**Sessions** tab of the task form. It has no migration and writes nothing
-on the tasks, which start without sessions.
+**Sessions** tab of the task form. It writes nothing on the tasks, which
+start without sessions.
 
 The update to 20.0.2.13.0 makes the images of the texts of tasks, question
 rows and test cases attachments of the record holding the text when a text
-is saved. It has no migration and converts no data: a text saved before
-keeps its inline images until it is saved again, or until a migration or a
-script calls ``_move_inline_images_to_attachments`` on its task (see
-*Usage*).
+is saved. It converts no data: a text saved before keeps its inline images
+until it is saved again, or until a migration or a script calls
+``_move_inline_images_to_attachments`` on its task (see *Usage*).
 
 The update to 20.0.2.14.0 adds the **Brief** of a task, computed on each
-read that names it. It has no migration, adds no column, stores nothing and
-writes nothing on existing records.
+read that names it. It adds no column, stores nothing and writes nothing on
+existing records.
 
 The update to 20.0.2.15.0 deletes the test case field **Passed**
 (``passed``) with its column, at its end. A create or write that sends

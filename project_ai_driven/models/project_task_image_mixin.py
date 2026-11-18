@@ -87,6 +87,7 @@ class ImageMover:
         self._fallback_name_counts = Counter()
 
     def move(self, text, record):
+        """text with the src of its images changed to attachments of record, the text as it is without any."""
         if not self.marker.search(text):
             return text
         return replace_image_sources(text, lambda source, attributes: self._get_new_source(source, attributes, record))
@@ -233,11 +234,17 @@ class ProjectTaskImageMixin(models.AbstractModel):
 
     @api.model_create_multi
     def create(self, vals_list):
+        """The inline images of the texts given become attachments of the new record, and the images of other
+        records it shows copies of theirs.
+        """
         records = super().create(vals_list)
         records._move_created_images(vals_list)
         return records
 
     def write(self, vals):
+        """The inline images of the texts written become attachments of the record; a record moved to another
+        task also copies the images of other records its texts show.
+        """
         former_tasks = self._get_former_tasks(vals)
         result = super().write(vals)
         self._move_written_images(vals, self._filter_task_changed(former_tasks))

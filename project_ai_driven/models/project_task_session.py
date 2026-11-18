@@ -54,6 +54,9 @@ class ProjectTaskSession(models.Model):
         return self.browse([rows_by_key[key].id for key in keys])
 
     def write(self, vals):
+        """A row moved to another task takes read, then write access to that task; a move onto a task and
+        session that have a row fails on the unique constraint. A write leaves the date alone unless it names it.
+        """
         if vals.get("task_id"):
             self._check_tasks_readable([vals["task_id"]])
         check_task_line_move(self, vals)

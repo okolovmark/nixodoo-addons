@@ -633,9 +633,9 @@ class ProjectTask(models.Model):
         attachments of the records holding them, as a save does: for texts
         saved before.
 
-        Returns {"records": the tasks and lines changed, "images": the
-        attachments created, "bytes": their size before core resizes them,
-        "texts": {record: {field name: new text}}}. An image core cannot read
+        Returns {"records": how many tasks and lines change, "images": how
+        many attachments are created, "bytes": their size before core resizes
+        them, "texts": {record: {field name: new text}}}. An image core cannot read
         stays inline and counts nowhere. dry_run changes nothing and counts as
         a run would. store=False creates the attachments and leaves the texts
         to the caller, to store without changing write_date and write_uid.

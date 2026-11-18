@@ -148,11 +148,13 @@ class ProjectTask(models.Model):
     # readonly as core's: an override without it takes RPC reads off the read-only cursor
     @api.readonly
     def read(self, fields=None, load="_classic_read"):
+        """A read that names no fields leaves the brief out; one that names it gets it."""
         return super().read(fields or self._get_unnamed_read_fnames(), load=load)
 
     @api.model
     @api.readonly
     def search_read(self, domain=None, fields=None, offset=0, limit=None, order=None, **read_kwargs):
+        """A search_read that names no fields leaves the brief out, as read() does."""
         return super().search_read(
             domain, fields or self._get_unnamed_read_fnames(), offset=offset, limit=limit, order=order, **read_kwargs
         )
