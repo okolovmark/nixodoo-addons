@@ -45,6 +45,7 @@ class ProjectTask(models.Model):
         column1="task_id",
         column2="user_id",
         string="UAT users",
+        copy=False,
         tracking=True,
         help="The users who run the acceptance tests of the task.",
     )
@@ -410,14 +411,27 @@ class ProjectTask(models.Model):
     def _without_size(self, vals):
         """Return the vals of a write without a size: callers from before the
         size was computed still send one, and a value written to the stored
-        field would stand in place of the size of the hours.
+        field would stand in place of the size of the hours. A portal user's
+        write keeps it, for core to refuse as any field outside the portal's
+        writable fields.
 
         A create needs no such care: it computes a read-only field whatever
         value was sent, or came as a default of the context.
         """
-        if "tshirt_estimate" not in vals:
+        if "tshirt_estimate" not in vals or self._is_refused_to_portal("tshirt_estimate"):
             return vals
         return {field_name: value for field_name, value in vals.items() if field_name != "tshirt_estimate"}
+
+    @api.model
+    def _is_refused_to_portal(self, field_name):
+        """Whether core refuses the user a write of field_name: the condition of the
+        portal check of core's write, which allows the fields of SELF_WRITABLE_FIELDS.
+        """
+        return (
+            not self.env.su
+            and field_name not in self.SELF_WRITABLE_FIELDS
+            and self.env.user.has_group("base.group_portal")
+        )
 
     def _get_former_stages(self, vals):
         """Return {task id: stage} when vals may move the tasks to another stage:

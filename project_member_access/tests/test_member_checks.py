@@ -1,3 +1,5 @@
+import unittest
+
 from odoo import Command
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests.common import tagged
@@ -36,6 +38,58 @@ class TestMemberChecks(MemberAccessCommon):
         self._lead(self.private_project, self.editor)
         self.private_reader_task.with_user(self.editor).write({"user_ids": [Command.set(self.reader.ids)]})
         self.assertEqual(self.private_reader_task.user_ids, self.reader)
+
+    def test_every_form_of_an_assignee_change_takes_an_admin(self):
+        """Core's write replaces the assignees by ids given without commands, and clears them by False."""
+        task = self._create_task(self.public_project, self.contributor).with_env(self.env)
+        assignees = self.reader | self.editor
+        task.user_ids = assignees
+        self._lead(self.public_project, self.contributor)
+        changes = (
+            [self.reader.id],
+            (self.reader.id,),
+            False,
+            [Command.set(self.reader.ids)],
+            [Command.clear()],
+            [Command.create({"name": "Created", "login": "member_access_created"})],
+        )
+        for user_ids in changes:
+            with (
+                self.subTest(user_ids=user_ids),
+                self.assertRefused(AccessError, "Only an Admin of Public changes the assignees"),
+            ):
+                task.with_user(self.contributor).write({"user_ids": user_ids})
+        for user_ids in (assignees.ids, tuple(assignees.ids), [Command.link(self.reader.id)]):
+            task.with_user(self.contributor).write({"user_ids": user_ids, "name": "Same assignees"})
+            self.assertEqual(task.user_ids, assignees)
+
+    def test_a_refused_write_updates_no_user(self):
+        """An update of a user through a people field changes no member of it: the check
+        applies nothing, and core refuses the update to a user who may not write users.
+        """
+        task = self._create_task(self.public_project, self.contributor).with_env(self.env)
+        self._lead(self.public_project, self.contributor)
+        for field_name, user in (("user_ids", self.outsider), ("uat_user_ids", self.employee)):
+            with self.subTest(field=field_name):
+                name = user.name
+                # unittest's: Odoo's rolls back what ran before the refusal
+                with unittest.TestCase.assertRaises(self, AccessError):
+                    task.with_user(self.contributor).write({field_name: [Command.update(user.id, {"name": "Renamed"})]})
+                self.assertEqual(user.name, name)
+
+    def test_an_update_masks_no_removal_of_people(self):
+        task = self._create_task(self.public_project, self.contributor).with_env(self.env)
+        task.write({"user_ids": [Command.set((self.reader | self.contributor).ids)]})
+        self._lead(self.public_project, self.contributor)
+        own_update = Command.update(self.contributor.id, {})
+        with self.assertRefused(AccessError, "Only an Admin of Public changes the assignees"):
+            task.with_user(self.contributor).write({"user_ids": [Command.set(self.reader.ids), own_update]})
+        with self.assertRefused(AccessError, "Only an Admin of Public changes the assignees"):
+            task.with_user(self.contributor).write({"user_ids": [Command.unlink(self.contributor.id), own_update]})
+        task.write({"user_ids": [Command.set(self.editor.ids)], "uat_user_ids": [Command.set(self.contributor.ids)]})
+        with self.assertRefused(AccessError, "Editor or Admin of Public, sets"):
+            task.with_user(self.contributor).write({"uat_user_ids": [Command.unlink(self.contributor.id), own_update]})
+        self.assertEqual(task.uat_user_ids, self.contributor)
 
     def test_only_an_admin_creates_a_task_with_assignees(self):
         with self.assertRefused(AccessError, "Only an Admin of Private"):
@@ -151,6 +205,70 @@ class TestMemberChecks(MemberAccessCommon):
             sub_task.with_user(self.reader).write({"display_project_id": self.private_project.id})
         self.assertEqual(sub_task.project_id, self.standard_project)
 
+    def _create_carried_sub_task(self, parent, **values):
+        """A sub-task of parent assigned to the Contributor, without a project of its own: it follows its parent's."""
+        values = {"name": "Carried", "user_ids": [Command.set(self.contributor.ids)], **values}
+        sub_task = self._create_task(parent.project_id, parent_id=parent.id, **values)
+        self.assertFalse(sub_task.display_project_id)
+        return sub_task
+
+    def test_a_parent_moved_out_does_not_carry_sub_tasks_one_may_not_edit(self):
+        """The assignee of the parent edits it, not the sub-task: once out, the sub-task
+        would be read and edited as its new project allows.
+        """
+        parent = self.private_reader_task
+        sub_task = self._create_carried_sub_task(parent)
+        self.assertFalse(self._allowed(sub_task, self.reader, "write"))
+        project_of_the_reader = self.env["project.project"].create(
+            {
+                "name": "Of the reader",
+                "access_mode": "public",
+                "member_ids": [Command.create({"user_id": self.reader.id, "role": "admin"})],
+            }
+        )
+        for project in self.standard_project | project_of_the_reader:
+            with self.subTest(project=project.name):
+                with self.assertRefused(AccessError, "Sub-tasks you may not edit would leave Private", "Carried"):
+                    parent.with_user(self.reader).write({"project_id": project.id})
+
+    def _create_own_sub_task(self):
+        """A sub-task of a Private task assigned to the Reader, carrying a sub-task of its own."""
+        own_sub_task = self._create_task(
+            self.private_project, parent_id=self.private_task.id, user_ids=[Command.set(self.reader.ids)]
+        )
+        self._create_carried_sub_task(own_sub_task)
+        return own_sub_task
+
+    def test_a_task_given_a_parent_outside_does_not_carry_sub_tasks_one_may_not_edit(self):
+        own_sub_task = self._create_own_sub_task()
+        with self.assertRefused(AccessError, "Sub-tasks you may not edit would leave Private", "Carried"):
+            own_sub_task.with_user(self.reader).write({"parent_id": self.standard_task.id})
+
+    def test_a_task_given_a_display_project_outside_does_not_carry_sub_tasks_one_may_not_edit(self):
+        own_sub_task = self._create_own_sub_task()
+        with self.assertRefused(AccessError, "Sub-tasks you may not edit would leave Private", "Carried"):
+            own_sub_task.with_user(self.reader).write({"display_project_id": self.standard_project.id})
+
+    def test_a_parent_moved_out_carries_the_sub_tasks_one_edits(self):
+        for user in self.editor | self.admin:
+            with self.subTest(user=user.login):
+                parent = self._create_task(self.private_project, user)
+                sub_task = self._create_carried_sub_task(parent)
+                parent.with_user(user).write({"project_id": self.standard_project.id})
+                self.assertEqual((parent | sub_task).project_id, self.standard_project)
+        own_sub_task = self._create_carried_sub_task(
+            self.private_reader_task, user_ids=[Command.set(self.reader.ids)], name="Own"
+        )
+        self.private_reader_task.with_user(self.reader).write({"project_id": self.standard_project.id})
+        self.assertEqual(own_sub_task.project_id, self.standard_project)
+
+    def test_a_parent_moved_between_standard_projects_carries_its_sub_tasks(self):
+        other_standard_project = self.env["project.project"].create({"name": "Other Standard"})
+        parent = self._create_task(self.standard_project, self.outsider)
+        sub_task = self._create_carried_sub_task(parent)
+        parent.with_user(self.outsider).write({"project_id": other_standard_project.id})
+        self.assertEqual((parent | sub_task).project_id, other_standard_project)
+
     def test_a_project_the_user_does_not_read_is_not_named(self):
         sub_task = self._create_sub_task(self.outsider)
         with self.assertRefused(AccessError, "Only a Contributor, Editor or Admin of a Public or Private project"):
@@ -169,6 +287,70 @@ class TestMemberChecks(MemberAccessCommon):
     def test_a_settings_administrator_creates_a_task_with_assignees(self):
         task = self._create_task(self.private_project, self.sysadmin, user_ids=[Command.set(self.reader.ids)])
         self.assertEqual(task.user_ids, self.reader)
+
+    def test_uat_users_are_changed_by_an_assignee_an_editor_or_an_admin(self):
+        task = self._create_task(self.public_project, self.contributor).with_env(self.env)
+        uat_users = self.outsider | self.admin
+        task.write({"user_ids": [Command.set(self.reader.ids)], "uat_user_ids": [Command.set(uat_users.ids)]})
+        changes = (
+            [Command.link(self.editor.id)],
+            [Command.unlink(self.admin.id)],
+            [Command.clear()],
+            [Command.set([])],
+            False,
+            [self.outsider.id],
+            (self.outsider.id,),
+        )
+        no_changes = ([Command.set(uat_users.ids)], [Command.link(self.outsider.id)], [], uat_users.ids)
+        # the creator and a UAT user edit the task, so the UAT users check refuses them
+        for user in self.contributor | self.outsider:
+            for uat_user_ids in changes:
+                with (
+                    self.subTest(user=user.login, uat_user_ids=uat_user_ids),
+                    self.assertRefused(AccessError, "or an Editor or Admin of Public, sets its UAT users"),
+                ):
+                    task.with_user(user).write({"uat_user_ids": uat_user_ids})
+            for uat_user_ids in no_changes:
+                task.with_user(user).write({"uat_user_ids": uat_user_ids, "name": "Same UAT users"})
+                self.assertEqual(task.uat_user_ids, uat_users)
+        for user in self.reader | self.editor | self.admin:
+            task.with_user(user).write({"uat_user_ids": [Command.set(user.ids)]})
+            self.assertEqual(task.uat_user_ids, user)
+        task.with_user(self.reader).write({"uat_user_ids": False})
+        self.assertFalse(task.uat_user_ids)
+
+    def test_a_task_is_created_with_uat_users_by_editors_only(self):
+        for project in self.public_project | self.private_project:
+            with self.subTest(project=project.name):
+                with self.assertRefused(AccessError, "or an Editor or Admin of %s, sets its UAT users" % project.name):
+                    self._create_task(project, self.contributor, uat_user_ids=[Command.set(self.reader.ids)])
+                with self.assertRefused(AccessError, "sets its UAT users"):
+                    self.env["project.task"].with_context(
+                        default_project_id=project.id, default_uat_user_ids=[Command.link(self.reader.id)]
+                    ).with_user(self.contributor).create({"name": "Tested by default"})
+                for user in self.editor | self.admin:
+                    task = self._create_task(project, user, uat_user_ids=[Command.set(self.reader.ids)])
+                    self.assertEqual(task.uat_user_ids, self.reader)
+
+    def test_a_contributor_duplicates_a_task_with_uat_users(self):
+        task = self._create_task(self.public_project, self.contributor).with_env(self.env)
+        task.uat_user_ids = self.reader
+        task_copy = task.with_user(self.contributor).copy()
+        self.assertFalse(task_copy.uat_user_ids, "a copy takes no UAT users")
+
+    def test_moving_a_task_with_uat_users_in_takes_an_editor(self):
+        uat_users = [Command.set(self.reader.ids)]
+        task = self._create_task(self.standard_project, self.contributor, uat_user_ids=uat_users)
+        with self.assertRefused(AccessError, "Only an Editor or Admin of Public moves a task with UAT users"):
+            task.with_user(self.contributor).write({"project_id": self.public_project.id})
+        task = self._create_task(self.standard_project, self.editor, uat_user_ids=uat_users)
+        task.with_user(self.editor).write({"project_id": self.public_project.id})
+        self.assertEqual(task.project_id, self.public_project)
+
+    def test_uat_users_of_a_standard_task_keep_no_role_check(self):
+        task = self._create_task(self.standard_project, self.outsider, uat_user_ids=[Command.set(self.reader.ids)])
+        task.with_user(self.outsider).write({"uat_user_ids": [Command.set(self.outsider.ids)]})
+        self.assertEqual(task.uat_user_ids, self.outsider)
 
     def test_a_pull_request_of_a_private_task_is_changed_by_its_editors(self):
         grant_pull_request_unlink(self.env)
@@ -303,6 +485,20 @@ class TestRefusalsNameNothingUnread(MemberAccessCommon):
             UserError, lambda: sub_task.with_user(self.outsider).write({"parent_id": self.secret_task.id})
         )
         self.assertEqual(sub_task.project_id, self.standard_project)
+
+    def test_a_sub_task_carried_out_of_a_project_not_read(self):
+        """A sub-task given a Private project by id, unlike its parent's, leaves it when its
+        parent moves and core finds it among the parent's sub-tasks in the cache, as after its
+        create: read as the user from the database, they leave it out and it stays.
+        """
+        parent = self._create_task(self.standard_project, self.outsider)
+        self._create_task(self.secret_project, name="Secret Sub-task", parent_id=parent.id)
+        other_standard_project = self.env["project.project"].create({"name": "Other Standard"})
+        # unittest's: Odoo's clears the cache
+        with unittest.TestCase.assertRaises(self, AccessError) as refusal:
+            parent.with_user(self.outsider).write({"project_id": other_standard_project.id})
+        self.assertIn("Sub-tasks you may not edit would leave a Public or Private project", str(refusal.exception))
+        self.assertNotIn("Secret", str(refusal.exception))
 
     def test_a_pull_request_of_a_task_not_written(self):
         grant_pull_request_unlink(self.env)

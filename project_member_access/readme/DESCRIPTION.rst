@@ -25,8 +25,8 @@ Inside a Public or Private project:
 * Checklist items, question rows, test cases and sessions are read with
   their task, and written, created and deleted by whoever may edit it.
 * Task Analysis, the burndown chart, milestones and project updates are
-  read by whoever reads the project; milestones and updates are changed by
-  its Admins.
+  read by whoever reads the project; milestones and updates are changed, and
+  moved into the project, by its Admins.
 * A pull request is read by whoever reads one of its tasks, and changed,
   linked or deleted only by whoever edits each of its tasks in such
   projects. Linking a known link to one's own task stays open.
@@ -37,13 +37,18 @@ Inside a Public or Private project:
 
 Besides the record rules, a create or a write is refused when:
 
-* anyone but an Admin changes the assignees of a task, or creates a task
-  with assignees;
+* anyone but an Admin changes or clears the assignees of a task, or creates
+  a task with assignees;
 * anyone but an assignee of the task, an Editor or an Admin moves it to
   another stage;
+* anyone but an assignee of the task, an Editor or an Admin sets its UAT
+  users: changes or clears them, creates the task with them or moves it in
+  with them;
 * a task enters the project, by its own move or its parent's, and the user
   is not a Contributor, Editor or Admin of it, or not an Admin when the
   task has assignees;
+* a task leaves the project and carries along sub-tasks the user may not
+  edit there;
 * in a Private project, a user who is not a member is set as assignee or
   UAT user; tasks that carry one when the project turns Private keep them;
 * the last Admin of the project is removed or given a lower role, or the

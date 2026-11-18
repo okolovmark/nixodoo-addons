@@ -275,6 +275,11 @@ columns and the keys are there already and nothing changes; how this module
 takes its place is under *Coming from project_key*. Elsewhere the migration
 gives each project a key and its tasks theirs, as described there.
 
+The update to 16.0.2.17.1 has no migration and writes nothing on existing
+records; it can run with the server up. From it a portal user's write that
+sends a Size is refused instead of dropped, and a copy of a task takes no
+UAT users.
+
 **Upgrading from project_software**
 
 ``project_software`` is the former name of this module. The release that

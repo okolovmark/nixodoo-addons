@@ -1,5 +1,6 @@
 from lxml import etree
 
+from odoo import Command
 from odoo.tests.common import Form, TransactionCase, tagged
 
 from ..hooks import MODULE
@@ -39,3 +40,16 @@ class TestUatUsers(TransactionCase):
         with Form(task) as task_form:
             task_form.uat_user_ids.add(user)
         self.assertEqual(task.uat_user_ids, user)
+
+    def test_a_copy_takes_no_uat_users(self):
+        tester = self.env["res.users"].create({"name": "Tester", "login": "project_ai_driven_uat_copy"})
+        project = self.env["project.project"].create({"name": "With sub-tasks", "allow_subtasks": True})
+        Task = self.env["project.task"]
+        parent = Task.create({"name": "Parent", "project_id": project.id, "uat_user_ids": [Command.set(tester.ids)]})
+        sub_task = Task.create({"name": "Sub-task", "parent_id": parent.id, "uat_user_ids": [Command.set(tester.ids)]})
+
+        parent_copy = parent.copy()
+
+        self.assertEqual(len(parent_copy.child_ids), 1, "the sub-task is copied with its parent")
+        self.assertFalse((parent_copy | parent_copy.child_ids).uat_user_ids)
+        self.assertFalse(sub_task.copy().uat_user_ids)

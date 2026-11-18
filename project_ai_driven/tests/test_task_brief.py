@@ -84,6 +84,48 @@ class TestHtmlToMarkdown(TransactionCase):
             "3. three\n   1. nested\n4. four",
         )
 
+    def test_checklists_keep_their_ticks(self):
+        self.assertMarkdown(
+            '<ul class="o_checklist"><li class="o_checked">Done</li><li>To do</li>'
+            '<li class="oe-nested"><ul class="o_checklist">'
+            '<li class="o_checked">Nested done</li><li class="oe-nested"><ul class="o_checklist"><li>Deeper</li></ul></li>'
+            "</ul></li>"
+            '<li class="o_checked">Done <b>too</b><ul class="o_checklist"><li>Inside</li></ul></li></ul>',
+            "- [x] Done\n- [ ] To do\n  - [x] Nested done\n    - [ ] Deeper\n- [x] Done **too**\n  - [ ] Inside",
+        )
+
+    def test_checklists_and_plain_lists_nest_in_each_other(self):
+        self.assertMarkdown(
+            '<ul><li class="o_checked">Plain<ul class="list-unstyled o_checklist"><li class="o_checked">Ticked</li>'
+            "</ul></li></ul>"
+            '<ul class="o_checklist"><li>Box<ol><li>one</li></ol></li></ul>',
+            "- Plain\n  - [x] Ticked\n\n- [ ] Box\n  1. one",
+        )
+
+    def test_a_checklist_item_opening_with_a_code_block_or_a_quote_has_its_box_alone(self):
+        self.assertMarkdown(
+            '<ul class="o_checklist"><li class="o_checked"><pre>x = 1</pre>Then</li>'
+            "<li><blockquote>Said</blockquote></li><li><code>y</code> typed</li></ul>",
+            "- [x]\n\n  ```\n  x = 1\n  ```\n\n  Then\n- [ ]\n\n  > Said\n- [ ] `y` typed",
+        )
+
+    def test_a_checklist_item_opening_with_a_heading_a_table_a_rule_or_a_list_has_its_box_alone(self):
+        self.assertMarkdown(
+            '<ul class="o_checklist"><li><h3>Step</h3>Do it</li>'
+            '<li class="o_checked"><table><tr><td>A</td><td>B</td></tr></table></li>'
+            "<li><hr>After</li><li><ol><li>one</li></ol>Then</li><li><ul><li>a</li></ul>b</li>"
+            "<li># tagged</li><li>1. typed</li></ul>",
+            "- [ ]\n\n  ### Step\n\n  Do it\n- [x]\n\n  | A | B |\n  | --- | --- |\n- [ ]\n\n  ---\n\n  After\n"
+            "- [ ]\n\n  1. one\n\n  Then\n- [ ]\n\n  - a\n\n  b\n- [ ] \\# tagged\n- [ ] 1\\. typed",
+        )
+
+    def test_a_plain_item_starting_like_a_task_list_item_is_escaped(self):
+        self.assertMarkdown(
+            "<ul><li>[x] not ticked</li><li>[ ] not open</li><li>[X]</li><li>[link] kept</li></ul>"
+            '<ol><li>[ ] numbered</li></ol><ul class="o_checklist"><li>[x] typed</li></ul>',
+            "- \\[x] not ticked\n- \\[ ] not open\n- \\[X]\n- [link] kept\n\n1. \\[ ] numbered\n\n- [ ] [x] typed",
+        )
+
     def test_table_is_a_pipe_table(self):
         self.assertMarkdown(
             "<table><thead><tr><th>A</th><th>B|C</th></tr></thead>"
