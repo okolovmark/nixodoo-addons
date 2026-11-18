@@ -1,0 +1,41 @@
+@startuml gantt_data_model
+hide empty members
+skinparam classAttributeIconSize 0
+
+class "project.project" as Project {
+  baseline_id : Many2one
+}
+class "project.task" as Task {
+  depend_on_ids : Many2many
+  planned_date_start / planned_date_end
+  date_deadline
+}
+class "project.task.dependency.lag" as Lag {
+  task_id : Many2one
+  depends_on_id : Many2one
+  lag_days : Integer (>= 0, calendar days)
+  unique(task_id, depends_on_id)
+}
+class "project.baseline" as Baseline {
+  project_id : Many2one
+  user_id : Many2one
+  date : Datetime
+}
+class "project.baseline.line" as Line {
+  baseline_id : Many2one
+  task_id : Many2one
+  planned_date_start / planned_date_end
+  date_deadline
+}
+class "res.users" as User {
+  gantt_columns : Char
+}
+
+Task "*" -- "*" Task : depend_on_ids
+Lag "*" --> "1" Task : task_id (successor)
+Lag "*" --> "1" Task : depends_on_id (predecessor)
+Project "1" *-- "*" Baseline : project_id
+Project --> "0..1" Baseline : baseline_id (active)
+Baseline "1" *-- "*" Line : line_ids
+Line "*" --> "1" Task : task_id
+@enduml
