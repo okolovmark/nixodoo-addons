@@ -269,6 +269,11 @@ records; it can run with the server up. From it a checklist item or
 question row moved to another task is checked against the new task, as a
 session already was: a user who cannot read that task gets an access error.
 
+The update to 16.0.2.16.2 has no migration and writes nothing on existing
+records; it can run with the server up. From it a portal user's write that
+sends a Size is refused instead of dropped, and a copy of a task takes no
+UAT users.
+
 **Upgrading from project_software**
 
 ``project_software`` is the former name of this module. The release that

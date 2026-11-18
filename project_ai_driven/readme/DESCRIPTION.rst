@@ -20,13 +20,16 @@ task in Markdown, in one read.
   Hours*), in hours. **Size** (``tshirt_estimate``) is stored, read-only and
   follows it: XS up to 2 hours, S up to 6, M up to 12, L up to 32, XL up to
   60, XXL above; empty while the estimate is not above zero. A size sent in
-  a write is dropped and one sent at creation is recomputed from the hours;
-  neither call is refused. With Timesheets installed, its tab on the task
-  shows the same field as *Allocated Hours* (*Allocated Days* where the
-  company encodes timesheets in days).
+  a write is dropped and one sent at creation is recomputed from the hours.
+  A portal user is the exception: core refuses their create or write that
+  sends a size, as any field outside the portal's writable fields. With
+  Timesheets installed, its tab on the task shows the same field as
+  *Allocated Hours* (*Allocated Days* where the company encodes timesheets
+  in days).
 * **UAT users** (``uat_user_ids``): the users who run the acceptance tests
   of the task, after the Assignees on the form of every task, picked among
-  active internal users. Changes are tracked.
+  active internal users. Changes are tracked. A copy of a task, a sub-task
+  copied with its parent too, starts without them.
 * The core priority star is hidden on the tasks of a project flagged
   **AI-driven Project**: on the form, the kanban card, the task list, the
   *Sub-tasks* and *Blocked By* lists of the form and the calendar popover.
@@ -484,7 +487,11 @@ A brief holds, in this order, each part only when it has something to show:
 
 Times are in UTC. The texts become Markdown (headings, emphasis, links,
 lists, tables, code) with no markup left; the headings of a text sit below
-the section that holds it.
+the section that holds it. An item of an editor's checklist is a task list
+item, ``- [x]`` when ticked and ``- [ ]`` when not, a nested checklist
+nested items; the box stands on a line of its own when the item opens with
+a heading, a list, a table, a rule, a code block or a quote. Another list
+item that starts like one has its bracket escaped.
 
 * An image or a link that names an attachment, by a relative url or a url on
   the host of this database (``get_base_url()``, a website's domain where it

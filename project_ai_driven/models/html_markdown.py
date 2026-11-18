@@ -16,6 +16,8 @@ SKIPPED_TAGS = ("head", "noscript", "script", "style", "template", "title")
 EMPHASIS_MARKS = {"b": "**", "strong": "**", "i": "*", "em": "*", "del": "~~", "s": "~~", "strike": "~~"}
 HEADING_LEVELS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
 LIST_TAGS = ("ol", "ul")
+CHECKLIST_CLASS = "o_checklist"
+CHECKED_ITEM_CLASS = "o_checked"
 CELL_TAGS = ("td", "th")
 TABLE_PART_TAGS = ("thead", "tbody", "tfoot", "tr")
 LINK_SCHEMES = ("", "http", "https", "mailto")
@@ -31,6 +33,10 @@ LINE_BREAK_RUN = re.compile(r"\n{3,}")
 BACKTICK_RUN = re.compile(r"`+")
 ASCII_DIGITS = re.compile(r"[0-9]+")
 LIST_BLOCK = re.compile(r"(?:-|[0-9]+\.) ")
+# After a task list box on its line, a block that is no paragraph would be its text. BLOCK_MARKUP finds most;
+# this one finds a table, an ordered list and a code block, whose fence BLOCK_MARKUP sees only as a line of its own.
+BOX_ALONE_BLOCK = re.compile(r"\||[0-9]+\. |`{3,}\n")
+TASK_LIST_BOX = re.compile(r"\[[ xX]\](?:\s|$)")
 # A heading, quote, list item, code fence, rule, setext underline or HTML block (a tag, comment or
 # declaration) when a line starts with it. A backtick run with a backtick after it is a code span, not a fence.
 BLOCK_MARKUP = re.compile(r"#+(?:\s|$)|>|[-+*](?:\s|$)|~{3}|`{3}[^`]*$|[-=]+\s*$|([*_])\s*(?:\1\s*){2,}$|<[A-Za-z/!?]")
@@ -208,6 +214,10 @@ def _get_scheme(url):
 
 def _is_block(element):
     return isinstance(element.tag, str) and element.tag in BLOCK_TAGS
+
+
+def _has_class(element, class_name):
+    return class_name in (element.get("class") or "").split()
 
 
 def _is_list_only(element):
@@ -440,9 +450,13 @@ class _MarkdownWriter:
 
     def _get_list(self, element):
         """The list as Markdown; text and inline elements right inside it, which
-        a browser shows between its items, are paragraphs between its parts.
+        a browser shows between its items, are paragraphs between its parts. An
+        item of an editor's checklist is a task list item, - [x] when ticked, the
+        box on a line of its own above a first block that is no paragraph;
+        another item that starts like one has its bracket escaped.
         """
         is_ordered = element.tag == "ol"
+        is_checklist = _has_class(element, CHECKLIST_CLASS)
         start = (element.get("start") or "").strip()
         number = int(start) if ASCII_DIGITS.fullmatch(start) else 1
         indent = "  "
@@ -469,6 +483,16 @@ class _MarkdownWriter:
             marker = "%d. " % number if is_ordered else "- "
             indent = " " * len(marker)
             item_lines = _join_item_blocks(item_blocks).split("\n")
+            # the box is part of the item's text: its nested lists stay under the list marker
+            if is_checklist and child.tag == "li":
+                box = "[x]" if _has_class(child, CHECKED_ITEM_CLASS) else "[ ]"
+                if BLOCK_MARKUP.match(item_blocks[0]) or BOX_ALONE_BLOCK.match(item_blocks[0]):
+                    # a blank line ends the box's paragraph: a rule would underline it, a list join it
+                    item_lines[0:0] = [box, ""]
+                else:
+                    item_lines[0] = "%s %s" % (box, item_lines[0])
+            elif TASK_LIST_BOX.match(item_lines[0]):
+                item_lines[0] = "\\" + item_lines[0]
             lines.append(marker + item_lines[0])
             lines.extend(_indent_lines(item_lines[1:], indent))
             number += 1

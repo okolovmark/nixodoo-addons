@@ -1,9 +1,12 @@
 import importlib.util
 import logging
+import unittest
 from datetime import datetime
 from pathlib import Path
 
-from odoo.tests.common import Form, tagged
+from odoo import Command
+from odoo.exceptions import AccessError
+from odoo.tests.common import Form, new_test_user, tagged
 
 from ..hooks import MODULE, clear_estimates_that_are_not_numbers, post_init_hook, recompute_task_sizes
 from ..models.project_task import SIZE_BANDS, get_size
@@ -109,6 +112,45 @@ class TestTaskSize(ProjectAiDrivenCommon):
             with self.assertRaises(AssertionError):
                 task_form.tshirt_estimate = "xl"
         self.assertRecordValues(self.task, [{"planned_hours": 5, "tshirt_estimate": "s"}])
+
+
+@tagged("post_install", "-at_install")
+class TestTaskSizeProjectSharing(ProjectAiDrivenCommon):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.user_portal = new_test_user(
+            cls.env,
+            "project_ai_driven_portal",
+            groups="base.group_portal",
+            context={"no_reset_password": True},
+            name="Portal Collaborator",
+            email="portal@example.com",
+        )
+        cls.project.write(
+            {
+                "privacy_visibility": "portal",
+                "collaborator_ids": [Command.create({"partner_id": cls.user_portal.partner_id.id})],
+            }
+        )
+        cls.project.message_subscribe(partner_ids=cls.user_portal.partner_id.ids)
+        cls.task.planned_hours = 5
+
+    def test_a_portal_collaborator_writing_the_size_is_refused(self):
+        task = self.task.with_user(self.user_portal)
+        task.write({"name": "Renamed by the collaborator"})
+
+        for vals in ({"tshirt_estimate": "xxl"}, {"name": "Sized by the collaborator", "tshirt_estimate": False}):
+            # unittest's: Odoo's rolls back what ran before the refusal
+            with self.subTest(vals=vals), unittest.TestCase.assertRaises(self, AccessError) as refusal:
+                task.write(vals)
+            self.assertIn("tshirt_estimate", str(refusal.exception))
+
+        self.assertRecordValues(self.task, [{"name": "Renamed by the collaborator", "tshirt_estimate": "s"}])
+
+    def test_a_size_written_in_sudo_for_a_portal_collaborator_is_dropped(self):
+        self.assertTrue(self.task.with_user(self.user_portal).sudo().write({"tshirt_estimate": "xxl"}))
+        self.assertEqual(self.task.tshirt_estimate, "s")
 
 
 @tagged("post_install", "-at_install")
