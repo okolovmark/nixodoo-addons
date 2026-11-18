@@ -47,4 +47,4 @@ class ProjectBaselineLine(models.Model):
     )
     planned_date_start = fields.Datetime()
     planned_date_end = fields.Datetime()
-    date_deadline = fields.Date(string="Deadline")
+    date_deadline = fields.Datetime(string="Deadline")

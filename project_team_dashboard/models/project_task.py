@@ -1,13 +1,13 @@
 from collections import defaultdict
+from datetime import UTC
 
-from odoo import Command, _, api, fields, models
+from odoo import Command, api, fields, models
 from odoo.exceptions import UserError, ValidationError
-from odoo.tools.sql import column_exists, create_column
 
 PLANNED_DATE_FIELDS = ("planned_date_start", "planned_date_end")
 
 
-class Task(models.Model):
+class ProjectTask(models.Model):
     _inherit = "project.task"
 
     planned_date_start = fields.Datetime(
@@ -15,12 +15,14 @@ class Task(models.Model):
         store=True,
         readonly=False,
         recursive=True,
+        init_storage="_init_planned_date_column",
     )
     planned_date_end = fields.Datetime(
         compute="_compute_planned_date_end",
         store=True,
         readonly=False,
         recursive=True,
+        init_storage="_init_planned_date_column",
     )
     is_planned_from_subtasks = fields.Boolean(
         compute="_compute_is_planned_from_subtasks",
@@ -46,11 +48,7 @@ class Task(models.Model):
     def _check_planned_dates(self):
         for task in self:
             if task.planned_date_start and task.planned_date_end and task.planned_date_end < task.planned_date_start:
-                raise ValidationError(_("The end date must be after the start date."))
-
-    def _auto_init(self):
-        self._init_planned_date_columns()
-        return super()._auto_init()
+                raise ValidationError(self.env._("The end date must be after the start date."))
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -67,53 +65,48 @@ class Task(models.Model):
             self._recompute_planned_dates_from_subtasks()
         return result
 
-    @api.returns("self", lambda value: value.id)
-    def copy(self, default=None):
-        if self.allow_task_dependencies and "task_mapping" not in self.env.context:
-            self = self.with_context(task_mapping={})
-        task_copy = super().copy(default)
-        if self.allow_task_dependencies:
-            self._copy_dependency_lags(task_copy, self.env.context["task_mapping"])
-        return task_copy
-
     @api.model
     def action_open_backlog(self):
         """Open backlog with the user's default project pre-selected."""
         action = self.env["ir.actions.act_window"]._for_xml_id(
             "project_team_dashboard.action_project_task_backlog",
         )
-        project = self.env.user.dashboard_default_project_id
         action["context"] = {
-            "search_default_project_id": project.id if project else False,
+            "search_default_project_id": self.env.user.dashboard_default_project_id.id,
             "search_default_unassigned": True,
         }
         return action
 
     def gantt_add_dependency(self, predecessor_id):
+        """Make this task depend on the task predecessor_id, which the user must be able to read; both
+        tasks need a project that allows task dependencies."""
         self.ensure_one()
         predecessor = self.browse(predecessor_id).exists()
         if not predecessor:
-            raise UserError(_("The selected predecessor task does not exist."))
-        predecessor.check_access_rule("read")
+            raise UserError(self.env._("The selected predecessor task does not exist."))
+        predecessor.check_access("read")
         if not self.project_id or not predecessor.project_id:
-            raise UserError(_("Only tasks that belong to a project can depend on each other."))
+            raise UserError(self.env._("Only tasks that belong to a project can depend on each other."))
         if not (self.project_id.allow_task_dependencies and predecessor.project_id.allow_task_dependencies):
-            raise UserError(_("Task dependencies are disabled on the project of one of these tasks."))
+            raise UserError(self.env._("Task dependencies are disabled on the project of one of these tasks."))
         self.write({"depend_on_ids": [Command.link(predecessor.id)]})
         return True
 
     def gantt_remove_dependency(self, predecessor_id):
+        """Remove the dependency of this task on the task predecessor_id; its lag goes with it."""
         self.ensure_one()
         self.write({"depend_on_ids": [Command.unlink(predecessor_id)]})
         return True
 
     def gantt_set_dependency_lag(self, predecessor_id, lag_days):
+        """Set the lag, in calendar days, of this task's dependency on the task predecessor_id; 0 removes
+        it. The lag is written as superuser once the user may write this task and read the predecessor."""
         self.ensure_one()
-        self.check_access_rights("write")
-        self.check_access_rule("write")
+        self.check_access("write")
+        # Before the dependency check: a user's read of depend_on_ids leaves out what they cannot read.
+        self.env["project.task"].browse(predecessor_id).check_access("read")
         if predecessor_id not in self.depend_on_ids.ids:
-            raise UserError(_("Task '%(task)s' does not depend on the selected task.", task=self.display_name))
-        self.env["project.task"].browse(predecessor_id).check_access_rule("read")
+            raise UserError(self.env._("Task '%(task)s' does not depend on the selected task.", task=self.display_name))
         lag = (
             self.env["project.task.dependency.lag"]
             .sudo()
@@ -128,6 +121,10 @@ class Task(models.Model):
                 {"task_id": self.id, "depends_on_id": predecessor_id, "lag_days": lag_days},
             )
         return True
+
+    def _init_planned_date_column(self):
+        """Compute nothing when the columns are added: they are empty on every task, so no parent
+        has a date to roll up, and the ORM would compute a recursive field task by task."""
 
     def _subtask_date_spans(self):
         spans = {}
@@ -165,14 +162,6 @@ class Task(models.Model):
         for field_name in PLANNED_DATE_FIELDS:
             self.env.add_to_compute(self._fields[field_name], parents)
 
-    @api.model
-    def _init_planned_date_columns(self):
-        """Create a missing planned date column in SQL, empty: added by the ORM, it would be
-        computed task by task to change nothing but the parents, which the post-init hook rolls up."""
-        for field_name in PLANNED_DATE_FIELDS:
-            if not column_exists(self.env.cr, self._table, field_name):
-                create_column(self.env.cr, self._table, field_name, "timestamp")
-
     def _check_subtask_driven_dates(self, vals):
         """Refuse a write that changes the planned dates of a task planned from its sub-tasks.
 
@@ -189,12 +178,17 @@ class Task(models.Model):
                 for field_name in written_fields
             ):
                 raise UserError(
-                    _(
+                    self.env._(
                         "The planned dates of task '%(task)s' come from its sub-tasks: "
                         "change the dates of the sub-tasks instead.",
                         task=task.display_name,
                     )
                 )
+
+    @api.model
+    def _gantt_local_date(self, value):
+        """Return the date of the UTC datetime value in the user's timezone, the one of the Gantt payload."""
+        return value and value.replace(tzinfo=UTC).astimezone(self.env.tz).date()
 
     def _gantt_task_attributes(self, writable_ids, lags, readable_parent_ids):
         self.ensure_one()
@@ -202,7 +196,7 @@ class Task(models.Model):
         return {
             "parent_label": (parent.key or parent.name) if parent.id in readable_parent_ids else "",
             "project_id": self.project_id.id,
-            "date_deadline": fields.Date.to_string(self.date_deadline),
+            "date_deadline": fields.Date.to_string(self._gantt_local_date(self.date_deadline)),
             "effective_hours": self.effective_hours,
             "can_write": self.id in writable_ids,
             "depend_on_lags": lags,
@@ -220,27 +214,30 @@ class Task(models.Model):
         now = fields.Datetime.now()
         history_by_task = {}
         for task in self:
+            visits = task._gantt_stage_visits(logs_by_task[task.id], now)
             history_by_task[task.id] = [
                 {
                     "stage_id": visit["stage"].id,
                     "stage_name": visit["stage"].name or visit["stage_name"] or "",
                     "stage_sequence": visit["stage"].sequence,
-                    "is_closed": visit["stage"].fold,
+                    "is_closed": task.is_closed and visit_index == len(visits) - 1,
                     "start": fields.Datetime.to_string(visit["start"]),
                     "end": fields.Datetime.to_string(visit["end"]),
                 }
-                for visit in self._gantt_stage_visits(logs_by_task[task.id], now)
+                for visit_index, visit in enumerate(visits)
             ]
         return history_by_task
 
-    @api.model
     def _gantt_stage_visits(self, stage_logs, now):
-        """Return the visits described by stage_logs, which must be the log
-        rows of one task in the order of the log. A row that names a stage
-        opens a visit, and any row closes the visit before it. A row with no
-        stage and no name is the task leaving its stage; one with a name only
-        is a stage deleted since.
+        """Return the visits described by stage_logs, which must be the log rows of this task in
+        the order of the log. A row that names a stage opens a visit, and any row closes the visit
+        before it. A row with no stage and no name is the task leaving its stage; one with a name
+        only is a stage deleted since.
+
+        The visit the task is still in lasts until now, or, for a closed task, until its state or
+        stage last changed, which closing it did; never before it starts.
         """
+        self.ensure_one()
         visits = []
         is_in_stage = False
         for stage_log in stage_logs:
@@ -253,28 +250,47 @@ class Task(models.Model):
                 )
         if is_in_stage:
             last_visit = visits[-1]
-            last_visit["end"] = last_visit["start"] if last_visit["stage"].fold else max(now, last_visit["start"])
+            visit_end = (self.date_last_stage_update if self.is_closed else now) or last_visit["start"]
+            last_visit["end"] = max(visit_end, last_visit["start"])
         return visits
 
-    def _copy_dependency_lags(self, task_copy, task_mapping):
+    @api.model
+    def _get_template_field_blacklist(self):
+        # a task made from a template is planned anew, as Odoo leaves its deadline empty
+        return super()._get_template_field_blacklist() + list(PLANNED_DATE_FIELDS)
+
+    def _resolve_copied_dependencies(self, copied_tasks):
+        super()._resolve_copied_dependencies(copied_tasks)
+        task_mapping, _task_dependencies = self._create_task_mapping(copied_tasks)
+        self._copy_dependency_lags({original_id: task_copy.id for original_id, task_copy in task_mapping.items()})
+
+    def _copy_dependency_lags(self, copy_ids_by_original_id):
+        """Give the copies the lags of their originals, on the dependencies the copies took over."""
         Lag = self.env["project.task.dependency.lag"].sudo().with_context(active_test=False)
-        Task = self.env["project.task"].sudo().with_context(active_test=False)
-        candidate_pairs = {}
-        for lag in Lag.search([("task_id", "=", self.id)]):
-            candidate_pairs[(task_copy.id, task_mapping.get(lag.depends_on_id.id, lag.depends_on_id.id))] = lag.lag_days
-        for lag in Lag.search([("depends_on_id", "=", self.id)]):
-            candidate_pairs[(task_mapping.get(lag.task_id.id, lag.task_id.id), task_copy.id)] = lag.lag_days
-        successors = Task.browse([successor_id for successor_id, _predecessor_id in candidate_pairs])
+        original_ids = list(copy_ids_by_original_id)
+        lag_days_by_pair = {}
+        for lag in Lag.search(["|", ("task_id", "in", original_ids), ("depends_on_id", "in", original_ids)]):
+            successor_id = copy_ids_by_original_id.get(lag.task_id.id, lag.task_id.id)
+            predecessor_id = copy_ids_by_original_id.get(lag.depends_on_id.id, lag.depends_on_id.id)
+            lag_days_by_pair[successor_id, predecessor_id] = lag.lag_days
+        successors = (
+            self.env["project.task"]
+            .sudo()
+            .with_context(active_test=False)
+            .browse({successor_id for successor_id, _predecessor_id in lag_days_by_pair})
+        )
         successors.invalidate_recordset(["depend_on_ids"])
-        linked = {successor.id: set(successor.depend_on_ids.ids) for successor in successors}
+        linked_ids = {successor.id: set(successor.depend_on_ids.ids) for successor in successors}
         known_pairs = {
             (lag.task_id.id, lag.depends_on_id.id) for lag in Lag.search([("task_id", "in", successors.ids)])
         }
-        vals_list = []
-        for (successor_id, predecessor_id), lag_days in candidate_pairs.items():
-            if predecessor_id in linked[successor_id] and (successor_id, predecessor_id) not in known_pairs:
-                vals_list.append({"task_id": successor_id, "depends_on_id": predecessor_id, "lag_days": lag_days})
-        Lag.create(vals_list)
+        Lag.create(
+            [
+                {"task_id": successor_id, "depends_on_id": predecessor_id, "lag_days": lag_days}
+                for (successor_id, predecessor_id), lag_days in lag_days_by_pair.items()
+                if predecessor_id in linked_ids[successor_id] and (successor_id, predecessor_id) not in known_pairs
+            ]
+        )
 
     def _prune_dependency_lags(self):
         lags = (

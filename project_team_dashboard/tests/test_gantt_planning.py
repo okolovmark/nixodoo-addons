@@ -1,10 +1,10 @@
-from datetime import date, datetime
+from datetime import datetime
 
 import psycopg2
 
 from odoo import Command
 from odoo.exceptions import AccessError, UserError, ValidationError
-from odoo.tests.common import tagged
+from odoo.tests import tagged
 from odoo.tools import mute_logger
 
 from .common import TeamDashboardCommon
@@ -25,7 +25,7 @@ class GanttPlanningCommon(TeamDashboardCommon):
                 "name": "Floor Planner",
                 "login": "floor_planner_test_sw",
                 "email": "floor.planner@test.com",
-                "groups_id": [Command.set([cls.env.ref("base.group_user").id])],
+                "group_ids": [Command.set([cls.env.ref("base.group_user").id])],
             },
         )
         cls.user_manager = cls.env["res.users"].create(
@@ -33,7 +33,7 @@ class GanttPlanningCommon(TeamDashboardCommon):
                 "name": "Project Admin",
                 "login": "project_admin_test_sw",
                 "email": "project.admin@test.com",
-                "groups_id": [Command.set([cls.env.ref("project.group_project_manager").id])],
+                "group_ids": [Command.set([cls.env.ref("project.group_project_manager").id])],
             },
         )
         cls._set_own_task_write_policy()
@@ -43,26 +43,24 @@ class GanttPlanningCommon(TeamDashboardCommon):
         """Let every employee write the tasks they are assigned to, and no other: the Gantt chart
         follows whatever task-write policy a database has, and core's lets a follower write."""
         task_model_id = cls.env["ir.model"]._get_id("project.task")
-        cls.env["ir.model.access"].create(
-            {
-                "name": "project.task employee write",
-                "model_id": task_model_id,
-                "group_id": cls.env.ref("base.group_user").id,
-                "perm_read": True,
-                "perm_write": True,
-            }
-        )
-        # A global rule: it is AND-ed with the group rules that grant a follower write.
-        cls.env["ir.rule"].create(
-            {
-                "name": "Task: employees write only their own tasks",
-                "model_id": task_model_id,
-                "domain_force": "[('user_ids', 'in', user.id)]",
-                "perm_read": False,
-                "perm_write": True,
-                "perm_create": False,
-                "perm_unlink": False,
-            }
+        own_tasks = "[('user_ids', 'in', user.id)]"
+        cls.env["ir.access"].create(
+            [
+                {
+                    "name": "Task: employees write their own tasks",
+                    "model_id": task_model_id,
+                    "group_id": cls.env.ref("base.group_user").id,
+                    "operation": "u",
+                    "domain": own_tasks,
+                },
+                # Without a group: it is AND-ed with the group rows that grant a follower write.
+                {
+                    "name": "Task: employees write only their own tasks",
+                    "model_id": task_model_id,
+                    "operation": "u",
+                    "domain": own_tasks,
+                },
+            ]
         )
 
     @classmethod
@@ -301,7 +299,13 @@ class TestGanttDependencyHelpers(GanttPlanningCommon):
 class TestProjectBaseline(GanttPlanningCommon):
     def test_manager_saves_baseline_of_open_tasks(self):
         closed_task = self._create_task(
-            "Closed", datetime(2026, 2, 2, 9), datetime(2026, 2, 3, 17), stage_id=self.stage_done.id
+            "Closed", datetime(2026, 2, 2, 9), datetime(2026, 2, 3, 17), stage_id=self.stage_done.id, state="1_done"
+        )
+        canceled_task = self._create_task(
+            "Canceled", datetime(2026, 2, 2, 9), datetime(2026, 2, 3, 17), state="1_canceled"
+        )
+        folded_open_task = self._create_task(
+            "Folded Open", datetime(2026, 2, 2, 9), datetime(2026, 2, 3, 17), stage_id=self.stage_done.id
         )
         self.project.with_user(self.user_manager).save_gantt_baselines()
         baseline = self.project.baseline_id
@@ -309,7 +313,9 @@ class TestProjectBaseline(GanttPlanningCommon):
         self.assertEqual(baseline.user_id, self.user_manager)
         baseline_tasks = baseline.line_ids.task_id
         self.assertIn(self.task_a, baseline_tasks)
-        self.assertNotIn(closed_task, baseline_tasks, "Tasks in a folded stage are not in the baseline")
+        self.assertNotIn(closed_task, baseline_tasks, "Done tasks are not in the baseline")
+        self.assertNotIn(canceled_task, baseline_tasks, "Canceled tasks are not in the baseline")
+        self.assertIn(folded_open_task, baseline_tasks, "A folded stage does not close a task")
         line_a = baseline.line_ids.filtered(lambda line: line.task_id == self.task_a)
         self.assertEqual(line_a.planned_date_start, self.task_a.planned_date_start)
         self.assertEqual(line_a.planned_date_end, self.task_a.planned_date_end)
@@ -355,11 +361,13 @@ class TestProjectBaseline(GanttPlanningCommon):
 
     def test_baseline_skips_open_tasks_without_any_date(self):
         undated_task = self._create_task("Undated")
-        deadline_task = self._create_task("Deadline Only", date_deadline=date(2026, 3, 25))
+        deadline_task = self._create_task("Deadline Only", date_deadline=datetime(2026, 3, 25, 12))
         self.project.with_user(self.user_manager).save_gantt_baselines()
-        baseline_tasks = self.project.baseline_id.line_ids.task_id
-        self.assertNotIn(undated_task, baseline_tasks)
-        self.assertIn(deadline_task, baseline_tasks)
+        baseline_lines = self.project.baseline_id.line_ids
+        self.assertNotIn(undated_task, baseline_lines.task_id)
+        self.assertIn(deadline_task, baseline_lines.task_id)
+        deadline_line = baseline_lines.filtered(lambda line: line.task_id == deadline_task)
+        self.assertEqual(deadline_line.date_deadline, datetime(2026, 3, 25, 12))
 
     def test_save_baselines_dedupes_repeated_project(self):
         Project = self.env["project.project"].with_user(self.user_manager)
@@ -437,7 +445,7 @@ class TestGanttPlanningPayload(GanttPlanningCommon):
         self.assertTrue(self._payload(self.user_manager)["is_project_manager"])
 
     def test_task_attributes_and_lags(self):
-        self.task_b.date_deadline = date(2026, 3, 20)
+        self.task_b.date_deadline = datetime(2026, 3, 20, 12)
         self.task_b.gantt_add_dependency(self.task_a.id)
         self.task_b.gantt_set_dependency_lag(self.task_a.id, 4)
         task_b_data = self._task_data(self._payload(), self.task_b)
@@ -447,6 +455,21 @@ class TestGanttPlanningPayload(GanttPlanningCommon):
         self.assertEqual(task_b_data["plan_date_end"], "2026-03-13")
         self.assertIn("effective_hours", task_b_data)
         self.assertEqual(task_b_data["project_id"], self.project.id)
+
+    def test_the_deadline_is_the_date_in_the_timezone_of_the_user(self):
+        late_evening, small_hours = datetime(2026, 3, 20, 20), datetime(2026, 3, 20, 2)
+        for timezone, deadline, deadline_date in (
+            ("Asia/Tokyo", late_evening, "2026-03-21"),
+            ("America/New_York", small_hours, "2026-03-19"),
+            ("UTC", late_evening, "2026-03-20"),
+        ):
+            with self.subTest(timezone=timezone):
+                self.user_manager.tz = timezone
+                self.task_b.date_deadline = deadline
+
+                self.assertEqual(
+                    self._task_data(self._payload(self.user_manager), self.task_b)["date_deadline"], deadline_date
+                )
 
     def test_can_write_follows_record_rules(self):
         own_task = self._create_task(
@@ -481,28 +504,40 @@ class TestGanttPlanningPayload(GanttPlanningCommon):
         self.assertIs(late_task_data["baseline_shift_days"], False)
 
     def test_deadline_only_task_is_a_milestone_at_the_deadline(self):
-        deadline_task = self._create_task("Deadline Only", date_deadline=date(2026, 3, 25))
+        deadline_task = self._create_task("Deadline Only", date_deadline=datetime(2026, 3, 25, 12))
         payload = self._payload()
         deadline_data = self._task_data(payload, deadline_task)
         self.assertTrue(deadline_data["is_deadline_only"])
         self.assertEqual(deadline_data["planned_date_start"][:10], "2026-03-25")
+        self.assertEqual(deadline_data["planned_date_start"], deadline_data["planned_date_end"])
         self.assertFalse(deadline_data["plan_date_start"], "Deadline-only tasks stay out of the lag check")
         self.assertNotIn(deadline_task.id, [entry["id"] for entry in payload["unscheduled"]])
         self.assertFalse(self._task_data(payload, self.task_a)["is_deadline_only"])
 
+    def test_a_deadline_only_task_sits_on_the_deadline_date_of_the_user(self):
+        self.user_manager.tz = "Asia/Tokyo"
+        deadline_task = self._create_task("Deadline Only", date_deadline=datetime(2026, 3, 25, 20))
+
+        deadline_data = self._task_data(self._payload(self.user_manager), deadline_task)
+
+        self.assertEqual(deadline_data["planned_date_start"][:10], "2026-03-26")
+        self.assertEqual(deadline_data["date_deadline"], "2026-03-26")
+
     def test_unscheduled_lists_open_undated_tasks(self):
-        undated_task = self._create_task("Undated", planned_hours=6.0)
-        closed_undated_task = self._create_task("Closed Undated", stage_id=self.stage_done.id)
+        undated_task = self._create_task("Undated", allocated_hours=6.0)
+        closed_undated_task = self._create_task("Closed Undated", stage_id=self.stage_done.id, state="1_done")
+        folded_open_task = self._create_task("Folded Open Undated", stage_id=self.stage_done.id)
         payload = self._payload()
         unscheduled_by_id = {entry["id"]: entry for entry in payload["unscheduled"]}
         self.assertIn(undated_task.id, unscheduled_by_id)
         self.assertNotIn(closed_undated_task.id, unscheduled_by_id)
+        self.assertIn(folded_open_task.id, unscheduled_by_id)
         self.assertNotIn(self.task_a.id, unscheduled_by_id)
         self.assertEqual(unscheduled_by_id[undated_task.id]["planned_hours"], 6.0)
         self.assertEqual(unscheduled_by_id[undated_task.id]["stage_name"], "In Progress")
 
     def test_no_dates_count_matches_unscheduled_and_skips_deadline_only(self):
-        self._create_task("Deadline Only", date_deadline=date(2026, 3, 25))
+        self._create_task("Deadline Only", date_deadline=datetime(2026, 3, 25, 12))
         self._create_task("Undated")
         payload = self._payload()
         self.assertEqual(payload["tasks_without_dates"], 1)
@@ -524,7 +559,6 @@ class TestGanttPlanningPayload(GanttPlanningCommon):
             datetime(2026, 3, 3, 17),
             parent_id=hidden_parent.id,
             project_id=self.project.id,
-            display_project_id=self.project.id,
         )
         self.assertEqual(visible_child.project_id, self.project)
         payload = self._payload(self.user_dev1)

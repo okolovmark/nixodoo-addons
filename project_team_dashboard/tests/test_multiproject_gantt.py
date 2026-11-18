@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from odoo import fields
-from odoo.tests.common import tagged
+from odoo.tests import tagged
 
 from .common import TeamDashboardCommon
 
@@ -154,6 +154,18 @@ class TestMultiProjectGantt(TeamDashboardCommon):
         self.env.user.tz = False
         result = self.Project.get_gantt_chart_data(project_id=self.project.id)
         self.assertEqual(result["user_tz"], "UTC")
+
+    def test_user_tz_is_the_timezone_of_the_deadline_dates(self):
+        self.env.user.tz = "Europe/Brussels"
+        task = self.env["project.task"].create(
+            {"name": "Late Deadline", "project_id": self.project.id, "date_deadline": "2026-03-20 20:00:00"}
+        )
+
+        result = self.Project.with_context(tz="Asia/Tokyo").get_gantt_chart_data(project_id=self.project.id)
+
+        self.assertEqual(result["user_tz"], "Asia/Tokyo")
+        task_data = next(task_data for task_data in result["tasks"] if task_data["id"] == task.id)
+        self.assertEqual(task_data["date_deadline"], "2026-03-21")
 
     # ------------------------------------------------------------------
     # Edge cases

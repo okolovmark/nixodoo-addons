@@ -1,0 +1,26 @@
+.o_team_dashboard .o_team_dashboard_avatar {
+    --Avatar-size: 2.5rem;
+
+    flex-shrink: 0;
+    width: var(--Avatar-size);
+    height: var(--Avatar-size);
+}
+
+.o_team_dashboard .o_team_dashboard_picker {
+    width: 100%;
+}
+
+.o_team_dashboard .o_team_dashboard_picker_menu {
+    max-height: 18rem;
+    overflow-y: auto;
+}
+
+.o_team_dashboard .o_team_dashboard_member .progress {
+    --progress-height: 0.375rem;
+}
+
+@media (min-width: 768px) {
+    .o_team_dashboard .o_team_dashboard_picker {
+        width: 18rem;
+    }
+}

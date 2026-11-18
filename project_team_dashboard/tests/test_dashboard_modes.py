@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from odoo import Command, fields
 from odoo.exceptions import AccessError
-from odoo.tests.common import tagged
+from odoo.tests import tagged
 
 from .common import TeamDashboardCommon
 
@@ -24,7 +24,7 @@ class TestDashboardManagerMode(TeamDashboardCommon):
                 "name": "Manager User",
                 "login": "manager_test_sw",
                 "email": "manager@test.com",
-                "groups_id": [
+                "group_ids": [
                     (
                         6,
                         0,
@@ -65,7 +65,7 @@ class TestDashboardManagerMode(TeamDashboardCommon):
                 "name": "Dev Three",
                 "login": "dev3_test_sw",
                 "email": "dev3@test.com",
-                "groups_id": [
+                "group_ids": [
                     (
                         6,
                         0,
@@ -114,7 +114,7 @@ class TestDashboardManagerMode(TeamDashboardCommon):
                 "project_id": cls.project.id,
                 "stage_id": cls.stage_in_progress.id,
                 "user_ids": [(6, 0, [cls.user_dev1.id])],
-                "planned_hours": 10.0,
+                "allocated_hours": 10.0,
             },
         )
         cls.task_dev2 = cls.env["project.task"].create(
@@ -123,7 +123,7 @@ class TestDashboardManagerMode(TeamDashboardCommon):
                 "project_id": cls.project.id,
                 "stage_id": cls.stage_in_progress.id,
                 "user_ids": [(6, 0, [cls.user_dev2.id])],
-                "planned_hours": 8.0,
+                "allocated_hours": 8.0,
             },
         )
         cls.task_dev3_proj2 = cls.env["project.task"].create(
@@ -132,7 +132,7 @@ class TestDashboardManagerMode(TeamDashboardCommon):
                 "project_id": cls.project2.id,
                 "stage_id": cls.stage_in_progress.id,
                 "user_ids": [(6, 0, [cls.user_dev3.id])],
-                "planned_hours": 12.0,
+                "allocated_hours": 12.0,
             },
         )
 
@@ -203,6 +203,22 @@ class TestDashboardManagerMode(TeamDashboardCommon):
         data = self.env["project.project"].get_team_dashboard_by_manager(self.user_manager.id)
         dev3_data = next(m for m in data["members"] if m["user_id"] == self.user_dev3.id)
         self.assertEqual(dev3_data["project_names"], ["SSP - %s" % self.project2.name])
+
+    def test_manager_dashboard_counts_the_tasks_open_by_their_state(self):
+        Task = self.env["project.task"]
+        task_values = {"project_id": self.project2.id, "user_ids": [Command.set(self.user_dev2.ids)]}
+        folded_open_task = Task.create(dict(task_values, name="Folded Open", stage_id=self.stage_done.id))
+        Task.create(dict(task_values, name="Done", stage_id=self.stage_done.id, state="1_done"))
+        Task.create(dict(task_values, name="Canceled", stage_id=self.stage_backlog.id, state="1_canceled"))
+        to_do = Task.create(dict(task_values, name="Personal To-do", project_id=False))
+        self.assertFalse(to_do.is_closed)
+
+        data = self.env["project.project"].get_team_dashboard_by_manager(self.user_manager.id)
+
+        dev2_data = next(m for m in data["members"] if m["user_id"] == self.user_dev2.id)
+        self.assertEqual(dev2_data["total_open_tasks"], 2)
+        self.assertEqual([t["id"] for t in dev2_data["other"]], [folded_open_task.id])
+        self.assertEqual(dev2_data["project_names"], sorted([self.project.name, self.project2.name]))
 
     def test_manager_dashboard_with_depth(self):
         """Test that max_depth limits subordinate traversal."""
@@ -309,7 +325,7 @@ class TestDashboardManagerMode(TeamDashboardCommon):
                 "name": "Idle Dev",
                 "login": "idle_test_sw",
                 "email": "idle@test.com",
-                "groups_id": [
+                "group_ids": [
                     (
                         6,
                         0,
@@ -361,7 +377,7 @@ class TestDashboardDepartmentMode(TeamDashboardCommon):
                 "project_id": cls.project.id,
                 "stage_id": cls.stage_in_progress.id,
                 "user_ids": [(6, 0, [cls.user_dev1.id])],
-                "planned_hours": 6.0,
+                "allocated_hours": 6.0,
             },
         )
         cls.task_dev2 = cls.env["project.task"].create(
@@ -370,7 +386,7 @@ class TestDashboardDepartmentMode(TeamDashboardCommon):
                 "project_id": cls.project.id,
                 "stage_id": cls.stage_backlog.id,
                 "user_ids": [(6, 0, [cls.user_dev2.id])],
-                "planned_hours": 4.0,
+                "allocated_hours": 4.0,
             },
         )
 
@@ -500,7 +516,7 @@ class TestDashboardModeAccessControl(TeamDashboardCommon):
                 "name": "Project Only User",
                 "login": "proj_only_test",
                 "email": "projonly@test.com",
-                "groups_id": [
+                "group_ids": [
                     (
                         6,
                         0,
@@ -537,7 +553,7 @@ class TestDashboardModeAccessControl(TeamDashboardCommon):
                 "project_id": cls.project.id,
                 "stage_id": cls.stage_in_progress.id,
                 "user_ids": [(6, 0, [cls.user_dev1.id])],
-                "planned_hours": 5.0,
+                "allocated_hours": 5.0,
             },
         )
 
@@ -545,12 +561,12 @@ class TestDashboardModeAccessControl(TeamDashboardCommon):
         """Confirm that project-only users lack direct model-level access to hr.employee.
 
         hr.employee._search() has a built-in fallback to hr.employee.public,
-        so search() never raises AccessError. But check_access_rights() does fail.
+        so search() never raises AccessError. But has_access() is false.
         The dashboard methods use sudo() for HR reads to avoid the fallback overhead
         and ensure full field access.
         """
         HrEmployee = self.env["hr.employee"].with_user(self.user_project_only)
-        has_access = HrEmployee.check_access_rights("read", raise_exception=False)
+        has_access = HrEmployee.has_access("read")
         self.assertFalse(
             has_access,
             "Project user should not have direct hr.employee model access",

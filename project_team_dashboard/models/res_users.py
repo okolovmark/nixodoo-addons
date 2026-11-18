@@ -9,21 +9,15 @@ class ResUsers(models.Model):
     dashboard_default_project_id = fields.Many2one(
         "project.project",
         string="Default Dashboard Project",
+        user_writeable=True,
         help="Project selected by default when opening the Team Dashboard.",
     )
     gantt_columns = fields.Char(
         string="Gantt Columns",
         default=",".join(GANTT_COLUMN_KEYS[:4]),
+        user_writeable=True,
         help="Comma-separated attribute columns shown in the left pane of the Gantt chart.",
     )
-
-    @property
-    def SELF_READABLE_FIELDS(self):
-        return super().SELF_READABLE_FIELDS + ["dashboard_default_project_id", "gantt_columns"]
-
-    @property
-    def SELF_WRITEABLE_FIELDS(self):
-        return super().SELF_WRITEABLE_FIELDS + ["dashboard_default_project_id", "gantt_columns"]
 
     def _get_gantt_columns(self):
         self.ensure_one()

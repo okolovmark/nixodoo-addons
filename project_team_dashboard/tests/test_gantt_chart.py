@@ -1,7 +1,9 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
+
+from freezegun import freeze_time
 
 from odoo import fields
-from odoo.tests.common import tagged
+from odoo.tests import tagged
 
 from .common import TeamDashboardCommon
 
@@ -118,6 +120,32 @@ class TestGanttChartData(TeamDashboardCommon):
         expected_start = str(end_dt - timedelta(days=1))
         self.assertEqual(task_data["planned_date_start"], expected_start)
 
+    def test_the_payload_tells_the_dates_a_task_has_from_a_padded_one(self):
+        start_only, end_only, both_dates = self.Task.create(
+            [
+                {"name": "Start Only", "project_id": self.project.id, "planned_date_start": self.now},
+                {"name": "End Only", "project_id": self.project.id, "planned_date_end": self.now},
+                {
+                    "name": "Both Dates",
+                    "project_id": self.project.id,
+                    "planned_date_start": self.now,
+                    "planned_date_end": self.now + timedelta(days=2),
+                },
+            ]
+        )
+        result = self.Project.get_gantt_chart_data(self.project.id)
+        task_data_by_id = {task_data["id"]: task_data for task_data in result["tasks"]}
+        for task, expected_flags in (
+            (start_only, (True, False)),
+            (end_only, (False, True)),
+            (both_dates, (True, True)),
+        ):
+            with self.subTest(task=task.name):
+                task_data = task_data_by_id[task.id]
+                self.assertEqual(
+                    (task_data["has_planned_date_start"], task_data["has_planned_date_end"]), expected_flags
+                )
+
     # ------------------------------------------------------------------
     # Tasks without dates
     # ------------------------------------------------------------------
@@ -155,16 +183,26 @@ class TestGanttChartData(TeamDashboardCommon):
         self.assertNotIn(no_date.id, task_ids)
 
     # ------------------------------------------------------------------
-    # Folded (completed) stage filtering
+    # Closed task filtering
     # ------------------------------------------------------------------
 
-    def test_folded_stages_excluded_by_default(self):
-        """Tasks in folded stages are excluded when show_completed=False."""
+    def test_closed_tasks_excluded_by_default(self):
+        """Done and canceled tasks are excluded when show_completed=False."""
+        canceled_task = self.Task.create(
+            {
+                "name": "Canceled Task",
+                "project_id": self.project.id,
+                "state": "1_canceled",
+                "planned_date_start": self.now,
+                "planned_date_end": self.now + timedelta(days=2),
+            },
+        )
         task = self.Task.create(
             {
                 "name": "Done Task",
                 "project_id": self.project.id,
                 "stage_id": self.stage_done.id,
+                "state": "1_done",
                 "planned_date_start": self.now,
                 "planned_date_end": self.now + timedelta(days=2),
             },
@@ -172,14 +210,30 @@ class TestGanttChartData(TeamDashboardCommon):
         result = self.Project.get_gantt_chart_data(self.project.id, show_completed=False)
         task_ids = [t["id"] for t in result["tasks"]]
         self.assertNotIn(task.id, task_ids)
+        self.assertNotIn(canceled_task.id, task_ids)
 
-    def test_folded_stages_included_with_show_completed(self):
-        """Tasks in folded stages are included when show_completed=True."""
+    def test_an_open_task_in_a_folded_stage_is_shown_open(self):
+        task = self.Task.create(
+            {
+                "name": "Folded Open Task",
+                "project_id": self.project.id,
+                "stage_id": self.stage_done.id,
+                "planned_date_start": self.now,
+                "planned_date_end": self.now + timedelta(days=2),
+            },
+        )
+        result = self.Project.get_gantt_chart_data(self.project.id, show_completed=False)
+        task_data = next(t for t in result["tasks"] if t["id"] == task.id)
+        self.assertFalse(task_data["is_closed"])
+
+    def test_closed_tasks_included_with_show_completed(self):
+        """Closed tasks are included when show_completed=True."""
         task = self.Task.create(
             {
                 "name": "Done Task Included",
                 "project_id": self.project.id,
                 "stage_id": self.stage_done.id,
+                "state": "1_done",
                 "planned_date_start": self.now,
                 "planned_date_end": self.now + timedelta(days=2),
             },
@@ -190,13 +244,14 @@ class TestGanttChartData(TeamDashboardCommon):
         task_data = next(t for t in result["tasks"] if t["id"] == task.id)
         self.assertTrue(task_data["is_closed"])
 
-    def test_tasks_without_dates_in_folded_excluded_from_count(self):
-        """Folded tasks without dates should NOT be counted when show_completed=False."""
+    def test_closed_tasks_without_dates_excluded_from_count(self):
+        """Closed tasks without dates should NOT be counted when show_completed=False."""
         self.Task.create(
             {
                 "name": "Done No Dates",
                 "project_id": self.project.id,
                 "stage_id": self.stage_done.id,
+                "state": "1_done",
             },
         )
         result_excl = self.Project.get_gantt_chart_data(self.project.id, show_completed=False)
@@ -413,12 +468,13 @@ class TestGanttChartData(TeamDashboardCommon):
         self.assertIn(str(gc_end), gp_data["planned_date_end"])
 
     def test_parent_outside_dataset_not_referenced(self):
-        """If parent is in a folded stage, child's parent_id should be False."""
+        """If parent is closed, child's parent_id should be False."""
         parent = self.Task.create(
             {
                 "name": "Done Parent",
                 "project_id": self.project.id,
                 "stage_id": self.stage_done.id,
+                "state": "1_done",
                 "planned_date_start": self.now,
                 "planned_date_end": self.now + timedelta(days=5),
             },
@@ -435,7 +491,7 @@ class TestGanttChartData(TeamDashboardCommon):
         )
         result = self.Project.get_gantt_chart_data(self.project.id, show_completed=False)
         child_data = next(t for t in result["tasks"] if t["id"] == child.id)
-        # Parent is in folded stage so excluded → child should not reference it
+        # Parent is closed so excluded → child should not reference it
         self.assertFalse(child_data["parent_id"])
         self.assertEqual(child_data["parent_label"], parent.key or parent.name)
 
@@ -470,12 +526,13 @@ class TestGanttChartData(TeamDashboardCommon):
 
     def test_dependency_excluded_when_blocker_not_in_set(self):
         """depend_on_ids should not reference tasks outside the filtered set."""
-        # Blocker in folded stage - excluded from Gantt
+        # Closed blocker - excluded from Gantt
         blocker = self.Task.create(
             {
                 "name": "Done Blocker",
                 "project_id": self.project.id,
                 "stage_id": self.stage_done.id,
+                "state": "1_done",
                 "planned_date_start": self.now - timedelta(days=5),
                 "planned_date_end": self.now - timedelta(days=3),
             },
@@ -507,7 +564,7 @@ class TestGanttChartData(TeamDashboardCommon):
                 "stage_id": self.stage_in_progress.id,
                 "planned_date_start": self.now,
                 "planned_date_end": self.now + timedelta(days=3),
-                "planned_hours": 20.0,
+                "allocated_hours": 20.0,
                 "user_ids": [(6, 0, [self.user_dev1.id])],
             },
         )
@@ -524,6 +581,8 @@ class TestGanttChartData(TeamDashboardCommon):
             "child_ids",
             "planned_date_start",
             "planned_date_end",
+            "has_planned_date_start",
+            "has_planned_date_end",
             "stage_id",
             "stage_name",
             "stage_sequence",
@@ -579,10 +638,11 @@ class TestGanttChartData(TeamDashboardCommon):
                 "planned_date_end": self.now + timedelta(days=1),
             },
         )
+        # Task keys are off while tests run.
+        task.key = "GNT-1"
         result = self.Project.get_gantt_chart_data(self.project.id)
         task_data = next(t for t in result["tasks"] if t["id"] == task.id)
-        # key may be auto-generated or empty, but the field must exist
-        self.assertIn("key", task_data)
+        self.assertEqual(task_data["key"], "GNT-1")
 
     def test_planned_hours_and_progress(self):
         """Planned hours and progress are returned."""
@@ -593,14 +653,24 @@ class TestGanttChartData(TeamDashboardCommon):
                 "stage_id": self.stage_in_progress.id,
                 "planned_date_start": self.now,
                 "planned_date_end": self.now + timedelta(days=2),
-                "planned_hours": 16.0,
+                "allocated_hours": 16.0,
+            },
+        )
+        self.env["account.analytic.line"].create(
+            {
+                "name": "Work",
+                "task_id": task.id,
+                "project_id": self.project.id,
+                "employee_id": self.employee_dev1.id,
+                "unit_amount": 4.0,
             },
         )
         result = self.Project.get_gantt_chart_data(self.project.id)
         task_data = next(t for t in result["tasks"] if t["id"] == task.id)
         self.assertAlmostEqual(task_data["planned_hours"], 16.0)
-        self.assertIn("remaining_hours", task_data)
-        self.assertIn("progress", task_data)
+        self.assertAlmostEqual(task_data["remaining_hours"], 12.0)
+        self.assertAlmostEqual(task_data["effective_hours"], 4.0)
+        self.assertAlmostEqual(task_data["progress"], 25.0, msg="The progress is a percentage")
 
     # ------------------------------------------------------------------
     # Stage flags
@@ -640,12 +710,13 @@ class TestGanttChartData(TeamDashboardCommon):
         self.assertFalse(task_data["is_in_progress"])
 
     def test_stage_flags_closed(self):
-        """Folded (done) stage sets is_closed=True when show_completed."""
+        """A done task sets is_closed=True when show_completed."""
         task = self.Task.create(
             {
                 "name": "Done Flag",
                 "project_id": self.project.id,
                 "stage_id": self.stage_done.id,
+                "state": "1_done",
                 "planned_date_start": self.now,
                 "planned_date_end": self.now + timedelta(days=1),
             },
@@ -733,3 +804,51 @@ class TestGanttChartData(TeamDashboardCommon):
         returned_ids = {t["id"] for t in result["tasks"]}
         for task in tasks:
             self.assertIn(task.id, returned_ids)
+
+
+@tagged("post_install", "-at_install")
+class TestGanttDayOfTheUser(TeamDashboardCommon):
+    """The server runs in UTC: the chart's today and its overdue bars follow the user's day, the one
+    its deadline dates are in."""
+
+    def _create_tasks(self, deadline, *planned_ends):
+        return self.env["project.task"].create(
+            [{"name": "Deadline only", "project_id": self.project.id, "date_deadline": deadline}]
+            + [
+                {
+                    "name": "Planned",
+                    "project_id": self.project.id,
+                    "planned_date_start": planned_end - timedelta(days=2),
+                    "planned_date_end": planned_end,
+                }
+                for planned_end in planned_ends
+            ]
+        )
+
+    def _chart_tasks(self, tz, tasks):
+        payload = self.env["project.project"].with_context(tz=tz).get_gantt_chart_data(self.project.id)
+        task_data_by_id = {task_data["id"]: task_data for task_data in payload["tasks"]}
+        return payload, [task_data_by_id[task.id] for task in tasks]
+
+    @freeze_time("2026-11-19 02:00:00")
+    def test_in_new_york_at_9_pm_only_what_ended_before_that_day_is_overdue(self):
+        tasks = self._create_tasks(datetime(2026, 11, 19, 3), datetime(2026, 11, 18, 23), datetime(2026, 11, 18, 1))
+
+        payload, (deadline_data, ends_today_data, ended_yesterday_data) = self._chart_tasks("America/New_York", tasks)
+
+        self.assertEqual(payload["today"], "2026-11-18")
+        self.assertEqual(deadline_data["date_deadline"], "2026-11-18")
+        self.assertFalse(deadline_data["is_overdue"], "a deadline today is not overdue")
+        self.assertFalse(ends_today_data["is_overdue"], "a bar ending today is not overdue")
+        self.assertTrue(ended_yesterday_data["is_overdue"], "a bar that ended yesterday is overdue")
+
+    @freeze_time("2026-11-18 22:00:00")
+    def test_in_tokyo_at_7_am_what_ended_yesterday_is_overdue(self):
+        tasks = self._create_tasks(datetime(2026, 11, 18, 11), datetime(2026, 11, 18, 11))
+
+        payload, (deadline_data, planned_data) = self._chart_tasks("Asia/Tokyo", tasks)
+
+        self.assertEqual(payload["today"], "2026-11-19")
+        self.assertEqual(deadline_data["date_deadline"], "2026-11-18")
+        self.assertTrue(deadline_data["is_overdue"], "a deadline at 8 PM yesterday is overdue")
+        self.assertTrue(planned_data["is_overdue"], "a bar that ended at 8 PM yesterday is overdue")

@@ -1,5 +1,5 @@
 from odoo import Command
-from odoo.tests.common import TransactionCase
+from odoo.tests import TransactionCase
 
 
 class TeamDashboardCommon(TransactionCase):
@@ -73,7 +73,7 @@ class TeamDashboardCommon(TransactionCase):
                 "name": "Dev One",
                 "login": "dev1_test_sw",
                 "email": "dev1@test.com",
-                "groups_id": [
+                "group_ids": [
                     Command.set(
                         [
                             cls.env.ref("base.group_user").id,
@@ -88,7 +88,7 @@ class TeamDashboardCommon(TransactionCase):
                 "name": "Dev Two",
                 "login": "dev2_test_sw",
                 "email": "dev2@test.com",
-                "groups_id": [
+                "group_ids": [
                     Command.set(
                         [
                             cls.env.ref("base.group_user").id,
@@ -120,5 +120,5 @@ class TeamDashboardCommon(TransactionCase):
         return {
             "name": name,
             "login": "dashboard_access_%s" % name.lower().replace(" ", "_"),
-            "groups_id": [Command.set([cls.env.ref(xmlid).id for xmlid in group_xmlids])],
+            "group_ids": [Command.set([cls.env.ref(xmlid).id for xmlid in group_xmlids])],
         }

@@ -1,11 +1,12 @@
 import base64
 import io
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 import openpyxl
+from freezegun import freeze_time
 
 from odoo import fields
-from odoo.tests.common import tagged
+from odoo.tests import tagged
 
 from .common import TeamDashboardCommon
 
@@ -92,7 +93,7 @@ class TestExcelExport(TeamDashboardCommon):
                 "name": "Deadline Only",
                 "project_id": self.project.id,
                 "stage_id": self.stage_in_progress.id,
-                "date_deadline": deadline,
+                "date_deadline": datetime.combine(deadline, time(12)),
             },
         )
         result = self.Project.export_gantt_excel([self.project.id])
@@ -101,3 +102,79 @@ class TestExcelExport(TeamDashboardCommon):
         deadline_row = next(row for row in sheet.iter_rows(min_row=2) if row[1].value == "Deadline Only")
         deadline_cell = deadline_row[header.index(deadline.strftime("%d %b"))]
         self.assertEqual(deadline_cell.value, "\u25c6")
+
+    @freeze_time("2026-11-18 22:00:00")
+    def test_the_today_column_is_the_day_of_the_user(self):
+        project = self.Project.create({"name": "Tokyo Office"})
+        self.Task.create(
+            {
+                "name": "Across the week",
+                "project_id": project.id,
+                "planned_date_start": datetime(2026, 11, 16, 1),
+                "planned_date_end": datetime(2026, 11, 20, 9),
+            }
+        )
+
+        result = self.Project.with_context(tz="Asia/Tokyo").export_gantt_excel([project.id])
+
+        sheet = openpyxl.load_workbook(io.BytesIO(base64.b64decode(result["data"]))).active
+        today_headers = [cell.value for cell in sheet[1] if cell.fill.fgColor.rgb == "FFFDEBD0"]
+        self.assertEqual(today_headers, ["19 Nov"], "07:00 in Tokyo is already the 19th")
+
+    @freeze_time("2026-11-18 22:00:00")
+    def test_a_bar_and_its_dates_are_on_the_days_of_the_user(self):
+        project = self.Project.create({"name": "Tokyo Office"})
+        self.Task.create(
+            {
+                "name": "From 5 AM on the 17th to 5 AM on the 20th in Tokyo",
+                "project_id": project.id,
+                "planned_date_start": datetime(2026, 11, 16, 20),
+                "planned_date_end": datetime(2026, 11, 19, 20),
+            }
+        )
+
+        result = self.Project.with_context(tz="Asia/Tokyo").export_gantt_excel([project.id])
+
+        sheet = openpyxl.load_workbook(io.BytesIO(base64.b64decode(result["data"]))).active
+        header = [cell.value for cell in sheet[1]]
+        task_row = sheet[2]
+        bar_days = [header[cell.column - 1] for cell in task_row[header.index("Stage") + 1 :] if cell.fill.fill_type]
+        self.assertEqual(bar_days, ["17 Nov", "18 Nov", "19 Nov", "20 Nov"])
+        self.assertEqual(
+            (task_row[header.index("Start")].value, task_row[header.index("End")].value),
+            (datetime(2026, 11, 17), datetime(2026, 11, 20)),
+        )
+        today_headers = [cell.value for cell in sheet[1] if cell.fill.fgColor.rgb == "FFFDEBD0"]
+        self.assertEqual(today_headers, ["19 Nov"], "today is a day of the bar")
+
+    def test_the_rows_follow_the_start_time_of_the_user(self):
+        project = self.Project.create({"name": "Tokyo Office"})
+        self.Task.create(
+            [
+                {
+                    "name": "From 2 PM on the 17th in Tokyo",
+                    "project_id": project.id,
+                    "planned_date_start": datetime(2026, 11, 17, 5),
+                    "planned_date_end": datetime(2026, 11, 20, 5),
+                },
+                {
+                    "name": "From 8 AM on the 17th in Tokyo",
+                    "project_id": project.id,
+                    "planned_date_start": datetime(2026, 11, 16, 23),
+                    "planned_date_end": datetime(2026, 11, 22, 5),
+                },
+                {
+                    "name": "Due on the 17th in Tokyo",
+                    "project_id": project.id,
+                    "date_deadline": datetime(2026, 11, 17, 3),
+                },
+            ]
+        )
+
+        result = self.Project.with_context(tz="Asia/Tokyo").export_gantt_excel([project.id])
+
+        sheet = openpyxl.load_workbook(io.BytesIO(base64.b64decode(result["data"]))).active
+        self.assertEqual(
+            [row[1].value for row in sheet.iter_rows(min_row=2)],
+            ["Due on the 17th in Tokyo", "From 8 AM on the 17th in Tokyo", "From 2 PM on the 17th in Tokyo"],
+        )

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from odoo import Command, fields
-from odoo.tests.common import tagged
+from odoo.tests import tagged
 
 from .common import TeamDashboardCommon
 
@@ -18,7 +18,7 @@ class TestGanttStageHistory(TeamDashboardCommon):
         cls.no_stage = cls.env["project.task.type"]
         cls.now = fields.Datetime.now() + timedelta(days=30)
 
-    def _create_task(self, name, stage, project=None):
+    def _create_task(self, name, stage, project=None, **vals):
         return self.Task.create(
             {
                 "name": name,
@@ -26,6 +26,7 @@ class TestGanttStageHistory(TeamDashboardCommon):
                 "stage_id": stage.id,
                 "planned_date_start": datetime(2026, 10, 1, 9),
                 "planned_date_end": datetime(2026, 10, 20, 17),
+                **vals,
             },
         )
 
@@ -105,7 +106,7 @@ class TestGanttStageHistory(TeamDashboardCommon):
         self.assertEqual(task._gantt_stage_history(), {task.id: []})
 
     def test_visits_of_a_closed_task_end_where_the_last_one_starts(self):
-        task = self._create_task("Closed", self.stage_done)
+        task = self._create_task("Closed", self.stage_done, state="1_done")
         closed_at = task.create_date + timedelta(hours=2)
         stage_logs = self._set_stage_log(task, (self.stage_in_progress, task.create_date), (self.stage_done, closed_at))
         visits = task._gantt_stage_visits(stage_logs, self.now)
@@ -114,6 +115,27 @@ class TestGanttStageHistory(TeamDashboardCommon):
             {"stage": self.stage_done, "stage_name": self.stage_done.name, "start": closed_at, "end": closed_at},
         )
         self.assertEqual(visits[0]["end"], closed_at)
+
+    def test_the_last_visit_of_a_task_closed_in_its_stage_ends_when_it_was_closed(self):
+        task = self._create_task("Closed In Place", self.stage_in_progress)
+        entered_at = task.create_date
+        closed_at = entered_at + timedelta(hours=5)
+        stage_logs = self._set_stage_log(task, (self.stage_in_progress, entered_at))
+        task.state = "1_done"
+        task.date_last_stage_update = closed_at
+
+        visits = task._gantt_stage_visits(stage_logs, self.now)
+
+        self.assertEqual([(visit["start"], visit["end"]) for visit in visits], [(entered_at, closed_at)])
+
+    def test_the_last_visit_of_an_open_task_in_a_folded_stage_runs_until_now(self):
+        task = self._create_task("Folded Open", self.stage_done)
+        stage_logs = self._set_stage_log(task, (self.stage_done, task.create_date))
+
+        visits = task._gantt_stage_visits(stage_logs, self.now)
+
+        self.assertFalse(task.is_closed)
+        self.assertEqual(visits[-1]["end"], self.now)
 
     def test_visits_skip_a_row_without_stage_and_never_run_backwards(self):
         task = self._create_task("Stageless", self.stage_backlog)
@@ -192,15 +214,26 @@ class TestGanttStageHistory(TeamDashboardCommon):
             self.assertLessEqual(visit["start"], visit["end"], visit["stage_name"])
 
     def test_payload_marks_a_closed_visit(self):
-        task = self._create_task("Done Payload", self.stage_done)
+        task = self._create_task("Done Payload", self.stage_done, state="1_done")
         closed_at = task.create_date + timedelta(hours=1)
         self._set_stage_log(task, (self.stage_in_progress, task.create_date), (self.stage_done, closed_at))
         result = self.Project.get_gantt_chart_data(
             project_ids=[self.project.id], show_completed=True, include_stage_history=True
         )
-        last_visit = self._gantt_task(result, task)["stage_history"][-1]
+        first_visit, last_visit = self._gantt_task(result, task)["stage_history"]
         self.assertTrue(last_visit["is_closed"])
         self.assertEqual(last_visit["start"], last_visit["end"])
+        self.assertFalse(first_visit["is_closed"], "Only the visit the task was closed in is closed")
+
+    def test_payload_marks_no_visit_of_an_open_task_in_a_folded_stage_closed(self):
+        task = self._create_task("Folded Open Payload", self.stage_done)
+        self._set_stage_log(task, (self.stage_in_progress, task.create_date), (self.stage_done, task.create_date))
+
+        result = self.Project.get_gantt_chart_data(project_ids=[self.project.id], include_stage_history=True)
+
+        self.assertEqual(
+            [visit["is_closed"] for visit in self._gantt_task(result, task)["stage_history"]], [False, False]
+        )
 
     def test_payload_names_a_deleted_stage_from_the_log(self):
         retired_stage = self.env["project.task.type"].create({"name": "Retired", "sequence": 9})
@@ -217,13 +250,11 @@ class TestGanttStageHistory(TeamDashboardCommon):
     def test_move_without_tracking_is_a_visit(self):
         task = self._create_task("Quiet Move", self.stage_backlog)
         self._flush_tracking()
+        messages_before_the_move = task.message_ids
         task.with_context(tracking_disable=True, mail_notrack=True).stage_id = self.stage_in_progress
         self._flush_tracking()
-        self.assertNotIn(
-            "stage_id",
-            task.message_ids.tracking_value_ids.field.mapped("name"),
-            "The chatter holds no record of the move",
-        )
+        task.invalidate_recordset(["message_ids"])
+        self.assertEqual(task.message_ids, messages_before_the_move, "The chatter holds no record of the move")
         history = task._gantt_stage_history()[task.id]
         self.assertEqual(
             [visit["stage_name"] for visit in history], self._names(self.stage_backlog, self.stage_in_progress)
@@ -242,21 +273,15 @@ class TestGanttStageHistory(TeamDashboardCommon):
 
     def test_stage_change_of_a_predecessor_adds_no_visit(self):
         self.project.allow_task_dependencies = True
-        self.env.user.groups_id += self.env.ref("project.group_project_task_dependencies")
+        self.env.user.group_ids += self.env.ref("project.group_project_task_dependencies")
         predecessor = self._create_task("Predecessor", self.stage_backlog)
         successor = self._create_task("Successor", self.stage_backlog)
         successor.depend_on_ids = predecessor
         self._flush_tracking()
-        predecessor.stage_id = self.stage_in_progress
+        self.assertEqual(successor.state, "04_waiting_normal")
+        predecessor.write({"stage_id": self.stage_in_progress.id, "state": "1_done"})
         self._flush_tracking()
-        dependency_messages = successor.message_ids.filtered(
-            lambda message: message.subtype_id == self.env.ref("project.mt_task_dependency_change")
-        )
-        self.assertIn(
-            "stage_id",
-            dependency_messages.tracking_value_ids.field.mapped("name"),
-            "The predecessor's stage change is posted on the successor",
-        )
+        self.assertEqual(successor.state, "01_in_progress", "The predecessor's change reaches the successor")
         history_by_task = (predecessor | successor)._gantt_stage_history()
         self.assertEqual(
             [visit["stage_name"] for visit in history_by_task[successor.id]], self._names(self.stage_backlog)

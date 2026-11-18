@@ -6,39 +6,44 @@ Projects
 * On the project's task stages (Project > Configuration > Task Stages,
   developer mode only) tick **In Progress Stage** on the working stages and
   **Backlog Stage** on the backlog stages; the Backlog list and the Team
-  Dashboard read these flags.
+  Dashboard read these flags. Folding a stage does not close its tasks:
+  their state does.
 
 Users
 ~~~~~
 
 * Each user sets their **Default Dashboard Project** in Preferences (an
-  administrator on the user form); the Backlog menu opens on it.
+  administrator on the user form); the Backlog menu and the Team Dashboard
+  open on it.
 * The estimated completion of a member card plans on the working schedule
   of the user's employee in the current company, or of the company: give
   each member an employee with a schedule for an estimate that skips
-  weekends, leaves and public holidays.
+  weekends, leaves and public holidays. A member's *Today* and estimated
+  completion start from the member's day, in the time zone of their
+  preferences, else of their employee.
 
 Access
 ~~~~~~
 
 Team Dashboard tasks are read with the user's project rights, and so are the
-logged hours in View by Project mode. In the Manager and Department modes the
-logged hours of the listed users (across all projects), the employee hierarchy
-and the department members are read with elevated rights; the department
-picker list and the viewer's own department are loaded with the user's own
-rights.
+logged hours in Project mode. In the Manager and Department modes the
+logged hours of the listed users (across all projects), the employee
+hierarchy and the department members are read with elevated rights; the
+department picker list and the viewer's own department are loaded with the
+user's own rights.
 
 Who opens which team in those two modes follows the user's employee:
 
-* **View by Manager**: the user themselves, or a manager one of whose
-  employees reports to one of the user's employees, directly or further down
-  the hierarchy (the employee's *Manager*), in any company.
-* **View by Department**: a department the user's employee belongs to, or
-  one it is the *Manager* of.
-* A user with **Timesheets: User: all timesheets** (Administrator includes
-  it) or **Employees: Officer** opens every manager and every department.
-  So does every **Project / Administrator**: Odoo gives project
-  administrators the first of these rights.
+* **Manager**: the user themselves, or a manager one of whose employees
+  reports to one of the user's employees, directly or further down the
+  hierarchy (the employee's *Manager*), in any company.
+* **Department**: a department the user's employee belongs to, or one it is
+  the *Manager* of.
+* A user with **Timesheets: User: all timesheets** (Timesheets
+  Administrator includes it) or **Employees: Officer: Manage all
+  employees** opens every manager and every department. So does every
+  **Project / Administrator**: Odoo gives project administrators the first
+  of these rights.
 
 A manager's team is everyone below their employees, the manager left out,
 also where the hierarchy loops back: Odoo lets an employee manage their own
@@ -51,7 +56,10 @@ manager or department shown before, whose cards stay on screen. Give a team
 lead an employee with the right *Manager* for them to see their team.
 
 Gantt chart: dependencies can be linked and lags edited by users with write
-access to the dependent task. Only **Project / Administrator** can save a
-baseline, and needs write access to the project. Project managers can read
-dependency lags and manage baselines directly; project users reach them only
-through the Gantt chart.
+access to the dependent task and read access to the other one. Only
+**Project / Administrator** can save a baseline, and needs write access to
+the project. Project Administrators read and manage the baselines of the
+projects of their companies, or without a company, and read the dependency
+lags of the tasks they can read; project users reach them only through the
+Gantt chart. These rights are ``ir.access`` rows
+(``security/ir.access.csv``).

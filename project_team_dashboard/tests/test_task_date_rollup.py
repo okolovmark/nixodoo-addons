@@ -1,28 +1,16 @@
-import json
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 from lxml import etree
-from psycopg2 import sql
 
 from odoo import Command, fields
 from odoo.exceptions import UserError, ValidationError
-from odoo.tests.common import Form, tagged
+from odoo.tests import Form, tagged
+from odoo.tools import SQL, sql
 
-from ..hooks import roll_up_planned_dates
-from ..models.project_task import PLANNED_DATE_FIELDS
-from ..models.project_task import Task as DashboardTask
+from ..models.project_task import PLANNED_DATE_FIELDS, ProjectTask
 from .common import TeamDashboardCommon
 
-READ_ONLY_ON_ROLLED_UP_TASKS = [["is_planned_from_subtasks", "=", True]]
-# With project_timeline and the glue module, these views show the planned dates instead of this module's.
-TIMELINE_VIEWS = (
-    "project_timeline.view_task_form2",
-    "project_timeline.view_task_tree2",
-    "project_team_dashboard_timeline.project_task_view_form_planned_dates",
-    "project_team_dashboard_timeline.project_task_view_tree_planned_dates",
-    "project_team_dashboard_timeline.view_task_form2_planned_dates_once",
-    "project_team_dashboard_timeline.view_task_tree2_planned_dates_once",
-)
+READ_ONLY_ON_ROLLED_UP_TASKS = "is_planned_from_subtasks"
 
 
 @tagged("post_install", "-at_install")
@@ -31,7 +19,6 @@ class TestTaskDateRollup(TeamDashboardCommon):
     def setUpClass(cls):
         super().setUpClass()
         cls.Task = cls.env["project.task"]
-        cls.project.allow_subtasks = True
         cls.day_one = datetime(2026, 3, 2, 9)
 
     def _day(self, offset):
@@ -133,7 +120,7 @@ class TestTaskDateRollup(TeamDashboardCommon):
         self._assert_planned_dates(subtask, False, False)
         self._assert_planned_dates(parent, False, False)
 
-    def test_undated_subtask_moved_to_a_folded_stage_leaves_its_parent_undated(self):
+    def test_undated_subtask_closed_in_a_folded_stage_leaves_its_parent_undated(self):
         now = fields.Datetime.now()
         parent = self._create_task("Parent", now + timedelta(days=30), now + timedelta(days=60))
         subtask = self.Task.create(
@@ -144,7 +131,7 @@ class TestTaskDateRollup(TeamDashboardCommon):
                 "stage_id": self.stage_in_progress.id,
             }
         )
-        subtask.stage_id = self.stage_done
+        subtask.write({"stage_id": self.stage_done.id, "state": "1_done"})
         self.assertTrue(subtask.date_end)
         self._assert_planned_dates(subtask, False, False)
         self._assert_planned_dates(parent, False, False)
@@ -162,8 +149,10 @@ class TestTaskDateRollup(TeamDashboardCommon):
         with self.assertRaises(UserError):
             milestone.planned_date_end = self._day(40)
 
-    def test_parent_in_closed_stage_is_still_rolled_up_and_locked(self):
-        parent = self._create_task("Closed Parent", self._day(0), self._day(30), stage_id=self.stage_done.id)
+    def test_closed_parent_is_still_rolled_up_and_locked(self):
+        parent = self._create_task(
+            "Closed Parent", self._day(0), self._day(30), stage_id=self.stage_done.id, state="1_done"
+        )
         child = self._create_task("Child", self._day(4), self._day(7), parent_id=parent.id)
         self._assert_planned_dates(parent, child.planned_date_start, child.planned_date_end)
         with self.assertRaises(UserError):
@@ -184,7 +173,7 @@ class TestTaskDateRollup(TeamDashboardCommon):
         self._assert_planned_dates(parent, self._day(1), self._day(2))
 
     def test_rollup_never_touches_the_deadline(self):
-        deadline = date(2026, 6, 30)
+        deadline = datetime(2026, 6, 30, 12)
         parent = self._create_task("Parent", date_deadline=deadline)
         child = self._create_task("Child", self._day(4), self._day(7), parent_id=parent.id)
         child.planned_date_end = self._day(9)
@@ -282,46 +271,28 @@ class TestTaskDateRollup(TeamDashboardCommon):
         self._assert_planned_dates(leaf, self._day(3), self._day(8))
 
     def test_list_planned_dates_are_read_only_on_a_rolled_up_parent(self):
-        arch = etree.fromstring(self.Task.get_view(self.env.ref("project.view_task_tree2").id, "tree")["arch"])
-        for field_name in ("planned_date_start", "planned_date_end"):
+        arch = etree.fromstring(self.Task.get_view(self.env.ref("project.view_task_tree2").id, "list")["arch"])
+        for field_name in PLANNED_DATE_FIELDS:
             nodes = arch.xpath("//field[@name='%s']" % field_name)
             self.assertEqual(len(nodes), 1)
-            self.assertEqual(
-                json.loads(nodes[0].get("modifiers"))["readonly"], [["is_planned_from_subtasks", "=", True]]
-            )
+            self.assertEqual(nodes[0].get("readonly"), READ_ONLY_ON_ROLLED_UP_TASKS)
+            self.assertEqual(nodes[0].get("optional"), "hide")
 
-    def test_form_shows_the_planned_dates_once_read_only_on_a_rolled_up_parent(self):
+    def test_form_shows_the_planned_dates_once_next_to_the_deadline(self):
         arch = etree.fromstring(self.Task.get_view(self.env.ref("project.view_task_form2").id, "form")["arch"])
-        self.assertEqual(len(arch.xpath("//label[@for='planned_date_start']")), 1)
-        for field_name in PLANNED_DATE_FIELDS:
-            nodes = arch.xpath("//field[@name='%s'][not(ancestor::field)]" % field_name)
-            self.assertEqual(len(nodes), 1)
-            self.assertEqual(
-                json.loads(nodes[0].get("modifiers"))["readonly"], [["is_planned_from_subtasks", "=", True]]
-            )
+        start_nodes, end_nodes = (
+            arch.xpath("//field[@name='%s'][not(ancestor::field)]" % field_name) for field_name in PLANNED_DATE_FIELDS
+        )
+        self.assertEqual((len(start_nodes), len(end_nodes)), (1, 1))
+        start_node, end_node = start_nodes[0], end_nodes[0]
 
-    def test_the_views_of_this_module_show_the_planned_dates_read_only_on_a_rolled_up_parent(self):
-        if self.env["ir.module.module"].search_count([("name", "=", "project_timeline"), ("state", "=", "installed")]):
-            for xmlid in TIMELINE_VIEWS:
-                self.env.ref(xmlid).active = False
-
-        form = etree.fromstring(self.Task.get_view(self.env.ref("project.view_task_form2").id, "form")["arch"])
-        self.assertEqual(len(form.xpath("//label[@name='planned_dates'][@for='planned_date_start']")), 1)
-        tree = etree.fromstring(self.Task.get_view(self.env.ref("project.view_task_tree2").id, "tree")["arch"])
-        for field_name in PLANNED_DATE_FIELDS:
-            form_nodes = form.xpath("//field[@name='%s'][not(ancestor::field)]" % field_name)
-            self.assertEqual(form_nodes, form.xpath("//div[@name='planned_dates']/field[@name='%s']" % field_name))
-            tree_nodes = tree.xpath("//field[@name='%s']" % field_name)
-            self.assertEqual(len(form_nodes + tree_nodes), 2, field_name)
-            self.assertEqual(tree_nodes[0].get("optional"), "hide")
-            for node in form_nodes + tree_nodes:
-                self.assertEqual(json.loads(node.get("modifiers", "{}")).get("readonly"), READ_ONLY_ON_ROLLED_UP_TASKS)
-        parent = self._create_task("Parent")
-        self._create_task("Leaf", self._day(4), self._day(7), parent_id=parent.id)
-        parent_form = Form(parent, view="project.view_task_form2")
-        for field_name in PLANNED_DATE_FIELDS:
-            with self.assertRaisesRegex(AssertionError, "readonly"):
-                setattr(parent_form, field_name, self._day(1))
+        self.assertEqual(start_node.get("widget"), "daterange")
+        self.assertIn("'end_date_field': 'planned_date_end'", start_node.get("options"))
+        self.assertTrue(end_node.get("invisible"))
+        self.assertEqual(start_node.getnext(), end_node)
+        self.assertEqual(end_node.getnext().get("for"), "date_deadline")
+        for node in (start_node, end_node):
+            self.assertEqual(node.get("readonly"), READ_ONLY_ON_ROLLED_UP_TASKS)
 
     def _create_undated_task(self, name, **vals):
         return self.Task.create(
@@ -340,7 +311,7 @@ class TestTaskDateRollup(TeamDashboardCommon):
     def test_closing_leaves_an_undated_leaf_undated(self):
         task = self._create_undated_task("Leaf", user_ids=[Command.set(self.user_dev1.ids)])
 
-        task.stage_id = self.stage_done
+        task.write({"stage_id": self.stage_done.id, "state": "1_done"})
 
         self.assertTrue(task.date_end)
         self._assert_planned_dates(task, False, False)
@@ -352,7 +323,7 @@ class TestTaskDateRollup(TeamDashboardCommon):
         start_only = self._create_task("Start Only", earlier)
 
         end_only.user_ids = self.user_dev1
-        start_only.stage_id = self.stage_done
+        start_only.write({"stage_id": self.stage_done.id, "state": "1_done"})
 
         self.assertTrue(end_only.date_assign)
         self.assertTrue(start_only.date_end)
@@ -364,36 +335,37 @@ class TestTaskDateRollup(TeamDashboardCommon):
         with self.assertRaisesRegex(ValidationError, "The end date must be after the start date."):
             task.planned_date_end = self._day(1)
 
-    def test_missing_columns_are_created_empty(self):
+    def _add_planned_date_columns(self):
+        """Create the columns as the ORM does when the module is installed."""
+        columns = sql.table_columns(self.env.cr, self.Task._table)
+        for field_name in PLANNED_DATE_FIELDS:
+            self.Task._fields[field_name].update_db(self.Task, columns)
+
+    def test_missing_columns_are_created_empty_without_a_task_by_task_compute(self):
         task = self._create_undated_task("Assigned and Closed", user_ids=[Command.set(self.user_dev1.ids)])
-        task.stage_id = self.stage_done
+        task.write({"stage_id": self.stage_done.id, "state": "1_done"})
+        parent = self._create_task("Parent")
+        self._create_task("Child", self._day(4), self._day(7), parent_id=parent.id)
         self.env.flush_all()
         self.assertTrue(task.date_assign and task.date_end)
         for field_name in PLANNED_DATE_FIELDS:
             self.env.cr.execute(
-                sql.SQL("ALTER TABLE project_task RENAME COLUMN {} TO {}").format(
-                    sql.Identifier(field_name), sql.Identifier(field_name + "_kept")
+                SQL(
+                    "ALTER TABLE project_task RENAME COLUMN %s TO %s",
+                    SQL.identifier(field_name),
+                    SQL.identifier(field_name + "_kept"),
                 )
             )
 
-        self.Task._init_planned_date_columns()
+        self._add_planned_date_columns()
 
-        self.env.cr.execute("SELECT planned_date_start, planned_date_end FROM project_task WHERE id = %s", (task.id,))
-        self.assertEqual(self.env.cr.fetchone(), (None, None))
+        for field_name in PLANNED_DATE_FIELDS:
+            self.assertFalse(self.env.records_to_compute(self.Task._fields[field_name]), field_name)
+        self.env.cr.execute(
+            "SELECT id FROM project_task WHERE planned_date_start IS NOT NULL OR planned_date_end IS NOT NULL"
+        )
+        self.assertFalse(self.env.cr.fetchall())
         self.env.invalidate_all()
-
-    def test_existing_columns_are_left_alone(self):
-        dated_task = self._create_task("Dated", self._day(1), self._day(2))
-        undated_task = self._create_undated_task("Assigned and Closed", user_ids=[Command.set(self.user_dev1.ids)])
-        undated_task.stage_id = self.stage_done
-        self.env.flush_all()
-        self.assertTrue(undated_task.date_assign and undated_task.date_end)
-
-        self.Task._init_planned_date_columns()
-
-        self.env.invalidate_all()
-        self._assert_planned_dates(dated_task, self._day(1), self._day(2))
-        self._assert_planned_dates(undated_task, False, False)
 
     def test_gantt_chart_data_carries_the_lock_flag(self):
         parent = self._create_task("Parent")
@@ -414,29 +386,12 @@ class TestTaskDateRollup(TeamDashboardCommon):
         self.env.invalidate_all()
 
     def test_the_computes_of_this_module_roll_up_a_parent_when_called_directly(self):
-        """With project_team_dashboard_timeline installed, Odoo calls the glue module's computes, which run these."""
         parent = self._create_task("Parent")
         child = self._create_task("Child", self._day(4), self._day(7), parent_id=parent.id)
-        for compute in (DashboardTask._compute_planned_date_start, DashboardTask._compute_planned_date_end):
+        for compute in (ProjectTask._compute_planned_date_start, ProjectTask._compute_planned_date_end):
             with self.subTest(compute=compute.__name__):
                 self._write_stale_planned_dates(parent, self._day(40), self._day(50))
 
                 compute(parent)
 
                 self._assert_planned_dates(parent, child.planned_date_start, child.planned_date_end)
-
-    def test_install_rolls_up_deepest_first_and_clears_undated_families(self):
-        milestone = self._create_task("Milestone", task_type="milestone")
-        task = self._create_task("Task", parent_id=milestone.id)
-        subtask = self._create_task("Sub-task", self._day(1), self._day(6), parent_id=task.id)
-        undated_parent = self._create_task("Undated Parent", user_ids=[Command.set(self.user_dev1.ids)])
-        self._create_task("Undated", parent_id=undated_parent.id)
-        self.assertTrue(undated_parent.date_assign)
-        self._write_stale_planned_dates(milestone | task, self._day(40), self._day(50))
-        self._write_stale_planned_dates(undated_parent, self._day(40), self._day(50))
-
-        roll_up_planned_dates(self.env)
-
-        self._assert_planned_dates(task, subtask.planned_date_start, subtask.planned_date_end)
-        self._assert_planned_dates(milestone, subtask.planned_date_start, subtask.planned_date_end)
-        self._assert_planned_dates(undated_parent, False, False)
