@@ -5,12 +5,16 @@ until the module is loaded, which takes long on a large message table.
 
 **A database that has an earlier 20.0 version installed**
 
-The update runs one migration, ``20.0.2.8.1/pre-migration.py``. Before the
-data files load, it blanks the stored arch of the module's extension views,
-which still name fields and buttons of the earlier version, so that the
-update passes without dev flags. The data files rewrite each view they name;
-a view no file names any more is deleted at the end of the update. The
-migration converts no data. The update:
+The module has two migrations. ``0.0.0/pre-migration.py`` runs on every
+version change of the module. Before the data files load, it blanks the
+stored arch of the module's extension views, which still name fields and
+buttons of the earlier version, so that an update from any earlier version
+passes without dev flags. The data files rewrite each view they name; a view
+no file names any more is deleted at the end of the update. Translations of
+those views made in the interface are lost with the blanked arch, on every
+version change: the module ships none. ``20.0.2.15.0/post-migration.py``
+converts the test case states of 20.0.2.4.1 and earlier (below); it is the
+only migration that converts data. The update:
 
 * deletes the fields **Difficulty**, **Knowledge Area Level** and **Tester**
   of the tasks, with their values;
@@ -36,11 +40,6 @@ Export the deleted fields first if they are needed.
 
 The update leaves:
 
-* the test cases with the states of the earlier version (``todo``,
-  ``done``, ``cancelled``) as they are stored, with their **Passed** flag.
-  Such a case matches no filter and no kanban count of this version, and the
-  completion of its task counts it as not passed, until it is given a
-  result;
 * the external ids that ``mail`` (selection values of the activity
   fields) and ``phone_validation`` (the activity mixin inheritance) hold
   for the former checklist model; nothing reads them;
@@ -84,6 +83,29 @@ script calls ``_move_inline_images_to_attachments`` on its task (see
 The update to 20.0.2.14.0 adds the **Brief** of a task, computed on each
 read that names it. It has no migration, adds no column, stores nothing and
 writes nothing on existing records.
+
+The update to 20.0.2.15.0 deletes the test case field **Passed**
+(``passed``) with its column, at its end. A create or write that sends
+``passed``, or a former state value (``todo``, ``done``, ``cancelled``),
+fails with Odoo's ``ValueError``. After the data files load, the update
+converts the test cases stored with a former state, which a database that
+ran 20.0.2.4.1 or earlier holds, by one SQL statement: ``todo`` to
+``not_run``, ``done`` to ``passed`` and ``cancelled`` to
+``not_applicable``. It logs how many it converts. Until then such a case
+matched no filter and no kanban count, the completion of its task counted
+it as not passed, and a copy of its task failed on its state.
+
+The blanking of the extension views takes ``passed`` out of the stored test
+case views of the task form before the data files load. A view of another
+module that names ``passed`` is not blanked: a module that depends on this
+one rewrites its views from its own files when the update reaches it, and
+that update fails while a file still names ``passed``; a view without an
+external id, such as one made in the interface, fails when it is rendered.
+Change them by hand.
+
+Run the update with the server stopped: dropping the column takes an
+exclusive lock on the test case table, and workers running the previous code
+read the column.
 
 **A database that has the 20.0 project_software installed**
 

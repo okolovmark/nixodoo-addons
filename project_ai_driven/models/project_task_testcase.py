@@ -9,8 +9,6 @@ TESTCASE_STATES = {
     "waiting": "Waiting",
     "not_applicable": "Not applicable",
 }
-# The state values a client from before the change still sends; kept until the passed flag is removed.
-OLD_STATES = {"todo": "not_run", "done": "passed", "cancelled": "not_applicable"}
 VERIFIED_STATES = ("passed", "failed")
 VERIFICATION_KINDS = {
     "manual": "Manual",
@@ -38,7 +36,6 @@ class ProjectTaskTestcase(models.Model):
     steps_to_execute = fields.Html()
     expected_results = fields.Html()
     comments = fields.Html()
-    passed = fields.Boolean(compute="_compute_passed", store=True)
     verified_by_id = fields.Many2one("res.users", string="Verified by", copy=False)
     verified_on = fields.Datetime(string="Verified on", copy=False)
     verification_kind = fields.Selection(
@@ -54,11 +51,6 @@ class ProjectTaskTestcase(models.Model):
     project_id = fields.Many2one("project.project", related="task_id.project_id", store=True)
     task_id = fields.Many2one("project.task", "Task", ondelete="cascade", required=True, index=True)
     task_state = fields.Char(string="Task state", related="task_id.stage_id.name", readonly=True)
-
-    @api.depends("state")
-    def _compute_passed(self):
-        for record in self:
-            record.passed = record.state == "passed"
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -94,22 +86,9 @@ class ProjectTaskTestcase(models.Model):
         return (self - unset_cases).write({"state": state})
 
     def _prepare_result_values(self, vals):
-        result_vals = self._translate_old_values(vals)
+        result_vals = dict(vals)
         for field_name, value in self._get_verification_values(result_vals.get("state")).items():
             result_vals.setdefault(field_name, value)
-        return result_vals
-
-    def _translate_old_values(self, vals):
-        """Return a copy of vals in the terms of this version: a client from
-        before the change sends the old state values, and the passed flag in
-        place of a state.
-        """
-        result_vals = dict(vals)
-        is_passed = result_vals.pop("passed", False)
-        if "state" in result_vals:
-            result_vals["state"] = OLD_STATES.get(result_vals["state"], result_vals["state"])
-        elif is_passed:
-            result_vals["state"] = "passed"
         return result_vals
 
     def _get_verification_values(self, state):

@@ -146,8 +146,6 @@ Passed, Failed, Waiting or Not applicable.
   than Not run sets it to Manual when it is empty.
 * **Automated test reference**: the automated test that verifies the case,
   such as a test selector. Not run leaves it.
-* **Passed** (``passed``) is stored, read-only and follows the status: set
-  for Passed only.
 
 A case follows the access of its task as a checklist item does, through two
 access rights with the same domains. The task carries general comments and
@@ -613,19 +611,20 @@ The module's models, fields and selection values carry the names of the
 16.0 branch, so a caller written for one branch works on the other, but for
 ``is_task_readable`` (below). What differs on 20.0:
 
-* The module has no install hook, and its one migration converts no data
-  (see *Installation*). The 16.0 branch takes over the records of the
-  module's former name, turns old ``pr_uri`` text into pull request records,
-  fills the stage log with the past of the tasks, sets the size of every
-  task from its hours, sets hours that are NaN or infinite to zero, converts
-  the test case states, renames the checklist model with its table and
-  external ids, turns the Html ``questions`` and ``answers`` into question
-  rows and fills the task and the category of existing messages by SQL. This
-  branch does none of it: a task that got such hours under an earlier 20.0
-  version keeps them, and the constraint on the estimate refuses its copies
-  and its next occurrence until they are corrected. The ORM computes the
-  task and the category of existing messages when the module adds their
-  columns.
+* The module has no install hook, and of its migrations only the one of
+  20.0.2.15.0 converts data, the former test case states, by SQL (see
+  *Installation*). The 16.0 branch takes over the records of the module's
+  former name, turns old ``pr_uri`` text into pull request records, fills
+  the stage log with the past of the tasks, sets the size of every task from
+  its hours, sets hours that are NaN or infinite to zero, converts the test
+  case states, renames the checklist model with its table and external ids,
+  turns the Html ``questions`` and ``answers`` into question rows and fills
+  the task and the category of existing messages by SQL. This branch does
+  none of it but the conversion of the test case states: a task that got
+  such hours under an earlier 20.0 version keeps them, and the constraint on
+  the estimate refuses its copies and its next occurrence until they are
+  corrected. The ORM computes the task and the category of existing messages
+  when the module adds their columns.
 * Checklist items, question rows, session rows and test cases follow the
   access of their task through the domains of their access rights, with the
   ``access`` operator of Odoo 20: reading follows the read access of the

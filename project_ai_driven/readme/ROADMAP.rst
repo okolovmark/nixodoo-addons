@@ -50,14 +50,9 @@
 * The sizes stored by an earlier 20.0 version of the module stay as they
   are until the hours of their task change: this branch has no migration
   that recomputes them.
-* An update from an earlier 20.0 version converts no data: test cases keep
-  their former states, the former checklist items stay in a table nothing
-  reads, and the Html questions and answers are deleted (see
-  *Installation*).
-* The test case flag ``passed`` and the translation of the former state
-  values (``todo``, ``done``, ``cancelled``) at create and write serve
-  clients written for the former selection, until a later version removes
-  them.
+* An update from an earlier 20.0 version converts no data but the test case
+  states: the former checklist items stay in a table nothing reads, and the
+  Html questions and answers are deleted (see *Installation*).
 * Question rows have no chatter: a change of status or answer leaves no
   trace but **Answered by** and **Answered on**.
 * Session rows have no chatter either: a session that writes its row again

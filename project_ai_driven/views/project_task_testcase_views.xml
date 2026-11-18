@@ -143,7 +143,6 @@
                                 <group>
                                     <field name="verification_kind" />
                                     <field name="test_reference" />
-                                    <field name="passed" />
                                 </group>
                             </group>
                         </form>
@@ -241,7 +240,6 @@
                         <field name="verified_on" readonly="1" />
                         <field name="verification_kind" />
                         <field name="test_reference" />
-                        <field name="passed" />
                         <field name="task_id" />
                         <field name="task_state" />
                         <field name="project_id" />

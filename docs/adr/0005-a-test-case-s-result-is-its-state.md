@@ -4,26 +4,28 @@ Status: accepted (2026-11-17)
 
 The 16.0 branch decided this first. Its record, `docs/adr/0005-a-test-case-s-result-is-its-state.md` there, holds the alternatives it weighed; this one states the decision as it stands on 20.0 and what differs.
 
-**The state is the only result.** A test case is Not run (the default), Passed, Failed, Waiting or Not applicable, under the keys `not_run`, `passed`, `failed`, `waiting`, `not_applicable`. `passed` stays as a stored compute of the state, read-only, set for Passed only, for the clients that read it.
+**The state is the only result.** A test case is Not run (the default), Passed, Failed, Waiting or Not applicable, under the keys `not_run`, `passed`, `failed`, `waiting`, `not_applicable`. Until 20.0.2.15.0 `passed` stayed as a stored compute of the state, read-only, set for Passed only, for the clients that read it.
 
 **A Passed or a Failed is a verification.** A create or a write that sets one records Verified by, the user who makes it (also under `sudo()`), and Verified on, now, unless the call gives them. The same result given again is stamped again. Not run takes the result back: it clears Verified by, Verified on and Verification, and leaves the Automated test reference, which names a test, not a run. Waiting and Not applicable leave the stamp. Verification is Manual, Automated test or Demo. The result buttons of the task's case list, its phone cards and the case form set Manual where the case has no kind yet; the Not run button only clears.
 
 **A copy from or into a template starts from zero.** A result is a verification of the task it was given on, stamped with who and when. A task or a project created from a template, and a project template made from a project, take each case Not run, without Verified by, Verified on, Verification and comments; the case keeps its name, steps, expected results and Automated test reference. The checklist items and question rows of such a copy start from zero too (ADR 0006, ADR 0008). A plain duplicate, of a template too, and a duplicated project keep every result. The module tells the copies apart by the context Odoo 20 gives them, `copy_from_template` and `convert_to_template`.
 
 **Former values.** Create and write translate `todo` to `not_run`, `done` to `passed` and `cancelled` to `not_applicable`, and drop a sent `passed`, `passed` true without a state counting as Passed, so a client written for the former selection keeps working. The translation goes with the flag, in a later version of both branches.
+  - 2026-11-18: 20.0.2.15.0 removes the flag and the translation, as 16.0.2.15.0 does: a sent `passed` or former value fails with Odoo's `ValueError`, and the update deletes the flag with its column.
+  - 2026-11-18: the update to 20.0.2.15.0 also converts the cases 20.0.2.4.1 and earlier stored with a former value, by the same mapping, in one SQL statement: with the translation gone, a copy of such a case failed on its state. It is the branch's first data conversion (ADR 0001).
 
 **What differs from 16.0.**
 
-- No case is converted (ADR 0001). 16.0 converts every case by SQL and sets the flag from the state. Here an update from an earlier 20.0 version leaves `todo`, `done` and `cancelled` stored where that version wrote them, with the flag it wrote: Odoo leaves the rows of a value taken out of a field's own selection as they are. Verified by, Verified on and Verification start empty on every existing case, as on 16.0.
-- 16.0 takes the removed `change_state_*` buttons out of the stored task form with a pre-migration and a pre-init hook. Here the pre-migration of 20.0.2.8.1 blanks every stored extension view of the module before the data files rewrite them (ADR 0001).
+- 16.0 converts every case by SQL and sets the flag from the state. Here an update to a version before 20.0.2.15.0 converts no case (ADR 0001): it leaves `todo`, `done` and `cancelled` stored where 20.0.2.4.1 or earlier wrote them, as Odoo leaves the rows of a value taken out of a field's own selection. The update to 20.0.2.15.0 converts them, and sets no flag: it deletes the flag. Verified by, Verified on and Verification start empty on every existing case, as on 16.0.
+- 16.0 takes the removed `change_state_*` buttons out of the stored task form with a pre-migration and a pre-init hook. Here a pre-migration blanks every stored extension view of the module before the data files rewrite them (ADR 0001): from 20.0.2.15.0 on every version change, before it on an update from a version before 20.0.2.8.1.
 - Odoo 16 has no templates: every copy there keeps the results.
 
 **Consequences.**
 
-- A case an earlier 20.0 version left with a former value matches no filter and no kanban count of this version, and the completion of its task counts it as not passed, until it is given a result.
-- A saved filter or a domain that names a former value matches only such cases; a default that names one makes a create without a state fail; a server action that writes one goes through the translation. None ships with the module.
-- Clients write the state, with `verification_kind` and `test_reference` when they know them, and never `passed`: a value sent for it is dropped.
+- Until the update to 20.0.2.15.0 converts it, a case 20.0.2.4.1 or earlier left with a former value matches no filter and no kanban count, the completion of its task counts it as not passed, and a copy of its task fails on its state.
+- From 20.0.2.15.0 a saved filter or a domain that names a former value matches no case, and a default or a server action that writes one fails with `ValueError`. None ships with the module.
+- Clients write the state, with `verification_kind` and `test_reference` when they know them. From 20.0.2.15.0 a write of `passed` fails with `ValueError`; before, a value sent for it was dropped.
 - Completion is the Passed cases over every case but the Not applicable ones; the task's kanban card counts Not run, Failed and Waiting.
 - Copying a task copies its cases in every copy Odoo 20 makes, sub-tasks included. Odoo 20 builds the sub-tasks of a copy in `copy_data`, so the cases go there as lines of the copy. A plain duplicate and a duplicated project keep each case's state, Verified by, Verified on, Verification, comments and Automated test reference; a copy from or into a template starts it Not run. A task converted to a template is not copied and keeps its cases. The next occurrence of a recurring task gets none, as on 16.0. A case duplicated on its own starts Not run without them.
 
-Reversal cost: bring back the former keys and an editable flag. The states map back one to one except Failed, which has no former value, and the verification stamps have no place in the former model. No flag was overwritten on this branch.
+Reversal cost: bring back the former keys and an editable flag. The states map back one to one except Failed, which has no former value, and the verification stamps have no place in the former model. The flag would be set from the state again: 20.0.2.15.0 deleted it with its column.
