@@ -1,7 +1,8 @@
 import json
 from datetime import datetime, timedelta
 
-from odoo.tests.common import HttpCase, tagged
+from odoo import Command
+from odoo.tests.common import HttpCase, new_test_user, tagged
 
 from .common import TimesheetSystrayCase
 
@@ -35,8 +36,31 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
         for url in (START_URL, STOP_URL, SYSTRAY_URL):
             self.assertEqual(self._call(url).get("error", {}).get("code"), 100, "%s must ask for a session" % url)
 
+    def test_a_user_without_timesheet_rights_gets_no_timelog(self):
+        """The header loads the item for every internal user: one without Timesheets rights
+        gets it unavailable, not an access error on each page load, even where Analytic
+        Accounting lets them read timesheet lines."""
+        unavailable = {
+            "available": False,
+            "running": False,
+            "timesheet": False,
+            "tasks": [],
+            "total_tasks": 0,
+            "message": "",
+        }
+        for login, groups in (
+            ("timesheet_systray_internal", "base.group_user"),
+            ("timesheet_systray_analytic", "base.group_user,analytic.group_analytic_accounting"),
+        ):
+            with self.subTest(login=login):
+                user = new_test_user(self.env, login, groups=groups, password=login)
+                self.task.user_ids = [Command.link(user.id)]
+                self.authenticate(login, login)
+                self.assertEqual(self._result(SYSTRAY_URL), unavailable)
+
     def test_a_user_starts_and_stops_a_timer_on_a_task(self):
         self.authenticate(self.user_dev1.login, DEV1_PASSWORD)
+        self.assertNotIn("available", self._result(SYSTRAY_URL))
 
         task_list = self._result(SYSTRAY_URL, limit=0)
         self.assertFalse(task_list["running"])

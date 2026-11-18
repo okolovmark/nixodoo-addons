@@ -2,7 +2,7 @@
 <templates xml:space="preserve">
 
     <t t-name="project_timesheet_systray.TimesheetSystray" owl="1">
-        <div class="o_timesheet_systray d-flex align-items-center">
+        <div t-if="state.available" class="o_timesheet_systray d-flex align-items-center">
             <div class="o_timesheet_systray_icon d-flex align-items-center px-1"
                  role="button"
                  t-on-click="toggleDropdown"

@@ -16,10 +16,21 @@ class TimesheetSystrayController(http.Controller):
     @http.route("/project_timesheet_systray/systray", type="json", auth="user", methods=["POST"])
     def get_systray_timesheet(self, limit=5, **kwargs):
         """The user's running timer, or when none runs their tasks in unfolded stages, the
-        most recently logged first; `limit` 0 returns them all.
+        most recently logged first; `limit` 0 returns them all. `available` is false for a
+        user without Timesheets rights: the header then shows no Timelog item.
         """
         TimesheetLine = request.env["account.analytic.line"].sudo(False)
         user = request.env.user
+        # Not a read check on timesheet lines: Analytic Accounting gives that to every user.
+        if not user.has_group("hr_timesheet.group_hr_timesheet_user"):
+            return {
+                "available": False,
+                "running": False,
+                "timesheet": False,
+                "tasks": [],
+                "total_tasks": 0,
+                "message": "",
+            }
 
         running_domain = [
             ("date_time", "!=", False),

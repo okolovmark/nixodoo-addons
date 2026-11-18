@@ -12,6 +12,7 @@ export class TimesheetSystray extends Component {
         this.notification = useService("notification");
 
         this.state = useState({
+            available: true,
             running: false,
             timesheet: false,
             tasks: [],
@@ -31,6 +32,9 @@ export class TimesheetSystray extends Component {
         });
 
         onMounted(() => {
+            if (!this.state.available) {
+                return;
+            }
             this._onDocClick = (ev) => {
                 if (this.state.isOpen && !ev.target.closest(".o_timesheet_systray")) {
                     this.state.isOpen = false;
@@ -70,6 +74,7 @@ export class TimesheetSystray extends Component {
     }
 
     _applyResult(result) {
+        this.state.available = result.available !== false;
         this.state.running = result.running;
         this.state.timesheet = result.timesheet;
         this.state.tasks = result.tasks || [];
