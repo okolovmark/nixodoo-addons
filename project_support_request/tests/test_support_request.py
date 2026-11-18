@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from odoo import Command, fields
-from odoo.exceptions import AccessError
 from odoo.tests.common import TransactionCase, tagged
 
 from odoo.addons.project_support_request.controllers import project_support_request as controller
@@ -72,20 +71,6 @@ class TestSupportRequest(TransactionCase):
             "user_ids": [Command.clear()],
         }
 
-    def _base_domain(self, project_id, uid):
-        return [
-            ("project_id", "=", project_id),
-            ("stage_id.fold", "=", False),
-            ("uat_user_ids", "in", [uid]),
-        ]
-
-    def _first_open_stage(self):
-        return self.env["project.task.type"].search(
-            [("project_ids", "in", [self.project.id]), ("fold", "=", False)],
-            order="sequence",
-            limit=1,
-        )
-
     def _call_route(self, user, route_name, context=None, **kwargs):
         user_request = SimpleNamespace(env=self.env(user=user, context=dict(self.env.context, **(context or {}))))
         with patch.object(controller, "request", user_request):
@@ -109,43 +94,6 @@ class TestSupportRequest(TransactionCase):
             }
         )
 
-    def test_bug_count_for_dev1(self):
-        Task = self.env["project.task"].with_user(self.user_dev1)
-        domain = self._base_domain(self.project.id, self.user_dev1.id)
-        self.assertEqual(Task.search_count(domain + [("task_type", "=", "bug")]), 2)
-
-    def test_others_count_for_dev1(self):
-        Task = self.env["project.task"].with_user(self.user_dev1)
-        domain = self._base_domain(self.project.id, self.user_dev1.id)
-        self.assertEqual(Task.search_count(domain + [("task_type", "!=", "bug")]), 1)
-
-    def test_folded_stage_excluded(self):
-        Task = self.env["project.task"].with_user(self.user_dev1)
-        tickets = Task.search(self._base_domain(self.project.id, self.user_dev1.id))
-        self.assertNotIn(self.bug_done, tickets)
-
-    def test_other_user_tickets_not_visible(self):
-        Task = self.env["project.task"].with_user(self.user_dev1)
-        domain = self._base_domain(self.project.id, self.user_dev1.id)
-        self.assertNotIn(self.bug_dev2, Task.search(domain + [("task_type", "=", "bug")]))
-
-    def test_dev2_sees_own_bug(self):
-        Task = self.env["project.task"].with_user(self.user_dev2)
-        domain = self._base_domain(self.project.id, self.user_dev2.id)
-        bugs = Task.search(domain + [("task_type", "=", "bug")])
-        self.assertIn(self.bug_dev2, bugs)
-        self.assertNotIn(self.bug_task1, bugs)
-
-    def test_search_limit(self):
-        Task = self.env["project.task"].with_user(self.user_dev1)
-        domain = self._base_domain(self.project.id, self.user_dev1.id)
-        self.assertEqual(len(Task.search(domain + [("task_type", "=", "bug")], limit=1)), 1)
-
-    def test_search_no_limit(self):
-        Task = self.env["project.task"].with_user(self.user_dev1)
-        domain = self._base_domain(self.project.id, self.user_dev1.id)
-        self.assertEqual(len(Task.search(domain + [("task_type", "=", "bug")], limit=None)), 2)
-
     def test_get_systray_requests_bugs_tab_for_dev1(self):
         result = self._call_route(self.user_dev1, "get_systray_requests", tab="bugs", limit=0)
         self.assertTrue(result["configured"])
@@ -155,6 +103,69 @@ class TestSupportRequest(TransactionCase):
         self.assertCountEqual(
             [ticket["id"] for ticket in result["tickets"]],
             [self.bug_task1.id, self.bug_task2.id],
+        )
+
+    def test_get_systray_requests_others_tab_gives_the_fields_of_each_request(self):
+        result = self._call_route(self.user_dev1, "get_systray_requests", tab="others", limit=0)
+
+        self.assertEqual((result["bugs_count"], result["others_count"], result["total"]), (2, 1, 1))
+        self.assertEqual(len(result["tickets"]), 1)
+        self.assertEqual(
+            {name: result["tickets"][0][name] for name in ("id", "name", "task_type", "stage_name", "priority_level")},
+            {
+                "id": self.feature_task.id,
+                "name": "Feature: Dark mode",
+                "task_type": "feature",
+                "stage_name": self.stage_in_progress.name,
+                "priority_level": self.feature_task.priority_level,
+            },
+        )
+
+    def test_get_systray_requests_lists_the_requests_of_the_signed_in_user(self):
+        result = self._call_route(self.user_dev2, "get_systray_requests", tab="bugs", limit=0)
+
+        self.assertEqual((result["bugs_count"], result["others_count"], result["total"]), (1, 0, 1))
+        self.assertEqual([ticket["id"] for ticket in result["tickets"]], self.bug_dev2.ids)
+
+    def test_get_systray_requests_limits_the_list_and_not_the_counts(self):
+        result = self._call_route(self.user_dev1, "get_systray_requests", tab="bugs", limit=1)
+
+        self.assertEqual(len(result["tickets"]), 1)
+        self.assertIn(result["tickets"][0]["id"], (self.bug_task1 | self.bug_task2).ids)
+        self.assertEqual((result["bugs_count"], result["total"]), (2, 2))
+
+    def test_create_request_files_the_title_type_and_description_in_the_first_open_stage(self):
+        ticket = self._call_route(
+            self.user_dev1, "create_request", name="  Dark mode  ", task_type="feature", description="<p>Dim it</p>"
+        )
+
+        task = self.env["project.task"].browse(ticket["ticket_id"])
+        self.assertRecordValues(
+            task,
+            [
+                {
+                    "name": "Dark mode",
+                    "task_type": "feature",
+                    "project_id": self.project.id,
+                    "stage_id": self.stage_backlog.id,
+                    "uat_user_ids": self.user_dev1.ids,
+                    "user_ids": [],
+                },
+            ],
+        )
+        self.assertIn("Dim it", task.description)
+
+    def test_the_config_offers_the_task_types_create_request_accepts(self):
+        task_types = self._call_route(self.user_dev1, "get_config")["task_types"]
+
+        self.assertIn({"value": "bug", "label": "Bug"}, task_types)
+        self.assertIn({"value": "feature", "label": "Feature"}, task_types)
+        self.assertEqual(
+            self._call_route(self.user_dev1, "create_request", name="Typeless", task_type="no_such_type"),
+            {"error": "Invalid task type: no_such_type"},
+        )
+        self.assertEqual(
+            self._call_route(self.user_dev1, "create_request", name="  "), {"error": "Ticket title is required."}
         )
 
     def test_a_new_request_and_the_systray_carry_the_task_key(self):
@@ -172,115 +183,6 @@ class TestSupportRequest(TransactionCase):
         self.assertEqual(tickets[task.id]["create_date"], fields.Datetime.to_string(task.create_date))
         self.assertEqual(tickets[task.id]["stage_name"], self.stage_backlog.name)
 
-    def test_ticket_data_fields(self):
-        task = self.bug_task1
-        self.assertTrue(task.name)
-        self.assertTrue(task.stage_id.name)
-        self.assertTrue(task.create_date)
-        self.assertEqual(task.task_type, "bug")
-
-    def test_create_ticket_bug(self):
-        task = (
-            self.env["project.task"]
-            .with_user(self.user_dev1)
-            .create(
-                {
-                    "name": "New Bug from Widget",
-                    "project_id": self.project.id,
-                    "task_type": "bug",
-                    "uat_user_ids": [Command.link(self.user_dev1.id)],
-                    "user_ids": [Command.clear()],
-                    "stage_id": self._first_open_stage().id,
-                }
-            )
-        )
-        self.assertTrue(task.exists())
-        self.assertEqual(task.name, "New Bug from Widget")
-        self.assertEqual(task.task_type, "bug")
-        self.assertEqual(task.project_id, self.project)
-        self.assertIn(self.user_dev1, task.uat_user_ids)
-        self.assertFalse(task.user_ids, "Creator should not be auto-assigned")
-
-    def test_create_ticket_feature(self):
-        task = (
-            self.env["project.task"]
-            .with_user(self.user_dev1)
-            .create(
-                {
-                    "name": "New Feature Request",
-                    "project_id": self.project.id,
-                    "task_type": "feature",
-                    "uat_user_ids": [Command.link(self.user_dev1.id)],
-                    "user_ids": [Command.clear()],
-                }
-            )
-        )
-        self.assertTrue(task.exists())
-        self.assertEqual(task.task_type, "feature")
-
-    def test_create_ticket_uses_first_unfolded_stage(self):
-        first_stage = self._first_open_stage()
-        task = (
-            self.env["project.task"]
-            .with_user(self.user_dev1)
-            .create(
-                {
-                    "name": "Stage Test Ticket",
-                    "project_id": self.project.id,
-                    "task_type": "bug",
-                    "uat_user_ids": [Command.link(self.user_dev1.id)],
-                    "user_ids": [Command.clear()],
-                    "stage_id": first_stage.id,
-                }
-            )
-        )
-        self.assertEqual(task.stage_id, first_stage)
-        self.assertFalse(task.stage_id.fold)
-
-    def test_task_type_selection_available(self):
-        task_type_field = self.env["project.task"]._fields.get("task_type")
-        self.assertIsNotNone(task_type_field)
-        selection = task_type_field.selection
-        if callable(selection):
-            selection = selection(self.env["project.task"])
-        values = [value for value, _label in selection]
-        self.assertIn("bug", values)
-        self.assertIn("feature", values)
-
-    def test_project_task_create_is_denied_without_the_project_user_group(self):
-        """Why create_request runs as sudo: the Support button is open to every internal user,
-        and core grants task create only through Project / User."""
-        filer = self._filer_without_project_groups()
-        self.assertFalse(filer.has_group("project.group_project_user"))
-        with self.assertRaises(AccessError):
-            self.env["project.task"].with_user(filer).create({"name": "Blocked ticket", "project_id": self.project.id})
-
-    def test_sudo_create_files_the_ticket_and_the_filer_can_read_it_back(self):
-        filer = self._filer_without_project_groups()
-        task = (
-            self.env["project.task"]
-            .sudo()
-            .create(
-                {
-                    "name": "Ticket filed through the widget",
-                    "project_id": self.project.id,
-                    "task_type": "bug",
-                    "uat_user_ids": [Command.link(filer.id)],
-                    "user_ids": [Command.clear()],
-                    "stage_id": self._first_open_stage().id,
-                }
-            )
-        )
-        self.assertIn(filer, task.uat_user_ids)
-        self.assertFalse(task.user_ids, "the filer must not be auto-assigned")
-        self.assertEqual(
-            self.env["project.task"]
-            .with_user(filer)
-            .search_count([("id", "=", task.id), ("uat_user_ids", "in", [filer.id])]),
-            1,
-            "the filer must be able to read back the ticket the widget created for them",
-        )
-
     def test_create_request_by_a_user_without_project_rights_files_an_unassigned_request(self):
         filer = self._filer_without_project_groups()
 
@@ -288,9 +190,13 @@ class TestSupportRequest(TransactionCase):
 
         task = self.env["project.task"].browse(ticket["ticket_id"])
         self.assertEqual(task.project_id, self.project)
-        self.assertEqual(task.stage_id, self._first_open_stage())
+        self.assertEqual(task.stage_id, self.stage_backlog)
         self.assertEqual(task.uat_user_ids, filer)
         self.assertFalse(task.user_ids, "the filer must not be assigned to their own request")
+        systray = self._call_route(filer, "get_systray_requests", tab="bugs", limit=0)
+        self.assertEqual(
+            [ticket["id"] for ticket in systray["tickets"]], task.ids, "the filer reads back the request filed for them"
+        )
 
     def test_a_portal_user_gets_no_support_project_and_files_no_request(self):
         portal_user = self._portal_user()
