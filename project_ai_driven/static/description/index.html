@@ -379,7 +379,8 @@ and two rules on the stages a project marks: a Resolution to enter some, a
 task type and an estimate to enter others. The module also logs the stage
 changes of every task of the database, keeps the images of every task’s
 texts as attachments of the task, and gives every task a brief: the whole
-task in Markdown, in one read.</p>
+task in Markdown, in one read. Projects and their tasks get keys, such as
+<tt class="docutils literal"><span class="pre">PROJ-12</span></tt>, that name them and open them by link.</p>
 <p><strong>Task attributes</strong> (<tt class="docutils literal">project.task</tt>)</p>
 <ul class="simple">
 <li><strong>Priority</strong> (Highest to Lowest), <strong>Estimate</strong>, <strong>Size</strong> and <strong>Task Type</strong>
@@ -821,15 +822,15 @@ fields; a read that names <tt class="docutils literal">brief</tt> gets it. Its h
 for the forms of urls it rewrites.</p>
 <p>A brief holds, in this order, each part only when it has something to show:</p>
 <ul class="simple">
-<li>The header: the task’s key, or <tt class="docutils literal">#&lt;id&gt;</tt> where no module gives tasks a
-key, and its title; then the project, the stage and since when, the task
-type, the estimate and its size, the priority, the planned window, the
-deadline, the hours spent, the assignees, the UAT users, the author and
-the creation date, the Resolution, the modules on a task of the project
-that develops this Odoo, the tags, and the link to the task form. The key,
-the planned window, the hours spent and the UAT users show where a module
-declares their fields (<tt class="docutils literal">key</tt>, <tt class="docutils literal">planned_date_start</tt> and
-<tt class="docutils literal">planned_date_end</tt>, <tt class="docutils literal">effective_hours</tt>, <tt class="docutils literal">uat_user_ids</tt>).</li>
+<li>The header: the task’s key (<em>Task keys</em> below), or <tt class="docutils literal">#&lt;id&gt;</tt> for a task
+without one, and its title; then the project, the stage and since when,
+the task type, the estimate and its size, the priority, the planned
+window, the deadline, the hours spent, the assignees, the UAT users, the
+author and the creation date, the Resolution, the modules on a task of the
+project that develops this Odoo, the tags, and the link to the task form.
+The planned window, the hours spent and the UAT users show where a module
+declares their fields (<tt class="docutils literal">planned_date_start</tt> and <tt class="docutils literal">planned_date_end</tt>,
+<tt class="docutils literal">effective_hours</tt>, <tt class="docutils literal">uat_user_ids</tt>).</li>
 <li>Related tasks: the parent, the sub-tasks, the tasks it is blocked by and
 those it blocks, each with its key, title and stage.</li>
 <li>Pull requests, with their state, merge date and deploy date.</li>
@@ -880,6 +881,45 @@ selected in their context included; and the fields their groups keep from
 them, such as the question rows, checklist, test cases, sessions and
 modules for a user outside <strong>Project / User</strong>. A many-to-one value (the
 project, the stage, the author) shows its name as a read of the task does.</p>
+<p><strong>Task keys</strong> (<tt class="docutils literal">project.project</tt>, <tt class="docutils literal">project.task</tt>)</p>
+<p>Every project has a <strong>Key</strong> (<tt class="docutils literal">key</tt>, up to 10 characters), and every task
+of a project a key of its own (<tt class="docutils literal">key</tt>, up to 20 characters) such as
+<tt class="docutils literal"><span class="pre">PROJ-12</span></tt>: the key of its project and the next number of the project’s
+<strong>Key Sequence</strong> (<tt class="docutils literal">task_key_sequence_id</tt>). Both keys are unique. A task’s
+display name is its key before the name it has otherwise, so the
+breadcrumb, lists, cards and references show it, and a name search finds
+projects and tasks by key. The task’s <tt class="docutils literal">url</tt> is the link to its form.</p>
+<ul class="simple">
+<li>A new project gets the initials of its name in upper case (the first
+three letters of a one-word name), followed by the lowest counter that
+makes it free; archived projects count. The project form proposes the key
+from the name until one is set.</li>
+<li>A task gets the next key of its project when it is created. Moved to
+another project, it gets a key of the new one, and so do the sub-tasks
+that move with it, archived ones included; a project that gives no key
+leaves the task its key.</li>
+<li>A new project key renames the keys of the project’s tasks, each keeping
+its number, and the prefix of its sequence. A cleared key clears the keys
+of its tasks; the project gives none until it has a key again, and its
+sequence then goes on from its next number.</li>
+<li>A copied project gets a sequence of its own; a deleted project takes its
+sequence along.</li>
+<li><tt class="docutils literal"><span class="pre">/projects/&lt;key&gt;</span></tt> and <tt class="docutils literal"><span class="pre">/tasks/&lt;key&gt;</span></tt> open the form of the project or
+task of that key, whatever its case, among those the user can read; any
+other key opens an empty form. <tt class="docutils literal">%</tt> and <tt class="docutils literal">_</tt> in a key are no wildcards.</li>
+<li>In a run with <tt class="docutils literal">test_enable</tt> keys are off, unless the context sets
+<tt class="docutils literal">test_project_key</tt>: the tests of other modules compare display names
+without keys.</li>
+</ul>
+<p>The fields, constraints and sequences are those of OCA <tt class="docutils literal">project_key</tt>,
+under the same names and columns, and this module takes its place: a
+database that ran it keeps every key and the next number of every
+sequence. While <tt class="docutils literal">project_key</tt> is loaded it gives the keys as before; this
+module gives them once it is uninstalled. Uninstall <tt class="docutils literal">project_key</tt> only
+once this module is updated to 16.0.2.17.0, in the same run at the
+earliest: uninstalled before, it drops the key columns with every key. What
+the install and that update do is under <em>Installation</em> (<em>Coming from
+project_key</em>).</p>
 <p><strong>Former names</strong></p>
 <p><tt class="docutils literal">project_software</tt> is the former name of this module and
 <tt class="docutils literal">is_software_project</tt> the former name of its flag; the features were first
@@ -1193,6 +1233,11 @@ that module no longer declares the field, update both in the same run.</p>
 records; it can run with the server up. From it a checklist item or
 question row moved to another task is checked against the new task, as a
 session already was: a user who cannot read that task gets an access error.</p>
+<p>The update to 16.0.2.17.0 gives projects and tasks their keys (<em>Task keys</em>
+in the description). On a database where OCA <tt class="docutils literal">project_key</tt> ran, the
+columns and the keys are there already and nothing changes; how this module
+takes its place is under <em>Coming from project_key</em>. Elsewhere the migration
+gives each project a key and its tasks theirs, as described there.</p>
 <p><strong>Upgrading from project_software</strong></p>
 <p><tt class="docutils literal">project_software</tt> is the former name of this module. The release that
 renamed it kept <tt class="docutils literal">project_software</tt> as an empty module that depended on
@@ -1309,6 +1354,40 @@ cannot enter them, whatever its Resolution.</p>
 code is there, the labels stored for the shared fields are its own, <em>PR URI</em>
 and <em>PR Required States</em>, and they stay until the first update after it is
 gone.</p>
+<p><strong>Coming from project_key</strong></p>
+<p>This module declares <tt class="docutils literal">key</tt> on the project and the task,
+<tt class="docutils literal">task_key_sequence_id</tt> on the project and <tt class="docutils literal">url</tt> on the task under the
+names, types, columns and SQL constraints of OCA <tt class="docutils literal">project_key</tt>, and takes
+its place. Each project’s sequence keeps its code
+<tt class="docutils literal"><span class="pre">project.task.key.&lt;project</span> id&gt;</tt>, its prefix and its next number, and
+whatever reads or searches <tt class="docutils literal">key</tt> keeps working.</p>
+<p>This module does not depend on <tt class="docutils literal">project_key</tt> and does not uninstall it.
+While <tt class="docutils literal">project_key</tt> is loaded it gives the keys as before: both would draw
+a number for every task. A module that depended on it, or an administrator,
+uninstalls it once this version is installed or updated, in the same run at
+the earliest, not before: the columns, the fields and the unique
+constraints stay only because this module declares them too. Uninstalled
+before, <tt class="docutils literal">project_key</tt> drops the key columns with every project and task
+key; the update then gives the projects new keys from their names and
+numbers every task from 1, and the keys in messages and commits no longer
+lead to their tasks. Take its code off the addons path in the deploy that
+uninstalls it: left there, its labels stay in the database until the next
+update.</p>
+<p>The install (<tt class="docutils literal">post_init_hook</tt>) and the update to 16.0.2.17.0 (migration
+script) give the keys a database lacks:</p>
+<ul class="simple">
+<li>Each project without a key, archived ones included, gets one from its
+name and a sequence, whether <tt class="docutils literal">project_key</tt> is loaded or not.</li>
+<li>The tasks without a key of those projects, archived and folded ones
+included, get the next numbers of the project’s sequence in the order
+they were created, and the sequence moves past them. One SQL statement
+writes their keys, so their last update date does not change.</li>
+<li>A project that has a key, and its tasks, are left alone: on a database
+where <tt class="docutils literal">project_key</tt> ran, nothing changes.</li>
+<li>A run with <tt class="docutils literal">test_enable</tt> gives no keys, since keys are off in a test
+run: run the update without it, or call <tt class="docutils literal">_set_missing_keys</tt> on
+<tt class="docutils literal">project.project</tt> from a shell afterwards.</li>
+</ul>
 <p><strong>Filling the stage log</strong></p>
 <p>The tasks that exist get the past of their stages in the stage log when
 this module is updated to 16.0.2.2.0 (migration script) or installed

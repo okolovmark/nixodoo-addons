@@ -214,6 +214,10 @@ ADDED_FIELDS = (
     ("project.task.testcase", "test_reference"),
     # held by the legacy module too, and left to it: this module declares it since 16.0.2.16.0
     ("project.task", "uat_user_ids"),
+    ("project.project", "key"),
+    ("project.project", "task_key_sequence_id"),
+    ("project.task", "key"),
+    ("project.task", "url"),
 )
 ADDED_RECORDS = (
     ("ir.model", "model_project_pull_request"),
@@ -249,6 +253,12 @@ ADDED_RECORDS = (
     ("ir.ui.view", "ir_module_module_view_tree_task_picker"),
     ("ir.ui.view", "ir_module_module_view_kanban_task_picker"),
     ("ir.model.access", "access_ir_module_module_project_user"),
+    ("ir.model.constraint", "constraint_project_project_project_key_unique"),
+    ("ir.model.constraint", "constraint_project_task_task_key_unique"),
+    ("ir.ui.view", "project_project_view_tree_inherit_ai_driven"),
+    ("ir.ui.view", "project_project_view_form_simplified_inherit_ai_driven"),
+    ("ir.ui.view", "project_project_view_kanban_inherit_ai_driven"),
+    ("ir.ui.view", "project_project_view_search_inherit_ai_driven"),
     # models this module only extends, and did not extend at the cut
     ("ir.model", "model_project_task_recurrence"),
     ("ir.model", "model_mail_message"),
@@ -278,6 +288,9 @@ ADDED_CONSTRAINTS = (
     "project_task_ir_module_module_rel%",
     # registered here only where this module created the table; elsewhere the module that did keeps them
     "project_task__uat_user_rel%",
+    "project_project_project_key_unique",
+    "project_task_task_key_unique",
+    "project_project_task_key_sequence_id_fkey",
 )
 # Fields of the legacy module that this module leaves to whatever replaces it.
 LEGACY_QUESTION_FIELDS = (("project.task", "questions"), ("project.task", "answers"))

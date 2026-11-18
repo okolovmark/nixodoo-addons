@@ -762,12 +762,14 @@ def pre_init_hook(cr):
 
     A database can come here in three states.
 
-    project_software is installed: this module under its former name. Its
-    update installs this module first. Everything it owns changes module:
-    every external id, and every constraint and many2many table registered
-    to it. Anything left behind would be deleted with the record or table it
-    stands for, at the end of the update or when the emptied module is
-    uninstalled.
+    project_software is installed: this module under its former name, on a
+    database from before the rename. It comes here by an explicit -i of this
+    module: the empty project_software whose update installed this one is
+    deleted, and updating project_software no longer does. Everything it owns
+    changes module: every external id, and every constraint and many2many
+    table registered to it. Anything left behind would be deleted with the
+    record or table it stands for, at the end of the run or when the emptied
+    module is uninstalled.
 
     project_software was never installed but kaertech_project_software is: the
     module this one was cut from, on a database from before the cut. Only what
@@ -810,9 +812,11 @@ def post_init_hook(cr, registry):
     may hold sizes from before the size followed the hours, and hours that
     are not a number. Their test cases may hold the states of the old
     selection. Their questions and answers may still be the two Html columns
-    of the legacy module.
+    of the legacy module. Projects may have no key, where OCA project_key did
+    not run.
     """
     env = api.Environment(cr, SUPERUSER_ID, {})
+    env["project.project"]._set_missing_keys()
     convert_old_pr_uri_values(env)
     fill_stage_log(env)
     clear_estimates_that_are_not_numbers(cr)
