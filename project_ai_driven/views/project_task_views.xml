@@ -121,6 +121,18 @@
                 <field name="tshirt_estimate" />
                 <field name="task_type" string="Task Type" />
                 <field name="resolution" invisible="not is_ai_driven" />
+                <field
+                    name="module_ids"
+                    widget="many2many_tags"
+                    invisible="not is_ai_driven"
+                    options="{'no_create': True}"
+                    context="{
+                        'module_technical_name': True,
+                        'list_view_ref': 'project_ai_driven.ir_module_module_view_tree_task_picker',
+                        'kanban_view_ref': 'project_ai_driven.ir_module_module_view_kanban_task_picker',
+                    }"
+                    domain="[('state', 'in', ('installed', 'to upgrade', 'to remove'))]"
+                />
             </xpath>
             <!-- the two stars of the form itself, wherever in the sheet another module puts them -->
             <xpath expr="//sheet//field[@name='priority'][not(ancestor::field)]" position="attributes">
@@ -135,6 +147,17 @@
             </xpath>
             <xpath expr="//field[@name='depend_on_ids']/list/field[@name='priority']" position="attributes">
                 <attribute name="invisible">is_ai_driven</attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="project_task_view_search_inherit_ai_driven" model="ir.ui.view">
+        <field name="name">project.task.view.search.inherit.project_ai_driven</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project.view_task_search_form_base" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='tag_ids']" position="after">
+                <field name="module_ids" string="Module" />
             </xpath>
         </field>
     </record>

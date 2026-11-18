@@ -46,6 +46,15 @@ The update leaves:
   for the former checklist model; nothing reads them;
 * the sizes the tasks have stored, until their hours change.
 
+The update to 20.0.2.9.0 adds the **Modules** of a task: it creates the
+table ``project_task_ir_module_module_rel``, the two views of the module
+picker, the **Module** field of the task search and an access right that
+lets project users read the module list. It has no migration and writes
+nothing on the tasks, which start without modules. Where
+``base_install_request`` already lets every internal user read the module
+list, the access right changes nothing; without it, the field still works
+for project users.
+
 **A database that has the 20.0 project_software installed**
 
 ``project_software`` is the former name of this module. Such a database is

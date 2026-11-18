@@ -11,6 +11,8 @@ from .project_task_testcase import TESTCASE_STATES
 
 KANBAN_TESTCASE_STATES = ("not_run", "failed", "waiting")
 LINE_FIELDS = ("checklist_item_ids", "testcase_ids", "question_ids")
+# Marked for an upgrade or a removal, a module is still installed.
+INSTALLED_MODULE_STATES = ("installed", "to upgrade", "to remove")
 
 # The largest estimate in hours of each size.
 SIZE_BANDS = ((2, "xs"), (6, "s"), (12, "m"), (32, "l"), (60, "xl"), (float("inf"), "xxl"))
@@ -113,6 +115,24 @@ class ProjectTask(models.Model):
         tracking=True,
     )
     note_count = fields.Integer("Notes", compute="_compute_note_count")
+    # No field domain: it would filter the reads too, and a module uninstalled later stays on the task.
+    # Not tracked: Odoo 20 writes tracked values into the message body, which ignores the field's groups.
+    module_ids = fields.Many2many(
+        "ir.module.module",
+        "project_task_ir_module_module_rel",
+        "task_id",
+        "module_id",
+        string="Modules",
+        copy=False,
+        groups="project.group_project_user",
+        help="The installed modules the task touches. Only an installed module can be added.",
+    )
+    module_names = fields.Char(
+        compute="_compute_module_names",
+        compute_sudo=True,
+        groups="project.group_project_user",
+        help="The technical names of the modules, sorted, separated by commas.",
+    )
 
     @api.depends("allocated_hours")
     def _compute_tshirt_estimate(self):
@@ -242,6 +262,11 @@ class ProjectTask(models.Model):
         for record in self:
             record.note_count = note_counts.get(record.id, 0)
 
+    @api.depends("module_ids.name")
+    def _compute_module_names(self):
+        for record in self:
+            record.module_names = ", ".join(sorted(record.module_ids.mapped("name"))) or False
+
     @api.constrains("allocated_hours")
     def _check_estimate_is_a_number(self):
         """A NaN passes no comparison of the rules, the JSON the web client
@@ -260,6 +285,8 @@ class ProjectTask(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         tasks = super().create(vals_list)
+        # Sudo: a default of the context may set modules too, and a read checks the field's groups.
+        tasks._check_modules_installed(tasks.sudo().module_ids)
         tasks._apply_closing_rule()
         tasks._apply_estimate_rule()
         return tasks
@@ -267,7 +294,9 @@ class ProjectTask(models.Model):
     def write(self, vals):
         vals = self._without_size(vals)
         former_stages = self._get_former_stages(vals)
+        former_modules = self._get_former_modules(vals)
         result = super().write(vals)
+        self._check_modules_installed(self._get_added_modules(former_modules))
         moved_tasks = self._filter_moved_from(former_stages)
         moved_tasks._apply_closing_rule()
         moved_tasks._apply_estimate_rule()
@@ -412,6 +441,31 @@ class ProjectTask(models.Model):
 
     def _filter_moved_from(self, former_stages):
         return self.filtered(lambda record: record.id in former_stages and record.stage_id != former_stages[record.id])
+
+    def _get_former_modules(self, vals):
+        if "module_ids" not in vals:
+            return {}
+        return {record.id: record.module_ids for record in self.sudo()}
+
+    def _get_added_modules(self, former_modules):
+        added_modules = self.env["ir.module.module"]
+        for record in self.sudo().filtered(lambda record: record.id in former_modules):
+            added_modules |= record.module_ids - former_modules[record.id]
+        return added_modules
+
+    def _check_modules_installed(self, modules):
+        """Callers pass only the modules they add: one already on a task stays
+        when it is uninstalled. Runs after the write, as a constraint does, so
+        the refusal rolls the write back.
+        """
+        not_installed_modules = modules.sudo().filtered(lambda module: module.state not in INSTALLED_MODULE_STATES)
+        if not_installed_modules:
+            raise ValidationError(
+                self.env._(
+                    "Only an installed module can be added to a task. Not installed: %s",
+                    ", ".join(sorted(not_installed_modules.mapped("name"))),
+                )
+            )
 
     def _apply_closing_rule(self):
         """Run on tasks that just entered a stage. Sudo: a user can write a

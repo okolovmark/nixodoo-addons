@@ -1,9 +1,10 @@
 Additions to project tasks for AI-driven development: task attributes,
 clarifying questions as rows with their answers, the technical solution, a
-checklist and test cases per task, pull requests as records, the internal
-notes of tasks by category, and two rules on the stages a project marks: a
-Resolution to enter some, a task type and an estimate to enter others. The
-module also logs the stage changes of every task of the database.
+checklist and test cases per task, pull requests as records, the installed
+modules a task touches, the internal notes of tasks by category, and two
+rules on the stages a project marks: a Resolution to enter some, a task type
+and an estimate to enter others. The module also logs the stage changes of
+every task of the database.
 
 **Task attributes** (``project.task``)
 
@@ -292,6 +293,35 @@ Templates are outside this rule too.
 The next occurrence of a recurring task is a copy of the task, so it
 carries its task type and its estimate.
 
+**Modules of a task** (``project.task``)
+
+* **Modules** (``module_ids``): the installed modules the task touches,
+  records of the module list (``ir.module.module``). On the tasks of an
+  AI-driven project the form shows them after the Resolution, as tags
+  bearing their technical names, and offers only installed modules. A
+  duplicated task starts without modules. A change of the modules is not
+  tracked: Odoo 20 writes tracked values into the text of the chatter
+  message, which every reader of the task reads, whatever the groups of the
+  field.
+* A create or a write refuses a module it adds that is not installed;
+  *To be upgraded* and *To be removed* count as installed, *To be
+  installed* does not. The refusal names the modules, and the whole call is
+  refused, also for a module given as a default of the context. A module
+  already on a task stays there when it is uninstalled: the task saves with
+  it, and a write that keeps it or links it again to that task passes.
+* **Module Names** (``module_names``), not stored and on no view: the
+  technical names of the modules, sorted, separated by ``", "``; ``False``
+  without modules.
+* The task search has a **Module** field: it finds tasks by a module's
+  technical name or title.
+* Both fields, and the **Module** search, are for users with the **User**
+  access of *Project* only. They read the module list by an access right of
+  this module.
+* Under the context key ``module_technical_name`` a module is named by its
+  technical name instead of its title. The picker passes it, with a list
+  and cards of the technical name and the title, without buttons; the Apps
+  menu keeps the views of ``base``.
+
 **The stage log** (``project.task.stage.log``)
 
 One row when a task is created with a stage and one row on every change of
@@ -411,7 +441,8 @@ The module's models, fields and selection values carry the names of the
 * A task has a ``state`` next to its stage on Odoo 20. Neither rule reads
   it.
 * Odoo 20 tracks many2many fields: every pull request added to a task or
-  removed from it is in the chatter. On 16.0 only ``pr_uri`` is tracked.
+  removed from it is in the chatter. On 16.0 only ``pr_uri`` is tracked. A
+  change of the modules leaves no trace on either branch.
 * Odoo 20 creates a task from a template, which takes no Resolution and no
   pull request and starts its lines from zero, as described above. Odoo 16
   has no templates.

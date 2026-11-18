@@ -1,6 +1,7 @@
 * On a project, switch on **AI-driven Project** (*Settings* tab, *Tasks
-  Management*) to show the Technical Solution and Pull Requests tabs and the
-  Resolution on its tasks, and to hide the core priority star on them.
+  Management*) to show the Technical Solution and Pull Requests tabs, the
+  Resolution and the Modules on its tasks, and to hide the core priority
+  star on them.
 * Below it, on an AI-driven project, **Stages Requiring a Resolution** lists
   the stages a task enters only with a Resolution, and with a pull request
   when the Resolution is Code. Only stages of the project can be picked.
@@ -30,6 +31,8 @@
 * Pull requests are read by every internal user and created and edited by
   users with the **User** access of *Project*. No access right allows
   deleting one.
+* The Modules of a task, on the form and in the task search, are shown to
+  users with the **User** access of *Project* only.
 * The stage log is read by system administrators (``base.group_system``)
   only. No access right allows creating, changing or deleting a row.
 * To be notified of checklist items of which you are neither the assignee

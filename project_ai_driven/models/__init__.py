@@ -1,3 +1,4 @@
+from . import ir_module_module
 from . import mail_message
 from . import project_project
 from . import project_pull_request

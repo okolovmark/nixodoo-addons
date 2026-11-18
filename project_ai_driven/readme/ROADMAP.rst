@@ -3,6 +3,10 @@
   with and without ``/-/``) are two records.
 * Nothing reads a pull request from its host: **State**, **Merge Date** and
   **Deploy Date** are set by hand or over RPC.
+* A module that a pull request of the task brings into the code base is
+  added to the task only once it is installed in the database.
+* Deleting a module from the module list, which Odoo refuses for a module
+  installed or about to be, takes it off every task that held it.
 * The closing rule and the estimate rule are checked on the tasks of a write
   that names their stage or their project. A stage recomputed for another
   reason is not checked, as for a subtask whose parent changes project.

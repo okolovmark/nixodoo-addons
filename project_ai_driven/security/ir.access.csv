@@ -8,3 +8,4 @@ access_task_question_write,project.task.question.write,project.task.question,pro
 access_project_pull_request_internal,project.pull.request.internal,project.pull.request,base.group_user,r,
 access_project_pull_request_user,project.pull.request.user,project.pull.request,project.group_project_user,cru,
 access_project_task_stage_log_system,project.task.stage.log.system,project.task.stage.log,base.group_system,r,
+access_ir_module_module_project_user,ir.module.module.project.user,ir.module.module,project.group_project_user,r,
