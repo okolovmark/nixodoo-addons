@@ -537,17 +537,24 @@ projects and tasks by key. The task's ``url`` is the link to its form.
 
 * A new project gets the initials of its name in upper case (the first
   three letters of a one-word name), followed by the lowest counter that
-  makes it free; archived projects count. The project form proposes the key
-  from the name until one is set.
-* A task gets the next key of its project when it is created. Moved to
-  another project, it gets a key of the new one, and so do the sub-tasks
-  that move with it, archived ones included; moved to a project that gives
-  no key, they lose theirs.
-* A new project key renames the keys of the project's tasks, each keeping
-  its number, and the prefix of its sequence. A cleared key clears the keys
-  of its tasks; the project gives none until it has a key again, and its
-  sequence then goes on from its next number. The tasks created in it or
-  moved into it meanwhile stay without a key.
+  makes it free; archived projects count. The words are split at
+  whitespace and keep only their letters and digits, so the key holds
+  nothing else; a name without any gives no key. The key with its counter
+  is cut to 10 characters. The project form proposes the key from the name
+  until one is set.
+* A task gets the next key of its project when it is created, a copy
+  included; one created or copied with no project gets none. Moved to
+  another project, by its own project, its parent or the project it shows
+  in, it gets a key of the new one, and so do the sub-tasks that move with
+  it, archived ones and those the user cannot read included, and the other
+  tasks of its recurrence that the same edit moves; taken out of its
+  project, or moved to a project that gives no key, they lose theirs.
+* A new project key renames the keys of the project's tasks that end in a
+  hyphen and a number, each keeping that number, and the prefix of its
+  sequence; other task keys stay. A cleared key clears the keys of all its
+  tasks; the project gives none until it has a key again, and its sequence
+  then goes on from its next number. The tasks created in it or moved into
+  it meanwhile stay without a key.
 * A copied project gets a sequence of its own; a deleted project takes its
   sequence along.
 * ``/projects/<key>`` and ``/tasks/<key>`` open the form of the project or
