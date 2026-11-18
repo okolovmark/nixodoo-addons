@@ -132,7 +132,7 @@ class ProjectTask(models.Model):
         " left as written; a url the text splits with markup (bold, a line break), or that holds a brace, <"
         " or >, or a bracket or a quote in its query, may keep its token. A link"
         " of a scheme other than http(s) or mailto keeps only its text. Text that would start a Markdown"
-        " heading, quote, list, code fence or HTML block is escaped. Times in UTC.",
+        " heading, quote, list, code fence, table or HTML block is escaped. Times in UTC.",
     )
 
     # Meant to be read, not watched: what lies beyond these fields shows on the next read.

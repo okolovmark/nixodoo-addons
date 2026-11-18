@@ -34,12 +34,16 @@ BACKTICK_RUN = re.compile(r"`+")
 ASCII_DIGITS = re.compile(r"[0-9]+")
 LIST_BLOCK = re.compile(r"(?:-|[0-9]+\.) ")
 # After a task list box on its line, a block that is no paragraph would be its text. BLOCK_MARKUP finds most;
-# this one finds a table, an ordered list and a code block, whose fence BLOCK_MARKUP sees only as a line of its own.
-BOX_ALONE_BLOCK = re.compile(r"\||[0-9]+\. |`{3,}\n")
+# this one finds an ordered list and a code block, whose fence BLOCK_MARKUP sees only as a line of its own.
+BOX_ALONE_BLOCK = re.compile(r"[0-9]+\. |`{3,}\n")
 TASK_LIST_BOX = re.compile(r"\[[ xX]\](?:\s|$)")
-# A heading, quote, list item, code fence, rule, setext underline or HTML block (a tag, comment or
-# declaration) when a line starts with it. A backtick run with a backtick after it is a code span, not a fence.
-BLOCK_MARKUP = re.compile(r"#+(?:\s|$)|>|[-+*](?:\s|$)|~{3}|`{3}[^`]*$|[-=]+\s*$|([*_])\s*(?:\1\s*){2,}$|<[A-Za-z/!?]")
+# A heading, quote, list item, code fence of three or more, rule, setext underline, table row, table
+# delimiter row or HTML block (a tag, comment or declaration) when a line starts with it. A backtick run with a
+# backtick after it is a code span, not a fence.
+BLOCK_MARKUP = re.compile(
+    r"#+(?:\s|$)|>|[-+*](?:\s|$)|~{3}|`{3,}[^`]*$|[-=]+\s*$|([*_])\s*(?:\1\s*){2,}$|<[A-Za-z/!?]|\|"
+    r"|[\s:-]*-[\s:-]*\|[\s|:-]*$"
+)
 ORDERED_LIST_NUMBER = re.compile(r"[0-9]{1,9}(?=[.)](?:\s|$))")
 URL_TAB_OR_NEWLINE = re.compile(r"[\t\n\r]")
 URL_EDGE_CHARACTERS = "".join(map(chr, range(0x21)))
