@@ -44,7 +44,8 @@ class TestTaskDeadline(TeamDashboardCommon):
             ]
         )
         # The installed task forms may hide the Deadline, and Form edits no row of their sub-task
-        # list: it takes the list's many2many widget for the field type.
+        # list: it takes the list's many2many widget for the field type. The plan fields are there
+        # as on the module's form.
         cls.deadline_form_view = cls.env["ir.ui.view"].create(
             {
                 "name": "project.task.form.deadline",
@@ -54,6 +55,8 @@ class TestTaskDeadline(TeamDashboardCommon):
                         <field name="company_id" invisible="1"/>
                         <field name="project_id"/>
                         <field name="date_deadline"/>
+                        <field name="date_deadline_planned_end" invisible="1"/>
+                        <field name="date_deadline_project_id" invisible="1"/>
                         <field name="child_ids">
                             <tree editable="bottom">
                                 <field name="name"/>
@@ -168,6 +171,43 @@ class TestTaskDeadline(TeamDashboardCommon):
 
         self.assertEqual(task.date_deadline, date(2026, 4, 1))
 
+    def test_a_planned_end_changed_and_changed_back_on_the_task_form_brings_the_deadline_back(self):
+        planned_end = datetime(2026, 3, 6, 12)
+        task = self._create_task("Planned", planned_date_end=planned_end)
+
+        with Form(task, view="project.view_task_form2") as task_form:
+            task_form.planned_date_end = datetime(2026, 3, 16, 12)
+            self.assertEqual(task_form.date_deadline, date(2026, 3, 16))
+            task_form.planned_date_end = planned_end
+            self.assertEqual(task_form.date_deadline, date(2026, 3, 6))
+
+        self.assertEqual((task.planned_date_end, task.date_deadline), (planned_end, date(2026, 3, 6)))
+        self._move_the_start_alone(task)
+        self.assertEqual(task.date_deadline, date(2026, 3, 6))
+
+    def test_a_deadline_typed_after_a_move_on_the_form_stays_while_a_subtask_is_edited(self):
+        other_project = self.env["project.project"].create(
+            {"name": "Other AI-driven Project", "is_ai_driven": True, "allow_subtasks": True}
+        )
+        parent = self._create_task("Parent")
+        self._create_task(
+            "Sub-task",
+            parent_id=parent.id,
+            planned_date_start=datetime(2026, 3, 2, 9),
+            planned_date_end=datetime(2026, 3, 6, 12),
+        )
+        parent.date_deadline = date(2026, 4, 1)
+
+        with Form(parent, view=self.deadline_form_view) as parent_form:
+            parent_form.project_id = other_project
+            self.assertEqual(parent_form.date_deadline, date(2026, 3, 6))
+            parent_form.date_deadline = date(2026, 5, 1)
+            with parent_form.child_ids.edit(0) as subtask_line:
+                subtask_line.name = "Sub-task renamed"
+            self.assertEqual(parent_form.date_deadline, date(2026, 5, 1))
+
+        self.assertEqual((parent.project_id, parent.date_deadline), (other_project, date(2026, 5, 1)))
+
     def test_the_deadline_alone_does_not_move_the_plan(self):
         task = self._create_task("Planned", planned_date_start=datetime(2026, 3, 1, 9), planned_date_end=EVENING_UTC)
 
@@ -235,6 +275,42 @@ class TestTaskDeadline(TeamDashboardCommon):
         subtask.planned_date_end = datetime(2026, 3, 9, 12)
 
         self.assertEqual(parent.date_deadline, date(2026, 3, 9))
+
+    def test_a_parent_created_with_its_planned_dates_and_subtasks_follows_its_rolled_up_end(self):
+        task_model = type(self.Task)
+        populate_personal_stages = task_model._populate_missing_personal_stages
+
+        def read_the_deadline_then_populate(tasks):
+            tasks.mapped("date_deadline")
+            return populate_personal_stages(tasks)
+
+        def create_parent(name, **vals):
+            subtask_vals = {
+                "name": "Sub-task of %s" % name,
+                "project_id": self.project.id,
+                "planned_date_start": datetime(2026, 3, 2, 9),
+                "planned_date_end": datetime(2026, 3, 9, 12),
+            }
+            return self._create_task(
+                name,
+                planned_date_start=datetime(2026, 3, 1, 9),
+                planned_date_end=MIDDAY_UTC,
+                child_ids=[Command.create(subtask_vals)],
+                **vals,
+            )
+
+        # a create override of another module reads the Deadline before the roll-up has run
+        with patch.object(task_model, "_populate_missing_personal_stages", read_the_deadline_then_populate):
+            parent = create_parent("Parent")
+            parent_set_by_hand = create_parent("Parent set by hand", date_deadline=date(2026, 4, 1))
+        parents = parent | parent_set_by_hand
+
+        self.assertEqual(parents.mapped("planned_date_end"), [datetime(2026, 3, 9, 12)] * 2)
+        self.assertEqual(parents.mapped("date_deadline"), [date(2026, 3, 9), date(2026, 4, 1)])
+
+        parents.child_ids.planned_date_start = datetime(2026, 3, 3, 9)
+
+        self.assertEqual(parents.mapped("date_deadline"), [date(2026, 3, 9), date(2026, 4, 1)])
 
     def test_clearing_the_planned_end_keeps_the_deadline(self):
         task = self._create_task("Planned", planned_date_end=MIDDAY_UTC)
@@ -416,10 +492,11 @@ class TestTaskDeadline(TeamDashboardCommon):
         for field_name in DEADLINE_PLAN_FIELDS:
             self.env.cr.execute(sql.SQL("ALTER TABLE project_task DROP COLUMN {}").format(sql.Identifier(field_name)))
 
-        # the queues _auto_init fills exist only while a registry loads
+        # the attributes _auto_init uses exist only while a registry loads
         with (
             patch.object(self.registry, "_post_init_queue", deque(), create=True),
             patch.object(self.registry, "_foreign_keys", {}, create=True),
+            patch.object(self.registry, "_is_install", False, create=True),
         ):
             self.Task._auto_init()
 

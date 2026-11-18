@@ -244,8 +244,8 @@ def align_deadlines_with_planned_ends(env):
     env.cr.execute(OPEN_AI_DRIVEN_TASKS_WITH_A_PLANNED_END)
     task_ids_by_deadline = defaultdict(list)
     for task_id, planned_date_end, date_deadline, tz_names in env.cr.fetchall():
-        tz_name = next((tz_name for tz_name in tz_names if tz_name in pytz.all_timezones_set), None)
-        deadline = local_date(planned_date_end, tz_name)
+        known_tz_name = next((candidate for candidate in tz_names if candidate in pytz.all_timezones_set), None)
+        deadline = local_date(planned_date_end, known_tz_name)
         if deadline != date_deadline:
             task_ids_by_deadline[deadline].append(task_id)
     for deadline, task_ids in task_ids_by_deadline.items():
