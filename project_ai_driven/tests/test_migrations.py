@@ -1,17 +1,23 @@
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from psycopg2.extras import Json
 
 from odoo.exceptions import ValidationError
-from odoo.modules.module import load_script
+from odoo.modules import migration
+from odoo.modules.module import get_manifest, load_script
 from odoo.tests import TransactionCase
 from odoo.tools import config
 
 from .common import MODULE
 
-BLANKING_SCRIPT = Path(__file__).parents[1] / "migrations" / "20.0.2.8.1" / "pre-migration.py"
+BLANKING_SCRIPT = Path(__file__).parents[1] / "migrations" / "0.0.0" / "pre-migration.py"
 EARLIER_VERSION = "20.0.2.4.1"
+# 20.0.2.8.1 shipped the blanking under its own version, which an update from it skipped.
+INSTALLED_VERSIONS = ("20.0.2.4.1", "20.0.2.8.1", "20.0.2.13.0", "20.0.2.14.0")
+# The test case states of 20.0.2.4.1 and earlier, and what the update to 20.0.2.15.0 makes of them.
+FORMER_STATES = {"todo": "not_run", "done": "passed", "cancelled": "not_applicable"}
 BLANK_ARCH = {"en_US": "<data/>"}
 # What 20.0.2.4.1 stored: fields this version no longer has.
 STALE_FORM_ARCH = {
@@ -115,4 +121,95 @@ class TestBlankExtensionViewsMigration(TransactionCase):
         self.assertEqual(
             logs.output,
             [f"INFO:pre_migration:Extension views blanked until the data files rewrite them: {len(extension_views)}"],
+        )
+
+
+def get_module_node(installed_version):
+    """The module as the update from installed_version hands it to Odoo's MigrationManager."""
+    return SimpleNamespace(
+        name=MODULE,
+        load_state="to upgrade",
+        load_version=installed_version,
+        manifest={"version": get_manifest(MODULE)["version"]},
+    )
+
+
+class TestBlankingRunsOnEveryVersionChange(TransactionCase):
+    def _run_scripts(self, installed_version):
+        """The pre-migration scripts Odoo runs on an update of the module from installed_version."""
+        module_node = get_module_node(installed_version)
+        with patch.object(migration, "exec_script") as exec_script:
+            migration.MigrationManager(self.env.cr, [module_node]).migrate_module(module_node, "pre")
+        return [Path(call.args[2]).resolve() for call in exec_script.call_args_list]
+
+    def test_an_update_from_any_earlier_version_blanks_the_views(self):
+        for installed_version in INSTALLED_VERSIONS:
+            with self.subTest(installed_version=installed_version):
+                self.assertEqual(self._run_scripts(installed_version), [BLANKING_SCRIPT.resolve()])
+
+    def test_a_load_of_the_same_version_runs_nothing(self):
+        self.assertEqual(self._run_scripts(get_manifest(MODULE)["version"]), [])
+
+
+class TestFormerTestCaseStatesMigration(TransactionCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.task = cls.env["project.task"].create({"name": "Task of former test case states"})
+        cls.former_cases = cls.env["project.task.testcase"].create(
+            [{"task_id": cls.task.id, "name": former_state} for former_state in FORMER_STATES]
+        )
+        cls.failed_case = cls.env["project.task.testcase"].create(
+            {"task_id": cls.task.id, "name": "Failed", "state": "failed"}
+        )
+
+    def _store_former_states(self):
+        """Store each former case under the former state it is named after, as 20.0.2.4.1 did."""
+        self.env.flush_all()
+        for case in self.former_cases:
+            self.env.cr.execute("UPDATE project_task_testcase SET state = %s WHERE id = %s", [case.name, case.id])
+        self.env.invalidate_all()
+
+    def _stored_states(self):
+        self.env.cr.execute("SELECT id, state FROM project_task_testcase WHERE task_id = %s", [self.task.id])
+        return dict(self.env.cr.fetchall())
+
+    def _update_from(self, installed_version):
+        module_node = get_module_node(installed_version)
+        self.env.flush_all()
+        migration.MigrationManager(self.env.cr, [module_node]).migrate_module(module_node, "post")
+        self.env.invalidate_all()
+
+    def test_an_update_from_any_earlier_version_converts_the_former_states(self):
+        expected_states = {case.id: FORMER_STATES[case.name] for case in self.former_cases}
+        expected_states[self.failed_case.id] = "failed"
+        for installed_version in INSTALLED_VERSIONS:
+            with self.subTest(installed_version=installed_version):
+                self._store_former_states()
+                self.env.cr.execute(
+                    "SELECT count(*) FROM project_task_testcase WHERE state IN %s", [tuple(FORMER_STATES)]
+                )
+                former_count = self.env.cr.fetchone()[0]
+                with self.assertLogs("odoo.upgrade", "INFO") as logs:
+                    self._update_from(installed_version)
+                self.assertEqual(self._stored_states(), expected_states)
+                self.assertEqual(
+                    [record.getMessage() for record in logs.records],
+                    ["Test cases converted from a former state: %d" % former_count],
+                )
+
+    def test_a_load_of_the_same_version_converts_nothing(self):
+        self._store_former_states()
+        self._update_from(get_manifest(MODULE)["version"])
+        expected_states = {case.id: case.name for case in self.former_cases}
+        expected_states[self.failed_case.id] = "failed"
+        self.assertEqual(self._stored_states(), expected_states)
+
+    def test_a_converted_case_is_copied_with_its_state(self):
+        self._store_former_states()
+        self._update_from(INSTALLED_VERSIONS[-1])
+        task_copy = self.task.copy()
+        self.assertEqual(
+            sorted(task_copy.testcase_ids.mapped("state")),
+            sorted([*FORMER_STATES.values(), "failed"]),
         )

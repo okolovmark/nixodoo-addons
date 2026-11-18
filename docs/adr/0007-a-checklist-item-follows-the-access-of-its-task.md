@@ -22,5 +22,6 @@ The 16.0 branch decided this first. Its record, `docs/adr/0007-a-checklist-item-
 - A user who narrows the company switcher sees fewer lines, as with tasks. An RPC call without `allowed_company_ids` reaches the lines of the tasks of all the user's companies.
 - The lines of a task the user cannot read are not found, counted or grouped, in the menus and in name searches. Reading one raises an access error; so do creating, writing or deleting one of a task the user cannot write, and moving one onto such a task.
 - A rule any module adds to `project.task` applies to the lines without a change here.
+  - 2026-11-18: from 20.0.2.12.0 session rows (`project.task.session`, ADR 0010) follow it too, through `access_task_session_read` and `access_task_session_write`; a create, and a write of `task_id`, check read access on the task they name before anything else.
 
 Reversal cost: merge each pair of rights back into one with the read domain, or drop the domains; a project user then changes the lines of every task they read, or reaches every line. No data changes either way.

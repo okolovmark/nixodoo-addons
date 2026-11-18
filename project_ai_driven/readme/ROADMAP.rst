@@ -3,6 +3,10 @@
   with and without ``/-/``) are two records.
 * Nothing reads a pull request from its host: **State**, **Merge Date** and
   **Deploy Date** are set by hand or over RPC.
+* A module that a pull request of the task brings into the code base is
+  added to the task only once it is installed in the database.
+* Deleting a module from the module list, which Odoo refuses for a module
+  installed or about to be, takes it off every task that held it.
 * The closing rule and the estimate rule are checked on the tasks of a write
   that names their stage or their project. A stage recomputed for another
   reason is not checked, as for a subtask whose parent changes project.
@@ -46,16 +50,17 @@
 * The sizes stored by an earlier 20.0 version of the module stay as they
   are until the hours of their task change: this branch has no migration
   that recomputes them.
-* An update from an earlier 20.0 version converts no data: test cases keep
-  their former states, the former checklist items stay in a table nothing
-  reads, and the Html questions and answers are deleted (see
-  *Installation*).
-* The test case flag ``passed`` and the translation of the former state
-  values (``todo``, ``done``, ``cancelled``) at create and write serve
-  clients written for the former selection, until a later version removes
-  them.
+* An update from an earlier 20.0 version converts no data but the test case
+  states: the former checklist items stay in a table nothing reads, and the
+  Html questions and answers are deleted (see *Installation*).
 * Question rows have no chatter: a change of status or answer leaves no
   trace but **Answered by** and **Answered on**.
+* Session rows have no chatter either: a session that writes its row again
+  replaces its date, and its outcome when it sends one; the former values
+  are not kept.
+* Two first creates of the same task and session in concurrent transactions
+  both find no row: the later one fails on the unique constraint, and
+  nothing retries it.
 * A note whose category is in bold inside a heading or a list, or coloured,
   gets no category: only one opening ``<p>`` or ``<span>`` may come before
   the bold, and nothing between the bold and the category.
@@ -78,3 +83,23 @@
   request, also under ``sudo()``.
 * The stage name of a row is the source-language name (``en_US``) of the
   stage when the row was written.
+* An image is attached once per save: the same image pasted again in a later
+  save becomes another attachment of the record.
+* Only the ``src`` of an ``<img>`` is read. An image in a ``srcset``, a
+  ``<picture>`` source or a CSS background stays as it is, inline or linked,
+  and so does an absolute link to another record's image
+  (``https://<host>/web/image/<id>``): a copy of the text still links the
+  source record's attachment.
+* A file of another record linked as ``/web/content/<id>`` keeps pointing at
+  that record's attachment in a copied text, and the link breaks when that
+  record is deleted.
+* An image taken out of a text stays an attachment of its record.
+* The brief removes tokens from a url that stands as a word of a text or of
+  code on a best-effort basis: a url split by markup (bold, a line break),
+  or holding a brace, ``<`` or ``>``, or a bracket or a quote in its query,
+  may keep its token. A token written loose, outside a url, stays as
+  written.
+* The brief is computed on each read that names it, for each task of the
+  read: a read of many tasks naming ``brief`` costs one brief per task.
+* The brief holds the last 10 internal notes of the task; older ones are
+  read from ``mail.message``.

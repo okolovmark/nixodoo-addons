@@ -10,11 +10,12 @@ from lxml import etree
 from odoo import Command
 from odoo.exceptions import AccessError
 from odoo.tests import Form
+from odoo.tools.sql import column_exists
 
 from .common import MODULE, ProjectAiDrivenCommon
 
-# What a client from before the change sends, and the state it stands for.
-OLD_STATE_VALUES = (("todo", "not_run"), ("done", "passed"), ("cancelled", "not_applicable"))
+# The state values of the selection before the change.
+OLD_STATES = ("todo", "done", "cancelled")
 BUTTON_STATES = {
     "action_set_passed": "passed",
     "action_set_failed": "failed",
@@ -57,11 +58,6 @@ class TestTestCases(ProjectAiDrivenCommon):
             for case in cases
         )
 
-    def _stored_flag(self, case):
-        self.env.flush_all()
-        self.env.cr.execute("SELECT passed FROM project_task_testcase WHERE id = %s", [case.id])
-        return self.env.cr.fetchone()[0]
-
     def _task_form_arch(self):
         return self.env.ref("project.view_task_form2")._get_combined_arch()
 
@@ -70,78 +66,49 @@ class TestTestCases(ProjectAiDrivenCommon):
         self.assertTrue(icon_names)
         self.assertFalse([name for name in icon_names if not name or name.startswith("fa")], icon_names)
 
-    def test_passed_follows_the_state(self):
+    def test_the_passed_flag_is_gone(self):
+        self.assertNotIn("passed", self.Testcase._fields)
+        self.assertFalse(self.env["ir.model.fields"]._get("project.task.testcase", "passed"))
+        self.assertFalse(column_exists(self.env.cr, "project_task_testcase", "passed"))
         case = self._new_case()
-        self.assertRecordValues(case, [{"state": "not_run", "passed": False}])
-        for state in ("passed", "failed", "passed", "waiting", "passed", "not_applicable", "passed", "not_run"):
-            case.write({"state": state})
-            self.assertEqual(case.passed, state == "passed", state)
-            self.assertEqual(self._stored_flag(case), state == "passed", state)
-        self.assertTrue(self.Testcase._fields["passed"].readonly)
+        refusal = r"Invalid field 'passed'.* 'project\.task\.testcase'"
+        with self.assertRaisesRegex(ValueError, refusal):
+            self._new_case(passed=True)
+        with self.assertRaisesRegex(ValueError, refusal):
+            case.write({"passed": True})
 
-    def test_a_write_does_not_set_passed_apart_from_the_state(self):
-        failed_case = self._new_case(state="failed")
-        passed_case = self._new_case(state="passed")
-        failed_case.write({"passed": True, "state": "failed"})
-        passed_case.write({"passed": False})
-        self.assertRecordValues(
-            failed_case | passed_case,
-            [{"state": "failed", "passed": False}, {"state": "passed", "passed": True}],
-        )
-        self.assertFalse(self._stored_flag(failed_case))
-        self.assertTrue(self._stored_flag(passed_case))
+    def test_an_old_state_value_is_refused_at_create_and_write(self):
+        case = self._new_case(state="failed")
+        for old_state in OLD_STATES:
+            refusal = r"project\.task\.testcase\.state.*'%s'" % old_state
+            with self.subTest(old_state=old_state):
+                with self.assertRaisesRegex(ValueError, refusal):
+                    self._new_case(state=old_state)
+                with self.assertRaisesRegex(ValueError, refusal):
+                    case.write({"state": old_state})
+        self.assertEqual(case.state, "failed")
 
-    def test_old_state_values_are_translated_at_create_and_write(self):
-        for old_state, state in OLD_STATE_VALUES:
-            created_case = self._new_case(state=old_state)
-            written_case = self._new_case(state="failed")
-            written_case.write({"state": old_state})
-            self.assertRecordValues(created_case | written_case, [{"state": state}, {"state": state}])
-
-    def test_the_passed_flag_of_an_old_client_stands_for_a_pass(self):
-        created_cases = self._new_case(passed=True, state="done") | self._new_case(passed=True)
-        written_case = self._new_case()
-        written_case.write({"passed": True, "state": "done"})
-        flag_only_case = self._new_case(state="failed")
-        flag_only_case.write({"passed": True})
-        self.assertRecordValues(
-            created_cases | written_case | flag_only_case,
-            [{"state": "passed", "passed": True}] * 4,
-        )
-
-    def test_passed_false_alone_changes_nothing(self):
-        cases = self._new_case(state="passed", verification_kind="automated") | self._new_case(state="failed")
-        results = self._results(cases)
-        cases.with_user(self.user_dev).write({"passed": False})
-        self.assertEqual(self._results(cases), results)
-        self.assertEqual(cases.mapped("passed"), [True, False])
-
-    def test_a_batch_create_translates_each_case_and_leaves_the_values_as_sent(self):
+    def test_a_batch_create_leaves_the_values_as_sent(self):
         vals_list = [
             {"name": name, "task_id": self.task.id, **vals}
             for name, vals in (
-                ("Old pass", {"passed": True, "state": "done"}),
-                ("Old flag", {"passed": True}),
-                ("Old cancel", {"state": "cancelled"}),
-                ("Old open", {"state": "todo"}),
-                ("New fail", {"state": "failed"}),
+                ("Pass", {"state": "passed"}),
+                ("Fail", {"state": "failed", "verification_kind": "automated"}),
+                ("Not applicable", {"state": "not_applicable"}),
                 ("Untouched", {}),
             )
         ]
         sent_vals_list = copy.deepcopy(vals_list)
         cases = self.Testcase.create(vals_list)
         self.assertEqual(vals_list, sent_vals_list)
-        self.assertEqual(
-            cases.mapped("state"),
-            ["passed", "passed", "not_applicable", "not_run", "failed", "not_run"],
-        )
+        self.assertEqual(cases.mapped("state"), ["passed", "failed", "not_applicable", "not_run"])
 
     def test_a_write_leaves_the_values_as_sent(self):
         case = self._new_case(state="failed")
-        vals = {"passed": True, "state": "todo"}
+        vals = {"state": "passed"}
         case.write(vals)
-        self.assertEqual(vals, {"passed": True, "state": "todo"})
-        self.assertEqual(case.state, "not_run")
+        self.assertEqual(vals, {"state": "passed"})
+        self.assertEqual(case.state, "passed")
 
     def test_a_pass_or_a_fail_is_stamped_with_the_user_who_gives_it(self):
         case = self._new_case()
@@ -200,22 +167,6 @@ class TestTestCases(ProjectAiDrivenCommon):
                 },
             ],
         )
-
-    def test_an_old_value_stamps_and_takes_back_as_the_state_it_stands_for(self):
-        done_case = self._new_case()
-        flag_case = self._new_case()
-        with freeze_time(EARLIER):
-            done_case.with_user(self.user_dev).write({"state": "done"})
-            flag_case.with_user(self.user_dev).write({"passed": True})
-        self.assertRecordValues(
-            done_case | flag_case,
-            [{"state": "passed", "verified_by_id": self.user_dev.id, "verified_on": EARLIER}] * 2,
-        )
-
-        todo_case = self._new_case(state="failed", verification_kind="automated", test_reference=TEST_REFERENCE)
-        self.assertTrue(todo_case.verified_by_id)
-        todo_case.with_user(self.user_dev).write({"state": "todo"})
-        self.assertEqual(self._results(todo_case), [("Boot test", "not_run", False, False, False, TEST_REFERENCE)])
 
     def test_waiting_and_not_applicable_leave_the_verification(self):
         for state in ("waiting", "not_applicable"):
@@ -427,7 +378,6 @@ class TestTestCases(ProjectAiDrivenCommon):
             "state": "passed",
             "verified_by_id": self.user_lead,
             "verified_on": EARLIER,
-            "passed": True,
         }
         with Form(self.task.with_user(self.user_dev)) as task_form:
             with task_form.testcase_ids.new() as case_form:

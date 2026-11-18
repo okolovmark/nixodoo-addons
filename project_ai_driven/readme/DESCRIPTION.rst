@@ -1,9 +1,14 @@
 Additions to project tasks for AI-driven development: task attributes,
 clarifying questions as rows with their answers, the technical solution, a
-checklist and test cases per task, pull requests as records, the internal
-notes of tasks by category, and two rules on the stages a project marks: a
-Resolution to enter some, a task type and an estimate to enter others. The
-module also logs the stage changes of every task of the database.
+checklist and test cases per task, pull requests as records, the agent
+sessions that worked on a task, the project that develops this Odoo and the
+installed modules its tasks touch, the internal notes of tasks by category,
+and two rules on the stages a project marks: a Resolution to enter some, a
+task type and an estimate to enter others. The module also logs the stage
+changes of every task of the database, keeps the images of the texts of
+every task, question row and test case as attachments of the record holding
+the text, and gives every task a brief: the whole task in Markdown, in one
+read.
 
 **Task attributes** (``project.task``)
 
@@ -17,7 +22,9 @@ module also logs the stage changes of every task of the database.
   XS up to 2 hours, S up to 6, M up to 12, L up to 32, XL up to 60, XXL
   above; empty while the estimate is not above zero. A size sent in a write
   is dropped and one sent at creation is recomputed from the hours; neither
-  call is refused. With Task Logs (``hr_timesheet``) installed, timesheet
+  call is refused, but for a portal user, whose create or write sending a
+  size core refuses, as for any field outside the portal's writable fields.
+  With Task Logs (``hr_timesheet``) installed, timesheet
   users also see the same field as *Allocated Time* on the tasks of a
   project that uses timesheets.
 * The core priority star is hidden on the tasks of a project flagged
@@ -68,6 +75,14 @@ into *All checklist updates* on the task or on its project. The
 it silences the assignment notification of a task in Odoo itself: an
 integration writes tasks and checklist items with it and nobody is notified.
 
+The items a new task is created with, as ``Command.create`` in its
+``checklist_item_ids`` (a sub-task created from its parent included), are
+created right after the task, in their order, as items added to a saved
+task: their posts come after the creation message of the task, and the
+followers of *All checklist updates* on its project receive them. They are
+created with the access rights of the caller and without the ``default_*``
+keys of the context, which are the task's.
+
 The task's kanban card shows the current user's completion percentage over
 their non-cancelled items and the number of their TODO and Waiting items.
 These figures, the buttons of an item and the red of one's own TODO items
@@ -88,20 +103,24 @@ its task (``action_convert_to_subtask``):
   gets its followers, its creator and those of the task, only once it is
   created. So a reviewer assigned to a task of a project open to its team
   members only, without being one of them, changes the task but does not
-  convert its items. On a task template without a project only the item's
-  assignee converts it, or a project manager who is its reviewer; on a
-  private task nobody does. The *Convert to
-  Sub-task* buttons show only to who may convert under these conditions.
+  convert its items. The *Convert to Sub-task* buttons show only to who may
+  convert under these conditions, those of templates and private tasks
+  below included, computed for the user and for the companies selected in
+  the company switcher: an item of a task of a company left out of the
+  selection shows none.
 * The sub-task takes the item's description as its title, its assignee and
-  its deadline, and the project of the task. It is given no stage: core puts
-  it in the first unfolded stage of the project by sequence. No default of
-  the calling view reaches it.
+  its deadline, and the project of the task, so also the company of that
+  project when the user has several selected. It is given no stage: core
+  puts it in the first unfolded stage of the project by sequence. No default
+  of the calling view reaches it.
 * The item's reviewer follows the sub-task, next to the followers core gives
   it. Core notifies the assignee of the sub-task unless the assignee
   converts the item; ``mail_auto_subscribe_no_notify`` silences that, as for
   any task.
 * An internal note on the task, by the user converting, links the sub-task.
-  It opens with plain text, so it gets no category. The item is deleted.
+  It opens with plain text, so it gets no category, and names the item by
+  its description as text: markup in it shows as written. The item is
+  deleted.
 * An item of a task template becomes a template sub-task: in the template's
   project and its first stage, or without project and stage, then only by
   its assignee or by a project manager who is its reviewer. An item of a
@@ -127,8 +146,6 @@ Passed, Failed, Waiting or Not applicable.
   than Not run sets it to Manual when it is empty.
 * **Automated test reference**: the automated test that verifies the case,
   such as a test selector. Not run leaves it.
-* **Passed** (``passed``) is stored, read-only and follows the status: set
-  for Passed only.
 
 A case follows the access of its task as a checklist item does, through two
 access rights with the same domains. The task carries general comments and
@@ -162,6 +179,42 @@ A row is named by the text of its question, cut at 80 characters, or of its
 answer when the question is blank, or else by its task. A row follows the
 access of its task as a checklist item does, through two access rights with
 the same domains.
+
+**Sessions** (``project.task.session``)
+
+The agent sessions that worked on a task, its **Sessions**
+(``session_ids``), are rows listed the newest first, one per task and
+session:
+
+* **Session** (``session_id``): the id of the agent session. No link is
+  stored; where the Entire CLI records sessions, ``entire session info
+  <id>`` opens it.
+* **Date**: when the session last wrote its row.
+* **Worked by** (``user_id``): an internal user, by default the one who
+  creates the row.
+* **Outcome**: what the session did, in one line.
+
+A task lists a session once. A create that names a task and a session that
+already have a row writes the values it gives onto that row and returns it
+in its place: the date becomes now unless the create gives one, and what it
+does not give, the user and the outcome included, stays. A batch that names
+a pair twice keeps the later values. The task and the session are read from
+the values or their defaults, so a session added to the task's
+``session_ids``, on the task form or with ``Command.create``, updates its
+row too. A write changes only what it names: editing a row leaves its date
+alone. A write that moves a row onto a task and session that have a row is
+refused.
+
+A row is named by its outcome, cut at 80 characters, or else by its
+session. A row follows the access of its task as a checklist item does,
+through two access rights with the same domains: it is read with the task,
+and created, changed and deleted with write access to it, also when a
+create updates a row. A create, and a write of the task, first checks that
+the user can read the task it names, so a create on a task the user cannot
+read is refused whether or not that task lists the session. The
+**Sessions** tab, after **Pull Requests**, shows the rows to project users
+on the tasks of an AI-driven project, as cards on a phone. Copying a task
+copies no session.
 
 **The lines of a copy**
 
@@ -292,6 +345,56 @@ Templates are outside this rule too.
 The next occurrence of a recurring task is a copy of the task, so it
 carries its task type and its estimate.
 
+**The project that develops this Odoo** (``project.project``)
+
+* **Develops This Odoo** (``develops_this_odoo``) marks the AI-driven
+  project whose tasks change the Odoo database the module runs in. One
+  project of the database carries it at most, archived projects included: a
+  second one is refused, and the refusal names the project that has it, also
+  to a user who cannot read that project. Setting it on a project that is
+  not AI-driven, or clearing **AI-driven Project** on the project that has
+  it, is refused.
+* Only a system administrator (``base.group_system``) sets or clears it, at
+  creation (a default of the context included) or in a write; a write that
+  leaves it as it is passes for any user. Only a system administrator
+  archives or deletes the project that carries it.
+* The project form shows it to system administrators, below **AI-driven
+  Project**, on a project that is AI-driven or carries it. A change is
+  tracked in the chatter of the project. A duplicated project starts without
+  it.
+* The task has the same field, related to its project, read-only and
+  readable by every user who reads the task.
+
+**Modules of a task** (``project.task``)
+
+* **Modules** (``module_ids``): the installed modules the task touches,
+  records of the module list (``ir.module.module``). On the tasks of the
+  project that develops this Odoo the form shows them after the Resolution,
+  as tags bearing their technical names, and offers only installed modules.
+  On the tasks of other projects the form hides them; they are kept, and the
+  project does not stop a create or a write of them. A duplicated task
+  starts without modules. A change of the modules is not tracked: Odoo 20
+  writes tracked values into the text of the chatter message, which every
+  reader of the task reads, whatever the groups of the field.
+* A create or a write refuses a module it adds that is not installed;
+  *To be upgraded* and *To be removed* count as installed, *To be
+  installed* does not. The refusal names the modules, and the whole call is
+  refused, also for a module given as a default of the context. A module
+  already on a task stays there when it is uninstalled: the task saves with
+  it, and a write that keeps it or links it again to that task passes.
+* **Module Names** (``module_names``), not stored and on no view: the
+  technical names of the modules, sorted, separated by ``", "``; ``False``
+  without modules.
+* The task search has a **Module** field: it finds tasks by a module's
+  technical name or title.
+* Both fields, and the **Module** search, are for users with the **User**
+  access of *Project* only. They read the module list by an access right of
+  this module.
+* Under the context key ``module_technical_name`` a module is named by its
+  technical name instead of its title. The picker passes it, with a list
+  and cards of the technical name and the title, without buttons; the Apps
+  menu keeps the views of ``base``.
+
 **The stage log** (``project.task.stage.log``)
 
 One row when a task is created with a stage and one row on every change of
@@ -366,33 +469,178 @@ lets any user group messages under that check: the groups and their counts
 hold only notes of tasks the user can read. Groups by category come in the
 order of the categories, the notes without one last.
 
+**Images in task texts** (``project.task.image.mixin``)
+
+The images of the texts of a task, a question row or a test case are
+attachments of that record, on every task of the database, in an AI-driven
+project or not. The texts are the stored Html fields, neither computed nor
+translated, of the task (**Description**, **Solution**, the general comments
+of its test cases), of its question rows (**Question**, **Answer**) and of
+its test cases (**Steps to execute**, **Expected results**, **Comments**),
+those other modules add to these models included, and the html properties
+of a task's **Properties** (``task_properties``), the defaults its project
+fills in included, on create and on every write of the task's project or
+parent, which also refills the properties of the tasks below it, its other
+properties left as they are. The editor of the form already uploads an
+image added in an Html field when the record is saved; the module does the
+same for every other save.
+
+* A create or a write that saves a text turns each ``<img>`` whose ``src``
+  is a base64 inline image (``data:image/...;base64,...``), in any letter
+  case and with an entity-encoded scheme too, into an attachment of the
+  record, and its ``src`` into ``/web/image/<id>?access_token=<token>``, as
+  the editor and core mail do. The module changes only the ``src``; the
+  field sanitizes the new text as on any save. The image of a question row
+  or a test case is an attachment of the row.
+* The attachment takes the name in the image's ``data-filename``,
+  ``data-file-name`` or ``alt``, the first that is not blank, or else
+  ``image-<n>.<type>``, numbered per record within the save. The same image
+  twice in one save is one attachment.
+* The attachment is created under ``sudo()``, with the user who saves as its
+  creator, once the save has passed its own access checks: a save the user
+  may not make creates none. The new text is stored without a second write:
+  no other chatter message, and no write logic of another module runs again.
+* Core reads the image first (``ir.attachment._check_contents``), as for
+  every attachment upload, and resizes it as described under
+  *Configuration*, once. An image it fails to read (an image too large to
+  open) stays inline and the save passes. A lack of memory, the CPU time
+  limit of a worker and a database error fail the save. An SVG moved by a
+  user who may not edit views is stored as text, as core stores such an
+  upload, and no longer displays.
+* The images of a task's Description, Solution and html properties show
+  among the attachments of the task's chatter. Deleting a task, a row or a
+  test case deletes its images; a task deletes its rows with theirs.
+
+A task, a question row or a test case created with a text that shows an
+image of an attachment of another task, row or test case
+(``/web/image/<id>``), as a duplicated task and its copied lines, a task
+created from a template, the next task of a recurrence or a create from
+another record's text do, gets its own copy of that attachment, with its own
+access token, and its text links the copy. A question row or a test case
+moved to another task copies the images of other records in its texts the
+same way; its own images stay its own. A copy outlives the record it was
+made from. Only an image the user saving may see is copied: one they can
+read, or one whose link carries the attachment's access token. Under
+``sudo()``, the superuser included, only a link with the attachment's own
+access token is copied. Any other link stays as it is, and so does a link
+to another record's image that a write pastes, or to an image core fails to
+read or whose file is missing from the filestore.
+
+Texts saved before 20.0.2.13.0 keep their inline images until the text is
+saved again or ``_move_inline_images_to_attachments`` runs on its task (see
+*Usage*).
+
+**Task brief** (``project.task``)
+
+**Brief** (``brief``) is the whole task as Markdown text, for an agent or a
+tool that reads tasks over RPC. It is computed for the user who reads it,
+in the language and the companies of their context, and not stored. It is
+on no view, cannot be exported, and is left out of a read that names no
+fields; a read that names ``brief`` gets it. Its help text is the reference
+for the forms of urls it rewrites.
+
+A brief holds, in this order, each part only when it has something to show:
+
+* The header: the task's key, or ``#<id>`` where no module gives tasks a
+  key, and its title; then the project, the stage and since when, the
+  status (``state``), the task type, the estimate and its size, the
+  priority, the planned start, the deadline, the hours spent, the
+  assignees, the UAT users, the author and the creation date, the
+  Resolution, the modules on a task of the project that develops this Odoo,
+  the tags, and the link to the task form (``/odoo/project.task/<id>``).
+  The key, the planned start, the hours spent and the UAT users show where
+  a module declares their fields (``key``, ``planned_date_begin``,
+  ``effective_hours``, ``uat_user_ids``).
+* Related tasks: the parent, the sub-tasks, the tasks it is blocked by and
+  those it blocks, each with its key, title and stage.
+* Pull requests, with their state, merge date and deploy date.
+* The Description.
+* The question rows, each with its id, status, round, addressee, who
+  answered and when, its question and its answer.
+* The Solution.
+* The checklist, its progress counting the Done items over the items not
+  cancelled; each item with its id, state, assignee, reviewer and deadline.
+* The test cases: the general comments, then each case in its order with
+  its id, status, verification (who, when, how), automated test reference,
+  steps, expected results and comments.
+* The sessions, the newest first.
+* The last 10 internal notes with a body, of those the task's **Notes**
+  button lists, oldest first, each with its date, author and category.
+  Nothing else is cut.
+* The attachments of the task, each with its name, id, type and size. The
+  images of a question row or a test case are attachments of the row: they
+  show as pointers in its texts, not in this list.
+
+Times are in UTC, the deadline included. The texts become Markdown
+(headings, emphasis, links, lists, tables, code) with no markup left; the
+headings of a text sit below the section that holds it. An item of an
+editor's checklist is a task list item, ``- [x]`` when ticked and ``- [ ]``
+when not, a nested checklist nested items; the box stands on a line of its
+own when the item opens with a heading, a list, a table, a rule, a code
+block or a quote. Another list item that starts like one has its bracket
+escaped.
+
+* An image or a link that names an attachment, of the task, of a row or of
+  any other record, by a relative url or a url on the host of this database
+  (``get_base_url()``, a website's domain where it applies), in any url
+  form, becomes a pointer: ``![image: <name>](attachment <id>)`` for an
+  image, ``[file: <name>](attachment <id>)`` for a bare link and
+  ``[<link text>](attachment <id>)`` for a link with a text of its own;
+  ``![image](attachment <id>)`` and ``[file](attachment <id>)`` without a
+  name.
+* An inline image the save has not moved to an attachment shows as
+  ``[image not yet moved to an attachment]``: its data never enters the
+  brief.
+* Tokens and credentials are removed from urls: a url loses its user and
+  password, its query and fragment parameters named like a token, and the
+  ``hash`` and ``pid`` that sign a portal link. That holds for the url of a
+  link or an image, and on a best-effort basis for a url that stands as a
+  word in a text or in code. A token written loose, outside a url, stays.
+* A link of a scheme other than http(s) or mailto keeps only its text.
+* User text that would open a Markdown heading, list, quote, code fence or
+  HTML block at the start of a line is escaped, and names are put on one
+  line, so a text cannot open a section of the brief.
+
+A reader who cannot read the task is refused, as a read of it is. What the
+reader may not read is left out: the lines (question rows, checklist items,
+test cases, sessions, pull requests), the related tasks, the parent
+included, the notes and the attachments under their access rights, the
+companies not selected in their context included; and the fields their
+groups keep from them, such as the question rows, checklist, test cases,
+sessions and modules for a user outside **Project / User**. A many-to-one
+value of the header (the project, the stage, the author) shows its name as a
+read of the task does. Archived sub-tasks, blocking and blocked tasks and
+assignees are left out, also under a context with ``active_test`` false; an
+archived parent or user in a many-to-one value (such as Author, Verified by
+or Addressed to) still shows.
+
 **Coming from 16.0**
 
 The module's models, fields and selection values carry the names of the
 16.0 branch, so a caller written for one branch works on the other, but for
 ``is_task_readable`` (below). What differs on 20.0:
 
-* The module has no install hook, and its one migration converts no data
-  (see *Installation*). The 16.0 branch takes over the records of the
-  module's former name, turns old ``pr_uri`` text into pull request records,
-  fills the stage log with the past of the tasks, sets the size of every
-  task from its hours, sets hours that are NaN or infinite to zero, converts
-  the test case states, renames the checklist model with its table and
-  external ids, turns the Html ``questions`` and ``answers`` into question
-  rows and fills the task and the category of existing messages by SQL. This
-  branch does none of it: a task that got such hours under an earlier 20.0
-  version keeps them, and the constraint on the estimate refuses its copies
-  and its next occurrence until they are corrected. The ORM computes the
-  task and the category of existing messages when the module adds their
-  columns.
-* Checklist items, question rows and test cases follow the access of their
-  task through the domains of their access rights, with the ``access``
-  operator of Odoo 20: reading follows the read access of the task, a
-  change its write access. On 16.0 items and rows follow the read access of
-  their task for every operation, through two ORM overrides in
-  ``project.task.access.mixin``, which this branch does not have, and test
-  cases follow none: every project user reaches every case. On 16.0 an item
-  deleted meanwhile passes the access check.
+* The module has no install hook (see *Installation*). The 16.0 branch
+  takes over the records of the module's former name, turns old ``pr_uri``
+  text into pull request records, fills the stage log with the past of the
+  tasks, sets the size of every task from its hours, sets hours that are NaN
+  or infinite to zero, converts the test case states, renames the checklist
+  model with its table and external ids, turns the Html ``questions`` and
+  ``answers`` into question rows and fills the task and the category of
+  existing messages by SQL. Of these, this branch converts only the test
+  case states, by SQL in the migration of 20.0.2.15.0: a task that got such
+  hours under an earlier 20.0 version keeps them, and the constraint on the
+  estimate refuses its copies and its next occurrence until they are
+  corrected. The ORM computes the task and the category of existing messages
+  when the module adds their columns.
+* Checklist items, question rows, session rows and test cases follow the
+  access of their task through the domains of their access rights, with the
+  ``access`` operator of Odoo 20: reading follows the read access of the
+  task, a change its write access. On 16.0 items, question rows and session
+  rows follow the read access of their task for every operation, through
+  two ORM overrides in ``project.task.access.mixin``, which this branch does
+  not have, and test cases follow none: every project user reaches every
+  case. On 16.0 an item deleted meanwhile passes the access check.
 * This branch has neither ``is_task_readable`` nor the grouped read of
   messages that 16.0 opens to project users on a domain naming it: Odoo 20
   groups messages for any user. A client that names ``is_task_readable``
@@ -400,18 +648,19 @@ The module's models, fields and selection values carry the names of the
 * A message that tracks changed fields is of type *Tracking* on Odoo 20,
   with the changes in its body after any note logged with them. It has no
   category and is not in **Task Notes**.
-* A task opens on Description; Checklist, Technical Solution, Test Cases
-  and Pull Requests follow it. On 16.0 Checklist is the first tab.
-* **AI-driven Project**, **Stages Requiring a Resolution** and **Stages
-  Requiring a Type and an Estimate** are settings under *Tasks Management*
-  on the project form.
+* A task opens on Description; Checklist, Technical Solution, Test Cases,
+  Pull Requests and Sessions follow it. On 16.0 Checklist is the first tab.
+* **AI-driven Project**, **Develops This Odoo**, **Stages Requiring a
+  Resolution** and **Stages Requiring a Type and an Estimate** are settings
+  under *Tasks Management* on the project form.
 * A plain Duplicate keeps the stage of its source on Odoo 20, so it takes
   the Resolution and the pull requests as described above. On 16.0 only the
   tasks of a duplicated project keep their stage.
 * A task has a ``state`` next to its stage on Odoo 20. Neither rule reads
   it.
 * Odoo 20 tracks many2many fields: every pull request added to a task or
-  removed from it is in the chatter. On 16.0 only ``pr_uri`` is tracked.
+  removed from it is in the chatter. On 16.0 only ``pr_uri`` is tracked. A
+  change of the modules leaves no trace on either branch.
 * Odoo 20 creates a task from a template, which takes no Resolution and no
   pull request and starts its lines from zero, as described above. Odoo 16
   has no templates.
@@ -424,3 +673,14 @@ The module's models, fields and selection values carry the names of the
   does not refuse a message from an account without an email address:
   without the key such an account's writes go through and the notification
   is queued without a sender address.
+* The image of a question row or a test case is an attachment of the row,
+  as the Odoo 20 editor attaches it, and a link to an image of any task,
+  row or test case is copied. On 16.0 every image is an attachment of the
+  task, and only a link to another task's image is copied.
+* Odoo 20 stores markup given as an image and a truncated TIFF as they come,
+  so they become attachments; on 16.0 they stay inline.
+* The brief's header shows the task's status (``state``), which Odoo 16 does
+  not have, a deadline with its time, the planned start where a module
+  declares ``planned_date_begin`` (on 16.0 the planned window of
+  ``planned_date_start`` and ``planned_date_end``), and links the task as
+  ``/odoo/project.task/<id>``.

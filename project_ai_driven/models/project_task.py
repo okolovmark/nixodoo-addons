@@ -5,12 +5,16 @@ from markupsafe import escape
 
 from odoo import Command, api, fields, models
 from odoo.exceptions import ValidationError
+from odoo.tools.misc import clean_context
 
 from .project_pull_request import parse_single_pull_request_link
+from .project_task_image_mixin import ImageMover
 from .project_task_testcase import TESTCASE_STATES
 
 KANBAN_TESTCASE_STATES = ("not_run", "failed", "waiting")
 LINE_FIELDS = ("checklist_item_ids", "testcase_ids", "question_ids")
+# Marked for an upgrade or a removal, a module is still installed.
+INSTALLED_MODULE_STATES = ("installed", "to upgrade", "to remove")
 
 # The largest estimate in hours of each size.
 SIZE_BANDS = ((2, "xs"), (6, "s"), (12, "m"), (32, "l"), (60, "xl"), (float("inf"), "xxl"))
@@ -23,10 +27,18 @@ def get_size(hours):
     return next((size for max_hours, size in SIZE_BANDS if hours <= max_hours), SIZE_BANDS[-1][1])
 
 
+def _is_create_command(command):
+    # A list from the web client, with a virtual id; a tuple from Command.create.
+    return isinstance(command, (list, tuple)) and command[0] == Command.CREATE
+
+
 class ProjectTask(models.Model):
-    _inherit = "project.task"
+    _name = "project.task"
+    # the mixin comes below core: the description history builds its revision from the moved text
+    _inherit = ["project.task", "project.task.image.mixin"]
 
     is_ai_driven = fields.Boolean(related="project_id.is_ai_driven")
+    develops_this_odoo = fields.Boolean(related="project_id.develops_this_odoo")
     solution = fields.Html()
     priority_level = fields.Selection(
         [
@@ -76,6 +88,9 @@ class ProjectTask(models.Model):
     question_ids = fields.One2many(
         "project.task.question", "task_id", string="Questions", groups="project.group_project_user"
     )
+    session_ids = fields.One2many(
+        "project.task.session", "task_id", string="Sessions", groups="project.group_project_user"
+    )
     testcase_completion = fields.Integer(compute="_compute_testcase_completion")
     testcase_completion_xml = fields.Html(compute="_compute_testcase_completion")
     kanban_testcases = fields.Html(compute="_compute_kanban_testcases")
@@ -113,6 +128,24 @@ class ProjectTask(models.Model):
         tracking=True,
     )
     note_count = fields.Integer("Notes", compute="_compute_note_count")
+    # No field domain: it would filter the reads too, and a module uninstalled later stays on the task.
+    # Not tracked: Odoo 20 writes tracked values into the message body, which ignores the field's groups.
+    module_ids = fields.Many2many(
+        "ir.module.module",
+        "project_task_ir_module_module_rel",
+        "task_id",
+        "module_id",
+        string="Modules",
+        copy=False,
+        groups="project.group_project_user",
+        help="The installed modules the task touches. Only an installed module can be added.",
+    )
+    module_names = fields.Char(
+        compute="_compute_module_names",
+        compute_sudo=True,
+        groups="project.group_project_user",
+        help="The technical names of the modules, sorted, separated by commas.",
+    )
 
     @api.depends("allocated_hours")
     def _compute_tshirt_estimate(self):
@@ -242,6 +275,11 @@ class ProjectTask(models.Model):
         for record in self:
             record.note_count = note_counts.get(record.id, 0)
 
+    @api.depends("module_ids.name")
+    def _compute_module_names(self):
+        for record in self:
+            record.module_names = ", ".join(sorted(record.module_ids.mapped("name"))) or False
+
     @api.constrains("allocated_hours")
     def _check_estimate_is_a_number(self):
         """A NaN passes no comparison of the rules, the JSON the web client
@@ -259,19 +297,35 @@ class ProjectTask(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        vals_list, new_items_per_task = self._split_checklist_item_creations(vals_list)
         tasks = super().create(vals_list)
+        # Sudo: a default of the context may set modules too, and a read checks the field's groups.
+        tasks._check_modules_installed(tasks.sudo().module_ids)
         tasks._apply_closing_rule()
         tasks._apply_estimate_rule()
+        # The caller's env: an override may return the tasks in sudo, past the item's access rights.
+        tasks.with_env(self.env)._create_checklist_items(new_items_per_task)
         return tasks
 
     def write(self, vals):
         vals = self._without_size(vals)
         former_stages = self._get_former_stages(vals)
+        former_modules = self._get_former_modules(vals)
         result = super().write(vals)
+        self._check_modules_installed(self._get_added_modules(former_modules))
         moved_tasks = self._filter_moved_from(former_stages)
         moved_tasks._apply_closing_rule()
         moved_tasks._apply_estimate_rule()
         return result
+
+    @api.ondelete(at_uninstall=False)
+    def _unlink_image_rows(self):
+        """Delete the rows of the tasks through the ORM, which deletes the attachments of their images: the
+        database cascade would leave them. It runs on the tasks core deletes, sub-tasks included, after its
+        access check.
+        """
+        for rows in self._get_image_rows():
+            rows.unlink()
 
     def copy_data(self, default=None):
         """A task created from a template, or in a project created from one, is
@@ -314,6 +368,48 @@ class ProjectTask(models.Model):
             ("res_id", "=", self.id),
         ]
         return action
+
+    @api.model
+    def _split_checklist_item_creations(self, vals_list):
+        """Return vals_list without the checklist items it creates, and per task
+        the vals of those items, for _create_checklist_items. An item posts on
+        its task: inside the task's create that post comes before the task
+        posts its creation and subscribes its followers, so the project's
+        followers of all checklist updates miss it.
+
+        The items are created after the field's other commands: a create
+        followed by a Command.set or Command.clear in the same list survives.
+        Items a default_checklist_item_ids of the context gives are not split
+        and are created inside the task's create.
+        """
+        task_vals_list = []
+        new_items_per_task = []
+        for vals in vals_list:
+            commands = vals.get("checklist_item_ids") or []
+            new_items_vals = [command[2] for command in commands if _is_create_command(command)]
+            if new_items_vals:
+                vals = dict(vals)
+                other_commands = [command for command in commands if not _is_create_command(command)]
+                if other_commands:
+                    vals["checklist_item_ids"] = other_commands
+                else:
+                    del vals["checklist_item_ids"]
+            task_vals_list.append(vals)
+            new_items_per_task.append(new_items_vals)
+        return task_vals_list, new_items_per_task
+
+    def _create_checklist_items(self, new_items_per_task):
+        """Create the items of each task of self, in order, as a task saved first
+        and given its items right after gets them.
+        """
+        item_vals_list = [
+            {**item_vals, "task_id": task.id}
+            for task, new_items_vals in zip(self, new_items_per_task)
+            for item_vals in new_items_vals
+        ]
+        if item_vals_list:
+            # Without the default_* keys of the context: they are the task's, as for any inline line.
+            self.env["project.task.checklist.item"].with_context(clean_context(self.env.context)).create(item_vals_list)
 
     def _log_stage_moves(self, vals_list):
         """Log the tasks whose values carry a stage, before their rows are
@@ -393,12 +489,14 @@ class ProjectTask(models.Model):
     @api.model
     def _without_size(self, vals):
         """Return the vals of a write without a size: a value written to the
-        stored field would stand in place of the size of the hours.
+        stored field would stand in place of the size of the hours. A user who
+        may not write the field, a portal user, keeps it in the vals, for core
+        to refuse as any field outside their reach.
 
         A create needs no such care: it computes a read-only field whatever
         value was sent, or came as a default of the context.
         """
-        if "tshirt_estimate" not in vals:
+        if "tshirt_estimate" not in vals or not self.has_field_access(self._fields["tshirt_estimate"], "write"):
             return vals
         return {field_name: value for field_name, value in vals.items() if field_name != "tshirt_estimate"}
 
@@ -412,6 +510,31 @@ class ProjectTask(models.Model):
 
     def _filter_moved_from(self, former_stages):
         return self.filtered(lambda record: record.id in former_stages and record.stage_id != former_stages[record.id])
+
+    def _get_former_modules(self, vals):
+        if "module_ids" not in vals:
+            return {}
+        return {record.id: record.module_ids for record in self.sudo()}
+
+    def _get_added_modules(self, former_modules):
+        added_modules = self.env["ir.module.module"]
+        for record in self.sudo().filtered(lambda record: record.id in former_modules):
+            added_modules |= record.module_ids - former_modules[record.id]
+        return added_modules
+
+    def _check_modules_installed(self, modules):
+        """Callers pass only the modules they add: one already on a task stays
+        when it is uninstalled. Runs after the write, as a constraint does, so
+        the refusal rolls the write back.
+        """
+        not_installed_modules = modules.sudo().filtered(lambda module: module.state not in INSTALLED_MODULE_STATES)
+        if not_installed_modules:
+            raise ValidationError(
+                self.env._(
+                    "Only an installed module can be added to a task. Not installed: %s",
+                    ", ".join(sorted(not_installed_modules.mapped("name"))),
+                )
+            )
 
     def _apply_closing_rule(self):
         """Run on tasks that just entered a stage. Sudo: a user can write a
@@ -497,6 +620,48 @@ class ProjectTask(models.Model):
                 self.filtered(lambda record: not record.allocated_hours > 0),
             ),
         ]
+
+    @api.model
+    def _get_task_fname(self):
+        return None
+
+    def _get_container_changing_records(self, vals, container_fnames):
+        """A sub-task follows the project of its parent, at any depth: a write of either may move them all."""
+        if not {"project_id", "parent_id"} & vals.keys():
+            return super()._get_container_changing_records(vals, container_fnames)
+        return self.sudo().with_context(active_test=False).search([("id", "child_of", self.ids)])
+
+    def _get_image_rows(self):
+        """The question rows and the test cases of these tasks, in sudo: the rows whose texts hold images."""
+        tasks = self.sudo()
+        return [tasks.question_ids, tasks.testcase_ids]
+
+    def _move_inline_images_to_attachments(self, dry_run=False, store=True):
+        """Move the inline images of these tasks and of their lines to
+        attachments of the records holding them, as a save does: for texts
+        saved before.
+
+        Returns {"records": how many tasks and lines change, "images": how
+        many attachments are created, "bytes": their size before core resizes
+        them, "texts": {record: {field name: new text}}}, the new value of the
+        task properties a {property name: value} dict. An image core cannot read
+        stays inline and counts nowhere. dry_run changes nothing and counts as
+        a run would. store=False creates the attachments and leaves the texts
+        to the caller, to store without changing write_date and write_uid.
+        Every new text stays in memory until the return: call it in batches.
+        """
+        mover = ImageMover(self.env, dry_run=dry_run)
+        new_texts = {}
+        for records in (self, self.question_ids, self.testcase_ids):
+            new_texts.update(records._get_moved_image_texts(mover, records._get_image_fields()))
+        if store and not dry_run:
+            self._store_texts(new_texts)
+        return {
+            "records": len(new_texts),
+            "images": mover.image_count,
+            "bytes": mover.byte_count,
+            "texts": {} if dry_run else new_texts,
+        }
 
     def task_completion(self):
         user_task_ids = self.checklist_item_ids.filtered(

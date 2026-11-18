@@ -1,4 +1,8 @@
-from odoo.tests import Form
+import unittest
+
+from odoo import Command
+from odoo.exceptions import AccessError
+from odoo.tests import Form, new_test_user
 
 from ..models.project_task import SIZE_BANDS, get_size
 from .common import ProjectAiDrivenCommon
@@ -102,3 +106,41 @@ class TestTaskSize(ProjectAiDrivenCommon):
             with self.assertRaises(AssertionError):
                 task_form.tshirt_estimate = "xl"
         self.assertRecordValues(self.task, [{"allocated_hours": 5, "tshirt_estimate": "s"}])
+
+
+class TestTaskSizeProjectSharing(ProjectAiDrivenCommon):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.user_portal = new_test_user(
+            cls.env,
+            "project_ai_driven_portal",
+            groups="base.group_portal",
+            context={"no_reset_password": True},
+            name="Portal Collaborator",
+            email="portal@example.com",
+        )
+        cls.project.write(
+            {
+                "privacy_visibility": "portal",
+                "collaborator_ids": [
+                    Command.create({"partner_id": cls.user_portal.partner_id.id, "access_mode": "edit"}),
+                ],
+            },
+        )
+        cls.task.allocated_hours = 5
+
+    def test_a_portal_collaborator_writing_the_size_is_refused(self):
+        task = self.task.with_user(self.user_portal)
+        task.write({"name": "Renamed by the collaborator"})
+
+        for vals in ({"tshirt_estimate": "xxl"}, {"name": "Sized by the collaborator", "tshirt_estimate": False}):
+            # not Odoo's assertRaises: its rollback to a savepoint would hide a name the refused write left
+            with unittest.TestCase.assertRaises(self, AccessError):
+                task.write(vals)
+
+        self.assertRecordValues(self.task, [{"name": "Renamed by the collaborator", "tshirt_estimate": "s"}])
+
+    def test_a_size_written_in_sudo_for_a_portal_collaborator_is_dropped(self):
+        self.assertTrue(self.task.with_user(self.user_portal).sudo().write({"tshirt_estimate": "xxl"}))
+        self.assertEqual(self.task.tshirt_estimate, "s")

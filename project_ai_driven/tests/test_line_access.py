@@ -9,6 +9,7 @@ LINE_VALUES = {
     "project.task.checklist.item": ({"name": "Item"}, {"deadline": "2026-12-01 10:00:00"}),
     "project.task.testcase": ({"name": "Case"}, {"comments": "<p>Checked</p>"}),
     "project.task.question": ({"question": "<p>Why?</p>"}, {"round": "Second round"}),
+    "project.task.session": ({"session_id": "0f8e2c1a-5b7d-4e3a-9c61-2d4b8a7f1e90"}, {"outcome": "Reviewed"}),
 }
 
 
@@ -60,6 +61,8 @@ class TestLineWriteAccess(ProjectAiDrivenCommon):
     def test_a_project_user_moves_a_line_only_onto_a_task_they_may_write(self):
         self.task_template.with_user(self.user_dev).check_access("read")
         other_task = self.env["project.task"].create({"name": "Other Task", "project_id": self.project.id})
+        # not the template holding the template lines: a task lists a session once
+        other_template = self.env["project.task"].create({"name": "Other Task Template", "is_template": True})
         for model_name, (new_values, _change) in LINE_VALUES.items():
             with self.subTest(model=model_name):
                 line = self._lines(model_name, self.user_dev).create({**new_values, "task_id": self.task.id})
@@ -69,8 +72,8 @@ class TestLineWriteAccess(ProjectAiDrivenCommon):
                 self.assertEqual(line.task_id, self.task, "nothing moves")
                 line.write({"task_id": other_task.id})
                 self.assertEqual(line.task_id, other_task)
-                line.sudo().write({"task_id": self.task_template.id})
-                self.assertEqual(line.sudo().task_id, self.task_template)
+                line.sudo().write({"task_id": other_template.id})
+                self.assertEqual(line.sudo().task_id, other_template)
 
     def test_a_project_user_creates_changes_and_deletes_the_lines_of_a_task_they_may_write(self):
         self.task.with_user(self.user_dev).check_access("write")

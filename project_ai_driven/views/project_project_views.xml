@@ -15,6 +15,15 @@
                 </setting>
                 <setting
                     class="col-lg-12"
+                    id="develops_this_odoo_setting"
+                    help="The tasks of this project change this Odoo database: their form shows the installed modules they touch. One project at most carries it"
+                    invisible="not is_ai_driven and not develops_this_odoo"
+                    groups="base.group_system"
+                >
+                    <field name="develops_this_odoo" />
+                </setting>
+                <setting
+                    class="col-lg-12"
                     id="pr_required_states_setting"
                     help="A task enters these stages only with a Resolution, and with a pull request when the Resolution is Code"
                     invisible="not is_ai_driven"
