@@ -9,5 +9,6 @@ from . import test_hooks
 from . import test_multiproject_gantt
 from . import test_project_task
 from . import test_task_date_rollup
+from . import test_task_deadline
 from . import test_task_views
 from . import test_team_dashboard

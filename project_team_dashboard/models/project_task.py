@@ -1,5 +1,7 @@
 from collections import defaultdict
 
+import pytz
+
 from odoo import Command, _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
 from odoo.tools.sql import column_exists, create_column
@@ -7,9 +9,15 @@ from odoo.tools.sql import column_exists, create_column
 PLANNED_DATE_FIELDS = ("planned_date_start", "planned_date_end")
 
 
+def local_date(utc_datetime, tz_name):
+    """Return the date of a naive UTC datetime in the time zone tz_name, in UTC when it is empty."""
+    return pytz.utc.localize(utc_datetime).astimezone(pytz.timezone(tz_name or "UTC")).date()
+
+
 class Task(models.Model):
     _inherit = "project.task"
 
+    date_deadline = fields.Date(compute="_compute_date_deadline", store=True, readonly=False)
     planned_date_start = fields.Datetime(
         compute="_compute_planned_date_start",
         store=True,
@@ -27,6 +35,14 @@ class Task(models.Model):
         compute_sudo=True,
         help="The task has active sub-tasks: its planned dates span theirs, and stay empty while none is dated.",
     )
+
+    # Not on project_id.is_ai_driven: flagging a project leaves the Deadlines of its tasks alone.
+    @api.depends("planned_date_end", "project_id")
+    def _compute_date_deadline(self):
+        """In an AI-driven project the Deadline is the date of the planned end for the user who
+        saves, a rolled-up planned end included; a task without a planned end keeps its Deadline."""
+        for task in self.filtered(lambda task: task.planned_date_end and task.project_id.is_ai_driven):
+            task.date_deadline = local_date(task.planned_date_end, self.env.user.tz)
 
     @api.depends("child_ids.planned_date_start", "child_ids.planned_date_end", "child_ids.active")
     def _compute_planned_date_start(self):

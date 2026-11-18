@@ -5,6 +5,16 @@ Plan a task
   show them in the task list from its optional columns.
 * A task with active sub-tasks shows its planned dates read-only: plan its
   sub-tasks and the task follows them.
+* In an AI-driven project the **Deadline** follows the planned end: each
+  time a task gets a planned end or its planned end changes, by hand, in
+  the Gantt chart or from its sub-tasks, its Deadline becomes the day of
+  that end in your time zone (UTC when your preferences have none). A task
+  moved into an AI-driven project with a planned end gets that Deadline
+  too. On the task form the Deadline changes as you edit the planned end;
+  a Deadline you type after it is the one saved. Changing the Deadline
+  alone leaves the plan where it is, and clearing the planned end leaves
+  the Deadline. In other projects the planned end does not change the
+  Deadline.
 
 Work the backlog
 ~~~~~~~~~~~~~~~~

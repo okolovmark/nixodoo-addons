@@ -7,6 +7,13 @@ Projects
   developer mode only) tick **In Progress Stage** on the working stages and
   **Backlog Stage** on the backlog stages; the Backlog list and the Team
   Dashboard read these flags.
+* Tick **AI-driven Project** on a project for the Deadline of its tasks to
+  follow their planned end (see Usage). Ticking it changes no Deadline:
+  each task follows from its next planned end. Installing the module, or
+  updating it to 16.0.1.1.0, sets the Deadline of the open tasks (stage not
+  folded) of AI-driven projects that have a planned end to the day of that
+  end, in the time zone of the user who last changed the task, without
+  changing their last-updated date; closed tasks keep theirs.
 
 Users
 ~~~~~

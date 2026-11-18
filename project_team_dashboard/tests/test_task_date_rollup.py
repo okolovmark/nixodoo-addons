@@ -183,10 +183,12 @@ class TestTaskDateRollup(TeamDashboardCommon):
         parent.write({"planned_date_start": self._day(1), "planned_date_end": self._day(2)})
         self._assert_planned_dates(parent, self._day(1), self._day(2))
 
-    def test_rollup_never_touches_the_deadline(self):
+    def test_rollup_never_touches_the_deadline_outside_ai_driven_projects(self):
         deadline = date(2026, 6, 30)
-        parent = self._create_task("Parent", date_deadline=deadline)
-        child = self._create_task("Child", self._day(4), self._day(7), parent_id=parent.id)
+        parent = self._create_task("Parent", date_deadline=deadline, project_id=self.project_plain.id)
+        child = self._create_task(
+            "Child", self._day(4), self._day(7), parent_id=parent.id, project_id=self.project_plain.id
+        )
         child.planned_date_end = self._day(9)
         self.assertEqual(parent.planned_date_end, child.planned_date_end)
         self.assertEqual(parent.date_deadline, deadline)

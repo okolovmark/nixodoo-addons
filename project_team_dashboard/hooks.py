@@ -5,6 +5,8 @@ from psycopg2 import sql
 
 from odoo import SUPERUSER_ID, api, models
 
+from .models.project_task import local_date
+
 _logger = logging.getLogger(__name__)
 
 MODULE = "project_team_dashboard"
@@ -99,6 +101,17 @@ ADOPT_VIEW_FILE = """
      WHERE id IN %(view_ids)s
        AND left(arch_fs, length(%(holder)s) + 1) = %(holder)s || '/'
 """
+OPEN_AI_DRIVEN_TASKS_WITH_A_PLANNED_END = """
+    SELECT task.id, task.planned_date_end, task.date_deadline, author.tz
+      FROM project_task task
+      JOIN project_project project ON project.id = task.project_id
+      LEFT JOIN project_task_type stage ON stage.id = task.stage_id
+      LEFT JOIN res_users writer ON writer.id = task.write_uid
+      LEFT JOIN res_partner author ON author.id = writer.partner_id
+     WHERE project.is_ai_driven
+       AND task.planned_date_end IS NOT NULL
+       AND stage.fold IS NOT TRUE
+"""
 
 
 def pre_init_hook(cr):
@@ -133,7 +146,9 @@ def pre_init_hook(cr):
 
 
 def post_init_hook(cr, registry):
-    roll_up_planned_dates(api.Environment(cr, SUPERUSER_ID, {}))
+    env = api.Environment(cr, SUPERUSER_ID, {})
+    roll_up_planned_dates(env)
+    align_deadlines_with_planned_ends(env)
 
 
 def declared_fields(module):
@@ -195,6 +210,25 @@ def roll_up_planned_dates(env):
         env.flush_all()
         rolled_up_count += len(parents)
     _logger.info("Planned dates rolled up from sub-tasks on %s tasks", rolled_up_count)
+
+
+def align_deadlines_with_planned_ends(env):
+    """Set the Deadline of the open tasks of AI-driven projects to the date of their planned end,
+    in the time zone of the user who last wrote each task. In SQL, so their write dates stay."""
+    env.flush_all()
+    env.cr.execute(OPEN_AI_DRIVEN_TASKS_WITH_A_PLANNED_END)
+    task_ids_by_deadline = defaultdict(list)
+    for task_id, planned_date_end, date_deadline, tz_name in env.cr.fetchall():
+        deadline = local_date(planned_date_end, tz_name)
+        if deadline != date_deadline:
+            task_ids_by_deadline[deadline].append(task_id)
+    for deadline, task_ids in task_ids_by_deadline.items():
+        env.cr.execute("UPDATE project_task SET date_deadline = %s WHERE id IN %s", (deadline, tuple(task_ids)))
+    env["project.task"].invalidate_model(["date_deadline"])
+    _logger.info(
+        "Deadline aligned with the planned end on %s open tasks of AI-driven projects",
+        sum(len(task_ids) for task_ids in task_ids_by_deadline.values()),
+    )
 
 
 def _depth(task):
