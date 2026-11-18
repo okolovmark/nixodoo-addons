@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="project_support_request.SupportRequestSystray" owl="1">
+        <div class="o_odoo_requests_systray d-flex align-items-center"
+             t-att-class="state.configured ? '' : 'd-none'">
+            <div class="o_odoo_requests_icon d-flex align-items-center px-1"
+                 role="button"
+                 t-on-click="toggleDropdown"
+                 title="Odoo Requests">
+                <i class="fa fa-life-ring o_requests_icon_idle"/>
+                <span class="o_requests_icon_label ms-1">Support</span>
+                <span t-if="hasBadge"
+                      class="o_odoo_requests_badge badge rounded-pill bg-danger ms-1">
+                    <t t-esc="totalBadge"/>
+                </span>
+            </div>
+
+            <div t-if="state.isOpen"
+                 class="o_odoo_requests_dropdown dropdown-menu show position-absolute"
+                 style="right: 0; top: 100%; min-width: 360px; z-index: 1060;">
+
+                <div t-if="state.loading" class="p-3 text-center text-muted">
+                    <i class="fa fa-spinner fa-spin me-1"/>Loading...
+                </div>
+
+                <div t-elif="!state.configured" class="p-3 text-center">
+                    <div class="text-muted mb-2">
+                        <i class="fa fa-cog fa-2x"/>
+                    </div>
+                    <div class="text-muted small">
+                        No active project develops this Odoo: a Settings administrator ticks
+                        <strong>Develops This Odoo</strong> on the AI-driven project that develops it,
+                        or restores the archived one that carries it.
+                    </div>
+                </div>
+
+                <div t-else="" class="p-0">
+                    <div class="d-flex border-bottom bg-light">
+                        <button class="btn btn-sm flex-fill rounded-0 o_requests_tab"
+                                t-att-class="state.activeTab === 'bugs' ? 'o_requests_tab_active fw-bold' : 'text-muted'"
+                                t-on-click="(ev) => this.onSwitchTab('bugs', ev)">
+                            <i class="fa fa-bug me-1"/>Bugs
+                            <span t-if="state.bugsCount"
+                                  class="badge rounded-pill ms-1"
+                                  t-att-class="state.activeTab === 'bugs' ? 'bg-danger' : 'bg-secondary'">
+                                <t t-esc="state.bugsCount"/>
+                            </span>
+                        </button>
+                        <button class="btn btn-sm flex-fill rounded-0 o_requests_tab"
+                                t-att-class="state.activeTab === 'others' ? 'o_requests_tab_active fw-bold' : 'text-muted'"
+                                t-on-click="(ev) => this.onSwitchTab('others', ev)">
+                            <i class="fa fa-ticket me-1"/>Others
+                            <span t-if="state.othersCount"
+                                  class="badge rounded-pill ms-1"
+                                  t-att-class="state.activeTab === 'others' ? 'bg-primary' : 'bg-secondary'">
+                                <t t-esc="state.othersCount"/>
+                            </span>
+                        </button>
+                    </div>
+
+                    <div t-if="state.showCreateForm" class="px-3 py-2 border-bottom bg-light">
+                        <div class="mb-2">
+                            <input type="text"
+                                   class="form-control form-control-sm"
+                                   placeholder="Ticket title..."
+                                   t-att-value="state.createName"
+                                   t-on-input="onCreateNameInput"
+                                   t-att-disabled="state.creating"/>
+                        </div>
+                        <div class="mb-2">
+                            <select class="form-select form-select-sm"
+                                    t-on-change="onCreateTypeChange"
+                                    t-att-disabled="state.creating">
+                                <t t-foreach="state.taskTypes" t-as="tt" t-key="tt.value">
+                                    <option t-att-value="tt.value"
+                                            t-att-selected="state.createType === tt.value">
+                                        <t t-esc="tt.label"/>
+                                    </option>
+                                </t>
+                            </select>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-primary flex-fill"
+                                    t-on-click="onSubmitCreate"
+                                    t-att-disabled="state.creating">
+                                <i t-if="state.creating" class="fa fa-spinner fa-spin me-1"/>
+                                Create
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary flex-fill"
+                                    t-on-click="onCancelCreate"
+                                    t-att-disabled="state.creating">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+
+                    <div t-if="state.tickets.length > 0" class="o_odoo_requests_ticket_list">
+                        <t t-foreach="visibleTickets" t-as="ticket" t-key="ticket.id">
+                            <div class="o_odoo_requests_ticket_item d-flex align-items-center px-3 py-2 border-bottom"
+                                 role="button"
+                                 t-on-click="(ev) => this.onTicketClick(ticket.id, ev)">
+                                <span class="o_requests_priority_dot me-2"
+                                      t-att-style="'background-color: ' + priorityColor(ticket.priority_level)"/>
+                                <div class="flex-grow-1 overflow-hidden">
+                                    <div class="text-truncate small">
+                                        <span t-if="ticket.key"
+                                              class="o_requests_ticket_key me-1">
+                                            <t t-esc="ticket.key"/>
+                                        </span>
+                                        <strong class="text-dark"><t t-esc="ticket.name"/></strong>
+                                    </div>
+                                    <div class="d-flex align-items-center"
+                                         style="font-size: 11px; color: #888;">
+                                        <span class="text-nowrap">
+                                            <t t-esc="ticket.stage_name"/>
+                                        </span>
+                                        <span class="mx-1">·</span>
+                                        <span class="text-nowrap">
+                                            <t t-esc="ticketAge(ticket.create_date)"/>
+                                        </span>
+                                    </div>
+                                </div>
+                                <i class="fa fa-chevron-right text-muted ms-2" style="font-size: 10px;"/>
+                            </div>
+                        </t>
+
+                        <div t-if="hasMoreTickets" class="px-3 py-2 text-center border-top">
+                            <a href="#" class="small text-primary text-decoration-none fw-bold"
+                               t-on-click="onShowMore">
+                                View more (<t t-esc="remainingTicketCount"/> more)
+                            </a>
+                        </div>
+                    </div>
+
+                    <div t-elif="!state.showCreateForm" class="p-3 text-center">
+                        <div class="text-muted mb-2">
+                            <i class="fa fa-check-circle fa-2x"/>
+                        </div>
+                        <div class="text-muted small fw-bold">
+                            No open tickets
+                        </div>
+                    </div>
+
+                    <div class="d-flex border-top">
+                        <button t-if="!state.showCreateForm"
+                                class="btn btn-sm flex-fill rounded-0 text-primary fw-bold"
+                                t-on-click="onShowCreateForm">
+                            <i class="fa fa-plus me-1"/>New Ticket
+                        </button>
+                        <button class="btn btn-sm flex-fill rounded-0 text-muted"
+                                t-on-click="onViewClosedClick">
+                            <i class="fa fa-archive me-1"/>View Closed
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </t>
+
+</templates>

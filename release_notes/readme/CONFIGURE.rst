@@ -39,8 +39,8 @@ install only, and notes added later would never load.
 **Ticket link** (Settings > Technical > System Parameters)
 
 * ``release_notes.ticket_url``: the link a note's key opens, with ``{key}``
-  where the key goes, e.g. ``/tasks/{key}`` with ``project_key``. Unset, the
-  key is plain text.
+  where the key goes, e.g. ``/tasks/{key}``, which ``project_ai_driven`` (or
+  OCA ``project_key``) serves. Unset, the key is plain text.
 * ``release_notes.ticket_model``: the ticket model, e.g. ``project.task``.
   Only users who can read it get the link. Unset, everyone does.
 

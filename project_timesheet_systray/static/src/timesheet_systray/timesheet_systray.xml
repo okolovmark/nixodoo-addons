@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="project_timesheet_systray.TimesheetSystray" owl="1">
+        <div t-if="state.available" class="o_timesheet_systray d-flex align-items-center">
+            <div class="o_timesheet_systray_icon d-flex align-items-center px-1"
+                 role="button"
+                 t-on-click="toggleDropdown"
+                 t-att-title="state.running ? 'Timer running' : 'Timesheet timer'">
+                <i class="fa fa-hourglass-half" t-att-class="iconClass"/>
+                <span class="o_ts_icon_label ms-1">Timelog</span>
+                <span t-if="state.running"
+                      class="o_timesheet_systray_timer ms-1 fw-bold">
+                    <t t-esc="elapsedFormatted"/>
+                </span>
+            </div>
+
+            <div t-if="state.isOpen"
+                 class="o_timesheet_systray_dropdown dropdown-menu show position-absolute"
+                 style="right: 0; top: 100%; min-width: 340px; z-index: 1060;">
+
+                <div t-if="state.loading" class="p-3 text-center text-muted">
+                    <i class="fa fa-spinner fa-spin me-1"/>Loading...
+                </div>
+
+                <div t-elif="state.running and state.timesheet" class="p-0">
+                    <div class="px-3 py-2 border-bottom bg-success-light">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <span class="small fw-bold text-uppercase text-success">
+                                <i class="fa fa-circle me-1 small"/>Timer Running
+                            </span>
+                            <span class="badge bg-success">
+                                <t t-esc="elapsedFormatted"/>
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="px-3 py-2">
+                        <div class="d-flex align-items-start mb-2">
+                            <i class="fa fa-tasks me-2 mt-1" style="color: #555;"/>
+                            <div class="flex-grow-1 overflow-hidden">
+                                <a href="#" class="text-truncate d-block text-decoration-none"
+                                   t-on-click="onOpenTask"
+                                   t-att-title="state.timesheet.task_name">
+                                    <span t-if="state.timesheet.task_key"
+                                          class="o_ts_task_key me-1">
+                                        <t t-esc="state.timesheet.task_key"/>
+                                    </span>
+                                    <strong class="text-dark"><t t-esc="state.timesheet.task_name"/></strong>
+                                </a>
+                                <div class="small text-truncate" style="color: #555;">
+                                    <i class="fa fa-folder-o me-1"/>
+                                    <t t-esc="state.timesheet.project_name"/>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="px-3 py-2 border-top bg-light">
+                        <button class="btn btn-danger btn-sm w-100"
+                                t-on-click="onStopTimer"
+                                t-att-disabled="state.loading">
+                            <i class="fa fa-stop me-1"/>Stop
+                        </button>
+                    </div>
+                </div>
+
+                <div t-elif="state.tasks.length > 0" class="p-0">
+                    <div class="px-3 py-2 border-bottom bg-light">
+                        <span class="small fw-bold text-uppercase text-muted">
+                            In-Progress Tasks
+                        </span>
+                        <span class="badge bg-secondary ms-1 small">
+                            <t t-esc="state.totalTasks"/>
+                        </span>
+                    </div>
+
+                    <div class="o_timesheet_task_list">
+                        <t t-foreach="visibleTasks" t-as="task" t-key="task.task_id">
+                            <div class="o_timesheet_task_item d-flex align-items-center px-3 py-2 border-bottom">
+                                <button class="btn btn-sm btn-outline-success me-2 o_ts_play_btn"
+                                        t-on-click="(ev) => this.onStartTaskTimer(task.task_id, ev)"
+                                        title="Start timer"
+                                        t-att-disabled="state.loading">
+                                    <i class="fa fa-play"/>
+                                </button>
+
+                                <div class="flex-grow-1 overflow-hidden">
+                                    <a href="#" class="text-truncate d-block text-decoration-none small"
+                                       t-on-click="(ev) => this.onOpenTaskById(task.task_id, ev)"
+                                       t-att-title="task.task_name">
+                                        <span t-if="task.task_key"
+                                              class="o_ts_task_key me-1">
+                                            <t t-esc="task.task_key"/>
+                                        </span>
+                                        <strong class="text-dark"><t t-esc="task.task_name"/></strong>
+                                    </a>
+                                    <div class="d-flex align-items-center"
+                                         style="font-size: 11px; color: #555;">
+                                        <span class="text-truncate">
+                                            <t t-esc="task.project_name"/>
+                                        </span>
+                                        <span class="mx-1">·</span>
+                                        <span class="text-nowrap">
+                                            <t t-esc="task.stage_name"/>
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </t>
+                    </div>
+
+                    <div t-if="hasMoreTasks" class="px-3 py-2 border-top text-center">
+                        <a href="#" class="small text-primary text-decoration-none fw-bold"
+                           t-on-click="onShowMore">
+                            Show more (<t t-esc="remainingTaskCount"/> more)
+                        </a>
+                    </div>
+                </div>
+
+                <div t-else="" class="p-3 text-center">
+                    <div class="text-muted mb-2">
+                        <i class="fa fa-coffee fa-2x"/>
+                    </div>
+                    <div class="text-muted fw-bold">
+                        <t t-esc="state.message || 'No tasks in progress'"/>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </t>
+
+</templates>

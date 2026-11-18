@@ -5,6 +5,9 @@
         <field name="model">project.task</field>
         <field name="inherit_id" ref="project.view_task_form2" />
         <field name="arch" type="xml">
+            <xpath expr="//div[hasclass('oe_title')]//field[@name='name']" position="before">
+                <field name="key" readonly="1" nolabel="1" class="oe_read_only" />
+            </xpath>
             <xpath expr="//field[@name='project_id']" position="after">
                 <field name="is_ai_driven" invisible="1" />
                 <field name="develops_this_odoo" invisible="1" />
@@ -226,6 +229,9 @@
         <field name="model">project.task</field>
         <field name="inherit_id" ref="project.view_task_tree2" />
         <field name="arch" type="xml">
+            <xpath expr="//tree/field[@name='name']" position="before">
+                <field name="key" />
+            </xpath>
             <xpath expr="//field[@name='tag_ids']" position="before">
                 <field name="task_type" string="Task Type" optional="show" />
             </xpath>
@@ -243,6 +249,9 @@
         <field name="model">project.task</field>
         <field name="inherit_id" ref="project.view_task_search_form" />
         <field name="arch" type="xml">
+            <xpath expr="//field[@name='name']" position="attributes">
+                <attribute name="filter_domain">['|', ('name', 'ilike', self), ('key', 'ilike', self)]</attribute>
+            </xpath>
             <xpath expr="//field[@name='tag_ids']" position="after">
                 <field name="module_ids" string="Module" />
             </xpath>
@@ -256,6 +265,13 @@
         <field name="arch" type="xml">
             <xpath expr="//kanban/field[@name='priority']" position="after">
                 <field name="is_ai_driven" />
+            </xpath>
+            <xpath expr="//kanban/field[@name='color']" position="after">
+                <field name="url" />
+                <field name="key" />
+            </xpath>
+            <xpath expr="//strong[hasclass('o_kanban_record_title')]" position="before">
+                <a t-att-href="record.url.raw_value" class="me-1"><field name="key" /></a>
             </xpath>
             <xpath expr="//div[hasclass('oe_kanban_bottom_left')]/field[@name='priority']" position="attributes">
                 <attribute name="attrs">{'invisible': [('is_ai_driven', '=', True)]}</attribute>
