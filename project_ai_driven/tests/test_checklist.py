@@ -784,6 +784,14 @@ class TestChecklistAccess(ProjectAiDrivenCommon):
             self.as_developer.create({"name": "Sneaked item", "task_id": self.hidden_task.id})
         self.assertEqual(self.as_developer.create({"name": "Added item", "task_id": self.task.id}).task_id, self.task)
 
+    def test_an_item_moves_only_onto_a_task_the_user_reads(self):
+        item = self.visible_item.with_user(self.user_dev)
+        with self.assertRaises(AccessError):
+            item.write({"task_id": self.hidden_task.id})
+        other_task = self.env["project.task"].create({"name": "Other Task", "project_id": self.project.id})
+        item.write({"task_id": other_task.id})
+        self.assertEqual(self.as_developer.search([("id", "=", item.id), ("task_id", "=", other_task.id)]), item)
+
     def test_an_item_deleted_meanwhile_passes_the_check_as_core_lets_it(self):
         """Two users with the task form open both delete the same line."""
         self.visible_item.unlink()
