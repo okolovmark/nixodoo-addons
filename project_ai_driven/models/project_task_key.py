@@ -8,14 +8,18 @@ _logger = logging.getLogger(__name__)
 TASK_URL = "/web#id=%s&view_type=form&model=project.task&action=%s"
 # A sub-task's project is computed from its parent and its displayed project.
 PROJECT_MOVING_FIELDS = ("project_id", "parent_id", "display_project_id")
+# Only a key ending in a hyphen and a number can collide: a sequence or a rename gave it. A key
+# typed by hand stays, as the rename of a project key leaves it.
 STALE_KEY_TASKS = """
-    SELECT task.id
+    SELECT task.id, task.key
       FROM project_task task
  LEFT JOIN project_project project ON project.id = task.project_id
-     WHERE task.key IS NOT NULL
+     WHERE task.key ~ '-[0-9]+$'
        AND (project.key IS NULL OR left(task.key, length(project.key) + 1) <> project.key || '-')
+       AND (%(task_ids)s::int[] IS NULL OR task.id = ANY(%(task_ids)s::int[]))
   ORDER BY task.id
 """
+CLEAR_TASK_KEYS = "UPDATE project_task SET key = NULL WHERE id = ANY(%s)"
 RENEW_TASK_KEYS = """
     UPDATE project_task task
        SET key = renewed_task.key
@@ -117,11 +121,13 @@ class ProjectTask(models.Model):
                 task.key = key
 
     @api.model
-    def _renew_stale_keys(self):
-        """Clear the key of each task without a project, and give each task whose key does not
-        start with the key of its project and a hyphen the next key of its project, or none when it
-        gives none, in the order the tasks were created; return the number of keys cleared and of
-        keys renewed. One SQL statement writes the keys, so the write dates stay.
+    def _renew_stale_keys(self, tasks=None):
+        """Of the keys ending in a hyphen and a number, clear each one of a task without a project,
+        and give each task whose key does not start with the key of its project and a hyphen the
+        next key of its project, or none when it gives none, in the order the tasks were created;
+        log each old and new key, and return the number of keys cleared and of keys renewed. tasks
+        limits the run to those tasks, None runs it over all. SQL writes the keys, so the write
+        dates stay.
 
         Nothing changes while keys are off: every project would give none, and the tasks would lose
         keys their projects give.
@@ -130,12 +136,17 @@ class ProjectTask(models.Model):
             return 0, 0
         self.env["project.project"].flush_model(["key"])
         self.flush_model(["key", "project_id"])
-        self.env.cr.execute(STALE_KEY_TASKS)
-        tasks = self.browse(task_id for (task_id,) in self.env.cr.fetchall())
-        new_keys = [task.project_id._get_next_task_key() or None for task in tasks]
-        self.env.cr.execute(RENEW_TASK_KEYS, (tasks.ids, new_keys))
+        self.env.cr.execute(STALE_KEY_TASKS, {"task_ids": None if tasks is None else tasks.ids})
+        old_keys = dict(self.env.cr.fetchall())
+        stale_tasks = self.browse(list(old_keys))
+        new_keys = [task.project_id._get_next_task_key() or None for task in stale_tasks]
+        renewed_keys = {task_id: key for task_id, key in zip(stale_tasks.ids, new_keys) if key}
+        # UNIQUE(key) is checked row by row: a new key may be the old key of a row updated after it.
+        self.env.cr.execute(CLEAR_TASK_KEYS, (stale_tasks.ids,))
+        self.env.cr.execute(RENEW_TASK_KEYS, (list(renewed_keys), list(renewed_keys.values())))
         self.invalidate_model(["key", "display_name"])
-        cleared_count = new_keys.count(None)
-        renewed_count = len(new_keys) - cleared_count
-        _logger.info("Stale task keys: %d cleared, %d renewed", cleared_count, renewed_count)
-        return cleared_count, renewed_count
+        for task_id, new_key in zip(stale_tasks.ids, new_keys):
+            _logger.info("Stale key of task %s: %s -> %s", task_id, old_keys[task_id], new_key or "none")
+        cleared_count = len(new_keys) - len(renewed_keys)
+        _logger.info("Stale task keys: %d cleared, %d renewed", cleared_count, len(renewed_keys))
+        return cleared_count, len(renewed_keys)

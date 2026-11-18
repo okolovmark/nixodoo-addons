@@ -1,4 +1,5 @@
 import importlib.util
+import logging
 from pathlib import Path
 from unittest.mock import patch
 
@@ -419,6 +420,16 @@ class TestTaskKeys(ProjectAiDrivenCommon):
         self.assertEqual(recurring_tasks.mapped("key"), ["ZQX-3", "ZQX-4", "ZQX-5"])
         return recurring_tasks
 
+    def test_the_next_task_of_a_recurrence_taken_out_of_its_project_has_no_key(self):
+        last_task = self._create_recurrence_of_three()[2]
+
+        last_task.project_id = False
+        last_task.recurrence_id._create_next_task()
+
+        next_task = last_task.recurrence_id.task_ids.sorted("id")[-1]
+        self.assertNotEqual(next_task, last_task)
+        self.assertEqual((last_task | next_task).mapped("key"), [False, False])
+
     def test_a_project_written_on_all_tasks_of_a_recurrence_gives_each_a_key_of_it(self):
         recurring_tasks = self._create_recurrence_of_three()
 
@@ -530,8 +541,6 @@ class TestTaskKeys(ProjectAiDrivenCommon):
         self.assertEqual(task.display_name, "Off")
 
     def test_stale_keys_are_cleared_or_renewed_without_an_edit(self):
-        # The stale keys the database holds already first: the counts below are this test's alone.
-        self.Task._renew_stale_keys()
         keyless_project = self.Project.create({"name": "Zulu Quebec Keyless"})
         stale_tasks = self.Task.create(
             [
@@ -541,6 +550,8 @@ class TestTaskKeys(ProjectAiDrivenCommon):
                 {"name": "In a project without a key", "project_id": keyless_project.id},
             ]
         )
+        left_out_task = self.Task.create({"name": "Left out of the run"})
+        left_out_task.key = "ZQX-91"
         keyless_project.key = False
         for task, stale_key in zip(stale_tasks, ("ZQX-90", "ZQOTHER-90", "ZQXY-90", "ZQK-90")):
             task.key = stale_key
@@ -549,13 +560,52 @@ class TestTaskKeys(ProjectAiDrivenCommon):
             "UPDATE project_task SET write_date = '2020-01-01' WHERE id IN %s", (tuple(stale_tasks.ids),)
         )
         stale_tasks.invalidate_recordset(["write_date"])
+        run_tasks = stale_tasks | self.parent_task | self.sub_task
 
-        self.assertEqual(self.Task._renew_stale_keys(), (2, 2))
+        # The level, not its name: Odoo names its own level 25 INFO.
+        with self.assertLogs(KeyedTask.__module__, logging.INFO) as captured_logs:
+            self.assertEqual(self.Task._renew_stale_keys(run_tasks), (2, 2))
 
         self.assertEqual(stale_tasks.mapped("key"), [False, "ZQX-5", "ZQX-6", False])
         self.assertEqual((self.parent_task | self.sub_task).mapped("key"), ["ZQX-1", "ZQX-2"])
+        self.assertEqual(left_out_task.key, "ZQX-91", "Only the tasks given to the run are renewed")
         self.assertEqual({str(write_date) for write_date in stale_tasks.mapped("write_date")}, {"2020-01-01 00:00:00"})
-        self.assertEqual(self.Task._renew_stale_keys(), (0, 0), "A second run changes nothing")
+        self.assertEqual(
+            [record.getMessage() for record in captured_logs.records],
+            [
+                "Stale key of task %s: ZQX-90 -> none" % stale_tasks[0].id,
+                "Stale key of task %s: ZQOTHER-90 -> ZQX-5" % stale_tasks[1].id,
+                "Stale key of task %s: ZQXY-90 -> ZQX-6" % stale_tasks[2].id,
+                "Stale key of task %s: ZQK-90 -> none" % stale_tasks[3].id,
+                "Stale task keys: 2 cleared, 2 renewed",
+            ],
+        )
+        self.assertEqual(self.Task._renew_stale_keys(run_tasks), (0, 0), "A second run changes nothing")
+
+    def test_keys_typed_by_hand_are_no_stale_keys(self):
+        hand_tasks = self.Task.create(
+            [{"name": "Typed in a project", "project_id": self.key_project.id}, {"name": "Typed without a project"}]
+        )
+        for task, hand_key in zip(hand_tasks, ("ZQSPEC2", "ZQ-HAND")):
+            task.key = hand_key
+
+        self.assertEqual(self.Task._renew_stale_keys(hand_tasks), (0, 0))
+
+        self.assertEqual(hand_tasks.mapped("key"), ["ZQSPEC2", "ZQ-HAND"])
+
+    def test_a_stale_key_is_renewed_into_the_key_cleared_on_a_later_task(self):
+        moved_task = self.Task.create({"name": "Moved with its key", "project_id": self.other_project.id})
+        projectless_task = self.Task.create({"name": "Left by a deleted ZQGONE project"})
+        reused_project = self.Project.create({"name": "Zulu Quebec Reused", "key": "ZQGONE"})
+        self.env.flush_all()
+        self.env.cr.execute("UPDATE project_task SET project_id = %s WHERE id = %s", (reused_project.id, moved_task.id))
+        moved_task.invalidate_recordset(["project_id"])
+        # Written last, its row follows the moved task's both by id and on disk: an update reads it second.
+        projectless_task.key = "ZQGONE-1"
+
+        self.assertEqual(self.Task._renew_stale_keys(moved_task | projectless_task), (1, 1))
+
+        self.assertEqual((moved_task | projectless_task).mapped("key"), ["ZQGONE-1", False])
 
     def test_the_stale_key_migration_runs_on_an_update_with_keys_on(self):
         projectless_task = self.Task.create({"name": "Copied out of its project"})
@@ -563,15 +613,22 @@ class TestTaskKeys(ProjectAiDrivenCommon):
         self.parent_task.key = "ZQOTHER-90"
         stale_tasks = projectless_task | self.parent_task
         script = _load_script(STALE_KEY_MIGRATION_SCRIPT)
+        renew_stale_keys = KeyedTask._renew_stale_keys
 
-        script.migrate(self.env.cr, "16.0.2.17.2")
-        self.assertEqual(stale_tasks.mapped("key"), ["ZQX-90", "ZQOTHER-90"], "Keys are off in a test run")
+        def renew_own_stale_keys(task_model):
+            return renew_stale_keys(task_model, stale_tasks)
 
-        with patch.dict(config.options, test_enable=False):
-            script.migrate(self.env.cr, None)
-            self.assertEqual(stale_tasks.mapped("key"), ["ZQX-90", "ZQOTHER-90"], "An install changes nothing")
-
+        # The migration runs over every task: limited to this test's, so that it spends no numbers of
+        # the database's projects, which no rollback gives back.
+        with patch.object(KeyedTask, "_renew_stale_keys", renew_own_stale_keys):
             script.migrate(self.env.cr, "16.0.2.17.2")
+            self.assertEqual(stale_tasks.mapped("key"), ["ZQX-90", "ZQOTHER-90"], "Keys are off in a test run")
+
+            with patch.dict(config.options, test_enable=False):
+                script.migrate(self.env.cr, None)
+                self.assertEqual(stale_tasks.mapped("key"), ["ZQX-90", "ZQOTHER-90"], "An install changes nothing")
+
+                script.migrate(self.env.cr, "16.0.2.17.2")
 
         self.assertEqual(stale_tasks.mapped("key"), [False, "ZQX-3"])
 
