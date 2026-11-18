@@ -87,8 +87,10 @@ class TestTaskKeys(ProjectAiDrivenCommon):
         self.assertEqual(
             projects.task_key_sequence_id.mapped("code"), ["project.task.key.%s" % project.id for project in projects]
         )
-        self.assertEqual(projects.task_key_sequence_id.company_id, company | self.env.company)
-        self.assertEqual(projects[0].task_key_sequence_id.company_id, company)
+        self.assertEqual(
+            [project.task_key_sequence_id.company_id for project in projects],
+            [company, self.env.company, self.env.company],
+        )
 
     def test_a_generated_key_skips_a_key_given_later_in_the_same_batch(self):
         projects = self.Project.create([{"name": "Zulu Quebec Echo"}, {"name": "Zulu Quebec Lima", "key": "ZQE"}])
