@@ -100,7 +100,11 @@ class TestTaskViews(TransactionCase):
 
     def test_form_star_anchors_take_the_two_stars_of_the_core_form_outside_its_lists(self):
         own_arch = etree.fromstring(self.env.ref("%s.view_task_form2_common" % MODULE).arch)
-        anchors = [spec.get("expr") for spec in own_arch.iter("xpath") if "[not(ancestor::field)]" in spec.get("expr")]
+        anchors = [
+            spec.get("expr")
+            for spec in own_arch.iter("xpath")
+            if "field[@name='priority'][not(ancestor::field)]" in spec.get("expr")
+        ]
         core_arch = etree.fromstring(self.env.ref("project.view_task_form2").arch)
         header_stars = core_arch.xpath("//sheet//field[@name='priority'][@widget='priority_switch']")
         self.assertEqual(len(header_stars), 2)

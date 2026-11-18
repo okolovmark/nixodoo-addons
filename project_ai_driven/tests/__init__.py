@@ -19,3 +19,4 @@ from . import test_task_sessions
 from . import test_task_size
 from . import test_task_views
 from . import test_test_cases
+from . import test_uat_users

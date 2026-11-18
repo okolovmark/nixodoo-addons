@@ -36,6 +36,6 @@ Rejected:
 - A client asks for the brief by name; a read without a field list does not return it.
 - Two readers of one task may get different briefs.
 - Tokens and credentials are removed from urls on a best-effort basis in plain text and code: a url split by markup, or holding a brace, `<`, `>`, or a bracket or a quote in its query, may keep its token, and a token written loose outside a url stays.
-- The header shows fields other modules declare (`key`, `planned_date_begin`, `effective_hours`, `uat_user_ids`) where the model has them.
+- The header shows fields other modules declare (`key`, `planned_date_begin`, `effective_hours`) where the model has them.
 
 Reversal cost: drop the field, the two read overrides and the converter. Nothing is stored, so nothing is migrated; a tool that reads `brief` goes back to reading the task and its lines.

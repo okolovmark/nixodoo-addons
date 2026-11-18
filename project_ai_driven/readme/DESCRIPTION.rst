@@ -27,6 +27,12 @@ read.
   With Task Logs (``hr_timesheet``) installed, timesheet
   users also see the same field as *Allocated Time* on the tasks of a
   project that uses timesheets.
+* **UAT users** (``uat_user_ids``): the users who run the acceptance tests
+  of the task, after the Assignees on the form of every task, picked as the
+  Assignees are among the active internal users of the task's company; an
+  archived one stays shown. Changes are tracked. No copy takes them: a
+  Duplicate, a task created from a template and the tasks of a duplicated
+  project start without UAT users.
 * The core priority star is hidden on the tasks of a project flagged
   **AI-driven Project**: on the form, its *Sub-tasks* and *Blocked By*
   lists, the kanban card, the task list and the calendar popover. Its stored
@@ -548,9 +554,9 @@ A brief holds, in this order, each part only when it has something to show:
   assignees, the UAT users, the author and the creation date, the
   Resolution, the modules on a task of the project that develops this Odoo,
   the tags, and the link to the task form (``/odoo/project.task/<id>``).
-  The key, the planned start, the hours spent and the UAT users show where
-  a module declares their fields (``key``, ``planned_date_begin``,
-  ``effective_hours``, ``uat_user_ids``).
+  The key, the planned start and the hours spent show where a module
+  declares their fields (``key``, ``planned_date_begin``,
+  ``effective_hours``).
 * Related tasks: the parent, the sub-tasks, the tasks it is blocked by and
   those it blocks, each with its key, title and stage.
 * Pull requests, with their state, merge date and deploy date.

@@ -39,6 +39,18 @@ class ProjectTask(models.Model):
 
     is_ai_driven = fields.Boolean(related="project_id.is_ai_driven")
     develops_this_odoo = fields.Boolean(related="project_id.develops_this_odoo")
+    uat_user_ids = fields.Many2many(
+        "res.users",
+        relation="project_task__uat_user_rel",
+        column1="task_id",
+        column2="user_id",
+        string="UAT users",
+        # as the Assignees: an archived user stays shown on the tasks they were set on
+        context={"active_test": False},
+        copy=False,
+        tracking=True,
+        help="The users who run the acceptance tests of the task.",
+    )
     solution = fields.Html()
     priority_level = fields.Selection(
         [
