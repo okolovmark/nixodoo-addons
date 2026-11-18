@@ -31,6 +31,8 @@ Rejected:
 **Consequences.**
 
 - A brief is computed per read and per task: a read of many tasks naming `brief` costs one brief each. Nothing is stored or written.
+- From 20.0.2.15.1 the field is declared `recursive` though it has no recursive dependency: Odoo then computes an attribute read (`task.brief`) for that task only, where it would compute the whole prefetch set, up to 1000 tasks. A `read()` costs the same either way.
+- From 20.0.2.15.1 an editor checklist becomes Markdown task list items, `- [x]` when ticked, `- [ ]` when not.
 - A client asks for the brief by name; a read without a field list does not return it.
 - Two readers of one task may get different briefs.
 - Tokens and credentials are removed from urls on a best-effort basis in plain text and code: a url split by markup, or holding a brace, `<`, `>`, or a bracket or a quote in its query, may keep its token, and a token written loose outside a url stays.

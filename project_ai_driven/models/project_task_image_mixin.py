@@ -24,6 +24,12 @@ ACCESS_TOKEN = re.compile(r"[?&]access_token=([^&#]+)")
 # The editor names a pasted file data-file-name, core mail data-filename.
 NAME_ATTRIBUTES = ("data-filename", "data-file-name", "alt")
 DRY_RUN_SOURCE = "/web/image/0"
+# Pre-filters on the fields a write names, before the image fields are listed: only an Html or Properties
+# field saves a text, and only a many2one gives a record another container of its properties.
+TEXT_FIELD_TYPES_PREFILTER = ("html", "properties")
+CONTAINER_FIELD_TYPE_PREFILTER = "many2one"
+# core names an html property so, and sanitizes the value of no other
+HTML_PROPERTY_SUFFIX = "_html"
 
 
 def replace_image_sources(html_text, get_new_source):
@@ -220,13 +226,13 @@ class ImageMover:
 
 
 class ProjectTaskImageMixin(models.AbstractModel):
-    """The images in the Html fields of a task, a question row or a test case
-    are attachments of that record, served with an access token, as the html
-    editor attaches the images it uploads: an image written inline becomes one
-    on create and write, and a new record, or a line moved to another task,
-    that shows an image of another such record gets a copy of it, which
-    outlives that record. A write that links an image of another record
-    leaves it linked: see ADR 0011.
+    """The images in the Html fields of a task, a question row or a test case,
+    and in the html properties of a task, are attachments of that record,
+    served with an access token, as the html editor attaches the images it
+    uploads: an image written inline becomes one on create and write, and a
+    new record, or a line moved to another task, that shows an image of
+    another such record gets a copy of it, which outlives that record. A write
+    that links an image of another record leaves it linked: see ADR 0011.
     """
 
     _name = "project.task.image.mixin"
@@ -243,11 +249,14 @@ class ProjectTaskImageMixin(models.AbstractModel):
 
     def write(self, vals):
         """The inline images of the texts written become attachments of the record; a record moved to another
-        task also copies the images of other records its texts show.
+        task also copies the images of other records its texts show. A record whose container of its
+        properties is written, or that follows one written, gets the images of the defaults core fills in.
         """
         former_tasks = self._get_former_tasks(vals)
+        container_records = self._get_container_records(vals)
         result = super().write(vals)
         self._move_written_images(vals, self._filter_task_changed(former_tasks))
+        self._move_default_property_images(container_records)
         return result
 
     @api.model
@@ -257,13 +266,16 @@ class ProjectTaskImageMixin(models.AbstractModel):
 
     @api.model
     def _get_image_fields(self):
-        """The Html fields whose images are moved: stored, not computed, and
-        in one language (the column of a translated one holds every language).
+        """The fields whose images are moved: the Html fields stored, not
+        computed, and in one language (the column of a translated one holds
+        every language), and the stored Properties fields, for their html
+        properties.
         """
         return [
             fname
             for fname, field in self._fields.items()
-            if field.type == "html" and field.store and not field.compute and not field.translate
+            if (field.type == "html" and field.store and not field.compute and not field.translate)
+            or (field.type == "properties" and field.store)
         ]
 
     def _get_marked_image_fnames(self, fnames, copy_links):
@@ -272,12 +284,50 @@ class ProjectTaskImageMixin(models.AbstractModel):
         the cache it just filled, without a query.
         """
         marker = get_image_marker(copy_links)
-        return [fname for fname in fnames if any(marker.search(record[fname] or "") for record in self)]
+        return [
+            fname
+            for fname in fnames
+            if any(marker.search(text) for record in self for text in record._get_image_texts(fname).values())
+        ]
+
+    def _get_image_texts(self, fname):
+        """{key: text} of the texts of fname on this record: the text of an Html
+        field under None, the values of the html properties of a Properties
+        field under their names.
+        """
+        field = self._fields[fname]
+        # in sudo: a create fills in property defaults its user may not read, as a portal user does
+        stored_value = self.sudo()[fname]
+        if field.type != "properties":
+            return {None: stored_value} if stored_value else {}
+        property_values = field.convert_to_cache(stored_value, self, validate=False) or {}
+        return {
+            name: value
+            for name, value in property_values.items()
+            if name.endswith(HTML_PROPERTY_SUFFIX) and isinstance(value, str) and value
+        }
+
+    def _get_moved_image_value(self, mover, fname):
+        """The value of fname on this record with the images of its texts
+        moved, None where no text changes: a Properties field gets all its
+        values, those that are no html property as they are.
+        """
+        texts = self._get_image_texts(fname)
+        new_texts = {key: mover.move(text, self) for key, text in texts.items()}
+        if new_texts == texts:
+            return None
+        if self._fields[fname].type != "properties":
+            return new_texts[None]
+        return {**self._fields[fname].convert_to_cache(self.sudo()[fname], self, validate=False), **new_texts}
 
     def _move_created_images(self, vals_list):
         image_fnames = self._get_image_fields()
+        # core fills a Properties field with the defaults of its container's html properties, whatever vals give
         fnames_list = [
-            record._get_marked_image_fnames([fname for fname in image_fnames if fname in vals], copy_links=True)
+            record._get_marked_image_fnames(
+                [fname for fname in image_fnames if fname in vals or self._fields[fname].type == "properties"],
+                copy_links=True,
+            )
             for record, vals in zip(self, vals_list)
         ]
         if not any(fnames_list):
@@ -300,14 +350,52 @@ class ProjectTaskImageMixin(models.AbstractModel):
         return self.filtered(lambda record: record.id in former_tasks and record[task_fname] != former_tasks[record.id])
 
     def _move_written_images(self, vals, moved_records):
-        # core write accepts any key on an empty recordset
-        written_html_fnames = [fname for fname in vals if getattr(self._fields.get(fname), "type", None) == "html"]
-        if written_html_fnames:
-            image_fnames = [fname for fname in self._get_image_fields() if fname in written_html_fnames]
+        image_fnames = self._get_written_image_fnames(vals)
+        if image_fnames:
             (self - moved_records)._move_images(image_fnames, copy_links=False)
         if moved_records:
             # a line moved to another task copies the images of other records, as a new line would
             moved_records._move_images(self._get_image_fields(), copy_links=True)
+
+    @api.model
+    def _get_written_image_fnames(self, vals):
+        """The image fields a write of vals names."""
+        if not any(field.type in TEXT_FIELD_TYPES_PREFILTER for field in self._get_written_fields(vals)):
+            return []
+        return [fname for fname in self._get_image_fields() if fname in vals]
+
+    @api.model
+    def _get_written_fields(self, vals):
+        # core write accepts any key on an empty recordset
+        return [self._fields[fname] for fname in vals if fname in self._fields]
+
+    @api.model
+    def _get_properties_fnames(self):
+        return [fname for fname in self._get_image_fields() if self._fields[fname].type == "properties"]
+
+    def _get_container_records(self, vals):
+        """The records, in sudo, whose Properties fields core recomputes after a write of
+        vals: a write of their container, the same one included, or of one they follow.
+        The recompute fills empty html properties with the defaults of the container.
+        """
+        if not any(field.type == CONTAINER_FIELD_TYPE_PREFILTER for field in self._get_written_fields(vals)):
+            return self.browse()
+        container_fnames = [self._fields[fname].definition_record for fname in self._get_properties_fnames()]
+        if not container_fnames:
+            return self.browse()
+        return self._get_container_changing_records(vals, container_fnames).sudo()
+
+    def _get_container_changing_records(self, vals, container_fnames):
+        """The records whose containers of their properties vals may change: these, when vals name one."""
+        return self if set(container_fnames) & vals.keys() else self.browse()
+
+    def _move_default_property_images(self, records):
+        """Move the images of the properties of these records, in sudo: a record that
+        follows one written may be one the user cannot read. A text without an inline
+        image is left as it is.
+        """
+        if records:
+            records.sudo()._move_images(self._get_properties_fnames(), copy_links=False)
 
     def _move_images(self, image_fnames, copy_links):
         fnames = self._get_marked_image_fnames(image_fnames, copy_links)
@@ -315,17 +403,17 @@ class ProjectTaskImageMixin(models.AbstractModel):
             self._store_texts(self._get_moved_image_texts(ImageMover(self.env, copy_links=copy_links), fnames))
 
     def _get_moved_image_texts(self, mover, fnames):
-        """{record: {field name: new text}} for the records of self whose texts
-        mover changes. The texts are read as stored: sanitized.
+        """{record: {field name: new value}} for the records of self whose texts
+        mover changes, the value of a Properties field its {property name:
+        value}. The texts are read as stored: sanitized.
         """
         new_texts = {}
         for record in self:
             texts = {}
             for fname in fnames:
-                text = record[fname]
-                new_text = text and mover.move(text, record)
-                if new_text != text:
-                    texts[fname] = new_text
+                new_value = record._get_moved_image_value(mover, fname)
+                if new_value is not None:
+                    texts[fname] = new_value
             if texts:
                 new_texts[record] = texts
         return new_texts

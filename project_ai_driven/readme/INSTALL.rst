@@ -105,6 +105,12 @@ Run the update with the server stopped: dropping the column takes an
 exclusive lock on the test case table, and workers running the previous code
 read the column.
 
+The update to 20.0.2.15.1 adds no column and writes nothing on existing
+records. The html properties of a task saved before it keep their inline
+images until they are saved again, or until
+``_move_inline_images_to_attachments`` runs on the task, which covers them
+from this version on.
+
 **A database that has the 20.0 project_software installed**
 
 ``project_software`` is the former name of this module. Such a database is

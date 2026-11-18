@@ -1,5 +1,7 @@
 import base64
+import copy
 import io
+import json
 import re
 import struct
 import unittest
@@ -13,6 +15,7 @@ from PIL import Image
 
 from odoo import SUPERUSER_ID, Command
 from odoo.exceptions import AccessError, UserError
+from odoo.tests import new_test_user
 
 from ..models.project_task_image_mixin import get_image_source
 from .common import ProjectAiDrivenCommon
@@ -825,3 +828,183 @@ class TestInlineImages(ProjectAiDrivenCommon):
         self.assertEqual(calls_without_images, [])
         self.assertIn("create", calls, "a save with an image is counted")
         self.assertIn("exists", calls, "a link looked up is counted")
+
+    def _define_properties(self):
+        self.project.task_properties_definition = [
+            {"name": "notes_html", "string": "Notes", "type": "html"},
+            {"name": "label", "string": "Label", "type": "char"},
+        ]
+
+    def _property_values(self, task):
+        return task._fields["task_properties"].convert_to_cache(task.task_properties, task, validate=False)
+
+    def test_html_properties_keep_their_images_as_attachments(self):
+        self._define_properties()
+        notes = image_html(image_tag(data_uri(RED), ' alt="Plan"'))
+        label = image_tag(data_uri(BLUE))
+        self.task.task_properties = {"notes_html": notes, "label": label}
+        self.assertMovedTo(self.task.task_properties["notes_html"], notes, [(RED, "Plan")], self.task)
+        self.assertEqual(self.task.task_properties["label"], label, "only an html property is a text with images")
+
+        task = self._new_task(task_properties={"notes_html": image_html(image_tag(data_uri(GREEN)))})
+        self.assertMovedTo(
+            task.task_properties["notes_html"], image_html(image_tag(data_uri(GREEN))), [(GREEN, "image-1.png")], task
+        )
+        self.env.flush_all()
+        self.env.invalidate_all()
+        self.assertNotIn("data:image", self.task.task_properties["notes_html"], "the stored value is the moved one")
+
+    def test_html_property_defaults_keep_their_images_as_attachments(self):
+        default_notes = image_html(image_tag(data_uri(RED)))
+        self.project.task_properties_definition = [
+            {"name": "notes_html", "string": "Notes", "type": "html", "default": default_notes},
+        ]
+        task = self._new_task()
+        moved_task = self.env["project.task"].create({"name": "Moved in", "project_id": self.other_project.id})
+        moved_task.project_id = self.project
+
+        self.env.flush_all()
+        self.env.invalidate_all()
+        for record in task | moved_task:
+            with self.subTest(task=record.name):
+                self.assertMovedTo(record.task_properties["notes_html"], default_notes, [(RED, "image-1.png")], record)
+
+    def test_html_property_defaults_of_tasks_following_a_parent_into_a_project(self):
+        default_notes = image_html(image_tag(data_uri(RED)))
+        self.project.task_properties_definition = [
+            {"name": "notes_html", "string": "Notes", "type": "html", "default": default_notes},
+        ]
+        Task = self.env["project.task"]
+        parent = Task.create({"name": "Moved parent", "project_id": self.other_project.id})
+        sub_task = Task.create({"name": "Sub-task", "parent_id": parent.id})
+        sub_sub_task = Task.create({"name": "Sub-sub-task", "parent_id": sub_task.id})
+        other_parent = Task.create({"name": "Other parent", "project_id": self.other_project.id})
+        given_a_parent = Task.create({"name": "Given a parent", "parent_id": other_parent.id})
+
+        parent.project_id = self.project
+        given_a_parent.parent_id = self.task
+
+        self.env.flush_all()
+        self.env.invalidate_all()
+        for record in parent | sub_task | sub_sub_task | given_a_parent:
+            with self.subTest(task=record.name):
+                self.assertEqual(record.project_id, self.project)
+                self.assertMovedTo(record.task_properties["notes_html"], default_notes, [(RED, "image-1.png")], record)
+
+    def test_html_property_defaults_core_refills_without_a_change_of_project(self):
+        Task = self.env["project.task"]
+        # created before the default exists: core fills it in on the next write of project_id or parent_id
+        same_project = Task.create({"name": "Same project", "project_id": self.project.id})
+        under_a_parent = Task.create({"name": "Under a parent", "project_id": self.project.id})
+        default_notes = image_html(image_tag(data_uri(RED)))
+        self.project.task_properties_definition = [
+            {"name": "notes_html", "string": "Notes", "type": "html", "default": default_notes},
+        ]
+
+        same_project.project_id = self.project
+        under_a_parent.parent_id = self.task
+
+        self.env.flush_all()
+        self.env.invalidate_all()
+        for record in same_project | under_a_parent:
+            with self.subTest(task=record.name):
+                self.assertMovedTo(record.task_properties["notes_html"], default_notes, [(RED, "image-1.png")], record)
+
+    def test_html_property_defaults_of_sub_tasks_archived_or_hidden_from_the_writer(self):
+        default_notes = image_html(image_tag(data_uri(RED)))
+        self.project.task_properties_definition = [
+            {"name": "notes_html", "string": "Notes", "type": "html", "default": default_notes},
+        ]
+        hidden_project = self.env["project.project"].create(
+            {"name": "Followers only", "privacy_visibility": "followers"}
+        )
+        Task = self.env["project.task"]
+        parent = Task.create({"name": "Moved parent", "project_id": hidden_project.id})
+        parent.message_subscribe(partner_ids=self.user_lead.partner_id.ids)
+        hidden_sub_task = Task.create({"name": "Hidden sub-task", "parent_id": parent.id})
+        hidden_sub_task.message_unsubscribe(partner_ids=self.user_lead.partner_id.ids)
+        archived_sub_task = Task.create({"name": "Archived sub-task", "parent_id": parent.id, "active": False})
+        self.assertFalse(hidden_sub_task.with_user(self.user_lead).has_access("read"))
+
+        parent.with_user(self.user_lead).project_id = self.project
+
+        self.env.flush_all()
+        self.env.invalidate_all()
+        for record in hidden_sub_task | archived_sub_task:
+            with self.subTest(task=record.name):
+                self.assertEqual(record.project_id, self.project)
+                self.assertMovedTo(record.task_properties["notes_html"], default_notes, [(RED, "image-1.png")], record)
+
+    def test_html_property_defaults_of_a_task_a_portal_collaborator_creates(self):
+        portal_user = new_test_user(
+            self.env, "project_ai_driven_portal_images", groups="base.group_portal", context={"no_reset_password": True}
+        )
+        default_notes = image_html(image_tag(data_uri(RED)))
+        shared_project = self.env["project.project"].create(
+            {
+                "name": "Shared Project",
+                "privacy_visibility": "portal",
+                "collaborator_ids": [Command.create({"partner_id": portal_user.partner_id.id, "access_mode": "edit"})],
+                "task_properties_definition": [
+                    {"name": "notes_html", "string": "Notes", "type": "html", "default": default_notes},
+                ],
+            },
+        )
+        shared_project.message_subscribe(partner_ids=portal_user.partner_id.ids)
+        shared_task = self.env["project.task"].create({"name": "Fix the roof", "project_id": shared_project.id})
+
+        task = self.env["project.task"].with_user(portal_user).create({"name": "Leak", "parent_id": shared_task.id})
+
+        task = task.with_env(self.env)
+        self.assertMovedTo(task.task_properties["notes_html"], default_notes, [(RED, "image-1.png")], task)
+
+    def test_html_properties_saved_as_the_web_client_sends_them(self):
+        self._define_properties()
+        notes = image_html(image_tag(data_uri(RED)))
+        self.task.task_properties = [
+            {"name": "notes_html", "string": "Notes", "type": "html", "value": notes},
+            {"name": "label", "string": "Label", "type": "char", "value": "Kept"},
+        ]
+        self.assertMovedTo(self.task.task_properties["notes_html"], notes, [(RED, "image-1.png")], self.task)
+        self.assertEqual(self.task.task_properties["label"], "Kept")
+
+    def test_a_copy_gets_its_own_attachments_of_the_html_properties(self):
+        self._define_properties()
+        notes = image_html(image_tag(data_uri(RED)))
+        self.task.task_properties = {"notes_html": notes, "label": "Kept"}
+        source_values = copy.deepcopy(self._property_values(self.task))
+        source_attachment = self._attachments(self.task)
+
+        task_copy = self.task.copy()
+
+        self.assertEqual(self._property_values(self.task), source_values)
+        self.assertMovedTo(task_copy.task_properties["notes_html"], notes, [(RED, "image-1.png")], task_copy)
+        self.assertEqual(task_copy.task_properties["label"], "Kept")
+        copy_values = self._property_values(task_copy)
+        self.env.flush_all()
+        self.env.invalidate_all()
+        self.assertEqual(self._property_values(task_copy), copy_values, "the stored value is the moved one")
+        self.assertEqual(self._property_values(self.task), source_values)
+        copied_attachment = self._attachments(task_copy)
+        self.assertNotEqual(copied_attachment.access_token, source_attachment.access_token)
+        self.task.unlink()
+        self.assertTrue(copied_attachment.exists())
+
+    def test_moving_texts_saved_before_covers_the_html_properties(self):
+        self._define_properties()
+        notes = image_html(image_tag(data_uri(RED)))
+        self.env.flush_all()
+        self.env.cr.execute(
+            "UPDATE project_task SET task_properties = %s WHERE id = %s",
+            [json.dumps({"notes_html": notes, "label": "Kept"}), self.task.id],
+        )
+        self.task.invalidate_recordset(["task_properties"])
+
+        result = self.task._move_inline_images_to_attachments()
+
+        self.assertEqual((result["records"], result["images"]), (1, 1))
+        self.assertEqual(set(result["texts"][self.task]["task_properties"]), {"notes_html", "label"})
+        self.env.flush_all()
+        self.env.invalidate_all()
+        self.assertMovedTo(self.task.task_properties["notes_html"], notes, [(RED, "image-1.png")], self.task)
+        self.assertEqual(self.task.task_properties["label"], "Kept")

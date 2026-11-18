@@ -60,10 +60,11 @@ On the task form, which opens on Description:
   missing.
 
 An image pasted or dropped into a text of a task, of a question row or of a
-test case becomes an attachment of that record when it is saved, and the
-text shows it from there; the images of the Description and the Solution
-show among the attachments of the task's chatter. A duplicated task and its
-lines get their own copies of the images.
+test case, or into an html property of a task, becomes an attachment of
+that record when it is saved, and the text shows it from there; the images
+of the Description, the Solution and the html properties show among the
+attachments of the task's chatter. A duplicated task and its lines get
+their own copies of the images.
 
 **Project > Checklist** lists the checklist items of the tasks you can read
 in the selected companies, opened on your own TODO items. Group by project,
@@ -202,12 +203,14 @@ A migration or an ``odoo shell`` script moves the inline images of texts
 saved before 20.0.2.13.0 with
 ``_move_inline_images_to_attachments(dry_run=False, store=True)`` on the
 tasks, a private method that RPC cannot call. It covers the texts of the
-tasks and of their question rows and test cases, and returns ``records``
-(how many tasks and rows have texts that change), ``images`` (how many
-attachments it creates), ``bytes`` (their size before core resizes them)
-and ``texts`` (``{record: {field name: new text}}``). An image core fails to read stays
-inline and counts nowhere. It holds every new text until it returns: run it
-over the tasks in batches.
+tasks and of their question rows and test cases, and the html properties of
+the tasks, and returns ``records`` (how many tasks and rows have texts that
+change), ``images`` (how many attachments it creates), ``bytes`` (their
+size before core resizes them) and ``texts`` (``{record: {field name: new
+text}}``, the new ``task_properties`` a ``{property name: value}`` dict of
+all its values, to store as JSON). An image core fails to read stays inline
+and counts nowhere. It holds every new text until it returns: run it over
+the tasks in batches.
 
 * ``dry_run=True`` creates and changes nothing, counts as a run would, and
   returns empty ``texts``.
@@ -223,7 +226,9 @@ An agent or a tool reads a whole task with one read that names the brief:
 ``search_read`` without fields, leaves the brief out, so that it does not
 compute one brief per task it returns; a read of several tasks that names
 ``brief`` computes one brief each. The brief holds what the tool's user may
-read, and a task they cannot read raises an access error.
+read, and a task they cannot read raises an access error. Code on the
+server reads ``task.brief`` at the cost of that task's brief alone, from a
+recordset of any size.
 
 The rows of the brief carry the ids a tool acts on:
 ``### Question <id> (<status>)`` for a question row,

@@ -112,6 +112,8 @@ class ProjectTask(models.Model):
 
     brief = fields.Text(
         compute="_compute_brief",
+        # no recursive dependency: recursive makes an attribute read compute its own task, not its prefetch set
+        recursive=True,
         exportable=False,
         help="The whole task in Markdown for an agent, in one read: its attributes, related tasks, pull"
         " requests, description, questions, solution, checklist, test cases with their comments, sessions,"

@@ -489,12 +489,14 @@ class ProjectTask(models.Model):
     @api.model
     def _without_size(self, vals):
         """Return the vals of a write without a size: a value written to the
-        stored field would stand in place of the size of the hours.
+        stored field would stand in place of the size of the hours. A user who
+        may not write the field, a portal user, keeps it in the vals, for core
+        to refuse as any field outside their reach.
 
         A create needs no such care: it computes a read-only field whatever
         value was sent, or came as a default of the context.
         """
-        if "tshirt_estimate" not in vals:
+        if "tshirt_estimate" not in vals or not self.has_field_access(self._fields["tshirt_estimate"], "write"):
             return vals
         return {field_name: value for field_name, value in vals.items() if field_name != "tshirt_estimate"}
 
@@ -623,6 +625,12 @@ class ProjectTask(models.Model):
     def _get_task_fname(self):
         return None
 
+    def _get_container_changing_records(self, vals, container_fnames):
+        """A sub-task follows the project of its parent, at any depth: a write of either may move them all."""
+        if not {"project_id", "parent_id"} & vals.keys():
+            return super()._get_container_changing_records(vals, container_fnames)
+        return self.sudo().with_context(active_test=False).search([("id", "child_of", self.ids)])
+
     def _get_image_rows(self):
         """The question rows and the test cases of these tasks, in sudo: the rows whose texts hold images."""
         tasks = self.sudo()
@@ -635,7 +643,8 @@ class ProjectTask(models.Model):
 
         Returns {"records": how many tasks and lines change, "images": how
         many attachments are created, "bytes": their size before core resizes
-        them, "texts": {record: {field name: new text}}}. An image core cannot read
+        them, "texts": {record: {field name: new text}}}, the new value of the
+        task properties a {property name: value} dict. An image core cannot read
         stays inline and counts nowhere. dry_run changes nothing and counts as
         a run would. store=False creates the attachments and leaves the texts
         to the caller, to store without changing write_date and write_uid.

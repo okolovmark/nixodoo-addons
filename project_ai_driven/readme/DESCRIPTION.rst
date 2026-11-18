@@ -22,7 +22,9 @@ read.
   XS up to 2 hours, S up to 6, M up to 12, L up to 32, XL up to 60, XXL
   above; empty while the estimate is not above zero. A size sent in a write
   is dropped and one sent at creation is recomputed from the hours; neither
-  call is refused. With Task Logs (``hr_timesheet``) installed, timesheet
+  call is refused, but for a portal user, whose create or write sending a
+  size core refuses, as for any field outside the portal's writable fields.
+  With Task Logs (``hr_timesheet``) installed, timesheet
   users also see the same field as *Allocated Time* on the tasks of a
   project that uses timesheets.
 * The core priority star is hidden on the tasks of a project flagged
@@ -475,9 +477,13 @@ project or not. The texts are the stored Html fields, neither computed nor
 translated, of the task (**Description**, **Solution**, the general comments
 of its test cases), of its question rows (**Question**, **Answer**) and of
 its test cases (**Steps to execute**, **Expected results**, **Comments**),
-those other modules add to these models included. The editor of the form
-already uploads an image added in it when the record is saved; the module
-does the same for every other save.
+those other modules add to these models included, and the html properties
+of a task's **Properties** (``task_properties``), the defaults its project
+fills in included, on create and on every write of the task's project or
+parent, which also refills the properties of the tasks below it, its other
+properties left as they are. The editor of the form already uploads an
+image added in an Html field when the record is saved; the module does the
+same for every other save.
 
 * A create or a write that saves a text turns each ``<img>`` whose ``src``
   is a base64 inline image (``data:image/...;base64,...``), in any letter
@@ -501,9 +507,9 @@ does the same for every other save.
   limit of a worker and a database error fail the save. An SVG moved by a
   user who may not edit views is stored as text, as core stores such an
   upload, and no longer displays.
-* The images of a task's Description and Solution show among the
-  attachments of the task's chatter. Deleting a task, a row or a test case
-  deletes its images; a task deletes its rows with theirs.
+* The images of a task's Description, Solution and html properties show
+  among the attachments of the task's chatter. Deleting a task, a row or a
+  test case deletes its images; a task deletes its rows with theirs.
 
 A task, a question row or a test case created with a text that shows an
 image of an attachment of another task, row or test case
@@ -567,7 +573,12 @@ A brief holds, in this order, each part only when it has something to show:
 
 Times are in UTC, the deadline included. The texts become Markdown
 (headings, emphasis, links, lists, tables, code) with no markup left; the
-headings of a text sit below the section that holds it.
+headings of a text sit below the section that holds it. An item of an
+editor's checklist is a task list item, ``- [x]`` when ticked and ``- [ ]``
+when not, a nested checklist nested items; the box stands on a line of its
+own when the item opens with a heading, a list, a table, a rule, a code
+block or a quote. Another list item that starts like one has its bracket
+escaped.
 
 * An image or a link that names an attachment, of the task, of a row or of
   any other record, by a relative url or a url on the host of this database
