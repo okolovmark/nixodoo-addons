@@ -19,4 +19,4 @@ class TaskKeyController(http.Controller):
         The key matches whatever its case, and as it is: % and _ are no wildcards.
         """
         record = request.env[model_name].search([("key", "=ilike", escape_like_value(key))], limit=1)
-        return request.redirect(RECORD_URL % (action_xmlid, record.id or "new"), code=301)
+        return request.redirect(RECORD_URL % (action_xmlid, record.id or "new"), code=303)

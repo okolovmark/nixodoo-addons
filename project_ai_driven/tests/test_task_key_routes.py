@@ -1,3 +1,4 @@
+from odoo import Command
 from odoo.tests import HttpCase, new_test_user, tagged
 
 RECORD_URL = "/odoo/action-%s/%s"
@@ -18,7 +19,7 @@ class TestTaskKeyRoutes(HttpCase):
 
     def _open(self, path):
         response = self.url_open(path, allow_redirects=False)
-        self.assertEqual(response.status_code, 301, path)
+        self.assertEqual(response.status_code, 303, "%s: a redirect no browser caches" % path)
         return response.headers["Location"]
 
     def _assert_opens(self, path, action_xmlid, record_id):
@@ -30,6 +31,19 @@ class TestTaskKeyRoutes(HttpCase):
 
     def test_a_task_key_opens_its_task(self):
         self._assert_opens("/tasks/%s" % self.task.key.lower(), TASK_ACTION, self.task.id)
+
+    def test_a_portal_collaborator_opens_a_task_by_its_key(self):
+        portal_user = new_test_user(self.env, "project_ai_driven_key_routes_portal", groups="base.group_portal")
+        self.project.write(
+            {
+                "privacy_visibility": "portal",
+                "collaborator_ids": [Command.create({"partner_id": portal_user.partner_id.id})],
+            }
+        )
+        self.project.message_subscribe(partner_ids=portal_user.partner_id.ids)
+        self.authenticate(portal_user.login, portal_user.login)
+
+        self._assert_opens("/tasks/%s" % self.task.key, TASK_ACTION, self.task.id)
 
     def test_an_unknown_key_opens_an_empty_form(self):
         self._assert_opens("/tasks/ZQROUTE-99", TASK_ACTION, "new")

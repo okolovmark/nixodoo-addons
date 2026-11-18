@@ -630,23 +630,31 @@ of a project a key of its own (``key``, up to 20 characters) such as
 display name is its key before the name it has otherwise, so the
 breadcrumb, lists, cards and references show it, a portal user's included,
 and a name search finds projects and tasks by key, as does the search of
-their lists. The task's ``url`` is the link to its form,
+their lists. A portal user reads a task's key and finds tasks by it, as
+everyone does. The task's ``url`` is the link to its form,
 ``/odoo/action-project.action_view_task/<id>``.
 
 * A new project gets the initials of its name in upper case (the first
   three letters of a one-word name), followed by the lowest counter that
-  makes it free; archived projects count. The project form proposes the key
-  from the name until one is set.
+  makes it free; archived projects count. Only letters and digits make the
+  key: a word of none gives no initial, and a name of none gives no key.
+  A key made of many words is cut to the 10 characters with its counter.
+  The project form proposes the key from the name until one is set.
 * A task gets the next key of its project when it is created. Moved to
   another project, it gets a key of the new one, and so do the sub-tasks
   that move with it, archived ones included; moved to a project that gives
-  no key, they lose theirs. A sub-task in a project of its own stays there
-  with its key.
-* A new project key renames the keys of the project's tasks, each keeping
-  its number, and the prefix of its sequence. A cleared key clears the keys
-  of its tasks; the project gives none until it has a key again, and its
-  sequence then goes on from its next number. The tasks created in it or
-  moved into it meanwhile stay without a key.
+  no key, or taken out of its project, they lose theirs. A sub-task given a
+  parent in another project moves into that project and gets a key of it.
+  A sub-task in a project of its own stays there with its key.
+* A copied task gets the next key of its own project, and none without a
+  project: the copy keeps no key of its source. So does the next occurrence
+  of a recurring task, and a task created from a template.
+* A new project key renames the keys of the project's tasks and the prefix
+  of its sequence. Each task keeps its number, the digits at the end of its
+  key, whatever hyphens the former project key held. A cleared key clears
+  the keys of its tasks; the project gives none until it has a key again,
+  and its sequence then goes on from its next number. The tasks created in
+  it or moved into it meanwhile stay without a key.
 * A copied project gets a sequence of its own; a deleted project takes its
   sequence along.
 * ``/projects/<key>`` and ``/tasks/<key>`` open the form of the project or

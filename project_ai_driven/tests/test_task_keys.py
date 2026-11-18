@@ -77,6 +77,20 @@ class TestTaskKeys(ProjectAiDrivenCommon):
         self.assertEqual(archived_project.key, "ZQX1")
         self.assertEqual(self.Project.create({"name": "Zulu Quebec Xray"}).key, "ZQX2")
 
+    def test_a_generated_key_is_cut_to_the_size_of_the_key_with_its_counter(self):
+        long_name = "Zulu Quebec Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India"
+        first_project, second_project = self.Project.create([{"name": long_name}, {"name": long_name}])
+        task = self.Task.create({"name": "Long", "project_id": first_project.id})
+
+        self.assertEqual((first_project | second_project).mapped("key"), ["ZQABCDEFGH", "ZQABCDEFG1"])
+        self.assertEqual(task.key, "ZQABCDEFGH-1")
+
+    def test_a_generated_key_keeps_only_letters_and_digits(self):
+        projects = self.Project.create([{"name": "Zulu - Quebec [Sierra] 9"}, {"name": "Zq.w-erty"}, {"name": "- [ ]"}])
+
+        self.assertEqual(projects.mapped("key"), ["ZQS9", "ZQW", False])
+        self.assertFalse(projects[2].task_key_sequence_id)
+
     def test_a_batch_create_keeps_every_project_with_its_key_and_sequence(self):
         company = self.env["res.company"].create({"name": "Zulu Quebec Company"})
 
@@ -144,6 +158,13 @@ class TestTaskKeys(ProjectAiDrivenCommon):
         self.assertEqual(self.parent_task.display_name, "ZQNEW-1 - Parent")
         self.assertEqual(self.key_project.task_key_sequence_id.prefix, "ZQNEW-")
         self.assertEqual(self.Task.create({"name": "Next", "project_id": self.key_project.id}).key, "ZQNEW-3")
+
+    def test_a_project_key_with_hyphens_renames_its_tasks_by_the_number_after_the_last_hyphen(self):
+        self.key_project.key = "ZQ-[X]"
+        self.key_project.key = "ZQ-Y"
+
+        self.assertEqual((self.parent_task | self.sub_task).mapped("key"), ["ZQ-Y-1", "ZQ-Y-2"])
+        self.assertEqual(self.Task.create({"name": "Next", "project_id": self.key_project.id}).key, "ZQ-Y-3")
 
     def test_a_cleared_key_draws_no_key_until_the_project_has_one_again(self):
         self.key_project.key = False
@@ -278,6 +299,46 @@ class TestTaskKeys(ProjectAiDrivenCommon):
         self.assertEqual(moved_tasks.mapped("key"), [False, False, False], "ZQT-1 and ZQX-1 would both become ZQBACK-1")
         self.assertEqual(next_task.key, "ZQBACK-1")
 
+    def test_a_task_taken_out_of_its_project_loses_its_key(self):
+        task = self.Task.create({"name": "Taken out", "project_id": self.key_project.id})
+
+        task.write({"project_id": False})
+
+        self.assertFalse(task.key)
+        self.assertEqual(task.display_name, "Taken out")
+
+    def test_a_copy_outside_a_project_gets_no_key(self):
+        task = self.Task.create({"name": "Source", "project_id": self.key_project.id})
+
+        copied_task = task.copy({"project_id": False})
+
+        self.assertFalse(copied_task.project_id)
+        self.assertFalse(copied_task.key)
+        self.assertEqual(task.key, "ZQX-3")
+
+    def test_a_sub_task_given_a_parent_in_another_project_gets_a_key_of_that_project(self):
+        other_parent_task = self.Task.create({"name": "Other parent", "project_id": self.other_project.id})
+
+        self.sub_task.parent_id = other_parent_task
+
+        self.assertEqual(self.sub_task.project_id, self.other_project)
+        self.assertEqual(self.sub_task.key, "ZQOTHER-2")
+
+    def test_a_reused_project_key_draws_no_key_of_a_task_that_left_its_project(self):
+        taken_out_task = self.Task.create({"name": "Taken out", "project_id": self.key_project.id})
+        other_parent_task = self.Task.create({"name": "Other parent", "project_id": self.other_project.id})
+        taken_out_task.project_id = False
+        self.sub_task.parent_id = other_parent_task
+        self.key_project.key = "ZQRENAMED"
+
+        reused_project = self.Project.create({"name": "Zulu Quebec Reused", "key": "ZQX"})
+        new_tasks = self.Task.create(
+            [{"name": "New %s" % number, "project_id": reused_project.id} for number in range(3)]
+        )
+
+        self.assertEqual(new_tasks.mapped("key"), ["ZQX-1", "ZQX-2", "ZQX-3"])
+        self.assertEqual(self.parent_task.key, "ZQRENAMED-1")
+
     def test_a_task_moved_into_a_marked_stage_with_its_resolution_passes_the_closing_rule(self):
         # The key is renewed after the write: a write of the project alone first would meet the rule
         # without the Resolution of the same write.
@@ -302,8 +363,16 @@ class TestTaskKeys(ProjectAiDrivenCommon):
         )
 
         self.assertEqual(task.project_id, shared_project)
-        self.assertEqual(task.sudo().key, "ZQP-1")
+        self.assertEqual(task.key, "ZQP-1")
         self.assertEqual(task.display_name, "ZQP-1 - Report the leak", "The portal user reads the key in the name")
+
+    def test_a_portal_collaborator_finds_a_task_by_its_key(self):
+        user_portal, shared_project = self._create_portal_collaborator_project()
+        task = self.Task.create({"name": "Shared", "project_id": shared_project.id})
+        portal_tasks = self.Task.with_user(user_portal)
+
+        self.assertEqual([task_id for task_id, _name in portal_tasks.name_search("zqp-1")], task.ids)
+        self.assertEqual(portal_tasks.search([("key", "=ilike", "ZQP-1")]), task)
 
     def test_keys_stay_off_in_a_test_run_unless_the_context_asks(self):
         project_model = self.Project.with_context(test_project_key=False)

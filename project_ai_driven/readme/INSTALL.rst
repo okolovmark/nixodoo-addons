@@ -128,7 +128,9 @@ constraints, and ``task_key_sequence_id`` of projects. Its migration, as the
 install hook does, gives the keys the database lacks:
 
 * Each project without a key, archived ones included, gets one from its
-  name and a sequence.
+  name and a sequence. A name without letters or digits gives no key: that
+  project and its tasks stay without one, and its form asks for a key when
+  it is next saved.
 * The tasks without a key of those projects, archived and folded ones
   included, get the next numbers of the project's sequence in the order
   they were created, and the sequence moves past them. One SQL statement
