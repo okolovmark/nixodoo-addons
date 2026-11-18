@@ -3,12 +3,13 @@ import unittest
 from datetime import datetime
 
 from lxml import etree, html
+from markupsafe import escape
 
 from odoo import Command
 from odoo.exceptions import AccessError, UserError, ValidationError
 
 from .common import ProjectAiDrivenCommon
-from .test_checklist import CHECKLIST_MODEL
+from .test_checklist import CHECKLIST_MODEL, MARKUP_NAME
 from .test_estimate_rule import NO_ESTIMATE, NO_TYPE
 
 DEADLINE = datetime(2026, 12, 1, 10, 0)
@@ -77,6 +78,18 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
                 "user_ids": [Command.set((self.user_dev | self.reviewer).ids)],
             },
         )
+
+    def _create_task_of_other_company(self, company):
+        project = self.env["project.project"].create(
+            {
+                "name": "Other Company Project",
+                "company_id": company.id,
+                "privacy_visibility": "employees",
+                "type_ids": [Command.clear()],
+            },
+        )
+        self._create_stage("Other Company Backlog", 1, project=project)
+        return self.env["project.task"].create({"name": "Other Company Task", "project_id": project.id})
 
     def _subtasks(self, task):
         return self.env["project.task"].search([("parent_id", "=", task.id)])
@@ -185,6 +198,51 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
         # the rule refuses after core's INSERT: the sub-task row goes with the rollback of the request
         self.assertTrue(item.exists(), "the item goes only once its sub-task is accepted")
         self.assertFalse(self._conversion_notes(self.task), "the note follows the sub-task")
+
+    def test_a_subtask_refused_by_the_closing_rule_of_the_first_stage_leaves_the_item(self):
+        self.project.pr_required_states = self.stage_backlog
+        item = self._new_item()
+        with unittest.TestCase.assertRaises(self, ValidationError) as refusal:
+            item.with_user(self.user_dev).action_convert_to_subtask()
+        self.assertIn("Choose a Resolution", refusal.exception.args[0])
+        self.assertTrue(item.exists(), "the item goes only once its sub-task is accepted")
+        self.assertFalse(self._conversion_notes(self.task), "the note follows the sub-task")
+
+    def test_markup_in_the_name_of_an_item_is_text_in_the_note(self):
+        item = self._new_item(name=MARKUP_NAME)
+        item.with_user(self.user_dev).action_convert_to_subtask()
+        subtask = self._subtasks(self.task)
+        self.assertEqual(subtask.name, MARKUP_NAME)
+        self.assertIn(str(escape(MARKUP_NAME)), self._conversion_notes(self.task).body)
+        self.assertNoteLinks(self.task, MARKUP_NAME, subtask, self.user_dev)
+
+    def test_the_right_to_convert_is_computed_for_each_company_selection(self):
+        other_company = self.env["res.company"].create({"name": "Other Company"})
+        self.reviewer.company_ids = [Command.link(other_company.id)]
+        task = self._create_task_of_other_company(other_company)
+        item = self._new_item(task_id=task.id).with_user(self.reviewer)
+        both_companies, main_company = (self.env.company | other_company).ids, self.env.company.ids
+        self.assertTrue(item.with_context(allowed_company_ids=both_companies).can_convert)
+        self.assertFalse(
+            item.with_context(allowed_company_ids=main_company).can_convert,
+            "its task is out of the companies selected",
+        )
+
+    def test_an_item_of_another_allowed_company_converts_into_that_company(self):
+        other_company = self.env["res.company"].create({"name": "Other Company"})
+        self.reviewer.company_ids = [Command.link(other_company.id)]
+        task = self._create_task_of_other_company(other_company)
+        item = self._new_item(task_id=task.id)
+        as_reviewer = item.with_user(self.reviewer).with_context(
+            allowed_company_ids=(self.env.company | other_company).ids
+        )
+        self.assertTrue(as_reviewer.can_convert)
+        as_reviewer.action_convert_to_subtask()
+        self.assertFalse(item.exists())
+        self.assertRecordValues(
+            self._subtasks(task),
+            [{"company_id": other_company.id, "project_id": task.project_id.id, "user_ids": self.user_dev.ids}],
+        )
 
     def test_a_user_who_may_read_but_not_write_the_task_is_refused_before_anything_is_created(self):
         self.env["ir.access"].create(
@@ -313,6 +371,13 @@ class TestChecklistItemToSubtask(ProjectAiDrivenCommon):
                 self.assertRecordValues(
                     self._subtasks(task), [{"project_id": task.project_id.id, "user_ids": self.user_dev.ids}]
                 )
+
+    def test_the_right_to_convert_follows_a_change_of_the_visibility_of_the_project(self):
+        task = self._create_task_of_team_project("followers")
+        item = self._new_item(task_id=task.id).with_user(self.reviewer)
+        self.assertFalse(item.can_convert)
+        task.project_id.privacy_visibility = "employees"
+        self.assertTrue(item.can_convert)
 
     def test_a_reviewer_who_may_read_the_project_of_a_team_converts(self):
         task = self._create_task_of_team_project("followers")

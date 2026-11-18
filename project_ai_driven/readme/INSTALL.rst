@@ -65,6 +65,9 @@ project that develops the database.
 The update to 20.0.2.10.1 has no migration and writes nothing on existing
 records.
 
+The update to 20.0.2.11.1 has no migration and writes nothing on existing
+records.
+
 **A database that has the 20.0 project_software installed**
 
 ``project_software`` is the former name of this module. Such a database is

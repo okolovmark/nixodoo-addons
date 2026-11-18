@@ -101,17 +101,23 @@ its task (``action_convert_to_subtask``):
   convert its items. On a task template without a project only the item's
   assignee converts it, or a project manager who is its reviewer; on a
   private task nobody does. The *Convert to
-  Sub-task* buttons show only to who may convert under these conditions.
+  Sub-task* buttons show only to who may convert under these conditions,
+  computed for the user and for the companies selected in the company
+  switcher: an item of a task of a company left out of the selection shows
+  none.
 * The sub-task takes the item's description as its title, its assignee and
-  its deadline, and the project of the task. It is given no stage: core puts
-  it in the first unfolded stage of the project by sequence. No default of
-  the calling view reaches it.
+  its deadline, and the project of the task, so also the company of that
+  project when the user has several selected. It is given no stage: core
+  puts it in the first unfolded stage of the project by sequence. No default
+  of the calling view reaches it.
 * The item's reviewer follows the sub-task, next to the followers core gives
   it. Core notifies the assignee of the sub-task unless the assignee
   converts the item; ``mail_auto_subscribe_no_notify`` silences that, as for
   any task.
 * An internal note on the task, by the user converting, links the sub-task.
-  It opens with plain text, so it gets no category. The item is deleted.
+  It opens with plain text, so it gets no category, and names the item by
+  its description as text: markup in it shows as written. The item is
+  deleted.
 * An item of a task template becomes a template sub-task: in the template's
   project and its first stage, or without project and stage, then only by
   its assignee or by a project manager who is its reviewer. An item of a

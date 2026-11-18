@@ -121,7 +121,8 @@ sub-tasks with ``action_convert_to_subtask``, one sub-task under the task of
 each item, as the item's assignee, or as its reviewer where its user may read
 the task's project or, on a task template without a project, is a project
 manager (never on a private task);
-``can_convert`` tells whether its user may. It reads only the items of the
+``can_convert`` tells whether its user may, in the companies of
+``allowed_company_ids`` when the context has it. It reads only the items of the
 tasks its user can read, and creates, changes and deletes only those of the
 tasks its user can change; without ``allowed_company_ids`` in the context,
 those of all the user's companies. It reaches question rows and test cases

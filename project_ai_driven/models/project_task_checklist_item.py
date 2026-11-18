@@ -43,8 +43,10 @@ class ProjectTaskChecklistItem(models.Model):
             else:
                 record.hide_button = False
 
-    @api.depends("reviewer_id", "user_id", "task_id.project_id", "task_id.is_template")
-    @api.depends_context("uid")
+    @api.depends(
+        "reviewer_id", "user_id", "task_id.project_id", "task_id.project_id.privacy_visibility", "task_id.is_template"
+    )
+    @api.depends_context("uid", "allowed_company_ids")
     def _compute_can_convert(self):
         refused_items = (
             self._filter_items_of_others()
