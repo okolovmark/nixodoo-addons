@@ -49,8 +49,9 @@ Who opens which team in those two modes follows the user's employee:
   it) or **Employees: Officer** opens every manager and every department.
   So does every **Project / Administrator**: Odoo gives project
   administrators the first of these rights.
-* In every case a department opens only in a company the user has selected,
-  and a manager other than the user only with an active employee in one.
+* In every case a department opens only in a company the user may enter,
+  and a manager other than the user only with an active employee the user
+  finds there; the manager's team itself may reach into other companies.
 
 A manager's team is everyone below their employees, the manager left out,
 also where the hierarchy loops back: Odoo lets an employee manage their own
