@@ -126,7 +126,8 @@ highlighted, a task and its own sub-tasks excepted. Dependencies are drawn
 as orange elbow connectors from the predecessor's end into the successor's
 start. **Export Excel** downloads the open tasks of the selected projects
 that have planned dates or a deadline as an .xlsx Gantt chart, sorted by
-start, with today's column marked; the search facets and grouping are not
+start, with today's column marked; a planned date the task does not have
+leaves its Start or End cell empty. The search facets and grouping are not
 applied. The chart is drawn with vis-timeline 7.7.0, which the module
 ships (``static/lib/vis-timeline``, MIT License) and loads on the first
 chart shown; the library injects its own styles.

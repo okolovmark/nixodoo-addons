@@ -16,11 +16,9 @@
                 <div class="flex-grow-1 min-w-0">
                     <h6 class="o_team_dashboard_member_name mb-0 text-truncate" t-out="member.user_name"/>
                     <small class="text-muted">
-                        <t t-out="member.total_open_tasks"/> tasks ·
-                        <t t-if="member.total_remaining_hours >= 0">
-                            <t t-out="this.formatHours(member.total_remaining_hours)"/>h remaining
-                        </t>
-                        <span t-else="" class="text-danger fw-bold"><t t-out="this.formatHours(-member.total_remaining_hours)"/>h over estimate</span>
+                        <t t-out="this.openTasksText(member)"/> ·
+                        <t t-if="member.total_remaining_hours >= 0" t-out="this.remainingHoursText(member.total_remaining_hours)"/>
+                        <span t-else="" class="text-danger fw-bold" t-out="this.overEstimateText(-member.total_remaining_hours)"/>
                     </small>
                     <div t-if="this.showsProjects() and member.project_names?.length" class="d-flex flex-wrap gap-1 mt-1">
                         <span t-foreach="member.project_names" t-as="projectName" t-key="projectName_index"
@@ -31,9 +29,8 @@
                     <span class="o_team_dashboard_hours_period badge text-bg-light border" title="Hours logged in period">
                         <i class="oi me-1" data-icon="schedule" role="img" aria-hidden="true"/><t t-out="this.formatHours(member.hours_logged_period)"/>h
                     </span>
-                    <div class="o_team_dashboard_hours_today text-muted" title="Hours logged today">
-                        Today: <t t-out="this.formatHours(member.hours_logged_today)"/>h
-                    </div>
+                    <div class="o_team_dashboard_hours_today text-muted" title="Hours logged today"
+                         t-out="this.todayHoursText(member)"/>
                 </div>
                 <div t-if="member.user_id" class="d-flex flex-wrap justify-content-end gap-1 w-100">
                     <t t-if="this.props.mode === 'project'">
@@ -71,9 +68,8 @@
                         <t t-if="currentTask.key"><span class="text-muted" t-out="currentTask.key"/> </t>
                         <t t-out="currentTask.name"/>
                     </a>
-                    <small t-if="currentTask.is_subtask and currentTask.parent_key" class="text-info d-block ps-3">
-                        sub-task of <t t-out="currentTask.parent_key"/>
-                    </small>
+                    <small t-if="currentTask.is_subtask and currentTask.parent_key" class="text-info d-block ps-3"
+                           t-out="this.subtaskOfText(currentTask)"/>
                     <t t-if="currentTask.planned_hours > 0">
                         <div class="progress mt-1" role="progressbar" aria-label="Allocated hours spent"
                              aria-valuemin="0" aria-valuemax="100"
@@ -81,16 +77,12 @@
                             <div class="progress-bar" t-att-class="this.progressBarClass(currentTask)"
                                  t-attf-style="width: {{ this.progressBarWidth(currentTask) }}%"/>
                         </div>
-                        <small class="o_team_dashboard_current_hours text-muted">
-                            <t t-out="this.formatHours(currentTask.remaining_hours)"/>h remaining
-                            / <t t-out="this.formatHours(currentTask.planned_hours)"/>h estimated
-                        </small>
+                        <small class="o_team_dashboard_current_hours text-muted" t-out="this.currentHoursText(currentTask)"/>
                     </t>
                     <div t-if="currentTask.planned_date_end">
                         <small class="o_team_dashboard_deadline" t-att-class="currentTask.is_overdue ? 'text-danger fw-bold' : 'text-muted'">
                             <i class="oi me-1" data-icon="calendar_today" role="img" aria-hidden="true"/>
-                            Deadline: <t t-out="this.formatDay(currentTask.planned_date_end)"/>
-                            <t t-if="currentTask.is_overdue"> (OVERDUE)</t>
+                            <t t-out="this.deadlineText(currentTask)"/>
                         </small>
                     </div>
                 </div>
@@ -109,11 +101,11 @@
 
             <div class="card-footer d-flex flex-wrap justify-content-between gap-2 small text-muted">
                 <span class="o_team_dashboard_planned_hours">
-                    <i class="oi me-1" data-icon="bar_chart" role="img" aria-hidden="true"/><t t-out="this.formatHours(member.total_planned_hours)"/>h estimated
+                    <i class="oi me-1" data-icon="bar_chart" role="img" aria-hidden="true"/><t t-out="this.estimatedHoursText(member)"/>
                 </span>
                 <span t-if="member.estimated_completion" class="o_team_dashboard_eta"
                       title="Estimated completion based on work schedule and leaves">
-                    <i class="oi me-1" data-icon="sports_score" role="img" aria-hidden="true"/>ETA: <strong t-out="this.formatDay(member.estimated_completion)"/>
+                    <i class="oi me-1" data-icon="sports_score" role="img" aria-hidden="true"/><t t-out="this.etaText(member)"/>
                 </span>
             </div>
         </div>

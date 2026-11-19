@@ -121,7 +121,7 @@ class TestGanttChartData(TeamDashboardCommon):
         self.assertEqual(task_data["planned_date_start"], expected_start)
 
     def test_the_payload_tells_the_dates_a_task_has_from_a_padded_one(self):
-        start_only, end_only, both_dates = self.Task.create(
+        start_only, end_only, both_dates, deadline_only = self.Task.create(
             [
                 {"name": "Start Only", "project_id": self.project.id, "planned_date_start": self.now},
                 {"name": "End Only", "project_id": self.project.id, "planned_date_end": self.now},
@@ -131,6 +131,7 @@ class TestGanttChartData(TeamDashboardCommon):
                     "planned_date_start": self.now,
                     "planned_date_end": self.now + timedelta(days=2),
                 },
+                {"name": "Deadline Only", "project_id": self.project.id, "date_deadline": self.now},
             ]
         )
         result = self.Project.get_gantt_chart_data(self.project.id)
@@ -139,6 +140,7 @@ class TestGanttChartData(TeamDashboardCommon):
             (start_only, (True, False)),
             (end_only, (False, True)),
             (both_dates, (True, True)),
+            (deadline_only, (False, False)),
         ):
             with self.subTest(task=task.name):
                 task_data = task_data_by_id[task.id]

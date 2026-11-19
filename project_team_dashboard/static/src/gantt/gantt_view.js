@@ -37,6 +37,7 @@ import {
     shownColumnsWidth,
     sidebarMaxWidth,
     utcToDate,
+    weekStartMoment,
     wholeDaysBetween,
 } from "./gantt_model";
 import { GanttProjectPicker } from "./gantt_project_picker";
@@ -269,6 +270,7 @@ export class GanttView extends Component {
             showBaseline: this.settings.showBaseline,
             showStageHistory: this.settings.showStageHistory,
             isMultiProject: this.settings.projectIds.length > 1,
+            isRtl: localization.direction === "rtl",
         });
         this.model = model;
         const hasAnyTask = Boolean(data.tasks.length || (data.unscheduled || []).length);
@@ -311,6 +313,8 @@ export class GanttView extends Component {
             // vis scrolls the rows itself, which keeps the time axis pinned above them
             maxHeight: Math.max(400, document.documentElement.clientHeight - top - 16),
             margin: { item: { horizontal: 0, vertical: 4 } },
+            // a bar's content spans the bar, its link handle at the end: vis would shift it into the window
+            align: "left",
             start: window ? window.start : model.range.start,
             end: window ? window.end : model.range.end,
             min: model.range.min,
@@ -334,6 +338,7 @@ export class GanttView extends Component {
             selectable: true,
             snap: null,
             timeAxis: { scale: this.settings.scale, step: 1 },
+            moment: weekStartMoment(this.vis.moment, localization.weekStart),
             dataAttributes: ["id"],
             onMove: (item, callback) => this.onItemMove(item, callback),
         };
@@ -583,7 +588,7 @@ export class GanttView extends Component {
             item.end = shiftByWholeDays(stored.end, item.end);
             movedEnd = item.end;
         } else {
-            // a milestone is drawn on its start alone: its end moves by as many days
+            // a milestone is a point: its end moves by as many days
             const plannedEnd = utcToDate(task.planned_date_end);
             movedEnd = shiftByWholeDays(plannedEnd, new Date(plannedEnd.getTime() + offset));
         }
@@ -638,6 +643,15 @@ export class GanttView extends Component {
         const arrow = ev.target.closest(".o_gantt_dep_hit");
         if (arrow) {
             this.openDependencyPopover(this.model.edges[Number(arrow.dataset.edgeIndex)], ev);
+        }
+    }
+
+    /** The openers drawn in the row labels are spans with a button role: Enter and Space press them. */
+    onTimelineKeydown(ev) {
+        const opener = ev.target.closest(".o_gantt_open_task, .o_gantt_unscheduled_name");
+        if (opener && (ev.key === "Enter" || ev.key === " ")) {
+            ev.preventDefault();
+            this.openTask(Number(opener.dataset.taskId));
         }
     }
 
@@ -785,6 +799,7 @@ export class GanttView extends Component {
             defs.appendChild(marker);
         }
         svg.appendChild(defs);
+        const isRtl = this.timeline.options.rtl;
         const pathBetween = (fromId, toId) => {
             const fromElement = content.querySelector(`.vis-item[data-id="${CSS.escape(fromId)}"]`);
             const toElement = content.querySelector(`.vis-item[data-id="${CSS.escape(toId)}"]`);
@@ -794,10 +809,11 @@ export class GanttView extends Component {
             const fromRect = fromElement.getBoundingClientRect();
             const toRect = toElement.getBoundingClientRect();
             return elbowPath(
-                fromRect.right - contentRect.left,
+                (isRtl ? fromRect.left : fromRect.right) - contentRect.left,
                 fromRect.top + fromRect.height / 2 - contentRect.top,
-                toRect.left - contentRect.left,
-                toRect.top + toRect.height / 2 - contentRect.top
+                (isRtl ? toRect.right : toRect.left) - contentRect.left,
+                toRect.top + toRect.height / 2 - contentRect.top,
+                isRtl
             );
         };
         const addPath = (d, styleKey) => {
@@ -845,6 +861,11 @@ export class GanttView extends Component {
         return lines.join("\n");
     }
 
+    /** The panel of the row labels: vis-timeline puts it on the right of the chart right to left. */
+    labelPanel() {
+        return this.timelineRef().querySelector(this.timeline.options.rtl ? ".vis-panel.vis-right" : ".vis-panel.vis-left");
+    }
+
     /**
      * Cap the label sidebar (`sidebarMaxWidth`). The width is locked at the widest label seen, so
      * scrolling to shorter rows does not shrink it; a new chart width or column set drops the lock
@@ -856,32 +877,43 @@ export class GanttView extends Component {
         const columnsWidth = shownColumnsWidth(activeColumns(this.state.columns, this.settings.groupBy), containerWidth);
         container.classList.toggle("o_gantt_cols_off", !columnsWidth);
         const maxWidth = sidebarMaxWidth(containerWidth, columnsWidth);
-        const left = container.querySelector(".vis-panel.vis-left");
-        if (!left) {
+        const sidebar = this.labelPanel();
+        if (!sidebar) {
             return;
         }
-        const inners = left.querySelectorAll(".vis-inner");
+        const inners = sidebar.querySelectorAll(".vis-inner");
         const sidebarKey = `${containerWidth}:${columnsWidth}`;
         if (sidebarKey !== this.sidebar.key) {
-            this.sidebar = { width: 0, key: sidebarKey };
-            left.style.width = "";
+            Object.assign(this.sidebar, { width: 0, key: sidebarKey });
+            sidebar.style.width = "";
             for (const inner of inners) {
                 inner.style.width = "";
                 inner.style.maxWidth = "";
             }
         }
-        const desiredWidth = Math.min(left.offsetWidth, maxWidth);
+        const desiredWidth = Math.min(sidebar.offsetWidth, maxWidth);
         if (!this.sidebar.width || desiredWidth > this.sidebar.width) {
             this.sidebar.width = desiredWidth;
         }
         const lockWidth = Math.min(this.sidebar.width, maxWidth);
-        left.style.width = `${lockWidth}px`;
-        for (const panel of container.querySelectorAll(".vis-panel.vis-center, .vis-panel.vis-top, .vis-panel.vis-bottom")) {
-            panel.style.left = `${lockWidth}px`;
+        sidebar.style.width = `${lockWidth}px`;
+        if (lockWidth !== this.sidebar.laidOutWidth) {
+            // vis placed the panels around the width before the cap: right to left, the names would
+            // end short of the chart's edge until the next pan
+            this.sidebar.laidOutWidth = lockWidth;
+            this.timeline.redraw();
         }
-        const leftX = left.getBoundingClientRect().left;
+        const isRtl = this.timeline.options.rtl;
+        if (!isRtl) {
+            for (const panel of container.querySelectorAll(".vis-panel.vis-center, .vis-panel.vis-top, .vis-panel.vis-bottom")) {
+                panel.style.left = `${lockWidth}px`;
+            }
+        }
+        const sidebarRect = sidebar.getBoundingClientRect();
         for (const inner of inners) {
-            const innerWidth = `${Math.max(0, lockWidth - (inner.getBoundingClientRect().left - leftX) - 4)}px`;
+            const innerRect = inner.getBoundingClientRect();
+            const indent = isRtl ? sidebarRect.right - innerRect.right : innerRect.left - sidebarRect.left;
+            const innerWidth = `${Math.max(0, lockWidth - indent - 4)}px`;
             inner.style.width = innerWidth;
             inner.style.maxWidth = innerWidth;
         }
@@ -924,7 +956,7 @@ export class GanttView extends Component {
         const root = container.querySelector(".vis-timeline");
         const columns = activeColumns(this.state.columns, this.settings.groupBy);
         const top = root && root.querySelector(".vis-panel.vis-top");
-        const bodyCell = root && root.querySelector(".vis-panel.vis-left .o_gantt_cell:last-child");
+        const bodyCell = root && this.labelPanel()?.querySelector(".o_gantt_cell:last-child");
         if (!columns.length || !top || !bodyCell || container.classList.contains("o_gantt_cols_off")) {
             this.columnsHeader?.remove();
             this.columnsHeader = null;
@@ -934,8 +966,13 @@ export class GanttView extends Component {
             this.columnsHeader = renderToElement("project_team_dashboard.GanttColumnsHeader", { columns });
             root.appendChild(this.columnsHeader);
         }
+        // the header spans from the chart's border to the last cell; the root's borders are even
         const rootRect = root.getBoundingClientRect();
-        this.columnsHeader.style.width = `${bodyCell.getBoundingClientRect().right - rootRect.left - root.clientLeft}px`;
+        const cellRect = bodyCell.getBoundingClientRect();
+        const headerWidth = this.timeline.options.rtl
+            ? rootRect.right - root.clientLeft - cellRect.left
+            : cellRect.right - rootRect.left - root.clientLeft;
+        this.columnsHeader.style.width = `${headerWidth}px`;
         this.columnsHeader.style.height = `${top.offsetHeight}px`;
     }
 }

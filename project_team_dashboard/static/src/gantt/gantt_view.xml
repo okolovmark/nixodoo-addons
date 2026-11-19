@@ -22,22 +22,22 @@
                 <button type="button" class="o_gantt_fit btn btn-sm btn-outline-secondary"
                         title="Fit all tasks in view" aria-label="Fit all tasks in view"
                         t-on-click="() => this.fit()">
-                    <i class="oi" data-icon="width"/>
+                    <i class="oi" data-icon="width" aria-hidden="true"/>
                     <span class="d-none d-md-inline ms-1">Fit All</span>
                 </button>
                 <div class="btn-group btn-group-sm" role="group" aria-label="Move in time">
                     <button type="button" class="o_gantt_earlier btn btn-outline-secondary"
                             title="Earlier" aria-label="Earlier" t-on-click="() => this.shiftWindow(-1)">
-                        <i class="oi" data-icon="chevron_backward"/>
+                        <i class="oi" data-icon="chevron_backward" aria-hidden="true"/>
                     </button>
                     <button type="button" class="o_gantt_today btn btn-outline-secondary"
                             title="Go to today" aria-label="Go to today" t-on-click="() => this.goToToday()">
-                        <i class="oi" data-icon="my_location"/>
+                        <i class="oi" data-icon="my_location" aria-hidden="true"/>
                         <span class="d-none d-md-inline ms-1">Today</span>
                     </button>
                     <button type="button" class="o_gantt_later btn btn-outline-secondary"
                             title="Later" aria-label="Later" t-on-click="() => this.shiftWindow(1)">
-                        <i class="oi" data-icon="chevron_forward"/>
+                        <i class="oi" data-icon="chevron_forward" aria-hidden="true"/>
                     </button>
                 </div>
                 <button type="button" class="o_gantt_show_completed btn btn-sm btn-outline-secondary"
@@ -45,13 +45,13 @@
                         t-att-aria-pressed="this.settings.showCompleted ? 'true' : 'false'"
                         title="Include the tasks that are done or cancelled" aria-label="Show Closed"
                         t-on-click="() => this.toggleShowCompleted()">
-                    <i class="oi" data-icon="visibility"/>
+                    <i class="oi" data-icon="visibility" aria-hidden="true"/>
                     <span class="d-none d-md-inline ms-1">Show Closed</span>
                 </button>
                 <button type="button" class="o_gantt_export_excel btn btn-sm btn-outline-secondary"
                         title="Export as an Excel Gantt chart" aria-label="Export Excel"
                         t-on-click="() => this.exportExcel()">
-                    <i class="oi" data-icon="download"/>
+                    <i class="oi" data-icon="download" aria-hidden="true"/>
                     <span class="d-none d-md-inline ms-1">Export Excel</span>
                 </button>
                 <button type="button" class="o_gantt_show_baseline btn btn-sm btn-outline-secondary"
@@ -60,7 +60,7 @@
                         title="Show the baseline - a saved snapshot of every task's planned start and end - as a thin bar under each task bar, to compare the current plan with the original one."
                         aria-label="Show Baseline"
                         t-on-click="() => this.toggleBaseline()">
-                    <i class="oi" data-icon="view_timeline"/>
+                    <i class="oi" data-icon="view_timeline" aria-hidden="true"/>
                     <span class="d-none d-md-inline ms-1">Show Baseline</span>
                 </button>
                 <button type="button" class="o_gantt_stage_history btn btn-sm btn-outline-secondary"
@@ -68,7 +68,7 @@
                         t-att-aria-pressed="this.settings.showStageHistory ? 'true' : 'false'"
                         title="Show which stages each task went through and when." aria-label="Stage History"
                         t-on-click="() => this.toggleStageHistory()">
-                    <i class="oi" data-icon="history"/>
+                    <i class="oi" data-icon="history" aria-hidden="true"/>
                     <span class="d-none d-md-inline ms-1">Stage History</span>
                 </button>
                 <button t-if="this.isProjectManager" type="button"
@@ -76,13 +76,13 @@
                         title="Save today's planned start and end of every task as the baseline, replacing the previous snapshot. Project managers only."
                         aria-label="Save Baseline"
                         t-on-click="() => this.saveBaselines()">
-                    <i class="oi" data-icon="save"/>
+                    <i class="oi" data-icon="save" aria-hidden="true"/>
                     <span class="d-none d-md-inline ms-1">Save Baseline</span>
                 </button>
                 <Dropdown menuClass="'o_gantt_columns_menu'" disabled="!this.state.hasLoadedColumns">
                     <button type="button" class="o_gantt_columns_toggle btn btn-sm btn-outline-secondary"
                             title="Columns" aria-label="Columns" t-att-disabled="!this.state.hasLoadedColumns">
-                        <i class="oi" data-icon="view_column"/>
+                        <i class="oi" data-icon="view_column" aria-hidden="true"/>
                     </button>
                     <t t-set-slot="content">
                         <t t-foreach="this.columnChoices" t-as="column" t-key="column.key">
@@ -109,7 +109,7 @@
                                 t-att-title="grouping.title"
                                 t-att-aria-label="grouping.title"
                                 t-on-click="() => this.setGroupBy(grouping.key)">
-                            <i class="oi" t-att-data-icon="grouping.icon"/>
+                            <i class="oi" t-att-data-icon="grouping.icon" aria-hidden="true"/>
                             <span class="d-none d-md-inline ms-1" t-out="grouping.label"/>
                         </button>
                     </t>
@@ -125,7 +125,7 @@
                             class="o_gantt_no_dates btn btn-sm btn-warning py-0"
                             title="Open the tasks without planned dates"
                             t-on-click="() => this.openTasksWithoutDates()">
-                        <i class="oi me-1" data-icon="event_busy"/>
+                        <i class="oi me-1" data-icon="event_busy" aria-hidden="true"/>
                         <t t-out="this.noDatesLabel"/>
                     </button>
                     <t t-foreach="this.state.stageLegend" t-as="stage" t-key="stage.stageId">
@@ -156,7 +156,7 @@
                     <p class="mb-0" t-out="this.state.loadError"/>
                 </div>
                 <div t-elif="this.state.emptyReason" class="o_gantt_empty_state text-center text-muted py-5">
-                    <i class="oi display-6 d-block mb-2" data-icon="calendar_today"/>
+                    <i class="oi display-6 d-block mb-2" data-icon="calendar_today" aria-hidden="true"/>
                     <p t-if="this.state.emptyReason === 'no_projects'" class="mb-0">
                         Add a project to see its tasks on the Gantt chart.
                     </p>
@@ -172,7 +172,8 @@
                      t-on-pointerdown.capture="this.onTimelinePress"
                      t-on-mousedown.capture="this.onTimelinePress"
                      t-on-touchstart.capture="this.onTimelinePress"
-                     t-on-click="this.onTimelineClick"/>
+                     t-on-click="this.onTimelineClick"
+                     t-on-keydown="this.onTimelineKeydown"/>
                 <span class="o_gantt_popover_anchor position-absolute" t-ref="this.popoverAnchorRef"/>
             </div>
             <svg t-if="this.state.linkLine" class="o_gantt_link_overlay">
@@ -193,12 +194,12 @@
                 <span class="o_gantt_label_name"
                       t-att-title="`${label.prefix}${task.key ? task.key + ' - ' : ''}${task.name}`">
                     <t t-if="label.isNestedLeaf"><span class="gantt-subtask-indicator">↳</span> </t>
-                    <span class="o_gantt_open_task" role="button" title="Open task" aria-label="Open task"
-                          t-att-data-task-id="task.id"><i class="oi" data-icon="open_in_new"/></span>
-                    <span t-if="label.isUnscheduled" class="o_gantt_unscheduled_name" role="button"
+                    <span class="o_gantt_open_task" role="button" tabindex="0" title="Open task" aria-label="Open task"
+                          t-att-data-task-id="task.id"><i class="oi" data-icon="open_in_new" aria-hidden="true"/></span>
+                    <span t-if="label.isUnscheduled" class="o_gantt_unscheduled_name" role="button" tabindex="0"
                           t-att-data-task-id="task.id"><t t-if="label.prefix"><span class="text-primary small" t-out="label.prefix"/></t><t t-if="task.key"><span class="gantt-task-key" t-out="task.key"/> </t><t t-out="task.name"/></span>
                     <span t-else="" class="o_gantt_task_name"><t t-if="label.prefix"><span class="text-primary small" t-out="label.prefix"/></t><t t-if="task.key"><span class="gantt-task-key" t-out="task.key"/> </t><t t-out="task.name"/></span>
-                    <t t-if="label.outsideParentLabel"> <span class="o_gantt_outside_parent text-muted small">↳ sub-task of <t t-out="label.outsideParentLabel"/></span></t>
+                    <t t-if="label.outsideParentText"> <span class="o_gantt_outside_parent text-muted small">↳ <t t-out="label.outsideParentText"/></span></t>
                 </span>
                 <t t-foreach="label.cells" t-as="cell" t-key="cell.key">
                     <span class="o_gantt_cell"
@@ -210,19 +211,19 @@
                 </t>
             </t>
             <span t-elif="label.kind === 'user'" class="o_gantt_label_name">
-                <i class="oi me-1" data-icon="person"/><t t-out="label.name"/>
+                <i class="oi me-1" data-icon="person" aria-hidden="true"/><t t-out="label.name"/>
             </span>
             <span t-elif="label.kind === 'unassigned'" class="o_gantt_label_name">
-                <i class="oi me-1" data-icon="person_remove"/>Unassigned
+                <i class="oi me-1" data-icon="person_remove" aria-hidden="true"/>Unassigned
             </span>
             <span t-elif="label.kind === 'stage'" class="o_gantt_label_name">
-                <i class="oi me-1" data-icon="view_kanban"/><t t-out="label.name"/> <span class="text-muted" t-out="`(${label.count})`"/>
+                <i class="oi me-1" data-icon="view_kanban" aria-hidden="true"/><t t-out="label.name"/> <span class="text-muted" t-out="`(${label.count})`"/>
             </span>
             <span t-elif="label.kind === 'unscheduled'" class="o_gantt_label_name">
-                <i class="oi me-1" data-icon="event_busy"/>Unscheduled <t t-out="`(${label.count})`"/>
+                <i class="oi me-1" data-icon="event_busy" aria-hidden="true"/>Unscheduled <t t-out="`(${label.count})`"/>
             </span>
             <span t-elif="label.kind === 'history'" class="o_gantt_label_name gantt-stage-history-label">
-                <i class="oi me-1" data-icon="history"/><t t-out="label.stageName"/>
+                <i class="oi me-1" data-icon="history" aria-hidden="true"/><t t-out="label.stageName"/>
             </span>
         </div>
     </t>
@@ -281,7 +282,7 @@
         <div class="o_gantt_search position-relative" t-ref="this.rootRef">
             <div class="o_gantt_faceted_input form-control form-control-sm d-flex flex-wrap align-items-center gap-1"
                  t-on-click="() => this.focusInput()">
-                <i class="oi text-muted" data-icon="search"/>
+                <i class="oi text-muted" data-icon="search" aria-hidden="true"/>
                 <t t-foreach="this.props.facets" t-as="facet" t-key="facet_index">
                     <BadgeTag crossTooltip.translate="Remove"
                               onDelete="() => this.props.onRemoveFacet(facet_index)">
@@ -318,7 +319,7 @@
                         <t t-foreach="tasks" t-as="task" t-key="task.id">
                             <button type="button" class="o_gantt_search_task dropdown-item small text-truncate"
                                     t-on-click="() => this.goToTask(task.id)">
-                                <i class="oi text-muted me-2" data-icon="my_location"/><t t-if="task.key"><span class="text-muted" t-out="task.key"/> </t><t t-out="task.name"/>
+                                <i class="oi text-muted me-2" data-icon="my_location" aria-hidden="true"/><t t-if="task.key"><span class="text-muted" t-out="task.key"/> </t><t t-out="task.name"/>
                             </button>
                         </t>
                     </t>
@@ -329,7 +330,7 @@
                             <button type="button" class="o_gantt_search_field dropdown-item small"
                                     t-att-data-field="field.field"
                                     t-on-click="() => this.selectField(field)">
-                                <i class="oi text-muted me-2" t-att-data-icon="field.icon"/>
+                                <i class="oi text-muted me-2" t-att-data-icon="field.icon" aria-hidden="true"/>
                                 <t t-out="field.label"/>
                             </button>
                         </t>
@@ -343,7 +344,7 @@
         <div class="o_gantt_dep_popover p-2">
             <div class="small fw-bold mb-2" t-out="this.props.title"/>
             <div t-if="this.props.isViolated" class="o_gantt_dep_violated small text-danger mb-2">
-                <i class="oi me-1" data-icon="warning"/>
+                <i class="oi me-1" data-icon="warning" aria-hidden="true"/>
                 Starts before the predecessor ends plus the lag.
             </div>
             <label class="small mb-1" for="o_gantt_dep_lag">Lag, days</label>

@@ -209,14 +209,17 @@ class TestTeamDashboard(TeamDashboardCommon):
         self.assertEqual(data["period_start"], "2026-01-01")
         self.assertEqual(data["period_end"], "2026-01-31")
 
-    def test_dashboard_default_period_is_current_week(self):
-        """Test that default period covers the current week (Monday to Sunday)."""
-        data = self.env["project.project"].get_team_dashboard_data(self.project.id)
-        today = fields.Date.today()
-        expected_start = today - timedelta(days=today.weekday())
-        expected_end = expected_start + timedelta(days=6)
-        self.assertEqual(data["period_start"], fields.Date.to_string(expected_start))
-        self.assertEqual(data["period_end"], fields.Date.to_string(expected_end))
+    @freeze_time("2026-11-19 10:00:00")
+    def test_the_default_period_is_the_week_of_the_user_language(self):
+        self.env["res.lang"]._activate_lang("fr_FR")
+        for lang, expected_period in (
+            ("fr_FR", ("2026-11-16", "2026-11-22")),
+            ("en_US", ("2026-11-15", "2026-11-21")),
+        ):
+            with self.subTest(lang=lang):
+                Project = self.env["project.project"].with_context(lang=lang, tz="UTC")
+                data = Project.get_team_dashboard_data(self.project.id)
+                self.assertEqual((data["period_start"], data["period_end"]), expected_period)
 
     def test_dashboard_dev2_current_task(self):
         """Test that dev2's current task is identified."""
@@ -541,7 +544,8 @@ class TestDashboardDayOfTheUser(TeamDashboardCommon):
 
     @freeze_time("2026-11-22 22:00:00")
     def test_in_tokyo_at_7_am_on_monday_the_cards_count_monday_and_its_week(self):
-        Project = self.env["project.project"].with_context(tz="Asia/Tokyo")
+        self.env["res.lang"]._activate_lang("fr_FR")
+        Project = self.env["project.project"].with_context(tz="Asia/Tokyo", lang="fr_FR")
         for mode, payload in (
             ("project", Project.get_team_dashboard_data(self.project.id)),
             ("manager", Project.get_team_dashboard_by_manager(self.user_dev2.id)),
