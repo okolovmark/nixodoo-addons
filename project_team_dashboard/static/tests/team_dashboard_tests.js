@@ -392,9 +392,14 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
             return dashboard;
         }
 
+        function itemStore(items) {
+            return {get: function (id) { return _.findWhere(items, {id: id}) || null; }};
+        }
+
         var ganttTask = {
             id: 11, key: "T-11", name: "Layer", stage_id: false, stage_name: "Backlog", can_write: true,
             planned_hours: 0, planned_date_start: "2026-11-12 01:00:00", planned_date_end: "2026-11-17 00:00:00",
+            has_planned_date_start: true, has_planned_date_end: true,
         };
 
         QUnit.test("a range bar is drawn at the stored UTC instants", function (assert) {
@@ -425,6 +430,8 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
             try {
                 var dashboard = fakeDashboard();
                 dashboard._loadGanttData = function () {};
+                dashboard.ganttData = {tasks: [ganttTask]};
+                dashboard._ganttItemsDS = itemStore([dashboard._ganttItem(ganttTask, "", false)]);
                 var item = {id: 11, start: new Date(Date.UTC(2026, 10, 14, 1)), end: new Date(Date.UTC(2026, 10, 19))};
                 var saved = await new Promise(function (resolve) {
                     dashboard._onGanttItemMove(item, resolve);
@@ -438,6 +445,134 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
             } finally {
                 rpc.query = originalQuery;
             }
+        });
+
+        var dayMs = 86400000;
+
+        /** Drag the drawn bar of `task` by `startShift`/`endShift` ms and return what it saves. */
+        async function savedOnDrag(task, startShift, endShift) {
+            var rpc = require("web.rpc");
+            var originalQuery = rpc.query;
+            var written = [];
+            rpc.query = function (params) {
+                written.push(params.args);
+                return Promise.resolve(true);
+            };
+            try {
+                var dashboard = fakeDashboard();
+                dashboard._loadGanttData = function () {};
+                dashboard.ganttData = {tasks: [task]};
+                var drawn = dashboard._ganttItem(task, "", false);
+                dashboard._ganttItemsDS = itemStore([drawn]);
+                var dragged = _.extend({}, drawn, {start: new Date(drawn.start.getTime() + startShift)});
+                if (drawn.end) {
+                    dragged.end = new Date(drawn.end.getTime() + endShift);
+                }
+                await new Promise(function (resolve) {
+                    dashboard._onGanttItemMove(dragged, resolve);
+                });
+            } finally {
+                rpc.query = originalQuery;
+            }
+            return written;
+        }
+
+        function plannedTask(values) {
+            return _.extend({}, ganttTask, {id: 31}, values);
+        }
+
+        QUnit.test("a milestone dragged later moves its end with its start", async function (assert) {
+            var milestone = plannedTask({
+                task_type: "milestone",
+                planned_date_start: "2026-11-12 01:00:00",
+                planned_date_end: "2026-11-12 01:00:00",
+            });
+            assert.deepEqual(await savedOnDrag(milestone, 3 * dayMs + 2 * 3600000), [[[31], {
+                planned_date_start: "2026-11-15 01:00:00",
+                planned_date_end: "2026-11-15 01:00:00",
+            }]]);
+        });
+
+        QUnit.test("a milestone dragged earlier keeps its length", async function (assert) {
+            var milestone = plannedTask({
+                task_type: "milestone",
+                planned_date_start: "2026-11-12 01:00:00",
+                planned_date_end: "2026-11-14 18:00:00",
+            });
+            assert.deepEqual(await savedOnDrag(milestone, -2 * dayMs), [[[31], {
+                planned_date_start: "2026-11-10 01:00:00",
+                planned_date_end: "2026-11-12 18:00:00",
+            }]]);
+        });
+
+        QUnit.test("a milestone planned by one date saves that date alone", async function (assert) {
+            var startOnly = plannedTask({
+                task_type: "milestone",
+                planned_date_start: "2026-11-12 01:00:00",
+                planned_date_end: "2026-11-13 01:00:00",
+                has_planned_date_end: false,
+            });
+            assert.deepEqual(await savedOnDrag(startOnly, 2 * dayMs), [[[31], {
+                planned_date_start: "2026-11-14 01:00:00",
+            }]], "a milestone planned by its start");
+            var endOnly = plannedTask({
+                task_type: "milestone",
+                planned_date_start: "2026-11-16 00:00:00",
+                planned_date_end: "2026-11-17 00:00:00",
+                has_planned_date_start: false,
+            });
+            assert.deepEqual(await savedOnDrag(endOnly, -dayMs), [[[31], {
+                planned_date_end: "2026-11-16 00:00:00",
+            }]], "a milestone planned by its end");
+        });
+
+        QUnit.test("a moved task planned by its start alone saves its start alone", async function (assert) {
+            var startOnly = plannedTask({
+                planned_date_start: "2026-11-12 01:00:00",
+                planned_date_end: "2026-11-13 01:00:00",
+                has_planned_date_end: false,
+            });
+            assert.deepEqual(await savedOnDrag(startOnly, 2 * dayMs, 2 * dayMs), [[[31], {
+                planned_date_start: "2026-11-14 01:00:00",
+            }]]);
+        });
+
+        QUnit.test("a moved task planned by its end alone saves its end alone", async function (assert) {
+            var endOnly = plannedTask({
+                planned_date_start: "2026-11-16 00:00:00",
+                planned_date_end: "2026-11-17 00:00:00",
+                has_planned_date_start: false,
+            });
+            assert.deepEqual(await savedOnDrag(endOnly, -dayMs, -dayMs), [[[31], {
+                planned_date_end: "2026-11-16 00:00:00",
+            }]]);
+        });
+
+        QUnit.test("a resized task saves the drawn edge it dragged and not the one it left", async function (assert) {
+            var startOnly = plannedTask({
+                planned_date_start: "2026-11-12 01:00:00",
+                planned_date_end: "2026-11-13 01:00:00",
+                has_planned_date_end: false,
+            });
+            assert.deepEqual(await savedOnDrag(startOnly, 0, 3 * dayMs), [[[31], {
+                planned_date_start: "2026-11-12 01:00:00",
+                planned_date_end: "2026-11-16 01:00:00",
+            }]], "the end the user dragged out is saved");
+            assert.deepEqual(await savedOnDrag(startOnly, -dayMs, 0), [[[31], {
+                planned_date_start: "2026-11-11 01:00:00",
+            }]], "the drawn end the user left is not saved");
+            var endOnly = plannedTask({
+                planned_date_start: "2026-11-16 00:00:00",
+                planned_date_end: "2026-11-17 00:00:00",
+                has_planned_date_start: false,
+            });
+            assert.deepEqual(await savedOnDrag(endOnly, -2 * dayMs, 0), [[[31], {
+                planned_date_start: "2026-11-14 00:00:00",
+                planned_date_end: "2026-11-17 00:00:00",
+            }]], "the start the user dragged out is saved");
+            assert.deepEqual(await savedOnDrag(endOnly, 0, dayMs), [[[31], {
+                planned_date_end: "2026-11-18 00:00:00",
+            }]], "the drawn start the user left is not saved");
         });
 
         QUnit.module("keepOpenTaskOutOfGroupToggle", function () {
@@ -496,6 +631,7 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
                 try {
                     var dashboard = Object.create(TeamDashboard.prototype);
                     dashboard._loadGanttData = function () {};
+                    dashboard.ganttData = {tasks: [{id: 21, has_planned_date_start: true, has_planned_date_end: true}]};
                     var stored = {id: 21, start: new Date(Date.UTC(2026, 10, 12, 1)), end: new Date(Date.UTC(2026, 10, 15, 10))};
                     dashboard._ganttItemsDS = {get: function (id) { return id === stored.id ? stored : null; }};
                     var dragged = 2 * 86400000 + 15 * 3600000;
