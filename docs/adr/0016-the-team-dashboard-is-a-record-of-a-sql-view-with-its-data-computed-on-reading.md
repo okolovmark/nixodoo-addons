@@ -1,0 +1,34 @@
+# The Team Dashboard is a record of an SQL view, with its data computed on reading
+
+Status: accepted (2026-11-19)
+
+The Team Dashboard is a client action: the screen calls `get_team_dashboard_data`, `get_team_dashboard_by_manager` or `get_team_dashboard_by_department` of `project.project` with a project, a manager or a department and two dates, and draws the dict it gets. A reader outside the web client, such as an agent behind an Odoo connector that only searches and reads records (`search_read`, `read_group`), cannot call a method, so it cannot get those numbers, and the estimated completion in them plans the remaining hours on the employee's working schedule with leaves and public holidays: no reader can redo that from the records it reads.
+
+**One record per dashboard.** From 16.0.1.2.0 `project_team_dashboard` has `project.team.board`, a model with no table of its own (`_auto = False`): its rows are an SQL view of one row per active project, per manager and per active department, each crossed with three periods, *This Week*, *Last Week* and *This Month*. A manager is an active user with an active employee that is the manager of another active employee, not one of their own. A row has `name` (the project, manager or department and the period), `mode`, `project_id`, `manager_user_id`, `department_id` and `period`, all stored in the view, and `data`, a Json field computed when it is read and never stored. A reader picks a row with a domain, `search_read('project.team.board', [('mode', '=', 'project'), ('project_id', '=', ID), ('period', '=', 'this_week')], ['data'])`. The id of a row is computed from its subject, its mode and its period, so it stays the same from one reading to the next while the subject exists.
+
+**The data is the screen's.** `data` is what the method of the row's mode returns for the row's subject and the period's first and last day, the very call the screen makes: the module has one calculation, and the board cannot drift from the screen. The days are those the screen's `_getDates` gives (weeks from Monday to Sunday, the month from its first to its last day), counted on the reader's today in their time zone (`context_today`), where the screen uses the browser's. The compute runs in the reader's environment, as the screen's call does, and its cache is keyed on the user, the time zone and the companies (`depends_context`). It lives on a model of its own: no field of the project leads to it, so reading every field of a project computes no dashboard.
+
+**A row is found by whoever opens it on the screen, and by nobody else.** Hidden means left out of `search`, `search_count`, `read_group` and `name_search`, and an access error for a read or `check_access_rule` of its id. It cannot be an `ir.rule`: Odoo evaluates the domain of a record rule as superuser, so a rule on `project_id` would not apply the rules of the project, and a rule that listed the user's projects or team would be cached until the rules change. The model adds the condition in `_apply_ir_rules`, which every search, read and group of the ORM goes through, and `check_access_rule` filters through the same SQL instead of evaluating the record rules in Python. The condition, per mode:
+
+- every row of a mode is hidden from a user who lacks read access to a model the screen reads with the user's own rights in that mode: projects and tasks in every mode, timesheets in the project mode (the manager and department modes read timesheets as superuser). The screen would raise for such a user, and the board must compute the data of every row it shows;
+- a project row follows the project: a subquery of the projects the user finds (`project.project._search([])`), so the rules of the project, those of `project_member_access` included where it is installed, decide;
+- a manager row follows `_check_manager_mode_access`: the user, and every manager below one of the user's employees, walked down from them with `_get_subordinate_employees`, archived employees included, as the check's `parent_of` climbs through them. The walk visits each employee once, so an employee who manages themselves or a loop of managers ends it; `child_of` on employees is not used. Timesheet approvers, HR officers and the superuser find every manager (`_sees_every_team`);
+- a department row follows `_check_department_mode_access`: the departments of the user's employees and those one of them manages, or every department for the same groups.
+
+The view itself reads the tables of projects, users, partners, employees and departments, which the model names in `_depends`, so a search flushes the pending writes to them first.
+
+Rejected:
+
+- A method the reader calls. The reader's connector does not call methods.
+- A stored snapshot, refreshed by a cron or on write. It would hold the numbers of one reader for every reader, past the access rules of each; it would be as old as its last refresh, while the screen shows now; and the calculation would run in a second place, at a time no reader chose.
+- A field on `project.project`. Only the project mode would have a home, and every read of a project's fields, by any client, would start the calculation.
+
+**Consequences.**
+
+- A read of `data` costs one dashboard calculation per row read: a reader names the rows it needs. A read without a field list computes them all.
+- The board offers three periods and the screen's default depth for a manager (all levels); *Last Month*, a custom range and a depth stay on the screen.
+- Two readers of one row may get different data, as on the screen: the tasks each finds, and the days of each one's time zone.
+- The labels in `name` are in English, the source names of the projects.
+- `data` holds what the methods return. A change to them changes the board with the screen.
+
+Reversal cost: drop the model, its access line and its view. Nothing is stored; a reader goes back to the screen.

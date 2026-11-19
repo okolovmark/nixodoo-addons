@@ -2,3 +2,4 @@ id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_project_baseline_manager,project.baseline.manager,model_project_baseline,project.group_project_manager,1,1,1,1
 access_project_baseline_line_manager,project.baseline.line.manager,model_project_baseline_line,project.group_project_manager,1,1,1,1
 access_project_task_dependency_lag_manager,project.task.dependency.lag.manager,model_project_task_dependency_lag,project.group_project_manager,1,0,0,0
+access_project_team_board_user,project.team.board.user,model_project_team_board,base.group_user,1,0,0,0

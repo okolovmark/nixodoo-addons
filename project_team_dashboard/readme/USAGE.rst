@@ -49,6 +49,30 @@ Team Dashboard
    the *Add project...* search, and press **Export Excel** for an .xlsx (the export
    always leaves out closed tasks).
 
+Read the Team Dashboard as a record
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Pick a row of ``project.team.board`` by its mode, subject and period, and
+name ``data`` among the fields you read::
+
+    search_read('project.team.board',
+                [('mode', '=', 'project'), ('project_id', '=', ID),
+                 ('period', '=', 'this_week')],
+                ['data'])
+
+For a manager use ``('mode', '=', 'manager')`` and
+``('manager_user_id', '=', USER_ID)``, for a department
+``('mode', '=', 'department')`` and ``('department_id', '=',
+DEPARTMENT_ID)``; the periods are ``this_week``, ``last_week`` and
+``this_month``. ``data`` holds the dict the screen draws: ``members``, one
+card each (current task, queue, backlog, other tasks, hours,
+``hours_logged_today``, ``hours_logged_period``,
+``estimated_completion``), and ``period_start`` and ``period_end``. Each
+row read costs one dashboard calculation, so read the rows you need: a
+read without a field list computes ``data`` for every row it returns.
+Read ``name``, ``mode`` and the subject alone to list the rows you may
+open.
+
 Plan in the Gantt chart
 ~~~~~~~~~~~~~~~~~~~~~~~
 
