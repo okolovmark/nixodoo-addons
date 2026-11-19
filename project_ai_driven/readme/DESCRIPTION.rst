@@ -647,7 +647,9 @@ client, ``/odoo/action-project.action_view_task/<id>``.
   cannot read included; moved to a project that gives no key, or taken out
   of its project, they lose theirs. A sub-task given a parent in another
   project moves into that project and gets a key of it. A sub-task in a
-  project of its own stays there with its key.
+  project of its own stays there with its key. Written with its own
+  project, a task keeps its key, and a task without one gets the next key
+  of that project; its sub-tasks, which do not move, are left as they are.
 * A copied task gets the next key of its own project, and none without a
   project: the copy keeps no key of its source. So does the next occurrence
   of a recurring task, and a task created from a template.
@@ -658,7 +660,8 @@ client, ``/odoo/action-project.action_view_task/<id>``.
   import, has no number to keep and stays as it is. A cleared key clears
   the keys of its tasks, those included; the project gives none until it
   has a key again, and its sequence then goes on from its next number. The
-  tasks created in it or moved into it meanwhile stay without a key.
+  tasks created in it or moved into it meanwhile stay without a key until
+  one is written with its project.
 * A copied project gets a sequence of its own; a deleted project takes its
   sequence along.
 * ``/projects/<key>`` and ``/tasks/<key>`` open the form of the project or
