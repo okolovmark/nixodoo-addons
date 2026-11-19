@@ -40,7 +40,8 @@ class ProjectTask(models.Model):
     def write(self, vals):
         """A task that changes project gets the next key of its new project, or loses its key
         outside a project, and so does each sub-task that moves with it or with its new parent; a
-        task written with its own project keeps its key.
+        task written with its own project keeps its key, or gets the next key of that project when
+        it has none.
         """
         if "project_id" not in vals and "parent_id" not in vals:
             return super().write(vals)
