@@ -1,0 +1,5 @@
+id,name,model_id,group_id/id,operation,domain
+access_project_baseline_manager,project.baseline.manager,project.baseline,project.group_project_manager,crud,
+project_baseline_rule_company,Project baseline: multi-company,project.baseline,,crud,"[('project_id.company_id', 'in', company_ids + [False])]"
+access_project_baseline_line_manager,project.baseline.line.manager,project.baseline.line,project.group_project_manager,crud,"[('baseline_id', 'access', 'read')]"
+access_project_task_dependency_lag_manager,project.task.dependency.lag.manager,project.task.dependency.lag,project.group_project_manager,r,"[('task_id', 'access', 'read')]"

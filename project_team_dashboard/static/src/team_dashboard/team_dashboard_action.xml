@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="project_team_dashboard.TeamDashboardAction">
+        <div class="o_action o_team_dashboard">
+            <div class="o_team_dashboard_toolbar d-flex flex-wrap align-items-center gap-2 px-3 py-2 border-bottom bg-view">
+                <div class="btn-group btn-group-sm" role="group" aria-label="Dashboard mode">
+                    <button type="button" class="btn o_team_dashboard_mode" data-mode="project"
+                            t-att-class="this.state.mode === 'project' ? 'btn-primary' : 'btn-outline-primary'"
+                            t-att-aria-pressed="this.state.mode === 'project' ? 'true' : 'false'"
+                            title="View by Project"
+                            t-on-click="() => this.selectMode('project')">
+                        <i class="oi me-1" data-icon="folder_open" role="img" aria-hidden="true"/>Project
+                    </button>
+                    <button type="button" class="btn o_team_dashboard_mode" data-mode="manager"
+                            t-att-class="this.state.mode === 'manager' ? 'btn-primary' : 'btn-outline-primary'"
+                            t-att-aria-pressed="this.state.mode === 'manager' ? 'true' : 'false'"
+                            title="View by Manager (subordinates)"
+                            t-on-click="() => this.selectMode('manager')">
+                        <i class="oi me-1" data-icon="account_tree" role="img" aria-hidden="true"/>Manager
+                    </button>
+                    <button type="button" class="btn o_team_dashboard_mode" data-mode="department"
+                            t-att-class="this.state.mode === 'department' ? 'btn-primary' : 'btn-outline-primary'"
+                            t-att-aria-pressed="this.state.mode === 'department' ? 'true' : 'false'"
+                            title="View by Department"
+                            t-on-click="() => this.selectMode('department')">
+                        <i class="oi me-1" data-icon="business" role="img" aria-hidden="true"/>Department
+                    </button>
+                </div>
+
+                <t t-if="this.state.mode === 'project'">
+                    <button type="button" class="btn btn-sm btn-outline-primary o_team_dashboard_open_project"
+                            title="Open the project" aria-label="Project"
+                            t-att-disabled="!this.state.projectId"
+                            t-on-click="() => this.openProject()">
+                        <i class="oi" data-icon="folder_open" role="img" aria-hidden="true"/>
+                        <span class="d-none d-md-inline ms-1">Project</span>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-info o_team_dashboard_open_backlog"
+                            title="Open the unassigned backlog" aria-label="Backlog"
+                            t-att-disabled="!this.state.projectId"
+                            t-on-click="() => this.openBacklog()">
+                        <i class="oi" data-icon="format_list_bulleted" role="img" aria-hidden="true"/>
+                        <span class="d-none d-md-inline ms-1">Backlog</span>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary o_team_dashboard_open_kanban"
+                            title="Open the project's tasks" aria-label="Kanban"
+                            t-att-disabled="!this.state.projectId"
+                            t-on-click="() => this.openKanban()">
+                        <i class="oi" data-icon="view_kanban" role="img" aria-hidden="true"/>
+                        <span class="d-none d-md-inline ms-1">Kanban</span>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary o_team_dashboard_open_my_tasks"
+                            title="Open my tasks in the project" aria-label="My Tasks"
+                            t-att-disabled="!this.state.projectId"
+                            t-on-click="() => this.openMyTasks()">
+                        <i class="oi" data-icon="account_circle" role="img" aria-hidden="true"/>
+                        <span class="d-none d-md-inline ms-1">My Tasks</span>
+                    </button>
+                </t>
+
+                <div class="btn-group btn-group-sm ms-auto" role="group" aria-label="View">
+                    <button type="button" class="btn btn-outline-secondary o_team_dashboard_view_cards"
+                            t-att-class="{ active: this.state.viewMode === 'cards' }"
+                            t-att-aria-pressed="this.state.viewMode === 'cards' ? 'true' : 'false'"
+                            title="Card View" aria-label="Card View"
+                            t-on-click="() => this.selectView('cards')">
+                        <i class="oi" data-icon="grid_view" role="img" aria-hidden="true"/>
+                    </button>
+                    <button t-if="this.state.mode === 'project'" type="button"
+                            class="btn btn-outline-secondary o_team_dashboard_view_gantt"
+                            t-att-class="{ active: this.state.viewMode === 'gantt' }"
+                            t-att-aria-pressed="this.state.viewMode === 'gantt' ? 'true' : 'false'"
+                            title="Gantt Chart" aria-label="Gantt Chart"
+                            t-on-click="() => this.selectView('gantt')">
+                        <i class="oi" data-icon="view_timeline" role="img" aria-hidden="true"/>
+                    </button>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-primary o_team_dashboard_refresh"
+                        title="Refresh" aria-label="Refresh"
+                        t-on-click="() => this.refresh()">
+                    <i class="oi" data-icon="refresh" role="img" aria-hidden="true"/>
+                    <span class="d-none d-md-inline ms-1">Refresh</span>
+                </button>
+            </div>
+
+            <div class="o_content">
+                <GanttView t-if="this.state.viewMode === 'gantt'" projectId="this.state.projectId"
+                           projects="this.projects" reloadCount="this.state.ganttReloadCount"
+                           settings="this.ganttSettings"/>
+                <t t-else="">
+                    <t t-call="project_team_dashboard.TeamDashboardFilters"/>
+                    <t t-call="project_team_dashboard.TeamDashboardCards"/>
+                </t>
+            </div>
+        </div>
+    </t>
+
+    <t t-name="project_team_dashboard.TeamDashboardFilters">
+        <div class="o_team_dashboard_filters d-flex flex-wrap align-items-center gap-3 px-3 py-2 border-bottom">
+            <div t-if="this.state.mode === 'project'" class="d-flex flex-wrap flex-grow-1 flex-md-grow-0 align-items-center gap-2">
+                <label class="fw-bold small mb-0" for="o_team_dashboard_project_input">Project:</label>
+                <div class="o_team_dashboard_picker o_team_dashboard_project_picker">
+                    <AutoComplete id="'o_team_dashboard_project_input'"
+                                  value="this.selectedProjectLabel()"
+                                  sources="this.projectSources"
+                                  placeholder.translate="Search project..."
+                                  menuCssClass="'o_team_dashboard_picker_menu'"/>
+                </div>
+            </div>
+
+            <t t-if="this.state.mode === 'manager'">
+                <div class="d-flex flex-wrap flex-grow-1 flex-md-grow-0 align-items-center gap-2">
+                    <label class="fw-bold small mb-0" for="o_team_dashboard_manager_input">Manager:</label>
+                    <div class="o_team_dashboard_picker o_team_dashboard_manager_picker">
+                        <AutoComplete id="'o_team_dashboard_manager_input'"
+                                      value="this.selectedManagerName()"
+                                      sources="this.managerSources"
+                                      placeholder.translate="Search user..."
+                                      menuCssClass="'o_team_dashboard_picker_menu'"/>
+                    </div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <label class="fw-bold small mb-0" for="o_team_dashboard_depth">Depth:</label>
+                    <select id="o_team_dashboard_depth" class="o_team_dashboard_depth form-select form-select-sm w-auto"
+                            t-on-change="(ev) => this.selectDepth(ev.target.value)">
+                        <option value="0" t-att-selected="this.state.maxDepth === 0">All levels</option>
+                        <option value="1" t-att-selected="this.state.maxDepth === 1">1 level</option>
+                        <option value="2" t-att-selected="this.state.maxDepth === 2">2 levels</option>
+                        <option value="3" t-att-selected="this.state.maxDepth === 3">3 levels</option>
+                        <option value="4" t-att-selected="this.state.maxDepth === 4">4 levels</option>
+                        <option value="5" t-att-selected="this.state.maxDepth === 5">5 levels</option>
+                    </select>
+                </div>
+            </t>
+
+            <div t-if="this.state.mode === 'department'" class="d-flex flex-wrap flex-grow-1 flex-md-grow-0 align-items-center gap-2">
+                <label class="fw-bold small mb-0" for="o_team_dashboard_department_input">Department:</label>
+                <div class="o_team_dashboard_picker o_team_dashboard_department_picker">
+                    <AutoComplete id="'o_team_dashboard_department_input'"
+                                  value="this.selectedDepartmentLabel()"
+                                  sources="this.departmentSources"
+                                  placeholder.translate="Search department..."
+                                  menuCssClass="'o_team_dashboard_picker_menu'"/>
+                </div>
+            </div>
+
+            <div class="d-flex align-items-center gap-2">
+                <label class="fw-bold small mb-0" for="o_team_dashboard_period">Period:</label>
+                <select id="o_team_dashboard_period" class="o_team_dashboard_period form-select form-select-sm w-auto"
+                        t-on-change="(ev) => this.selectPeriod(ev.target.value)">
+                    <option value="this_week" t-att-selected="this.state.period === 'this_week'">This Week</option>
+                    <option value="last_week" t-att-selected="this.state.period === 'last_week'">Last Week</option>
+                    <option value="this_month" t-att-selected="this.state.period === 'this_month'">This Month</option>
+                    <option value="last_month" t-att-selected="this.state.period === 'last_month'">Last Month</option>
+                    <option value="custom" t-att-selected="this.state.period === 'custom'">Custom Range</option>
+                </select>
+            </div>
+
+            <div t-if="this.state.period === 'custom'" class="o_team_dashboard_custom_dates d-flex align-items-center gap-2">
+                <div class="o_team_dashboard_date_start">
+                    <DateTimeInput type="'date'" value="this.state.customStart"
+                                   placeholder.translate="Start"
+                                   onChange="(date) => this.setCustomDate('customStart', date)"/>
+                </div>
+                <span>to</span>
+                <div class="o_team_dashboard_date_end">
+                    <DateTimeInput type="'date'" value="this.state.customEnd"
+                                   placeholder.translate="End"
+                                   onChange="(date) => this.setCustomDate('customEnd', date)"/>
+                </div>
+            </div>
+
+            <small t-if="this.state.data" class="o_team_dashboard_period_info text-muted ms-md-auto">
+                <strong t-if="this.state.mode === 'project'" t-out="this.state.data.project_name"/>
+                <strong t-if="this.state.mode === 'manager'">Subordinates of <t t-out="this.state.data.manager_name or ''"/></strong>
+                <strong t-if="this.state.mode === 'department'" t-out="this.state.data.department_name or ''"/>
+                <t t-if="this.state.mode !== 'project' and this.state.data.project_count">
+                    · <t t-out="this.state.data.project_count"/> projects
+                </t>
+                <t t-if="this.state.data.period_start and this.state.data.period_end">
+                    · <t t-out="this.formatDay(this.state.data.period_start)"/>
+                    to <t t-out="this.formatDay(this.state.data.period_end)"/>
+                </t>
+            </small>
+        </div>
+    </t>
+
+    <t t-name="project_team_dashboard.TeamDashboardCards">
+        <div t-if="this.state.data" class="o_team_dashboard_cards p-3">
+            <div t-if="this.state.data.error" class="alert alert-warning mb-0" role="alert" t-out="this.state.data.error"/>
+            <div t-elif="this.state.data.members?.length" class="row g-3">
+                <div t-foreach="this.state.data.members" t-as="member" t-key="member.user_id or 'unassigned'"
+                     class="col-12 col-md-6 col-xl-4">
+                    <TeamDashboardMemberCard member="member" mode="this.state.mode"
+                                             onOpenTask="(taskId) => this.openTask(taskId)"
+                                             onOpenBacklog="(userId) => this.openBacklog(userId)"
+                                             onOpenKanban="(userId) => this.openKanban(userId)"
+                                             onOpenClosedTasks="(userId) => this.openClosedTasks(userId)"/>
+                </div>
+            </div>
+            <div t-else="" class="alert alert-info mb-0" role="status">
+                <t t-if="this.state.mode === 'project'">No team members with open tasks found for this project.</t>
+                <t t-if="this.state.mode === 'manager'">No subordinates with open tasks found. Select a manager above.</t>
+                <t t-if="this.state.mode === 'department'">No department members with open tasks found. Select a department above.</t>
+            </div>
+        </div>
+    </t>
+
+</templates>

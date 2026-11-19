@@ -208,7 +208,7 @@
     <record id="project_task_view_search_inherit_ai_driven" model="ir.ui.view">
         <field name="name">project.task.view.search.inherit.project_ai_driven</field>
         <field name="model">project.task</field>
-        <field name="inherit_id" ref="project.view_task_search_form_base" />
+        <field name="inherit_id" ref="project.view_task_search_form_project_base" />
         <field name="arch" type="xml">
             <xpath expr="//field[@name='tag_ids']" position="after">
                 <field name="module_ids" string="Module" />

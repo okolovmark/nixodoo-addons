@@ -1,0 +1,32 @@
+# project_team_dashboard on 20.0 follows the Odoo 20 core where it differs from 16.0
+
+Status: accepted (2026-11-19)
+
+The 16.0 branch built the module first. Its record, `docs/adr/0015-the-team-dashboard-needs-no-project-timeline-and-adopts-its-records-by-external-id.md` there, holds why the module declares the planned dates of a task and ships vis-timeline itself, and how it adopts the records another module holds. This one states where the 20.0 port departs from 16.0.
+
+The port keeps what the module does: the Team Dashboard by project, manager or department, the multi-project Gantt chart with dependency lags, baselines and the stage history of tasks, the Backlog, the stage flags *In Progress Stage* and *Backlog Stage*, and the planned dates of a task, `planned_date_start` and `planned_date_end`, rolled up from its active sub-tasks and locked on a task planned from them. Odoo 20 changed what several of these rest on. Where it did, the module follows Odoo 20.
+
+**A task is closed by its state.** Odoo 16 closes a task with a folded stage: its `is_closed` is the stage's `fold`. Odoo 20 gives a task a `state`, and `is_closed` is true for Done and Cancelled, whatever the stage. The cards, the Backlog, the baselines, the Gantt chart and its *Show Closed*, the overdue marks, the stage colours, the Excel export and the stage history read `is_closed`; a folded stage closes nothing. The visit a closed task is still in ends when its state or stage last changed.
+
+**Every day shown is the viewer's.** Odoo 20 stores the Deadline as a datetime, where Odoo 16 stores a date; the planned dates are datetimes on both. The day of a datetime depends on a time zone, so the module reads every day it shows in the viewer's time zone, UTC when none is set: today, the overdue checks, the dates on the cards, the Deadline column and the deadline-only bars of the Gantt chart, the dependency check, the shift against a baseline and the days of the Excel export. The hours a member logged *Today* and the day their estimated completion starts from are the member's own: their time zone, else their employee's, the day core dates their timesheets in. A baseline line keeps the deadline as a datetime, as the task does.
+
+**Templates are left out.** Odoo 20 has task templates and project templates, and its own task lists leave them out. So does the module: a task template and the tasks under it are on no card, no chart and no baseline, and not in the Backlog; project templates are not offered in the project pickers; the Manager and Department modes and the Backlog leave out the tasks of project templates and tasks without a project, the personal to-dos such as those Odoo gives every new user. A task created from a template gets no planned dates, as Odoo leaves its Deadline empty.
+
+**The payload keeps the keys of 16.0.** The JSON of the server methods the client calls (`get_team_dashboard_data`, `get_team_dashboard_by_manager`, `get_team_dashboard_by_department`, `get_gantt_chart_data`) carries Odoo 20's values under the keys of 16.0: `planned_hours` and `total_planned_hours` are the allocated hours (`allocated_hours`; Odoo 20 has no `planned_hours`), `kanban_state` is the task's `state`, and `progress` stays a percentage where Odoo 20 stores a ratio. One contract serves both branches, so a change to the dashboard or the chart crosses from one branch to the other under the same names.
+
+**No take-over hooks, no bridge, no backfill.** On 16.0 a `pre_init_hook` adopts the records a database holds under another module, a `post_init_hook` rolls up the planned dates of every task with sub-tasks, and the glue module `project_team_dashboard_timeline` sits between the module and OCA `project_timeline` where that module is installed. As for the keys (ADR 0014), no database that has to be kept is known to run this branch (ADR 0001), so none holds the module's records under another module. The two date columns are created empty when missing, through Odoo 20's `init_storage`, which here computes nothing: with no task dated, there is nothing to roll up. This branch has no glue module.
+
+**The client is OWL, its tests Hoot.** The 16.0 client is a legacy `AbstractAction` declared with `odoo.define` and tested with QUnit; Odoo 20 has neither. The client is rewritten as Odoo 20 OWL components: the dashboard action, the member card, the Gantt view, its search, project picker and dependency popover, with the chart's model in plain functions (`gantt_model.js`). The dashboard keeps its state in the action's local state, so a breadcrumb return brings back the mode, team, period and view, and it owns the Gantt's settings and window, so they outlive a switch to the cards. vis-timeline 7.7.0 is the file of 16.0, loaded by a script tag on the first chart: Odoo 20 defines no AMD `define`, so the build sets `window.vis`, and it injects its own styles, so no stylesheet ships with it.
+
+The client's tests are Hoot files (`static/tests/*.test.js`, in `web.assets_unit_tests`). web's own Hoot suites run them only in a run that loads web's tests, and CI installs and tests only this repository's addons, so `tests/test_hoot.py` runs the module's Hoot files in a browser, desktop and mobile, and stands down in a run where web's suite runs them already.
+
+**Consequences.**
+
+- A task in a folded stage that is neither Done nor Cancelled is open: it stays on the cards and the chart, and its stage is not drawn grey.
+- Viewers in different time zones can see different days for the same task, overdue for one and not yet for the other, and a member's *Today* can be another day than the viewer's.
+- `kanban_state` carries Odoo 20's state values, not 16.0's `normal`, `done` and `blocked`: a caller that reads it on both branches meets two sets of values. The 20.0 client does not read it.
+- Work on the module crosses between the branches under the same payload keys, both ways. The board as a record, work of the 16.0 branch, comes to this branch with a later release.
+- The rule by which the Deadline of a task in an AI-driven project follows its planned end, on 16.0, is not on this branch; it comes with a later release.
+- A database that has OCA `project_timeline` beside the module has no glue module between the two.
+
+Reversal cost: renaming the payload keys after Odoo 20's fields is one change on this branch, the client with it, after which every port between the branches maps the names. The other choices are how Odoo 20 reads a task; undoing one sets the dashboard apart from the Odoo screens beside it.

@@ -1,0 +1,366 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="project_team_dashboard.GanttView">
+        <div class="o_gantt_view d-flex flex-column bg-view" t-att-class="{ o_gantt_linking: this.state.linkLine }">
+            <div class="o_gantt_toolbar d-flex flex-wrap align-items-center gap-2 px-2 py-2 border-bottom bg-view">
+                <GanttProjectPicker projects="this.props.projects"
+                                    projectIds="this.settings.projectIds"
+                                    onAdd.bind="this.addProject"
+                                    onRemove.bind="this.removeProject"/>
+                <div class="o_gantt_scales btn-group btn-group-sm" role="group" aria-label="Scale">
+                    <t t-foreach="this.scales" t-as="scale" t-key="scale.key">
+                        <button type="button"
+                                class="btn btn-outline-secondary"
+                                t-att-class="{ active: this.settings.scale === scale.key }"
+                                t-att-aria-pressed="this.settings.scale === scale.key ? 'true' : 'false'"
+                                t-att-data-scale="scale.key"
+                                t-on-click="() => this.setScale(scale.key)"
+                                t-out="scale.label"/>
+                    </t>
+                </div>
+                <button type="button" class="o_gantt_fit btn btn-sm btn-outline-secondary"
+                        title="Fit all tasks in view" aria-label="Fit all tasks in view"
+                        t-on-click="() => this.fit()">
+                    <i class="oi" data-icon="width"/>
+                    <span class="d-none d-md-inline ms-1">Fit All</span>
+                </button>
+                <div class="btn-group btn-group-sm" role="group" aria-label="Move in time">
+                    <button type="button" class="o_gantt_earlier btn btn-outline-secondary"
+                            title="Earlier" aria-label="Earlier" t-on-click="() => this.shiftWindow(-1)">
+                        <i class="oi" data-icon="chevron_backward"/>
+                    </button>
+                    <button type="button" class="o_gantt_today btn btn-outline-secondary"
+                            title="Go to today" aria-label="Go to today" t-on-click="() => this.goToToday()">
+                        <i class="oi" data-icon="my_location"/>
+                        <span class="d-none d-md-inline ms-1">Today</span>
+                    </button>
+                    <button type="button" class="o_gantt_later btn btn-outline-secondary"
+                            title="Later" aria-label="Later" t-on-click="() => this.shiftWindow(1)">
+                        <i class="oi" data-icon="chevron_forward"/>
+                    </button>
+                </div>
+                <button type="button" class="o_gantt_show_completed btn btn-sm btn-outline-secondary"
+                        t-att-class="{ active: this.settings.showCompleted }"
+                        t-att-aria-pressed="this.settings.showCompleted ? 'true' : 'false'"
+                        title="Include the tasks that are done or cancelled" aria-label="Show Closed"
+                        t-on-click="() => this.toggleShowCompleted()">
+                    <i class="oi" data-icon="visibility"/>
+                    <span class="d-none d-md-inline ms-1">Show Closed</span>
+                </button>
+                <button type="button" class="o_gantt_export_excel btn btn-sm btn-outline-secondary"
+                        title="Export as an Excel Gantt chart" aria-label="Export Excel"
+                        t-on-click="() => this.exportExcel()">
+                    <i class="oi" data-icon="download"/>
+                    <span class="d-none d-md-inline ms-1">Export Excel</span>
+                </button>
+                <button type="button" class="o_gantt_show_baseline btn btn-sm btn-outline-secondary"
+                        t-att-class="{ active: this.settings.showBaseline }"
+                        t-att-aria-pressed="this.settings.showBaseline ? 'true' : 'false'"
+                        title="Show the baseline - a saved snapshot of every task's planned start and end - as a thin bar under each task bar, to compare the current plan with the original one."
+                        aria-label="Show Baseline"
+                        t-on-click="() => this.toggleBaseline()">
+                    <i class="oi" data-icon="view_timeline"/>
+                    <span class="d-none d-md-inline ms-1">Show Baseline</span>
+                </button>
+                <button type="button" class="o_gantt_stage_history btn btn-sm btn-outline-secondary"
+                        t-att-class="{ active: this.settings.showStageHistory }"
+                        t-att-aria-pressed="this.settings.showStageHistory ? 'true' : 'false'"
+                        title="Show which stages each task went through and when." aria-label="Stage History"
+                        t-on-click="() => this.toggleStageHistory()">
+                    <i class="oi" data-icon="history"/>
+                    <span class="d-none d-md-inline ms-1">Stage History</span>
+                </button>
+                <button t-if="this.isProjectManager" type="button"
+                        class="o_gantt_save_baseline btn btn-sm btn-outline-secondary"
+                        title="Save today's planned start and end of every task as the baseline, replacing the previous snapshot. Project managers only."
+                        aria-label="Save Baseline"
+                        t-on-click="() => this.saveBaselines()">
+                    <i class="oi" data-icon="save"/>
+                    <span class="d-none d-md-inline ms-1">Save Baseline</span>
+                </button>
+                <Dropdown menuClass="'o_gantt_columns_menu'" disabled="!this.state.hasLoadedColumns">
+                    <button type="button" class="o_gantt_columns_toggle btn btn-sm btn-outline-secondary"
+                            title="Columns" aria-label="Columns" t-att-disabled="!this.state.hasLoadedColumns">
+                        <i class="oi" data-icon="view_column"/>
+                    </button>
+                    <t t-set-slot="content">
+                        <t t-foreach="this.columnChoices" t-as="column" t-key="column.key">
+                            <CheckboxItem class="{ 'o_gantt_column_option d-flex align-items-center gap-2': true, 'text-muted': this.isColumnLocked(column) }"
+                                          checked="this.state.columns.includes(column.key)"
+                                          closingMode="'none'"
+                                          attrs="{ title: this.columnTitle(column) }"
+                                          onSelected="() => this.toggleColumn(column.key)">
+                                <input type="checkbox" class="form-check-input mt-0 pe-none" tabindex="-1"
+                                       t-att-checked="this.state.columns.includes(column.key)"
+                                       t-att-disabled="this.isColumnLocked(column)"/>
+                                <span t-out="column.name"/>
+                            </CheckboxItem>
+                        </t>
+                    </t>
+                </Dropdown>
+                <div class="o_gantt_groupings btn-group btn-group-sm" role="group" aria-label="Group by">
+                    <t t-foreach="this.groupings" t-as="grouping" t-key="grouping.key">
+                        <button type="button"
+                                class="btn btn-outline-secondary"
+                                t-att-class="{ active: this.settings.groupBy === grouping.key }"
+                                t-att-aria-pressed="this.settings.groupBy === grouping.key ? 'true' : 'false'"
+                                t-att-data-group="grouping.key"
+                                t-att-title="grouping.title"
+                                t-att-aria-label="grouping.title"
+                                t-on-click="() => this.setGroupBy(grouping.key)">
+                            <i class="oi" t-att-data-icon="grouping.icon"/>
+                            <span class="d-none d-md-inline ms-1" t-out="grouping.label"/>
+                        </button>
+                    </t>
+                </div>
+                <GanttSearch facets="this.settings.facets"
+                             valueTasks="this.valueTasks"
+                             goToTasks="this.state.shownTasks"
+                             onAddFacet.bind="this.addFacet"
+                             onRemoveFacet.bind="this.removeFacet"
+                             onGoToTask.bind="this.goToTask"/>
+                <div class="o_gantt_legend d-flex flex-wrap align-items-center gap-2 ms-md-auto small">
+                    <button t-if="this.noDatesCount" type="button"
+                            class="o_gantt_no_dates btn btn-sm btn-warning py-0"
+                            title="Open the tasks without planned dates"
+                            t-on-click="() => this.openTasksWithoutDates()">
+                        <i class="oi me-1" data-icon="event_busy"/>
+                        <t t-out="this.noDatesLabel"/>
+                    </button>
+                    <t t-foreach="this.state.stageLegend" t-as="stage" t-key="stage.stageId">
+                        <span class="o_gantt_legend_stage d-inline-flex align-items-center gap-1">
+                            <span class="o_gantt_legend_dot" t-att-style="`background-color: ${stage.solid}`"/>
+                            <t t-out="stage.name"/>
+                        </span>
+                    </t>
+                    <span class="d-inline-flex align-items-center gap-1">
+                        <span class="o_gantt_legend_dot o_gantt_legend_overdue"/>
+                        Overdue
+                    </span>
+                    <span class="d-inline-flex align-items-center gap-1">
+                        <span class="o_gantt_legend_diamond"/>
+                        Milestone
+                    </span>
+                </div>
+            </div>
+            <div class="o_gantt_body position-relative flex-grow-1 p-2">
+                <div t-if="this.state.isLoading"
+                     class="o_gantt_loading position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center">
+                    <span class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading…</span>
+                    </span>
+                </div>
+                <div t-if="this.state.loadError" class="o_gantt_error alert alert-danger" role="alert">
+                    <p class="fw-bold mb-1">The Gantt chart could not be loaded.</p>
+                    <p class="mb-0" t-out="this.state.loadError"/>
+                </div>
+                <div t-elif="this.state.emptyReason" class="o_gantt_empty_state text-center text-muted py-5">
+                    <i class="oi display-6 d-block mb-2" data-icon="calendar_today"/>
+                    <p t-if="this.state.emptyReason === 'no_projects'" class="mb-0">
+                        Add a project to see its tasks on the Gantt chart.
+                    </p>
+                    <p t-elif="this.state.emptyReason === 'no_matches'" class="mb-0">
+                        No task matches the search.
+                    </p>
+                    <p t-else="" class="mb-0">
+                        No task has planned dates or a deadline yet.
+                    </p>
+                </div>
+                <div class="o_gantt_timeline"
+                     t-ref="this.timelineRef"
+                     t-on-pointerdown.capture="this.onTimelinePress"
+                     t-on-mousedown.capture="this.onTimelinePress"
+                     t-on-touchstart.capture="this.onTimelinePress"
+                     t-on-click="this.onTimelineClick"/>
+                <span class="o_gantt_popover_anchor position-absolute" t-ref="this.popoverAnchorRef"/>
+            </div>
+            <svg t-if="this.state.linkLine" class="o_gantt_link_overlay">
+                <line t-att-x1="this.state.linkLine.x1" t-att-y1="this.state.linkLine.y1"
+                      t-att-x2="this.state.linkLine.x2" t-att-y2="this.state.linkLine.y2"/>
+            </svg>
+        </div>
+    </t>
+
+    <!-- Rendered to elements handed to vis-timeline: its group labels, bar contents and tooltips -->
+
+    <t t-name="project_team_dashboard.GanttGroupLabel">
+        <t t-set="label" t-value="this.label"/>
+        <div class="o_gantt_label">
+            <t t-if="label.kind === 'task'">
+                <t t-set="task" t-value="label.task"/>
+                <!-- the name parts sit on one line: OWL drops whitespace that holds a line break -->
+                <span class="o_gantt_label_name"
+                      t-att-title="`${label.prefix}${task.key ? task.key + ' - ' : ''}${task.name}`">
+                    <t t-if="label.isNestedLeaf"><span class="gantt-subtask-indicator">↳</span> </t>
+                    <span class="o_gantt_open_task" role="button" title="Open task" aria-label="Open task"
+                          t-att-data-task-id="task.id"><i class="oi" data-icon="open_in_new"/></span>
+                    <span t-if="label.isUnscheduled" class="o_gantt_unscheduled_name" role="button"
+                          t-att-data-task-id="task.id"><t t-if="label.prefix"><span class="text-primary small" t-out="label.prefix"/></t><t t-if="task.key"><span class="gantt-task-key" t-out="task.key"/> </t><t t-out="task.name"/></span>
+                    <span t-else="" class="o_gantt_task_name"><t t-if="label.prefix"><span class="text-primary small" t-out="label.prefix"/></t><t t-if="task.key"><span class="gantt-task-key" t-out="task.key"/> </t><t t-out="task.name"/></span>
+                    <t t-if="label.outsideParentLabel"> <span class="o_gantt_outside_parent text-muted small">↳ sub-task of <t t-out="label.outsideParentLabel"/></span></t>
+                </span>
+                <t t-foreach="label.cells" t-as="cell" t-key="cell.key">
+                    <span class="o_gantt_cell"
+                          t-att-class="{ o_gantt_cell_num: cell.isNumeric, 'text-danger fw-bold': cell.isOverdue }"
+                          t-att-data-column="cell.key"
+                          t-att-style="`width: ${cell.width}px`"
+                          t-att-title="cell.title"
+                          t-out="cell.text"/>
+                </t>
+            </t>
+            <span t-elif="label.kind === 'user'" class="o_gantt_label_name">
+                <i class="oi me-1" data-icon="person"/><t t-out="label.name"/>
+            </span>
+            <span t-elif="label.kind === 'unassigned'" class="o_gantt_label_name">
+                <i class="oi me-1" data-icon="person_remove"/>Unassigned
+            </span>
+            <span t-elif="label.kind === 'stage'" class="o_gantt_label_name">
+                <i class="oi me-1" data-icon="view_kanban"/><t t-out="label.name"/> <span class="text-muted" t-out="`(${label.count})`"/>
+            </span>
+            <span t-elif="label.kind === 'unscheduled'" class="o_gantt_label_name">
+                <i class="oi me-1" data-icon="event_busy"/>Unscheduled <t t-out="`(${label.count})`"/>
+            </span>
+            <span t-elif="label.kind === 'history'" class="o_gantt_label_name gantt-stage-history-label">
+                <i class="oi me-1" data-icon="history"/><t t-out="label.stageName"/>
+            </span>
+        </div>
+    </t>
+
+    <t t-name="project_team_dashboard.GanttItemContent">
+        <t t-set="view" t-value="this.view"/>
+        <span t-if="view.kind === 'milestone'" class="gantt-milestone-diamond"
+              t-att-style="`background-color: ${view.color}`"/>
+        <span t-elif="view.kind === 'bar'" class="o_gantt_bar_content d-block w-100 h-100">
+            <span t-if="view.showProgress" class="gantt-progress-label" t-out="`${view.progress}%`"/>
+            <span t-if="view.canLink" class="o_gantt_dep_handle"
+                  title="Drag onto another task to make it depend on this one"/>
+        </span>
+        <span t-else="" class="d-block"/>
+    </t>
+
+    <t t-name="project_team_dashboard.GanttItemTooltip">
+        <div class="o_gantt_tooltip bg-view border rounded shadow-sm px-2 py-1 small">
+            <t t-foreach="this.lines" t-as="line" t-key="line_index">
+                <div t-att-class="{ 'fw-bold': line_first }" t-out="line"/>
+            </t>
+        </div>
+    </t>
+
+    <t t-name="project_team_dashboard.GanttColumnsHeader">
+        <div class="o_gantt_cols_header">
+            <t t-foreach="this.columns" t-as="column" t-key="column.key">
+                <span class="o_gantt_cell"
+                      t-att-class="{ o_gantt_cell_num: column.numeric }"
+                      t-att-style="`width: ${column.width}px`"
+                      t-att-title="column.help"
+                      t-out="column.label"/>
+            </t>
+        </div>
+    </t>
+
+    <!-- Sub-components -->
+
+    <t t-name="project_team_dashboard.GanttProjectPicker">
+        <div class="o_gantt_project_picker d-flex flex-wrap align-items-center gap-1">
+            <span class="fw-bold small d-none d-md-inline">Projects:</span>
+            <t t-foreach="this.selectedProjects" t-as="project" t-key="project.id">
+                <BadgeTag text="project.label"
+                          crossTooltip="this.removeTooltip(project)"
+                          onDelete="() => this.props.onRemove(project.id)"/>
+            </t>
+            <SelectMenu choices="this.choices"
+                        class="'o_gantt_project_add'"
+                        togglerClass="'btn-sm'"
+                        placeholder.translate="Add project…"
+                        onSelect="(projectId) => this.props.onAdd(projectId)"/>
+        </div>
+    </t>
+
+    <t t-name="project_team_dashboard.GanttSearch">
+        <div class="o_gantt_search position-relative" t-ref="this.rootRef">
+            <div class="o_gantt_faceted_input form-control form-control-sm d-flex flex-wrap align-items-center gap-1"
+                 t-on-click="() => this.focusInput()">
+                <i class="oi text-muted" data-icon="search"/>
+                <t t-foreach="this.props.facets" t-as="facet" t-key="facet_index">
+                    <BadgeTag crossTooltip.translate="Remove"
+                              onDelete="() => this.props.onRemoveFacet(facet_index)">
+                        <span class="o_tag_badge_text"><span class="opacity-75" t-out="`${facet.fieldLabel}: `"/><t t-out="facet.value"/></span>
+                    </BadgeTag>
+                </t>
+                <span t-if="this.state.field" class="o_gantt_search_field_chip badge text-bg-light"
+                      t-out="this.state.field.label"/>
+                <input type="text" class="o_gantt_search_input border-0 flex-grow-1 p-0 bg-transparent"
+                       t-ref="this.inputRef"
+                       autocomplete="off"
+                       aria-label="Search the Gantt chart"
+                       t-att-placeholder="this.placeholder"
+                       t-att-value="this.state.query"
+                       t-on-input="this.onInput"
+                       t-on-focus="() => this.open()"
+                       t-on-keydown="this.onKeydown"/>
+            </div>
+            <div t-if="this.isDropdownShown" class="o_gantt_search_dropdown dropdown-menu show w-100">
+                <t t-if="this.state.field">
+                    <t t-set="values" t-value="this.valueChoices"/>
+                    <div class="dropdown-header" t-out="this.state.field.label"/>
+                    <t t-foreach="values" t-as="choice" t-key="choice.value">
+                        <button type="button" class="o_gantt_search_value dropdown-item small text-truncate"
+                                t-on-click="() => this.selectValue(choice.value)"
+                                t-out="choice.label"/>
+                    </t>
+                    <div t-if="!values.length" class="o_gantt_search_no_match px-3 py-2 text-muted small">No matches</div>
+                </t>
+                <t t-else="">
+                    <t t-set="tasks" t-value="this.taskChoices"/>
+                    <t t-if="tasks.length">
+                        <div class="dropdown-header">Go to task</div>
+                        <t t-foreach="tasks" t-as="task" t-key="task.id">
+                            <button type="button" class="o_gantt_search_task dropdown-item small text-truncate"
+                                    t-on-click="() => this.goToTask(task.id)">
+                                <i class="oi text-muted me-2" data-icon="my_location"/><t t-if="task.key"><span class="text-muted" t-out="task.key"/> </t><t t-out="task.name"/>
+                            </button>
+                        </t>
+                    </t>
+                    <t t-set="fields" t-value="this.fieldChoices"/>
+                    <t t-if="fields.length">
+                        <div class="dropdown-header">Search in…</div>
+                        <t t-foreach="fields" t-as="field" t-key="field.field">
+                            <button type="button" class="o_gantt_search_field dropdown-item small"
+                                    t-att-data-field="field.field"
+                                    t-on-click="() => this.selectField(field)">
+                                <i class="oi text-muted me-2" t-att-data-icon="field.icon"/>
+                                <t t-out="field.label"/>
+                            </button>
+                        </t>
+                    </t>
+                </t>
+            </div>
+        </div>
+    </t>
+
+    <t t-name="project_team_dashboard.GanttDependencyPopover">
+        <div class="o_gantt_dep_popover p-2">
+            <div class="small fw-bold mb-2" t-out="this.props.title"/>
+            <div t-if="this.props.isViolated" class="o_gantt_dep_violated small text-danger mb-2">
+                <i class="oi me-1" data-icon="warning"/>
+                Starts before the predecessor ends plus the lag.
+            </div>
+            <label class="small mb-1" for="o_gantt_dep_lag">Lag, days</label>
+            <input id="o_gantt_dep_lag" type="number" min="0" step="1"
+                   class="o_gantt_dep_lag_input form-control form-control-sm"
+                   t-att-value="this.state.lag"
+                   t-att-disabled="!this.props.canWrite"
+                   t-on-input="(ev) => this.state.lag = ev.target.value"
+                   t-on-keydown="(ev) => ev.key === 'Enter' and this.props.canWrite and this.save()"/>
+            <div class="d-flex flex-wrap gap-1 mt-2">
+                <t t-if="this.props.canWrite">
+                    <button type="button" class="o_gantt_dep_save btn btn-sm btn-primary" t-on-click="() => this.save()">Save</button>
+                    <button type="button" class="o_gantt_dep_remove btn btn-sm btn-outline-danger" t-on-click="() => this.props.onRemove()">Remove</button>
+                </t>
+                <button type="button" class="o_gantt_dep_close btn btn-sm btn-secondary" t-on-click="() => this.props.close()">Close</button>
+            </div>
+        </div>
+    </t>
+
+</templates>

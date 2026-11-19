@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="view_task_form2_planned_dates" model="ir.ui.view">
+        <field name="name">project.task.form.planned.dates.inherit.project_team_dashboard</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project.view_task_form2" />
+        <field name="arch" type="xml">
+            <xpath expr="//label[@for='date_deadline']" position="before">
+                <field
+                    name="planned_date_start"
+                    string="Planned Dates"
+                    widget="daterange"
+                    options="{'end_date_field': 'planned_date_end'}"
+                    readonly="is_planned_from_subtasks"
+                />
+                <field name="planned_date_end" invisible="1" readonly="is_planned_from_subtasks" />
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_task_tree2_planned_dates" model="ir.ui.view">
+        <field name="name">project.task.list.planned.dates.inherit.project_team_dashboard</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project.view_task_tree2" />
+        <field name="arch" type="xml">
+            <field name="date_deadline" position="after">
+                <field name="planned_date_start" optional="hide" readonly="is_planned_from_subtasks" />
+                <field name="planned_date_end" optional="hide" readonly="is_planned_from_subtasks" />
+            </field>
+        </field>
+    </record>
+</odoo>
