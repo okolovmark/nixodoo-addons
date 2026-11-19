@@ -36,7 +36,8 @@ logged hours in View by Project mode. In the Manager and Department modes the
 logged hours of the listed users (across all projects), the employee hierarchy
 and the department members are read with elevated rights; the department
 picker list and the viewer's own department are loaded with the user's own
-rights.
+rights. In every mode the member's employee and working schedule behind the
+estimated completion are read with elevated rights.
 
 Who opens which team in those two modes follows the user's employee:
 

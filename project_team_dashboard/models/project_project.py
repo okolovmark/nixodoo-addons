@@ -248,8 +248,8 @@ class ProjectProject(models.Model):
         if remaining_hours <= 0:
             return False
 
-        # Find employee linked to user
-        employee = user.employee_id
+        # sudo: the reader may not read employees, and the ETA shows nothing of theirs but a date
+        employee = user.sudo().employee_id
         if not employee:
             # No employee record: fall back to simple 40h/week estimate
             work_days = remaining_hours / 5.7

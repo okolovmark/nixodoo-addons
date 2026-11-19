@@ -1,3 +1,4 @@
+from datetime import date
 from unittest.mock import patch
 
 from freezegun import freeze_time
@@ -25,6 +26,7 @@ PERIOD_DATES = {
 }
 SUBJECT_FIELDS = {"project": "project_id", "manager": "manager_user_id", "department": "department_id"}
 PROJECT_GROUPS = ["project.group_project_user", "hr_timesheet.group_hr_timesheet_user"]
+COMPANY_RULES = ("hr.hr_employee_comp_rule", "hr.hr_employee_public_comp_rule", "hr.hr_dept_comp_rule")
 
 
 class TeamBoardCase(TeamDashboardCommon):
@@ -42,6 +44,19 @@ class TeamBoardCase(TeamDashboardCommon):
                 for user in users
             ]
         )
+
+    def _forbid_reading(self, model_name, user):
+        # a database may grant the read to every user, e.g. analytic lines with Analytic Accounting on
+        self.env["ir.model.access"].search(
+            [
+                ("model_id.model", "=", model_name),
+                ("perm_read", "=", True),
+                "|",
+                ("group_id", "=", False),
+                ("group_id", "in", user.groups_id.ids),
+            ]
+        ).active = False
+        self.assertFalse(self.env[model_name].with_user(user).check_access_rights("read", raise_exception=False))
 
     def _boards(self, user, domain=()):
         return self.env["project.team.board"].with_user(user).search(list(domain))
@@ -125,9 +140,9 @@ class TestTeamBoardData(TeamBoardCase):
                     "date": day,
                 }
                 for task, hours, day in (
-                    (task_dev1, 3.0, "2026-05-31"),
-                    (task_dev1, 2.0, "2026-06-02"),
-                    (task_dev2, 4.0, "2026-05-20"),
+                    (task_dev1, 3.0, date(2026, 5, 31)),
+                    (task_dev1, 2.0, date(2026, 6, 2)),
+                    (task_dev2, 4.0, date(2026, 5, 20)),
                 )
             ]
         )
@@ -321,7 +336,7 @@ class TestTeamBoardAccess(TeamBoardCase):
         self.assertEqual(Board.search_count(self.fixture_domain), 18)
         groups = Board.read_group(self.fixture_domain, ["mode"], ["mode"])
         self.assertEqual({group["mode"]: group["mode_count"] for group in groups}, dict.fromkeys(SUBJECT_FIELDS, 6))
-        self.assertEqual(Board.name_search("Boss"), [])
+        self.assertEqual(Board.name_search("Boss", self.fixture_domain), [])
 
     def test_reading_a_hidden_row_raises(self):
         hidden_boards = self.env["project.team.board"].search(
@@ -342,9 +357,18 @@ class TestTeamBoardAccess(TeamBoardCase):
                     board.check_access_rule("read")
 
     def test_a_user_who_cannot_read_timesheets_finds_no_project_row(self):
+        self._forbid_reading("account.analytic.line", self.user_no_timesheets)
         with self.assertRaises(AccessError):
             self.env["project.project"].with_user(self.user_no_timesheets).get_team_dashboard_data(self.project.id)
         self.assertEqual(self._found_subjects(self.user_no_timesheets), {("department", self.department_own.id)})
+
+    @freeze_time(NOW)
+    def test_a_project_row_reads_for_a_user_who_cannot_read_employees(self):
+        for model_name in ("hr.employee", "hr.employee.public"):
+            self._forbid_reading(model_name, self.user_member)
+        board = self._board(self.user_member, self.project, "project")
+        card_dev1 = next(member for member in board.data["members"] if member["user_id"] == self.user_dev1.id)
+        self.assertTrue(card_dev1["estimated_completion"])
 
     @freeze_time(NOW)
     def test_a_row_holds_what_the_screen_shows_its_reader(self):
@@ -468,7 +492,8 @@ class TestTeamBoardHierarchy(TeamBoardCase):
 
 @tagged("post_install", "-at_install")
 class TestTeamBoardCompanies(TeamBoardCase):
-    """A user who finds every team finds those of the companies they may enter only."""
+    """A user who finds every team finds those of the companies they may enter only, by the
+    employees' and departments' company rules."""
 
     @classmethod
     def setUpClass(cls):
@@ -512,6 +537,9 @@ class TestTeamBoardCompanies(TeamBoardCase):
         cls.env["hr.employee"].create(
             {"name": "Report in B", "company_id": cls.company_b.id, "parent_id": employee_manager_b.id}
         )
+        cls.company_rules = cls.env["ir.rule"].union(*(cls.env.ref(xmlid) for xmlid in COMPANY_RULES))
+        # a database may switch them off: the board follows them either way (the row-follows-screen test)
+        cls.company_rules.active = True
         cls.teams_a = {("manager", cls.user_dev1.id), ("department", cls.department_a.id)}
         cls.teams_b = {("manager", cls.user_manager_b.id), ("department", cls.department_b.id)}
         cls.team_domain = [
@@ -540,7 +568,10 @@ class TestTeamBoardCompanies(TeamBoardCase):
 
     def test_a_row_is_found_exactly_when_the_screen_opens_it(self):
         users = self.user_approver | self.user_hr_officer | self.user_approver_both | self.user_manager_b
-        self._assert_rows_follow_the_screen(users, self.team_domain)
+        for is_active in (True, False):
+            self.company_rules.active = is_active
+            with self.subTest(company_rules_active=is_active):
+                self._assert_rows_follow_the_screen(users, self.team_domain)
 
 
 @tagged("post_install", "-at_install")
