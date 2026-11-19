@@ -1,10 +1,11 @@
 A team's work in Project at a glance: a **Team Dashboard** of workload
-cards per member, a multi-project **Gantt chart** with dependency lags,
-baselines and the stage history of tasks, a **Backlog** list, planned
-dates of a task that roll up from its sub-tasks, and, in an AI-driven
-project, a Deadline that follows the planned end. It builds on
-``project_ai_driven`` (task type, key, size, modules of a task, stage log)
-and on ``hr_timesheet`` (logged hours, employees).
+cards per member, readable as records too (``project.team.board``), a
+multi-project **Gantt chart** with dependency lags, baselines and the
+stage history of tasks, a **Backlog** list, planned dates of a task that
+roll up from its sub-tasks, and, in an AI-driven project, a Deadline that
+follows the planned end. It builds on ``project_ai_driven`` (task type,
+key, size, modules of a task, stage log) and on ``hr_timesheet`` (logged
+hours, employees).
 
 Stages (``project.task.type``) gain two flags: **In Progress Stage**
 (tasks there are being worked on; the dashboard picks a member's current
@@ -132,9 +133,10 @@ Week*, *Last Week* and *This Month*. A row has:
   screen's own call (``get_team_dashboard_data``,
   ``get_team_dashboard_by_manager`` with all levels, or
   ``get_team_dashboard_by_department``) for the period's first and last
-  day: the screen's week, Monday to Sunday, and the month from its first
-  to its last day, on the reader's today in their time zone. The member
-  cards, today's and the period's logged hours and the estimated
+  day: the screen's week, seven days from the first day of the week of
+  the reader's language (the context language), and the month from its
+  first to its last day, on the reader's today in their time zone. The
+  member cards, today's and the period's logged hours and the estimated
   completion are in it, with every day counted as on the screen.
 
 A user finds and reads only the rows they open on the screen; the others

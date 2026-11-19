@@ -51,10 +51,10 @@ Who opens which team in those two modes follows the user's employee:
   employees** opens every manager and every department. So does every
   **Project / Administrator**: Odoo gives project administrators the first
   of these rights.
-* In every case a department opens only in a company the user may enter,
-  and a manager other than the user only with an active employee in a
-  company the user has selected; the manager's team itself may reach into
-  other companies.
+* In every case a department opens only without a company or in one the
+  user has selected, and a manager other than the user only with an
+  active employee in a company the user has selected; the manager's team
+  itself may reach into other companies.
 
 The Team Dashboard board (``project.team.board``) follows the same rules:
 every internal user reads it, and finds the rows of the teams and
@@ -70,11 +70,13 @@ refused: the user gets an error message, and the picker goes back to the
 manager or department shown before, whose cards stay on screen. A user who
 opens every manager and department reads why in the dashboard instead:
 "No employee record found for this user" for a manager with no active
-employee, the same "in the selected companies" for one whose employees
-are all in companies they have not selected, "Department not found" for a
-department that no longer exists and "Department not in the selected
-companies" for one of another company. Give a team lead an employee with
-the right *Manager* for them to see their team.
+employee; for one whose employees are all in companies they have not
+selected, the same "in the selected companies" when one of those
+companies is one they may select, else the plain message. A department
+of a company they may select but have not selected gets "Department not
+in the selected companies"; one of a company they may not select, or one
+that no longer exists, "Department not found". Give a team lead an
+employee with the right *Manager* for them to see their team.
 
 Gantt chart: dependencies can be linked and lags edited by users with write
 access to the dependent task and read access to the other one. Only
