@@ -8,6 +8,10 @@ Projects
   **Backlog Stage** on the backlog stages; the Backlog list and the Team
   Dashboard read these flags. Folding a stage does not close its tasks:
   their state does.
+* Tick **AI-driven Project** on a project for the Deadline of its tasks to
+  follow their planned end (see Usage). Ticking it changes no Deadline,
+  and neither does installing or updating the module: each task follows
+  from the next change of its planned end or its project.
 
 Users
 ~~~~~
