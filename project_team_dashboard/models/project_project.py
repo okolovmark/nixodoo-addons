@@ -461,7 +461,7 @@ class ProjectProject(models.Model):
                 "child_ids": child_ids_in_set,
                 "planned_date_start": str(date_start),
                 "planned_date_end": str(date_end),
-                # the bar's dates pad a missing one: a move writes only the dates the task has
+                # the bar pads a missing date: these say which dates are the task's own
                 "has_planned_date_start": bool(task.planned_date_start),
                 "has_planned_date_end": bool(task.planned_date_end),
                 "stage_id": stage.id,

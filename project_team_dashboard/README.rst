@@ -359,8 +359,8 @@ Plan in the Gantt chart
 * Move or resize a bar to replan a task; it moves by whole days. The bar
   of a task planned from its sub-tasks does not move: drag its sub-tasks.
   A move changes only the planned dates the task has (a milestone's start
-  and end together); drag the padded edge of a one-day bar to give the
-  task its missing date.
+  and end together). To set the missing date, drag the end of a bar that
+  has only a start, or the start of one that has only an end.
 * Press **Stage History** to see under each task the stages it went
   through and how long it stayed in each. Every stage change counts,
   whoever made it: a move by a script or an assistant that left no line in

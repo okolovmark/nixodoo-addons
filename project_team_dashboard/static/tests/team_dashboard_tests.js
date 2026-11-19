@@ -505,6 +505,27 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
             }]]);
         });
 
+        QUnit.test("a milestone planned by one date saves that date alone", async function (assert) {
+            var startOnly = plannedTask({
+                task_type: "milestone",
+                planned_date_start: "2026-11-12 01:00:00",
+                planned_date_end: "2026-11-13 01:00:00",
+                has_planned_date_end: false,
+            });
+            assert.deepEqual(await savedOnDrag(startOnly, 2 * dayMs), [[[31], {
+                planned_date_start: "2026-11-14 01:00:00",
+            }]], "a milestone planned by its start");
+            var endOnly = plannedTask({
+                task_type: "milestone",
+                planned_date_start: "2026-11-16 00:00:00",
+                planned_date_end: "2026-11-17 00:00:00",
+                has_planned_date_start: false,
+            });
+            assert.deepEqual(await savedOnDrag(endOnly, -dayMs), [[[31], {
+                planned_date_end: "2026-11-16 00:00:00",
+            }]], "a milestone planned by its end");
+        });
+
         QUnit.test("a moved task planned by its start alone saves its start alone", async function (assert) {
             var startOnly = plannedTask({
                 planned_date_start: "2026-11-12 01:00:00",
@@ -540,6 +561,18 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
             assert.deepEqual(await savedOnDrag(startOnly, -dayMs, 0), [[[31], {
                 planned_date_start: "2026-11-11 01:00:00",
             }]], "the drawn end the user left is not saved");
+            var endOnly = plannedTask({
+                planned_date_start: "2026-11-16 00:00:00",
+                planned_date_end: "2026-11-17 00:00:00",
+                has_planned_date_start: false,
+            });
+            assert.deepEqual(await savedOnDrag(endOnly, -2 * dayMs, 0), [[[31], {
+                planned_date_start: "2026-11-14 00:00:00",
+                planned_date_end: "2026-11-17 00:00:00",
+            }]], "the start the user dragged out is saved");
+            assert.deepEqual(await savedOnDrag(endOnly, 0, dayMs), [[[31], {
+                planned_date_end: "2026-11-18 00:00:00",
+            }]], "the drawn start the user left is not saved");
         });
 
         QUnit.module("keepOpenTaskOutOfGroupToggle", function () {
