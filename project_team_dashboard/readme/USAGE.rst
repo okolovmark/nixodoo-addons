@@ -72,11 +72,15 @@ Plan in the Gantt chart
   scrolls to its bar, selects it and briefly highlights its row. Pick a
   field there (Assignee, Task, Key, Stage, Type) to narrow the chart to
   one of its values.
-* Link tasks: hover the predecessor's bar, or tap it on a touch screen,
-  drag the handle at its end (the right end, the left one in a
-  right-to-left language) and drop it on the dependent task. Click the arrow to enter **Lag, days**
-  and press *Save*, or press *Remove* to delete the dependency. A red arrow
-  means the dependent task starts too early; move its dates yourself.
+* Link tasks: hover the predecessor's bar, or select it (tap it on a touch
+  screen), and drag the handle shown just past its end (right of the bar,
+  left of it in a right-to-left language) onto the dependent task. Click
+  the arrow to enter **Lag, days** and press *Save*, or press *Remove* to
+  delete the dependency. A red arrow means the dependent task starts too
+  early; move its dates yourself.
+* Open a task with the open icon before its name. From the keyboard, Tab
+  to that icon, or to a task name under **Unscheduled (N)**, and press
+  Enter or Space.
 * Project Administrators press **Save Baseline** to store the current plan;
   it replaces the project's previous baseline. Press **Show Baseline** to
   compare the plan against it: the baseline is drawn as a thin bar under
@@ -94,3 +98,6 @@ Plan in the Gantt chart
   has not changed since keeps its own bar.
 * Expand **Unscheduled (N)**, or press the *tasks without dates* button, to
   find tasks without any date and open them to plan them.
+* In a right-to-left language the chart is mirrored: task names and
+  columns on the right, time running leftwards, arrows from a bar's left
+  end into the next bar's right end.

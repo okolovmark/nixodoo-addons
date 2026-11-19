@@ -92,7 +92,8 @@ Each card shows the member's current task (the most recently updated task
 in an In Progress stage), the queue of other in-progress tasks, the
 backlog, other open tasks, the open task count, estimated and remaining
 hours, hours logged today and in the selected period (This Week, Last
-Week, This Month, Last Month or a custom range), and an estimated
+Week, This Month, Last Month or a custom range; a week starts on the first
+day of the week of the viewer's language), and an estimated
 completion date (ETA). The ETA plans the remaining hours on the working
 schedule of the member's employee (the company's when the employee has
 none) with leaves taken into account, and falls back to 5.7 hours a day,
@@ -118,19 +119,20 @@ Month), *Fit All* and *Today*, grouped by user (the default), by task or by
 stage, *Show Closed* to add the Done and Cancelled tasks, faceted search
 (Assignee, Task, Key, Stage, Type) with a jump to any shown task by key or
 name, several projects at once. A task with a single planned date gets a
-one-day bar. Bars take the colour of their stage (grey for a stage whose
-tasks shown are all closed, legend built from the stages shown) and show
-the task's progress; an open task whose bar ends before today gets a red
-outline. Grouped by user, the bars of one person that overlap are
-highlighted, a task and its own sub-tasks excepted. Dependencies are drawn
-as orange elbow connectors from the predecessor's end into the successor's
-start. **Export Excel** downloads the open tasks of the selected projects
-that have planned dates or a deadline as an .xlsx Gantt chart, sorted by
-start, with today's column marked; a planned date the task does not have
-leaves its Start or End cell empty. The search facets and grouping are not
-applied. The chart is drawn with vis-timeline 7.7.0, which the module
-ships (``static/lib/vis-timeline``, MIT License) and loads on the first
-chart shown; the library injects its own styles.
+one-day bar, and its tooltip shows that date alone. Bars take the colour
+of their stage (grey for a stage whose tasks shown are all closed, legend
+built from the stages shown) and show the task's progress; an open task
+whose bar ends before today gets a red outline. Grouped by user, the bars
+of one person that overlap are highlighted, a task and its own sub-tasks
+excepted. Dependencies are drawn as orange elbow connectors from the
+predecessor's end into the successor's start. **Export Excel** downloads
+the open tasks of the selected projects that have planned dates or a
+deadline as an .xlsx Gantt chart, sorted by start, with today's column
+marked; a planned date the task does not have leaves its Start or End cell
+empty. The search facets and grouping are not applied. The chart is drawn
+with vis-timeline 7.7.0, which the module ships
+(``static/lib/vis-timeline``, MIT License) and loads on the first chart
+shown; the library injects its own styles.
 
 * **Attribute columns**: the left pane can show Assignees, Deadline,
   Estimate, Spent hours and Stage next to the task name, as a fixed-width
@@ -149,7 +151,8 @@ chart shown; the library injects its own styles.
   a resize that drags the edge of a missing date sets it. The bars of
   deadline-only tasks, of tasks planned from their sub-tasks and of tasks
   the user cannot write do not move.
-* **Dependencies**: dragging the handle of a task bar onto another bar
+* **Dependencies**: dragging the link handle, shown just past the end of a
+  hovered or selected bar and wider on a touch screen, onto another bar
   makes the second task depend on the first (core ``depend_on_ids``). Both
   tasks need a project with Task Dependencies on. Clicking an arrow opens a
   popover to set its dependency lag or remove the link.
@@ -177,9 +180,19 @@ chart shown; the library injects its own styles.
   name opens the task, and counted in a *tasks without dates* button that
   opens them as a list.
 * **Milestones**: Milestone-type tasks and tasks with only a deadline are
-  drawn as a diamond on their date, and exported as milestones in the
-  Excel Gantt chart. A Milestone shown with its sub-task rows and spanning
-  more than one date is drawn as a bar.
+  drawn as a diamond on their date (the planned start, the planned end of
+  a task that has no start, or the deadline), and exported as milestones
+  on that date in the Excel Gantt chart. A Milestone shown with its
+  sub-task rows and spanning more than one date is drawn as a bar.
+* **Keyboard, languages and colours**: the open icon of a task row and the
+  names under *Unscheduled (N)* are buttons reached with Tab and pressed
+  with Enter or Space; toolbar icons are hidden from screen readers, which
+  read the buttons' names. The Week scale starts each week on the first
+  day of the week of the viewer's language. In a right-to-left language
+  the chart is mirrored: row labels, columns and their header on the
+  right, time running leftwards, progress filling from the right, arrows
+  from a bar's left end. Outlines, highlights, the link handle and the
+  chart's text and lines take the web client's colour variables.
 * **Stage History** (off by default, in every grouping): each task row
   expands into one row per stage visit, in the stage's colour and chained
   by orange connectors. The visits come from the stage log of
