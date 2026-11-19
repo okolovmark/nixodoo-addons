@@ -3,13 +3,35 @@ from datetime import UTC
 
 from odoo import Command, api, fields, models
 from odoo.exceptions import UserError, ValidationError
+from odoo.fields import Domain
+from odoo.tools import SQL, sql
 
 PLANNED_DATE_FIELDS = ("planned_date_start", "planned_date_end")
+# The fields of the plan the Deadline follows, and the field each records.
+DEADLINE_PLAN_SOURCES = {"date_deadline_planned_end": "planned_date_end", "date_deadline_project_id": "project_id"}
+DEADLINE_PLAN_FIELDS = tuple(DEADLINE_PLAN_SOURCES)
 
 
 class ProjectTask(models.Model):
     _inherit = "project.task"
 
+    date_deadline = fields.Datetime(compute="_compute_date_deadline", store=True, readonly=False)
+    date_deadline_planned_end = fields.Datetime(
+        string="Planned End of the Deadline",
+        compute="_compute_date_deadline",
+        store=True,
+        init_storage="_init_deadline_plan_columns",
+        help="The planned end the Deadline last followed, or was set against.",
+    )
+    date_deadline_project_id = fields.Many2one(
+        "project.project",
+        string="Project of the Deadline",
+        compute="_compute_date_deadline",
+        store=True,
+        index="btree_not_null",
+        init_storage="_init_deadline_plan_columns",
+        help="The project the Deadline last followed the planned end in, or was set in.",
+    )
     planned_date_start = fields.Datetime(
         compute="_compute_planned_date_start",
         store=True,
@@ -29,6 +51,27 @@ class ProjectTask(models.Model):
         compute_sudo=True,
         help="The task has active sub-tasks: its planned dates span theirs, and stay empty while none is dated.",
     )
+
+    # Not on project_id.is_ai_driven: ticking AI-driven Project leaves the Deadlines of its tasks alone.
+    @api.depends(*DEADLINE_PLAN_SOURCES.values())
+    def _compute_date_deadline(self):
+        """In an AI-driven project the Deadline becomes the planned end, a rolled-up one included,
+        when the planned end or the project differs from the plan the Deadline last followed. Odoo
+        also runs this when a dependency of the planned end changes and leaves it as it was: the
+        Deadline stays then. Every saved task records its plan, so that ticking AI-driven Project
+        aligns nothing; a task without a planned end keeps its Deadline.
+
+        The record a form edits records only a plan its Deadline follows, so that a project changed
+        and changed back on the form aligns nothing; the form carries that plan from one onchange to
+        the next."""
+        for task in self:
+            plan = task._get_deadline_plan()
+            followed_plan = task._get_followed_deadline_plan()
+            should_align = bool(task.planned_date_end) and task.project_id.is_ai_driven and plan != followed_plan
+            if should_align:
+                task.date_deadline = task.planned_date_end
+            # the followed plan is in cache now: assigning it unchanged writes nothing
+            task.update(dict(zip(DEADLINE_PLAN_FIELDS, plan if should_align or task.id else followed_plan)))
 
     @api.depends("child_ids.planned_date_start", "child_ids.planned_date_end", "child_ids.active")
     def _compute_planned_date_start(self):
@@ -53,7 +96,10 @@ class ProjectTask(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         tasks = super().create(vals_list)
+        # picked before the re-queue, which queues the plan of the parents too
+        tasks_given_a_deadline = tasks._without_deadline_plan()
         tasks._recompute_planned_dates_from_subtasks()
+        tasks_given_a_deadline._record_deadline_plan()
         return tasks
 
     def write(self, vals):
@@ -63,6 +109,8 @@ class ProjectTask(models.Model):
             self._prune_dependency_lags()
         if "child_ids" in vals:
             self._recompute_planned_dates_from_subtasks()
+        if "date_deadline" in vals:
+            self._record_deadline_plan()
         return result
 
     @api.model
@@ -126,10 +174,55 @@ class ProjectTask(models.Model):
         """Compute nothing when the columns are added: they are empty on every task, so no parent
         has a date to roll up, and the ORM would compute a recursive field task by task."""
 
+    def _init_deadline_plan_columns(self):
+        """Fill the plan columns with the current plan of every task once the last of them is added,
+        after the other columns: the planned end may be added after them. Return nothing, so that
+        the ORM computes neither column: computed, they would align the Deadline of every task."""
+        if all(sql.column_exists(self.env.cr, self._table, field_name) for field_name in DEADLINE_PLAN_FIELDS):
+            self.pool.post_init(self._fill_deadline_plan_columns)
+
+    def _fill_deadline_plan_columns(self):
+        self.env.cr.execute(
+            SQL(
+                """
+                UPDATE %(table)s
+                   SET date_deadline_planned_end = planned_date_end, date_deadline_project_id = project_id
+                 WHERE (date_deadline_planned_end, date_deadline_project_id)
+                       IS DISTINCT FROM (planned_date_end, project_id)
+                """,
+                table=SQL.identifier(self._table),
+            )
+        )
+
+    def _get_active_subtasks(self):
+        """Return the active sub-tasks of each task. A saved task whose sub-tasks are not in cache has
+        them searched by id: child_ids orders them by Deadline, and computing a Deadline in the middle
+        of a roll-up reads a planned end not rolled up yet. An unsaved task, the record a form edits,
+        reads child_ids all the same: it relies on the form carrying them, or they are read from the
+        saved task in Deadline order."""
+        tasks_to_search = self.filtered(lambda task: task.id and "child_ids" not in task._cache)
+        subtask_ids_by_task_id = {task_id: [] for task_id in tasks_to_search.ids}
+        if tasks_to_search:
+            domain = self._fields["child_ids"].get_comodel_domain(tasks_to_search) & Domain(
+                "parent_id", "in", tasks_to_search.ids
+            )
+            subtasks = (
+                self.sudo()
+                .with_context(active_test=False)
+                .search_fetch(domain, ["parent_id", "active", *PLANNED_DATE_FIELDS], order="id")
+            )
+            for subtask in subtasks.filtered("active"):
+                subtask_ids_by_task_id[subtask.parent_id.id].append(subtask.id)
+        return {
+            task: self.browse(subtask_ids_by_task_id[task.id])
+            if task.id in subtask_ids_by_task_id
+            else task.child_ids.filtered("active")
+            for task in self
+        }
+
     def _subtask_date_spans(self):
         spans = {}
-        for task in self:
-            active_subtasks = task.child_ids.filtered("active")
+        for task, active_subtasks in self._get_active_subtasks().items():
             subtask_dates = [
                 date for field_name in PLANNED_DATE_FIELDS for date in active_subtasks.mapped(field_name) if date
             ]
@@ -157,10 +250,43 @@ class ProjectTask(models.Model):
             self.env.remove_to_compute(date_field, parents)
 
     def _recompute_planned_dates_from_subtasks(self):
-        """Re-queue the roll-up that a create/write writing planned dates and sub-tasks together protected."""
+        """Re-queue the roll-up that a create/write writing planned dates and sub-tasks together
+        protected, and the Deadline: computed meanwhile, it followed the planned end given."""
         parents = self.filtered("child_ids")
-        for field_name in PLANNED_DATE_FIELDS:
+        for field_name in (*PLANNED_DATE_FIELDS, "date_deadline", *DEADLINE_PLAN_FIELDS):
             self.env.add_to_compute(self._fields[field_name], parents)
+
+    def _get_deadline_plan(self):
+        """Return the plan the Deadline follows: the current values of its sources."""
+        return tuple(self[source_name] for source_name in DEADLINE_PLAN_SOURCES.values())
+
+    def _get_followed_deadline_plan(self):
+        """Return the plan the Deadline last followed. The record a form edits holds it in cache when
+        the form carries it; otherwise it is the saved task's, since the record reads it empty while
+        it is being computed."""
+        is_in_cache = all(field_name in self._cache for field_name in DEADLINE_PLAN_FIELDS)
+        task = self if is_in_cache else self._origin
+        return tuple(task[field_name] for field_name in DEADLINE_PLAN_FIELDS)
+
+    def _without_deadline_plan(self):
+        """Return the tasks whose plan is neither recorded nor to compute: those given a Deadline, by
+        their values or a default of any kind. A task whose plan Odoo computed already is left out:
+        its Deadline follows the roll-up that the create re-queues. The plan is read as superuser."""
+        plan_field = self._fields["date_deadline_planned_end"]
+        tasks_without_plan = self.sudo().filtered(
+            lambda task: not self.env.is_to_compute(plan_field, task)
+            and not any(task[field_name] for field_name in DEADLINE_PLAN_FIELDS)
+        )
+        return tasks_without_plan.with_env(self.env)
+
+    def _record_deadline_plan(self):
+        """Record the current plan of the tasks as the one their Deadline follows. A Deadline set by
+        hand needs it: Odoo computes none of the fields that share a compute with a field it is given.
+        As superuser: a portal user may read neither the planned end nor the fields that record it."""
+        tasks = self.sudo()
+        with tasks.env.protecting([self._fields[field_name] for field_name in DEADLINE_PLAN_FIELDS], tasks):
+            for task in tasks:
+                task.update(dict(zip(DEADLINE_PLAN_FIELDS, task._get_deadline_plan())))
 
     def _check_subtask_driven_dates(self, vals):
         """Refuse a write that changes the planned dates of a task planned from its sub-tasks.
