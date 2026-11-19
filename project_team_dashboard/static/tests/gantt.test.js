@@ -10,22 +10,28 @@ import {
     press,
     queryAll,
     queryAllTexts,
+    queryFirst,
     queryOne,
+    resize,
     waitFor,
 } from "@odoo/hoot-dom";
-import { advanceTime, animationFrame, mockDate, mockTimeZone } from "@odoo/hoot-mock";
+import { advanceTime, animationFrame, mockDate, mockTimeZone, mockTouch } from "@odoo/hoot-mock";
 import { defineMailModels } from "@mail/../tests/mail_test_helpers";
 import { Component, proxy, xml } from "@odoo/owl";
 import {
     allowTranslations,
     contains,
+    defineParams,
     makeServerError,
     mockService,
     mountWithCleanup,
     onRpc,
+    patchTranslations,
     patchWithCleanup,
     serverState,
 } from "@web/../tests/web_test_helpers";
+import { getLocalYearAndWeek } from "@web/core/l10n/dates";
+import { localization } from "@web/core/l10n/localization";
 import { downloadFile } from "@web/core/network/download";
 
 import {
@@ -54,6 +60,7 @@ import {
     sidebarMaxWidth,
     stageHistorySpan,
     utcToDate,
+    weekStartMoment,
 } from "@project_team_dashboard/gantt/gantt_model";
 import { GanttView, makeGanttSettings } from "@project_team_dashboard/gantt/gantt_view";
 import { visTimeline } from "@project_team_dashboard/gantt/vis_timeline";
@@ -258,32 +265,93 @@ async function mountGantt(props = { projectId: 1, projects: PROJECTS }) {
 }
 
 /**
+ * Takes away vis-timeline's loading screen, which covers the chart until its first range change
+ * settles (200 ms) and a redraw follows: what a press lands on is then what the user sees.
+ */
+async function showChart(gantt) {
+    await advanceTime(200);
+    gantt.timeline.redraw();
+    await animationFrame();
+}
+
+/**
  * Drags a bar by whole days the way a user does, so that vis-timeline itself calls the chart's
- * onMove: the bar is selected first, as vis drags selected items only. Given an edge, "left" or
- * "right", drags that edge's resize handle instead. Returns the bar's left edge from before the
- * drag and the helper that drops it.
+ * onMove: the bar is selected first, as vis drags selected items only, and the press lands on what
+ * is drawn on top at its point. Given an edge, "left" or "right", drags that edge's resize area,
+ * where it overlaps the bar, instead of the bar's middle. Returns the bar's left edge from before
+ * the drag and the helper that drops it.
  */
 async function dragBarByDays(gantt, itemId, days, { edge = null } = {}) {
+    await showChart(gantt);
     gantt.timeline.setSelection([itemId]);
     await animationFrame();
     const bar = queryOne(`.o_gantt_timeline .vis-item[data-id='${itemId}']`);
-    const { left } = bar.getBoundingClientRect();
-    const target = edge ? queryOne(`.vis-drag-${edge}`, { root: bar }) : bar;
-    const { left: targetLeft, top, width, height } = target.getBoundingClientRect();
+    const barRect = bar.getBoundingClientRect();
+    const target = queryOne(edge ? `.vis-drag-${edge}` : ".vis-drag-center", { root: bar });
+    const targetRect = target.getBoundingClientRect();
     const start = gantt.itemsDataSet.get(itemId).start;
     const toScreen = gantt.timeline.body.util.toScreen;
     const dayWidth = toScreen(new Date(start.getTime() + DAY_MS)) - toScreen(start);
-    const from = { x: targetLeft + width / 2, y: top + height / 2 };
+    const from = {
+        x: (Math.max(targetRect.left, barRect.left) + Math.min(targetRect.right, barRect.right)) / 2,
+        y: targetRect.top + targetRect.height / 2,
+    };
+    expect(elementAt(from)).toBe(target);
     const { moveTo, drop } = await drag(target, { position: from });
-    // the first move only starts vis-timeline's drag: the bar follows the moves after it
-    await moveTo(target, { position: { x: from.x + Math.sign(days) * 10, y: from.y } });
-    await moveTo(target, { position: { x: from.x + days * dayWidth, y: from.y } });
+    // the first move only starts vis-timeline's drag: the bar follows the moves after it, from there
+    const dragStartX = from.x + Math.sign(days) * 10;
+    await moveTo(target, { position: { x: dragStartX, y: from.y } });
+    await moveTo(target, { position: { x: dragStartX + days * dayWidth, y: from.y } });
     await animationFrame();
-    return { left, drop };
+    return { left: barRect.left, drop };
 }
 
 function barLeft(itemId) {
     return queryOne(`.o_gantt_timeline .vis-item[data-id='${itemId}']`).getBoundingClientRect().left;
+}
+
+const GANTT_STYLESHEET = "/project_team_dashboard/static/src/gantt/gantt_view.css";
+const DASHBOARD_STYLESHEET = "/project_team_dashboard/static/src/team_dashboard/team_dashboard_action.css";
+
+/**
+ * The style rules of the stylesheets at the given URLs, nested ones included: each is loaded on its
+ * own, as the page's bundle mixes this module's rules with every other module's.
+ */
+async function styleRulesOf(urls) {
+    const styleRules = [];
+    const collect = (rules) => {
+        for (const rule of rules) {
+            if (rule.style) {
+                styleRules.push(rule);
+            }
+            collect(rule.cssRules || []);
+        }
+    };
+    for (const url of urls) {
+        const link = Object.assign(document.createElement("link"), { rel: "stylesheet", href: url });
+        const loaded = new Promise((resolve, reject) => {
+            link.onload = resolve;
+            link.onerror = () => reject(new Error(`${url} did not load`));
+        });
+        document.head.append(link);
+        try {
+            await loaded;
+            collect(link.sheet.cssRules);
+        } finally {
+            link.remove();
+        }
+    }
+    return styleRules;
+}
+
+function centreOf(element) {
+    const { left, top, width, height } = element.getBoundingClientRect();
+    return { x: left + width / 2, y: top + height / 2 };
+}
+
+/** The element a press at the point lands on: Hoot dispatches to the element it is given, past hit-testing. */
+function elementAt({ x, y }) {
+    return document.elementFromPoint(x, y);
 }
 
 /** Shows and hides the chart and keeps its settings meanwhile, as the dashboard does. */
@@ -307,12 +375,14 @@ describe("gantt model", () => {
     });
 
     test("the week scale moves the window by one month, the month scale by three", () => {
-        let shifted = shiftGanttWindow(localDate(2026, 6, 1), localDate(2026, 8, 15), "week", 1);
-        expect(shifted.start.getTime()).toBe(localDate(2026, 7, 1).getTime());
-        expect(shifted.end.getTime()).toBe(localDate(2026, 9, 15).getTime());
-        shifted = shiftGanttWindow(localDate(2026, 6, 1), localDate(2026, 8, 15), "month", -1);
-        expect(shifted.start.getTime()).toBe(localDate(2026, 3, 1).getTime());
-        expect(shifted.end.getTime()).toBe(localDate(2026, 5, 15).getTime());
+        // months are counted on luxon's clock, whose zone Hoot mocks, and not on the browser's
+        const midnight = (month, day) => DateTime.local(2026, month, day).toJSDate();
+        let shifted = shiftGanttWindow(midnight(7, 1), midnight(9, 15), "week", 1);
+        expect(shifted.start.getTime()).toBe(midnight(8, 1).getTime());
+        expect(shifted.end.getTime()).toBe(midnight(10, 15).getTime());
+        shifted = shiftGanttWindow(midnight(7, 1), midnight(9, 15), "month", -1);
+        expect(shifted.start.getTime()).toBe(midnight(4, 1).getTime());
+        expect(shifted.end.getTime()).toBe(midnight(6, 15).getTime());
     });
 
     test("the day scale moves the window by one week", () => {
@@ -454,6 +524,11 @@ describe("gantt model", () => {
     test("an arrow reaches a later successor by one step down, an earlier one around the gap", () => {
         expect(elbowPath(100, 20, 200, 60)).toBe("M100,20 H110 V60 H200");
         expect(elbowPath(100, 20, 105, 60)).toBe("M100,20 H110 V40 H95 V60 H105");
+    });
+
+    test("right to left, an arrow leaves leftwards and goes round a successor that starts further right", () => {
+        expect(elbowPath(200, 20, 100, 60, true)).toBe("M200,20 H190 V60 H100");
+        expect(elbowPath(200, 20, 195, 60, true)).toBe("M200,20 H190 V40 H205 V60 H195");
     });
 
     test("each stage visit is a row chained to the next one, one day wide at least", () => {
@@ -629,6 +704,42 @@ describe("gantt model", () => {
         expect(model.items[0].editable.updateTime).toBe(false);
     });
 
+    for (const [side, plannedDate] of [
+        ["start", "2026-11-27 08:00:00"],
+        ["end", "2026-11-27 17:00:00"],
+    ]) {
+        test(`a milestone with its ${side} date alone is a point on that date`, () => {
+            const task = makeTask({ id: 4, name: "Launch", task_type: "milestone", [`planned_date_${side}`]: plannedDate });
+            withOneDate(task, side);
+            const model = buildGanttModel(makePayload({ tasks: [task], unscheduled: [] }), {
+                groupBy: "task",
+                facets: [],
+                columns: [],
+            });
+            expect(model.items[0].type).toBe("point");
+            expect(dateToUtc(model.items[0].start)).toBe(plannedDate);
+            expect(model.items[0].tooltip.at(-1)).toBe("Nov 27");
+        });
+
+        test(`the tooltip of a bar with its ${side} date alone shows that date and not the padded one`, () => {
+            const task = makeTask({ id: 1, name: "Design" });
+            withOneDate(task, side);
+            const model = buildGanttModel(makePayload({ tasks: [task], unscheduled: [] }), {
+                groupBy: "task",
+                facets: [],
+                columns: [],
+            });
+            expect(model.items[0].type).toBe("range");
+            expect(model.items[0].tooltip.at(-1)).toBe(side === "start" ? "Start: Nov 16" : "End: Nov 18");
+        });
+    }
+
+    test("a sub-task outside its parent's group names it in one translated sentence", () => {
+        patchTranslations({ project_team_dashboard: { "sub-task of %(parent)s": "%(parent)s の子タスク" } });
+        const model = buildGanttModel(makePayload({ unscheduled: [] }), { groupBy: "stage", facets: [], columns: [] });
+        expect(model.groups.find((group) => group.id === "t_3").label.outsideParentText).toBe("PROJ-2 の子タスク");
+    });
+
     test("the baseline is a thin bar under each task that has one", () => {
         const tasks = makeTasks();
         tasks[0].baseline_date_start = "2026-11-15 08:00:00";
@@ -692,15 +803,25 @@ describe("GanttView", () => {
         expect(getComputedStyle(tooltip).borderTopStyle).toBe("none");
     });
 
-    test("every CSS variable the stylesheet names is one the web client defines", () => {
+    test("a bar with its progress label is as high as a bar without", async () => {
+        serveGanttData([], () => {
+            const payload = makePayload();
+            Object.assign(payload.tasks[2], { planned_hours: 8, progress: 50 });
+            return payload;
+        });
+        await mountGantt();
+        const labelBar = queryOne(".o_gantt_timeline .vis-item[data-id='ut_8_3']");
+        const plainBar = queryOne(".o_gantt_timeline .vis-item[data-id='ut_8_2']");
+        expect(queryAll(".gantt-progress-label", { root: labelBar })).toHaveLength(1);
+        expect(queryAll(".gantt-progress-label", { root: plainBar })).toHaveLength(0);
+        expect(labelBar.getBoundingClientRect().height).toBe(plainBar.getBoundingClientRect().height);
+    });
+
+    test("every CSS variable the stylesheet names is one the web client defines", async () => {
         const names = new Set();
-        for (const sheet of document.styleSheets) {
-            for (const rule of sheet.cssRules) {
-                if (rule.selectorText?.includes(".o_gantt")) {
-                    for (const [, name] of rule.cssText.matchAll(/var\((--[\w-]+)/g)) {
-                        names.add(name);
-                    }
-                }
+        for (const rule of await styleRulesOf([GANTT_STYLESHEET])) {
+            for (const [, name] of rule.style.cssText.matchAll(/var\((--[\w-]+)/g)) {
+                names.add(name);
             }
         }
         const rootStyle = getComputedStyle(document.documentElement);
@@ -715,6 +836,204 @@ describe("GanttView", () => {
         expect(majorGridRules).toHaveLength(1);
         expect(majorGridRules[0].parentStyleSheet.ownerNode.tagName).toBe("STYLE");
     });
+
+    test("the axis' weeks start on the first day of the week of the user's language, numbered as the web client numbers them", async () => {
+        const { moment } = await visTimeline.load();
+        const globalLocale = moment.locale();
+        for (const [weekStart, firstWeekday] of [
+            [1, 1],
+            [3, 3],
+            [6, 6],
+            [7, 0],
+        ]) {
+            // getLocalYearAndWeek reads the week start of the user's language
+            patchWithCleanup(localization, { weekStart });
+            const axisMoment = weekStartMoment(moment, weekStart);
+            expect(axisMoment(localDate(2026, 10, 19)).startOf("week").day()).toBe(firstWeekday);
+            // the days around a new year, where the week of a date and its year's can part; each side
+            // reads the calendar day on its own clock: moment the browser's zone, luxon the mocked one
+            for (let offset = 0; offset < 32; offset++) {
+                const day = DateTime.local(2026, 12, 20).plus({ days: offset });
+                expect(axisMoment([day.year, day.month - 1, day.day]).week()).toBe(getLocalYearAndWeek(day).week);
+            }
+        }
+        expect(moment.locale()).toBe(globalLocale);
+    });
+
+    test("the stylesheets of the chart and the dashboard name no fixed colour, only the web client's", async () => {
+        const fixedColour = /#[\da-f]{3,8}\b|rgba?\(\s*[\d.]|(?<![-\w])(white|black)(?![-\w])/i;
+        const styleRules = await styleRulesOf([GANTT_STYLESHEET, DASHBOARD_STYLESHEET]);
+        expect(styleRules.length).toBeGreaterThan(50);
+        expect(styleRules.filter((rule) => fixedColour.test(rule.style.cssText)).map((rule) => rule.selectorText)).toEqual(
+            []
+        );
+    });
+
+    test("the panel, grid and row lines of vis-timeline take the web client's border colour", async () => {
+        serveGanttData([]);
+        await mountGantt();
+        const probe = document.createElement("div");
+        probe.style.borderTopColor = "var(--border-color)";
+        queryOne(".o_gantt_view").append(probe);
+        const borderColor = getComputedStyle(probe).borderTopColor;
+        probe.remove();
+        const lines = [
+            [".vis-panel.vis-center", "borderTopColor"],
+            [".vis-time-axis .vis-grid.vis-minor", "borderLeftColor"],
+            [".vis-time-axis .vis-grid.vis-major", "borderLeftColor"],
+            [".vis-foreground .vis-group", "borderBottomColor"],
+            [".vis-labelset .vis-label", "borderBottomColor"],
+        ];
+        expect(borderColor).toMatch(/^rgb/);
+        expect(
+            Object.fromEntries(
+                lines.map(([selector, side]) => [selector, getComputedStyle(queryFirst(`.o_gantt_timeline ${selector}`))[side]])
+            )
+        ).toEqual(Object.fromEntries(lines.map(([selector]) => [selector, borderColor])));
+    });
+
+    test("every control of the chart is named, and no icon adds its own name to it", async () => {
+        serveGanttData([]);
+        await mountGantt();
+        // an icon's ligature reads as text unless it is hidden or inside a control named otherwise
+        const speakingIcons = queryAll(".o_gantt_view .oi:not([aria-hidden='true'])").filter(
+            (icon) => !icon.closest("[aria-label]")
+        );
+        expect(speakingIcons).toEqual([]);
+        const unnamedControls = queryAll(".o_gantt_view button, .o_gantt_view [role='button']").filter(
+            (control) => !control.ariaLabel && !control.title && !control.textContent.trim()
+        );
+        expect(unnamedControls).toEqual([]);
+    });
+
+    for (const direction of ["ltr", "rtl"]) {
+        const isRtl = direction === "rtl";
+
+        test(`the link handle sticks out of a bar's end, as high as the bar, and the columns follow the text, ${direction}`, async () => {
+            defineParams({ lang_parameters: { direction } });
+            serveGanttData([]);
+            const gantt = await mountGantt();
+            gantt.timeline.setSelection(["ut_8_3"]);
+            await animationFrame();
+            const bar = queryOne(".o_gantt_timeline .vis-item[data-id='ut_8_3']");
+            expect(queryAll(".gantt-progress-label", { root: bar })).toHaveLength(0);
+            const barRect = bar.getBoundingClientRect();
+            const handleRect = queryOne(".o_gantt_dep_handle", { root: bar }).getBoundingClientRect();
+            expect(isRtl ? barRect.left - handleRect.right : handleRect.left - barRect.right).toBeCloseTo(0, {
+                margin: 1,
+            });
+            expect(handleRect.height).toBeCloseTo(barRect.height, { margin: 1 });
+            expect(barRect.height).toBeCloseTo(24, { margin: 1 });
+            const cellStyle = getComputedStyle(queryFirst(".o_gantt_timeline .o_gantt_cell"));
+            expect([cellStyle.borderLeftWidth, cellStyle.borderRightWidth]).toEqual(isRtl ? ["0px", "1px"] : ["1px", "0px"]);
+            expect(bar.style.background).toInclude(isRtl ? "to left" : "to right");
+        });
+
+        test(`a press where the link handle of a selected bar is drawn links it, and the bar keeps its move and resize areas, ${direction}`, async () => {
+            defineParams({ lang_parameters: { direction } });
+            const calls = [];
+            serveGanttData([]);
+            onRpc("project.task", "gantt_add_dependency", ({ args }) => {
+                calls.push(args);
+                return true;
+            });
+            const gantt = await mountGantt();
+            await showChart(gantt);
+            gantt.timeline.setSelection(["ut_7_1"]);
+            await animationFrame();
+            const bar = queryOne(".o_gantt_timeline .vis-item[data-id='ut_7_1']");
+            const handle = queryOne(".o_gantt_dep_handle", { root: bar });
+            const handleCentre = centreOf(handle);
+            expect(elementAt(handleCentre)).toBe(handle);
+            const barRect = bar.getBoundingClientRect();
+            expect(elementAt({ x: barRect.left + barRect.width / 2, y: handleCentre.y })).toBe(
+                queryOne(".vis-drag-center", { root: bar })
+            );
+            const endInside = { x: isRtl ? barRect.left + 2 : barRect.right - 2, y: handleCentre.y };
+            expect(elementAt(endInside)).toBe(queryOne(isRtl ? ".vis-drag-left" : ".vis-drag-right", { root: bar }));
+
+            await pointerDown(elementAt(handleCentre), { position: handleCentre });
+            await animationFrame();
+            expect(".o_gantt_link_overlay line").toHaveCount(1);
+            const targetCentre = centreOf(queryOne(".o_gantt_timeline .vis-item[data-id='ut_8_3']"));
+            await pointerUp(elementAt(targetCentre), { position: targetCentre });
+            await animationFrame();
+            expect(calls).toEqual([[[3], 1]]);
+        });
+
+        test(`an arrow runs from the predecessor's end to the successor's start, ${direction}`, async () => {
+            defineParams({ lang_parameters: { direction } });
+            serveGanttData([]);
+            const gantt = await mountGantt();
+            const [edge] = gantt.model.edges;
+            const contentLeft = queryOne(".o_gantt_timeline .vis-center .vis-content").getBoundingClientRect().left;
+            const fromRect = queryOne(`.o_gantt_timeline .vis-item[data-id='${edge.from}']`).getBoundingClientRect();
+            const toRect = queryOne(`.o_gantt_timeline .vis-item[data-id='${edge.to}']`).getBoundingClientRect();
+            const path = queryOne(".o_gantt_arrows_svg .o_gantt_dep_hit").getAttribute("d");
+            const [, startX, exitX] = path.match(/^M([-\d.]+),[-\d.]+ H([-\d.]+)/).map(Number);
+            const endX = Number(path.match(/H([-\d.]+)$/)[1]);
+            expect(startX).toBeCloseTo((isRtl ? fromRect.left : fromRect.right) - contentLeft, { margin: 1 });
+            expect(endX).toBeCloseTo((isRtl ? toRect.right : toRect.left) - contentLeft, { margin: 1 });
+            expect(Math.sign(exitX - startX)).toBe(isRtl ? -1 : 1);
+        });
+
+        test(`the names are capped between the chart's outer edge and the timeline, the columns header over their cells, before and after a resize, ${direction}`, async () => {
+            defineParams({ lang_parameters: { direction } });
+            serveGanttData([], () => {
+                const payload = makePayload();
+                payload.tasks[0].name = "Design every screen of the onboarding flow for each market the mobile app sells in";
+                return payload;
+            });
+            await mountGantt();
+            const expectNamesLayout = () => {
+                const chartWidth = queryOne(".o_gantt_timeline").offsetWidth;
+                const columnsWidth = shownColumnsWidth(activeColumns(["deadline"], "user"), chartWidth);
+                const names = queryOne(`.o_gantt_timeline .vis-panel.${isRtl ? "vis-right" : "vis-left"}`);
+                expect(names.offsetWidth).toBeCloseTo(sidebarMaxWidth(chartWidth, columnsWidth), { margin: 1 });
+                const namesRect = names.getBoundingClientRect();
+                // vis-timeline places its panels by its root's outer width, its 1px border included
+                const rootRect = queryOne(".o_gantt_timeline .vis-timeline").getBoundingClientRect();
+                expect(isRtl ? rootRect.right - namesRect.right : namesRect.left - rootRect.left).toBeCloseTo(0, {
+                    margin: 2,
+                });
+                const centerRect = queryOne(".o_gantt_timeline .vis-panel.vis-center").getBoundingClientRect();
+                expect(isRtl ? namesRect.left - centerRect.right : centerRect.left - namesRect.right).toBeCloseTo(0, {
+                    margin: 1,
+                });
+                const bodyCell = queryFirst(".o_gantt_cell[data-column='deadline']", { root: names });
+                const bodyRect = bodyCell.getBoundingClientRect();
+                const headerCell = queryOne(".o_gantt_timeline .o_gantt_cols_header .o_gantt_cell");
+                const headerRect = headerCell.getBoundingClientRect();
+                expect(headerRect.left).toBeCloseTo(bodyRect.left, { margin: 1 });
+                expect(headerRect.right).toBeCloseTo(bodyRect.right, { margin: 1 });
+                expect(bodyRect.left >= namesRect.left && bodyRect.right <= namesRect.right).toBe(true);
+            };
+            expectNamesLayout();
+            await resize({ width: 1024 });
+            await animationFrame();
+            expectNamesLayout();
+        });
+    }
+
+    for (const [weekStart, firstWeekday] of [
+        [1, 1],
+        [7, 0],
+    ]) {
+        test(`the week scale starts each week on weekday ${firstWeekday} when the language's week starts there`, async () => {
+            defineParams({ lang_parameters: { week_start: weekStart } });
+            serveGanttData([]);
+            const gantt = await mountGantt();
+            const { toTime } = gantt.timeline.body.util;
+            const weekdays = queryAll(".o_gantt_timeline .vis-time-axis .vis-text.vis-minor:not(.vis-measure)")
+                .map((label) => toTime(parseFloat(label.style.transform.match(/translate\((-?[\d.]+)px/)[1])))
+                // a label also marks the first day of each month, and its position is rounded to the pixel
+                .map((labelTime) => new Date(labelTime.getTime() + 3600000))
+                .filter((labelDate) => labelDate.getDate() !== 1)
+                .map((labelDate) => labelDate.getDay());
+            expect(weekdays.length).toBeGreaterThan(2);
+            expect([...new Set(weekdays)]).toEqual([firstWeekday]);
+        });
+    }
 
     test("without a project nothing is loaded", async () => {
         const loads = [];
@@ -1126,6 +1445,28 @@ describe("GanttView", () => {
         expect(actions[2].domain).toEqual([["id", "in", [6]]]);
     });
 
+    test("the open icon and an unscheduled name are reached by Tab and open the task form with Enter or Space", async () => {
+        const openedIds = [];
+        serveGanttData([]);
+        mockService("action", { doAction: (action) => openedIds.push(action.res_id) });
+        await mountGantt();
+        const opener = queryFirst(".o_gantt_timeline .o_gantt_open_task[data-task-id='2']");
+        expect(opener).toHaveAttribute("tabindex", "0");
+        opener.focus();
+        await press("Enter");
+        await press(" ");
+        await press("a");
+
+        await click(".o_gantt_timeline .vis-label.vis-nesting-group:contains(Unscheduled)");
+        await advanceTime(10);
+        await animationFrame();
+        const unscheduled = queryOne(".o_gantt_timeline .o_gantt_unscheduled_name[data-task-id='6']");
+        expect(unscheduled).toHaveAttribute("tabindex", "0");
+        unscheduled.focus();
+        await press("Enter");
+        expect(openedIds).toEqual([2, 2, 6]);
+    });
+
     test("the scale buttons change the time axis", async () => {
         serveGanttData([]);
         const gantt = await mountGantt();
@@ -1450,5 +1791,66 @@ describe("GanttView on a phone", () => {
         expect(labelTexts()).toHaveLength(9);
         const chartWidth = queryOne(".o_gantt_timeline").offsetWidth;
         expect(queryOne(".o_gantt_timeline .vis-panel.vis-left").offsetWidth).toBe(sidebarMaxWidth(chartWidth, 0));
+    });
+
+    test("on a touch screen a tap shows the bar's link handle, and a touch drag from it links two tasks", async () => {
+        mockDate("2026-11-18 10:00:00", 1);
+        mockTouch(true);
+        const calls = [];
+        serveGanttData([]);
+        onRpc("project.task", "gantt_add_dependency", ({ args }) => {
+            calls.push(args);
+            return true;
+        });
+        const gantt = await mountGantt();
+        await showChart(gantt);
+        const barOf = (itemId) => queryOne(`.o_gantt_timeline .vis-item[data-id='${itemId}']`);
+        const handleOf = (itemId) => queryOne(".o_gantt_dep_handle", { root: barOf(itemId) });
+        expect(handleOf("ut_7_1")).not.toBeVisible();
+
+        const barCentre = centreOf(barOf("ut_7_1"));
+        await click(elementAt(barCentre), { position: barCentre });
+        await animationFrame();
+        expect(handleOf("ut_7_1")).toBeVisible();
+        expect(handleOf("ut_8_3")).not.toBeVisible();
+        expect(getComputedStyle(handleOf("ut_7_1")).touchAction).toBe("none");
+
+        const handleCentre = centreOf(handleOf("ut_7_1"));
+        expect(elementAt(handleCentre)).toBe(handleOf("ut_7_1"));
+        await pointerDown(elementAt(handleCentre), { position: handleCentre });
+        await animationFrame();
+        expect(".o_gantt_link_overlay line").toHaveCount(1);
+        const targetCentre = centreOf(barOf("ut_8_3"));
+        await pointerUp(elementAt(targetCentre), { position: targetCentre });
+        await animationFrame();
+        expect(calls).toEqual([[[3], 1]]);
+    });
+
+    test("a bar narrower than its link handle is still moved by a touch drag on it", async () => {
+        mockDate("2026-11-18 10:00:00", 1);
+        mockTouch(true);
+        const writes = [];
+        serveGanttData([], () => {
+            const payload = makePayload();
+            payload.tasks[2].planned_date_end = "2026-11-20 14:00:00";
+            return payload;
+        });
+        onRpc("project.task", "write", ({ args }) => {
+            writes.push(args);
+            return true;
+        });
+        const gantt = await mountGantt();
+        await showChart(gantt);
+        gantt.timeline.setSelection(["ut_8_3"]);
+        await animationFrame();
+        const bar = queryOne(".o_gantt_timeline .vis-item[data-id='ut_8_3']");
+        expect(bar.offsetWidth).toBeLessThan(queryOne(".o_gantt_dep_handle", { root: bar }).offsetWidth);
+
+        const { drop } = await dragBarByDays(gantt, "ut_8_3", 2);
+        await drop();
+        await animationFrame();
+        expect(writes).toEqual([
+            [[3], { planned_date_start: "2026-11-22 08:00:00", planned_date_end: "2026-11-22 14:00:00" }],
+        ]);
     });
 });

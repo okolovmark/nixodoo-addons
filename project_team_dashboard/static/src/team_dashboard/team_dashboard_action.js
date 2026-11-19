@@ -1,7 +1,7 @@
 import { Component, onWillStart, proxy, toRaw, useProps } from "@odoo/owl";
 import { AutoComplete } from "@web/core/autocomplete/autocomplete";
 import { DateTimeInput } from "@web/core/datetime/datetime_input";
-import { serializeDate, today } from "@web/core/l10n/dates";
+import { getStartOfLocalWeek, serializeDate, today } from "@web/core/l10n/dates";
 import { _t } from "@web/core/l10n/translation";
 import { registry } from "@web/core/registry";
 import { user } from "@web/core/user";
@@ -29,15 +29,15 @@ const KEPT_STATE_KEYS = [
 const MODE_TEAM_KEYS = { manager: "managerId", department: "departmentId" };
 
 /**
- * The days a period covers, as the server dates the dashboard methods take. Weeks start on
- * Monday, as the server's own default period does.
+ * The days a period covers, as the server dates the dashboard methods take. Weeks start on the
+ * first day of the week of the user's language, as the server's own default period does.
  *
  * @param {string} period
  * @param {luxon.DateTime} day the day the period is relative to
  * @param {{start: luxon.DateTime|false, end: luxon.DateTime|false}} customRange
  */
 export function getPeriodDates(period, day, customRange) {
-    let start = day.startOf("week");
+    let start = getStartOfLocalWeek(day);
     let end = start.plus({ days: 6 });
     if (period === "last_week") {
         start = start.minus({ weeks: 1 });
@@ -236,6 +236,22 @@ export class TeamDashboardAction extends Component {
 
     selectedManagerName() {
         return this.managerUsers.find((manager) => manager.id === this.state.managerId)?.name || "";
+    }
+
+    subordinatesText() {
+        return _t("Subordinates of %(manager)s", { manager: this.state.data.manager_name || "" });
+    }
+
+    projectCountText() {
+        const count = this.state.data.project_count;
+        return count === 1 ? _t("1 project") : _t("%(count)s projects", { count });
+    }
+
+    periodText() {
+        return _t("%(start)s to %(end)s", {
+            start: formatDay(this.state.data.period_start),
+            end: formatDay(this.state.data.period_end),
+        });
     }
 
     selectedDepartmentLabel() {

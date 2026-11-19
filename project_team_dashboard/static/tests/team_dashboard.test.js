@@ -5,19 +5,27 @@ import { defineMailModels } from "@mail/../tests/mail_test_helpers";
 import { Component, t, toRaw, useProps, xml } from "@odoo/owl";
 import {
     contains,
+    defineParams,
     getService,
     makeServerError,
     mockService,
     mountWithCleanup,
     onRpc,
+    patchTranslations,
     patchWithCleanup,
 } from "@web/../tests/web_test_helpers";
+import { localization } from "@web/core/l10n/localization";
 import { registry } from "@web/core/registry";
 import { pick } from "@web/core/utils/objects";
 import { CallbackRecorder } from "@web/search/action_hook";
 import { WebClient } from "@web/webclient/webclient";
 import { GanttView, makeGanttSettings } from "@project_team_dashboard/gantt/gantt_view";
-import { TeamDashboardAction } from "@project_team_dashboard/team_dashboard/team_dashboard_action";
+import {
+    getPeriodDates,
+    TeamDashboardAction,
+} from "@project_team_dashboard/team_dashboard/team_dashboard_action";
+
+const { DateTime } = luxon;
 
 defineMailModels();
 
@@ -200,8 +208,14 @@ function departmentCall(values = {}) {
 const MEMBER = '.o_team_dashboard_member[data-user-id="7"]';
 const UNASSIGNED = '.o_team_dashboard_member[data-user-id="unassigned"]';
 
+/** The weeks of the fixtures start on Monday; the mock server's language starts them on Sunday. */
+function startWeeksOnMonday() {
+    defineParams({ lang_parameters: { week_start: 1 } });
+}
+
 describe("on desktop", () => {
     describe.current.tags("desktop");
+    startWeeksOnMonday();
 
     test("the action is registered under the client action tag", () => {
         expect(registry.category("actions").get("project_team_dashboard")).toBe(
@@ -251,7 +265,7 @@ describe("on desktop", () => {
 
         expect(`${UNASSIGNED} .o_team_dashboard_member_name`).toHaveText("Unassigned");
         expect(`${UNASSIGNED} .card-header small.text-muted`).toHaveText(
-            "1 tasks · 1.5h over estimate"
+            "1 task · 1.5h over estimate"
         );
         expect(`${UNASSIGNED} .o_team_dashboard_queue_toggle`).toHaveText("Backlog 1");
         expect(`${UNASSIGNED} .card-body`).toHaveText(/No active task/);
@@ -332,6 +346,83 @@ describe("on desktop", () => {
         expect.verifySteps([]);
         await contains(".o_team_dashboard_date_end input").edit("09/17/2026");
         expect.verifySteps([projectCall({ date_start: "2026-09-03", date_end: "2026-09-17" })]);
+    });
+
+    test("a week period starts on the first day of the week of the user's language", () => {
+        const thursday = DateTime.local(2026, 11, 19);
+        const noRange = { start: false, end: false };
+        for (const [weekStart, thisWeek, lastWeek] of [
+            [1, THIS_WEEK, LAST_WEEK],
+            [
+                7,
+                { date_start: "2026-11-15", date_end: "2026-11-21" },
+                { date_start: "2026-11-08", date_end: "2026-11-14" },
+            ],
+        ]) {
+            patchWithCleanup(localization, { weekStart });
+            expect(getPeriodDates("this_week", thursday, noRange)).toEqual(thisWeek);
+            expect(getPeriodDates("last_week", thursday, noRange)).toEqual(lastWeek);
+        }
+    });
+
+    test("each sentence of the cards and the period is translated whole", async () => {
+        patchTranslations({
+            project_team_dashboard: {
+                "%(count)s tasks": "tâches : %(count)s",
+                "1 task": "une tâche",
+                "%(hours)sh remaining": "reste %(hours)s h",
+                "%(hours)sh over estimate": "%(hours)s h de dépassement",
+                "Today: %(hours)sh": "aujourd'hui %(hours)s h",
+                "%(remaining)sh remaining / %(planned)sh estimated": "reste %(remaining)s h sur %(planned)s h",
+                "Deadline: %(date)s (OVERDUE)": "en retard, échéance le %(date)s",
+                "Deadline: %(date)s": "échéance le %(date)s",
+                "%(hours)sh estimated": "%(hours)s h estimées",
+                "ETA: %(date)s": "fin vers le %(date)s",
+                "%(start)s to %(end)s": "du %(start)s au %(end)s",
+                "Subordinates of %(manager)s": "équipe de %(manager)s",
+                "%(count)s projects": "projets : %(count)s",
+                "sub-task of %(parent)s": "sous-tâche de %(parent)s",
+            },
+        });
+        serveDirectory();
+        serveDashboard(({ user_id }) => {
+            const payload = makePayload();
+            Object.assign(payload.members[0].current_task, { is_subtask: true, parent_key: "WEB-30" });
+            if (!user_id) {
+                return payload;
+            }
+            payload.members[0].current_task.is_overdue = false;
+            return { ...payload, manager_name: "Boss", project_count: 2 };
+        });
+        await mountDashboard();
+        expect(`${MEMBER} .o_team_dashboard_current_task small.text-info`).toHaveText("sous-tâche de WEB-30");
+        expect(`${MEMBER} .card-header small.text-muted`).toHaveText("tâches : 4 · reste 10.5 h");
+        expect(`${UNASSIGNED} .card-header small.text-muted`).toHaveText("une tâche · 1.5 h de dépassement");
+        expect(`${MEMBER} .o_team_dashboard_hours_today`).toHaveText("aujourd'hui 1.0 h");
+        expect(`${MEMBER} .o_team_dashboard_current_hours`).toHaveText("reste 2.0 h sur 8.0 h");
+        expect(`${MEMBER} .o_team_dashboard_deadline`).toHaveText("en retard, échéance le 11/18/2026");
+        expect(`${MEMBER} .o_team_dashboard_planned_hours`).toHaveText("16.5 h estimées");
+        expect(`${MEMBER} .o_team_dashboard_eta`).toHaveText("fin vers le 11/25/2026");
+        expect(`${MEMBER} .o_team_dashboard_eta strong`).toHaveText("11/25/2026");
+        expect(".o_team_dashboard_period_info").toHaveText("Website · du 11/16/2026 au 11/22/2026");
+
+        await contains("button[data-mode=manager]").click();
+        expect(".o_team_dashboard_period_info").toHaveText(
+            "équipe de Boss · projets : 2 · du 11/16/2026 au 11/22/2026"
+        );
+        expect(`${MEMBER} .o_team_dashboard_deadline`).toHaveText("échéance le 11/18/2026");
+        expect.verifySteps([projectCall(), managerCall()]);
+    });
+
+    test("a team with tasks in one project counts it in the singular", async () => {
+        serveDirectory();
+        serveDashboard(({ user_id }) =>
+            user_id ? { ...makePayload(), manager_name: "Boss", project_count: 1 } : makePayload()
+        );
+        await mountDashboard();
+        await contains("button[data-mode=manager]").click();
+        expect(".o_team_dashboard_period_info").toHaveText("Subordinates of Boss · 1 project · 11/16/2026 to 11/22/2026");
+        expect.verifySteps([projectCall(), managerCall()]);
     });
 
     for (const { mode, key, refused, kept, makeCall } of [
@@ -789,6 +880,7 @@ describe("on desktop", () => {
 
 describe("on a phone", () => {
     describe.current.tags("mobile");
+    startWeeksOnMonday();
 
     test("the toolbar, the filters and the cards fit the screen width", async () => {
         serveDirectory();

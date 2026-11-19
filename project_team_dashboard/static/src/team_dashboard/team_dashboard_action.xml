@@ -173,14 +173,13 @@
 
             <small t-if="this.state.data" class="o_team_dashboard_period_info text-muted ms-md-auto">
                 <strong t-if="this.state.mode === 'project'" t-out="this.state.data.project_name"/>
-                <strong t-if="this.state.mode === 'manager'">Subordinates of <t t-out="this.state.data.manager_name or ''"/></strong>
+                <strong t-if="this.state.mode === 'manager'" t-out="this.subordinatesText()"/>
                 <strong t-if="this.state.mode === 'department'" t-out="this.state.data.department_name or ''"/>
                 <t t-if="this.state.mode !== 'project' and this.state.data.project_count">
-                    · <t t-out="this.state.data.project_count"/> projects
+                    · <t t-out="this.projectCountText()"/>
                 </t>
                 <t t-if="this.state.data.period_start and this.state.data.period_end">
-                    · <t t-out="this.formatDay(this.state.data.period_start)"/>
-                    to <t t-out="this.formatDay(this.state.data.period_end)"/>
+                    · <t t-out="this.periodText()"/>
                 </t>
             </small>
         </div>

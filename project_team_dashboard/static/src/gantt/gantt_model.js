@@ -83,6 +83,27 @@ export function ganttPanBounds(dataStart, dataEnd) {
     return { min: addToDate(dataStart, PAN_MARGIN, -1), max: addToDate(dataEnd, PAN_MARGIN, 1) };
 }
 
+/**
+ * The moment constructor vis-timeline lays its axis out with: its weeks start on weekStart and are
+ * numbered as `getLocalYearAndWeek` numbers them, by the ISO week of the nearest Monday.
+ *
+ * @param {Function} moment the one vis-timeline bundles
+ * @param {number} weekStart the first day of the week, `localization.weekStart`: 1 is Monday, 7 Sunday
+ */
+export function weekStartMoment(moment, weekStart) {
+    const localeName = `o_gantt_week_start_${weekStart}`;
+    if (!moment.locales().includes(localeName)) {
+        const dow = weekStart % 7;
+        const daysToMonday = weekStart > 1 && weekStart < 5 ? 1 - weekStart : (8 - weekStart) % 7;
+        const globalLocale = moment.locale();
+        // doy is moment's 7 + dow - (the day of January that is always in week 1)
+        moment.defineLocale(localeName, { parentLocale: globalLocale, week: { dow, doy: 3 + dow + daysToMonday } });
+        // defining a locale makes it the global one too
+        moment.locale(globalLocale);
+    }
+    return (date) => moment(date).locale(localeName);
+}
+
 /** A stored UTC datetime ("YYYY-MM-DD HH:MM:SS") as the instant vis-timeline draws. */
 export function utcToDate(value) {
     return deserializeDateTime(value).toJSDate();
@@ -226,6 +247,11 @@ export function findOverlappingBarIds(bars, taskMap) {
     return overlappingIds;
 }
 
+/** The stored datetime a point is drawn on: the planned end of a task that has no planned start, else the start. */
+export function pointDateValue(task) {
+    return !task.has_planned_date_start && task.has_planned_date_end ? task.planned_date_end : task.planned_date_start;
+}
+
 export function ganttBarRules(task, hasSubtaskRows) {
     const hasNoLength = !task.planned_date_end || task.planned_date_end === task.planned_date_start;
     return {
@@ -259,13 +285,16 @@ export function assignStageColors(tasks) {
     });
 }
 
-export function elbowPath(x1, y1, x2, y2) {
-    const exitX = x1 + ELBOW_STUB;
-    if (x2 - ELBOW_STUB >= exitX) {
+/** The arrow from a bar's end at (x1, y1) to another's start at (x2, y2); right to left, time runs leftwards. */
+export function elbowPath(x1, y1, x2, y2, isRtl = false) {
+    const stub = isRtl ? -ELBOW_STUB : ELBOW_STUB;
+    const exitX = x1 + stub;
+    const entryX = x2 - stub;
+    if (isRtl ? entryX <= exitX : entryX >= exitX) {
         return `M${x1},${y1} H${exitX} V${y2} H${x2}`;
     }
     const midY = (y1 + y2) / 2;
-    return `M${x1},${y1} H${exitX} V${midY} H${x2 - ELBOW_STUB} V${y2} H${x2}`;
+    return `M${x1},${y1} H${exitX} V${midY} H${entryX} V${y2} H${x2}`;
 }
 
 function parseUtcMs(value) {
@@ -481,9 +510,13 @@ function taskTooltip(task, prefix, isPoint) {
     if (task.is_deadline_only) {
         lines.push(_t("Deadline: %s (no planned dates)", toLocaleDateString(deserializeDate(task.date_deadline))));
     } else if (isPoint) {
-        lines.push(localDayLabel(task.planned_date_start));
-    } else {
+        lines.push(localDayLabel(pointDateValue(task)));
+    } else if (task.has_planned_date_start && task.has_planned_date_end) {
         lines.push(`${localDayLabel(task.planned_date_start)} → ${localDayLabel(task.planned_date_end)}`);
+    } else if (task.has_planned_date_start) {
+        lines.push(_t("Start: %s", localDayLabel(task.planned_date_start)));
+    } else {
+        lines.push(_t("End: %s", localDayLabel(task.planned_date_end)));
     }
     if (typeof task.baseline_shift_days === "number") {
         const shift = task.baseline_shift_days;
@@ -497,7 +530,7 @@ function taskTooltip(task, prefix, isPoint) {
  * around them. Labels and bar contents are descriptors the templates render: no HTML is built here.
  *
  * @param {Object} data payload of `project.project.get_gantt_chart_data`
- * @param {Object} options groupBy, facets, columns, showBaseline, showStageHistory, isMultiProject
+ * @param {Object} options groupBy, facets, columns, showBaseline, showStageHistory, isMultiProject, isRtl
  */
 export function buildGanttModel(data, options) {
     const allTasks = data.tasks || [];
@@ -542,6 +575,8 @@ export function buildGanttModel(data, options) {
     const stageColors = new Map(model.stageLegend.map((stage) => [stage.stageId, [stage.solid, stage.light]]));
     const colorsOf = (stageId) => stageColors.get(stageId || 0) || FALLBACK_COLORS;
     const prefixOf = (task) => (options.isMultiProject && task.project_name ? `${task.project_name} | ` : "");
+    // right to left, a bar starts on its right: its progress fills from there
+    const progressSide = options.isRtl ? "left" : "right";
 
     const taskItem = (task, rowId, prefix, hasSubtaskRows, userId) => {
         const barRules = ganttBarRules(task, hasSubtaskRows);
@@ -565,7 +600,7 @@ export function buildGanttModel(data, options) {
                 type: "point",
                 start: task.is_deadline_only
                     ? deserializeDate(task.date_deadline).toJSDate()
-                    : utcToDate(task.planned_date_start),
+                    : utcToDate(pointDateValue(task)),
                 view: { kind: "milestone", color: solid },
             });
         }
@@ -574,7 +609,7 @@ export function buildGanttModel(data, options) {
             type: "range",
             start: utcToDate(task.planned_date_start),
             end: utcToDate(task.planned_date_end),
-            style: `background: linear-gradient(to right, ${solid} 0%, ${solid} ${progress}%, ${light} ${progress}%, ${light} 100%);`,
+            style: `background: linear-gradient(to ${progressSide}, ${solid} 0%, ${solid} ${progress}%, ${light} ${progress}%, ${light} 100%);`,
             view: { kind: "bar", progress, showProgress: task.planned_hours > 0, canLink: model.canLink },
         });
     };
@@ -642,6 +677,7 @@ export function buildGanttModel(data, options) {
                 task,
                 prefix,
                 outsideParentLabel,
+                outsideParentText: outsideParentLabel && _t("sub-task of %(parent)s", { parent: outsideParentLabel }),
                 isNestedLeaf: !outsideParentLabel && treeLevel > 0 && !nestedIds.length,
                 cells: columnCells(task, columns, today),
             };

@@ -40,13 +40,15 @@ Team Dashboard
    manager and the **Depth**) or **Department**. Manager and Department
    open only the teams your rights allow (see *Configuration*).
 #. Pick the **Period** for the logged-hours figures, or *Custom Range* with
-   start and end dates.
+   start and end dates. A week starts on the first day of the week of your
+   language (Monday in French, Sunday in English (US)).
 #. Read each member card: current task, queue, backlog, estimated and
    remaining hours, hours logged, estimated completion. Click a task to
    open it, or the card's *Backlog*, *Kanban* or *Closed* buttons for the
    member's tasks.
 #. In Project mode, switch to the **Gantt Chart** with the chart button
-   next to the cards button. Change the **Scale** (Day, Week, Month), page
+   next to the cards button. Change the **Scale** (Day, Week, Month; the
+   Week scale starts each week on your language's first day), page
    earlier or later with the arrows around **Today**, press **Fit All** to
    see every task, **Group** by user (the default), task or stage, press
    **Show Closed** to include Done and Cancelled tasks, add more projects
@@ -70,10 +72,15 @@ Plan in the Gantt chart
   scrolls to its bar, selects it and briefly highlights its row. Pick a
   field there (Assignee, Task, Key, Stage, Type) to narrow the chart to
   one of its values.
-* Link tasks: hover the predecessor's bar, drag the handle at its right end
-  and drop it on the dependent task. Click the arrow to enter **Lag, days**
-  and press *Save*, or press *Remove* to delete the dependency. A red arrow
-  means the dependent task starts too early; move its dates yourself.
+* Link tasks: hover the predecessor's bar, or select it (tap it on a touch
+  screen), and drag the handle shown just past its end (right of the bar,
+  left of it in a right-to-left language) onto the dependent task. Click
+  the arrow to enter **Lag, days** and press *Save*, or press *Remove* to
+  delete the dependency. A red arrow means the dependent task starts too
+  early; move its dates yourself.
+* Open a task with the open icon before its name. From the keyboard, Tab
+  to that icon, or to a task name under **Unscheduled (N)**, and press
+  Enter or Space.
 * Project Administrators press **Save Baseline** to store the current plan;
   it replaces the project's previous baseline. Press **Show Baseline** to
   compare the plan against it: the baseline is drawn as a thin bar under
@@ -91,3 +98,6 @@ Plan in the Gantt chart
   has not changed since keeps its own bar.
 * Expand **Unscheduled (N)**, or press the *tasks without dates* button, to
   find tasks without any date and open them to plan them.
+* In a right-to-left language the chart is mirrored: task names and
+  columns on the right, time running leftwards, arrows from a bar's left
+  end into the next bar's right end.

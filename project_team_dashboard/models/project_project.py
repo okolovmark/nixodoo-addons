@@ -7,6 +7,7 @@ import xlsxwriter
 
 from odoo import Command, api, fields, models
 from odoo.exceptions import AccessError, ValidationError
+from odoo.tools import get_lang
 
 # Their holders read every timesheet or every employee anyway: they may open any manager or department.
 EVERY_TEAM_GROUPS = ("hr_timesheet.group_hr_timesheet_approver", "hr.group_hr_user")
@@ -86,12 +87,12 @@ class ProjectProject(models.Model):
         for the open tasks nobody is assigned to.
 
         date_start and date_end ("YYYY-MM-DD") bound the period whose logged hours a card shows;
-        the current week, Monday to Sunday, by default.
+        the current week, from the first day of the week of the user's language, by default.
         """
         self.check_access("read")
         project = self.search([("id", "=", project_id)], limit=1)
         if not project:
-            return {"error": "Project not found"}
+            return {"error": self.env._("Project not found")}
 
         Timesheet = self.env["account.analytic.line"]
         today = fields.Date.context_today(self)
@@ -127,7 +128,7 @@ class ProjectProject(models.Model):
             members_data.append(
                 {
                     "user_id": False,
-                    "user_name": "Unassigned",
+                    "user_name": self.env._("Unassigned"),
                     "user_avatar_url": False,
                     "current_task": False,
                     "queue": [self._task_to_dict(task, today) for task in unassigned_in_progress.sorted("sequence")],
@@ -378,14 +379,14 @@ class ProjectProject(models.Model):
         """Generate an Excel Gantt chart and return it as base64-encoded data."""
         self.check_access("read")
         if not project_ids:
-            return {"error": "No projects selected"}
+            return {"error": self.env._("No projects selected")}
 
         gantt_data = self.get_gantt_chart_data(project_ids=project_ids, show_completed=False)
         tasks_with_dates = [
             task for task in gantt_data["tasks"] if task.get("planned_date_start") and task.get("planned_date_end")
         ]
         if not tasks_with_dates:
-            return {"error": "No tasks with planned dates"}
+            return {"error": self.env._("No tasks with planned dates")}
         bar_ends_by_task_id = {task["id"]: self._get_gantt_bar_ends(task) for task in tasks_with_dates}
         tasks_with_dates.sort(key=lambda task: bar_ends_by_task_id[task["id"]])
         bar_days_by_task_id = {
@@ -397,7 +398,7 @@ class ProjectProject(models.Model):
 
         output = io.BytesIO()
         workbook = xlsxwriter.Workbook(output, {"in_memory": True})
-        worksheet = workbook.add_worksheet("Gantt Chart")
+        worksheet = workbook.add_worksheet(self.env._("Gantt Chart"))
 
         header_fmt = workbook.add_format(
             {
@@ -443,8 +444,16 @@ class ProjectProject(models.Model):
         date_header_fmt = workbook.add_format(dict(day_header_values, bg_color="#F0F0F0"))
         today_header_fmt = workbook.add_format(dict(day_header_values, bg_color="#FDEBD0"))
 
-        fixed_columns = (("Key", 12), ("Task", 35), ("Type", 14), ("Assignee", 18))
-        fixed_columns += (("Start", 11), ("End", 11), ("Progress", 9), ("Stage", 14))
+        fixed_columns = (
+            (self.env._("Key"), 12),
+            (self.env._("Task"), 35),
+            (self.env._("Type"), 14),
+            (self.env._("Assignee"), 18),
+            (self.env._("Start"), 11),
+            (self.env._("End"), 11),
+            (self.env._("Progress"), 9),
+            (self.env._("Stage"), 14),
+        )
         fixed_count = len(fixed_columns)
         total_days = (max_date - min_date).days + 1
 
@@ -478,8 +487,15 @@ class ProjectProject(models.Model):
             worksheet.write(row_index, 1, task.get("name", ""), task_fmt)
             worksheet.write(row_index, 2, task_type, task_fmt)
             worksheet.write(row_index, 3, task.get("user_names", ""), task_fmt)
-            worksheet.write_datetime(row_index, 4, datetime.combine(start_date, time.min), date_fmt)
-            worksheet.write_datetime(row_index, 5, datetime.combine(end_date, time.min), date_fmt)
+            # the bar pads a missing date, which is not the task's: its cell stays empty
+            for column_index, day, has_date in (
+                (4, start_date, task["has_planned_date_start"]),
+                (5, end_date, task["has_planned_date_end"]),
+            ):
+                if has_date:
+                    worksheet.write_datetime(row_index, column_index, datetime.combine(day, time.min), date_fmt)
+                else:
+                    worksheet.write_blank(row_index, column_index, None, date_fmt)
             worksheet.write(row_index, 6, progress / 100.0, pct_fmt)
             worksheet.write(row_index, 7, task.get("stage_name", ""), task_fmt)
 
@@ -496,12 +512,13 @@ class ProjectProject(models.Model):
             else:
                 bar_fmt = bar_other
 
+            is_end_only = task["has_planned_date_end"] and not task["has_planned_date_start"]
+            milestone_date = end_date if is_end_only else start_date
             for day_index in range(total_days):
                 day = min_date + timedelta(days=day_index)
                 column_index = fixed_count + day_index
                 if is_milestone:
-                    # a milestone is a single point, on its start date
-                    if day == start_date:
+                    if day == milestone_date:
                         worksheet.write(row_index, column_index, "◆", bar_fmt)
                     else:
                         worksheet.write(row_index, column_index, "", empty_fmt)
@@ -545,10 +562,10 @@ class ProjectProject(models.Model):
         manager_employees = self.env["hr.employee"].sudo().search([("user_id", "=", user_id)])
         self._check_manager_mode_access(manager_user, manager_employees)
         if not manager_user.exists():
-            return {"error": "User not found"}
+            return {"error": self.env._("User not found")}
         if not manager_employees:
             return {
-                "error": "No employee record found for this user",
+                "error": self.env._("No employee record found for this user"),
                 "manager_name": manager_user.name,
             }
 
@@ -585,7 +602,7 @@ class ProjectProject(models.Model):
         department = self.env["hr.department"].sudo().browse(department_id).exists()
         self._check_department_mode_access(department)
         if not department:
-            return {"error": "Department not found"}
+            return {"error": self.env._("Department not found")}
 
         employees = self.env["hr.employee"].sudo().search([("department_id", "=", department_id)])
         department_users = employees.user_id.filtered("active")
@@ -716,7 +733,13 @@ class ProjectProject(models.Model):
 
     @api.model
     def _get_dashboard_period(self, date_start, date_end, today):
-        period_start = fields.Date.from_string(date_start) if date_start else today - timedelta(days=today.weekday())
+        """Return the dates given, by default the week of today: from the first day of the week of
+        the user's language (`res.lang.week_start`, 1 for Monday) to six days later."""
+        if date_start:
+            period_start = fields.Date.from_string(date_start)
+        else:
+            week_start_weekday = int(get_lang(self.env).week_start) - 1
+            period_start = today - timedelta(days=(today.weekday() - week_start_weekday) % 7)
         period_end = fields.Date.from_string(date_end) if date_end else period_start + timedelta(days=6)
         return period_start, period_end
 

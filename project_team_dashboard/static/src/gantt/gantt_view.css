@@ -15,7 +15,7 @@
 
 .o_gantt_view .o_gantt_loading {
     z-index: 5;
-    background-color: rgba(255, 255, 255, 0.6);
+    background-color: rgba(var(--body-bg-rgb), 0.6);
 }
 
 /* Search box */
@@ -52,7 +52,7 @@
     border-radius: 3px;
 }
 .o_gantt_view .o_gantt_legend_overdue {
-    border: 2px solid #c0392b;
+    border: 2px solid var(--danger);
 }
 .o_gantt_view .o_gantt_legend_diamond {
     display: inline-block;
@@ -72,7 +72,19 @@
 }
 .o_gantt_view .vis-current-time {
     width: 2px;
-    background-color: #e74c3c;
+    background-color: var(--danger);
+}
+/* vis-timeline's stylesheet greys the text for a white page: the chart's text takes the page's colour */
+.o_gantt_view .vis-timeline .vis-labelset .vis-label,
+.o_gantt_view .vis-timeline .vis-time-axis .vis-text {
+    color: inherit;
+}
+/* and its panel, grid and row lines, which take the web client's border colour */
+.o_gantt_view .vis-timeline .vis-panel,
+.o_gantt_view .vis-timeline .vis-time-axis .vis-grid,
+.o_gantt_view .vis-timeline .vis-foreground .vis-group,
+.o_gantt_view .vis-timeline .vis-labelset .vis-label {
+    border-color: var(--border-color);
 }
 /* the tooltip's look comes from its template's utility classes, not vis-timeline's frame */
 .o_gantt_view .vis-tooltip {
@@ -87,47 +99,62 @@
 
 /* vis-timeline adds its stylesheet after the bundle: one class more than its .vis-item.vis-range */
 .o_gantt_view .o_gantt_timeline .vis-item {
-    overflow: hidden;
     border: none;
     border-radius: 4px;
     font-size: 12px;
 }
+/* the content paints over the drag areas vis-timeline adds to a selected bar, which still take the presses */
 .o_gantt_view .vis-item .vis-item-overflow {
+    z-index: 1;
     overflow: visible;
+    pointer-events: none;
+}
+/* the link handle shown sticks out over the start of the bar's arrows: the bar comes above them */
+.o_gantt_view .vis-item.vis-range:hover,
+.o_gantt_view .vis-item.vis-range.vis-selected {
+    z-index: 4;
 }
 .o_gantt_view .vis-item .vis-item-content {
     width: 100%;
     height: 100%;
     padding: 0;
+    vertical-align: top;
+}
+/* the bar's height does not depend on its progress label: the link handle takes the content's height */
+.o_gantt_view .vis-item .o_gantt_bar_content {
+    min-height: 24px;
 }
 .o_gantt_view .vis-item.vis-selected {
     outline: 2px solid var(--primary);
     outline-offset: 1px;
 }
 .o_gantt_view .vis-item.gantt-stage {
-    background-color: rgba(170, 183, 184, 0.3);
+    background-color: var(--gray-300);
     color: var(--white);
 }
 .o_gantt_view .vis-item.vis-range.gantt-overdue {
-    border: 2px solid #c0392b;
+    border: 2px solid var(--danger);
 }
 .o_gantt_view .vis-item.vis-point.gantt-overdue .gantt-milestone-diamond {
-    outline: 2px solid #c0392b;
+    outline: 2px solid var(--danger);
 }
 .o_gantt_view .vis-item.vis-range.gantt-overlap {
     border: 2px dashed var(--danger);
     box-shadow: 0 0 4px rgba(var(--danger-rgb), 0.4);
 }
+/* with overflow hidden its baseline is its bottom edge: on the baseline it would make the bar taller */
 .o_gantt_view .vis-item .gantt-progress-label {
     display: inline-block;
     width: 100%;
     box-sizing: border-box;
+    overflow: hidden;
+    vertical-align: top;
     font-size: 10px;
     font-weight: 600;
     line-height: 24px;
     text-align: center;
     color: var(--white);
-    text-shadow: 0 0 3px rgba(0, 0, 0, 0.4);
+    text-shadow: 0 0 3px rgba(var(--black-rgb), 0.4);
 }
 
 .o_gantt_view .vis-item.vis-point.gantt-milestone,
@@ -149,7 +176,7 @@
     display: inline-block;
     width: 18px;
     height: 18px;
-    border: 2px solid rgba(0, 0, 0, 0.25);
+    border: 2px solid rgba(var(--black-rgb), 0.25);
     border-radius: 2px;
     transform: rotate(45deg);
 }
@@ -170,19 +197,36 @@
     opacity: 0.6;
 }
 
+/* past the bar's end, so that a bar narrower than the handle can still be moved */
 .o_gantt_view .vis-item .o_gantt_dep_handle {
     display: none;
     position: absolute;
-    top: 0;
-    right: 0;
+    inset-block: 0;
+    inset-inline-start: 100%;
     width: 10px;
-    height: 100%;
-    border-radius: 0 4px 4px 0;
-    background-color: rgba(0, 0, 0, 0.25);
+    border-start-end-radius: 4px;
+    border-end-end-radius: 4px;
+    background-color: rgba(var(--primary-rgb), 0.6);
     cursor: crosshair;
+    pointer-events: auto;
+    /* a touch drag on it draws the link: the browser would take it for a scroll and cancel it */
+    touch-action: none;
 }
-.o_gantt_view .vis-item:hover .o_gantt_dep_handle {
+/* the handle sits in the bar's content box: past a red border, it starts outside the bar too */
+.o_gantt_view .vis-item.vis-range.gantt-overdue .o_gantt_dep_handle,
+.o_gantt_view .vis-item.vis-range.gantt-overlap .o_gantt_dep_handle {
+    inset-block: -2px;
+    margin-inline-start: 2px;
+}
+/* without a hover, a tap selects the bar and shows its handle */
+.o_gantt_view .vis-item:hover .o_gantt_dep_handle,
+.o_gantt_view .vis-item.vis-selected .o_gantt_dep_handle {
     display: block;
+}
+@media (hover: none) {
+    .o_gantt_view .vis-item .o_gantt_dep_handle {
+        width: 24px;
+    }
 }
 
 /* Rows and their labels */
@@ -207,7 +251,7 @@
 }
 .o_gantt_view .vis-label.vis-nesting-group::before {
     flex-shrink: 0;
-    margin: 0 2px 0 6px;
+    margin-inline: 6px 2px;
     font-size: 0.7em;
     color: var(--gray-600);
     text-align: center;
@@ -217,26 +261,27 @@
     min-width: 0;
     font-weight: 600;
 }
-.o_gantt_view .vis-ltr .vis-labelset .vis-label.vis-nested-group {
+/* .vis-timeline outweighs vis-timeline's own .vis-ltr and .vis-rtl rules, in both directions */
+.o_gantt_view .vis-timeline .vis-labelset .vis-label.vis-nested-group {
     background-color: var(--gray-100);
 }
-.o_gantt_view .vis-ltr .vis-labelset .vis-label.vis-nested-group .vis-inner {
-    padding-left: 0;
+.o_gantt_view .vis-timeline .vis-labelset .vis-label.vis-nested-group .vis-inner {
+    padding-inline-start: 0;
 }
-.o_gantt_view .vis-ltr .vis-labelset .vis-label.vis-group-level-1 { padding-left: 16px; }
-.o_gantt_view .vis-ltr .vis-labelset .vis-label.vis-group-level-2 { padding-left: 32px; }
-.o_gantt_view .vis-ltr .vis-labelset .vis-label.vis-group-level-3 { padding-left: 48px; }
-.o_gantt_view .vis-ltr .vis-labelset .vis-label.vis-group-level-4 { padding-left: 64px; }
+.o_gantt_view .vis-timeline .vis-labelset .vis-label.vis-group-level-1 { padding-inline-start: 16px; }
+.o_gantt_view .vis-timeline .vis-labelset .vis-label.vis-group-level-2 { padding-inline-start: 32px; }
+.o_gantt_view .vis-timeline .vis-labelset .vis-label.vis-group-level-3 { padding-inline-start: 48px; }
+.o_gantt_view .vis-timeline .vis-labelset .vis-label.vis-group-level-4 { padding-inline-start: 64px; }
 .o_gantt_view .vis-foreground .vis-group.gantt-last-nested,
 .o_gantt_view .vis-labelset .vis-label.gantt-last-nested {
-    border-bottom: 2px solid #ec7063;
+    border-bottom: 2px solid var(--danger);
 }
 .o_gantt_view .vis-label.gantt-unscheduled-group {
     background-color: rgba(var(--warning-rgb), 0.12);
 }
 .o_gantt_view .vis-label.o_gantt_found,
 .o_gantt_view .vis-group.o_gantt_found {
-    background-color: rgba(245, 176, 65, 0.25);
+    background-color: rgba(var(--warning-rgb), 0.25);
     transition: background-color 0.3s;
 }
 
@@ -254,12 +299,12 @@
     white-space: nowrap;
 }
 .o_gantt_view .gantt-task-key {
-    margin-right: 4px;
+    margin-inline-end: 4px;
     font-weight: 600;
     color: var(--gray-600);
 }
 .o_gantt_view .gantt-subtask-indicator {
-    margin-right: 2px;
+    margin-inline-end: 2px;
     color: var(--info);
 }
 .o_gantt_view .gantt-stage-history-label {
@@ -267,7 +312,7 @@
     color: var(--gray-600);
 }
 .o_gantt_view .o_gantt_open_task {
-    margin-right: 4px;
+    margin-inline-end: 4px;
     font-size: 11px;
     color: var(--gray-600);
     cursor: pointer;
@@ -290,7 +335,7 @@
     min-height: 18px;
     padding: 0 6px;
     overflow: hidden;
-    border-left: 1px solid var(--border-color);
+    border-inline-start: 1px solid var(--border-color);
     font-size: 12px;
     font-weight: normal;
     line-height: 18px;
@@ -298,7 +343,7 @@
     white-space: nowrap;
 }
 .o_gantt_view .o_gantt_cell_num {
-    text-align: right;
+    text-align: end;
     font-variant-numeric: tabular-nums;
 }
 .o_gantt_view .o_gantt_cols_off .o_gantt_cell {
@@ -307,7 +352,7 @@
 .o_gantt_view .o_gantt_cols_header {
     position: absolute;
     top: 0;
-    left: 0;
+    inset-inline-start: 0;
     z-index: 2;
     display: flex;
     justify-content: flex-end;
@@ -325,11 +370,13 @@
 
 /* Dependency arrows and the line drawn while linking two bars */
 
+/* the overlays draw at physical coordinates: they cover their whole box, in either direction */
 .o_gantt_view .o_gantt_arrows_svg {
     position: absolute;
-    top: 0;
-    left: 0;
+    inset: 0;
     z-index: 3;
+    width: 100%;
+    height: 100%;
     overflow: visible;
     pointer-events: none;
 }
@@ -342,11 +389,10 @@
 }
 .o_gantt_view .o_gantt_link_overlay {
     position: fixed;
-    top: 0;
-    left: 0;
+    inset: 0;
     z-index: 2000;
-    width: 100vw;
-    height: 100vh;
+    width: 100%;
+    height: 100%;
     pointer-events: none;
 }
 .o_gantt_view .o_gantt_link_overlay line {

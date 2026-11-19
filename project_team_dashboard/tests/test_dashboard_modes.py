@@ -1,4 +1,4 @@
-from datetime import timedelta
+from freezegun import freeze_time
 
 from odoo import Command, fields
 from odoo.exceptions import AccessError
@@ -246,16 +246,17 @@ class TestDashboardManagerMode(TeamDashboardCommon):
         self.assertEqual(data["period_start"], "2026-03-01")
         self.assertEqual(data["period_end"], "2026-03-31")
 
-    def test_manager_dashboard_default_period(self):
-        """Test that default period is current week."""
-        data = self.env["project.project"].get_team_dashboard_by_manager(
-            self.user_manager.id,
-        )
-        today = fields.Date.today()
-        expected_start = today - timedelta(days=today.weekday())
-        expected_end = expected_start + timedelta(days=6)
-        self.assertEqual(data["period_start"], fields.Date.to_string(expected_start))
-        self.assertEqual(data["period_end"], fields.Date.to_string(expected_end))
+    @freeze_time("2026-11-19 10:00:00")
+    def test_the_manager_default_period_is_the_week_of_the_user_language(self):
+        self.env["res.lang"]._activate_lang("fr_FR")
+        for lang, expected_period in (
+            ("fr_FR", ("2026-11-16", "2026-11-22")),
+            ("en_US", ("2026-11-15", "2026-11-21")),
+        ):
+            with self.subTest(lang=lang):
+                Project = self.env["project.project"].with_context(lang=lang, tz="UTC")
+                data = Project.get_team_dashboard_by_manager(self.user_manager.id)
+                self.assertEqual((data["period_start"], data["period_end"]), expected_period)
 
     def test_manager_dashboard_no_employee_record(self):
         """Test error when user has no employee record."""

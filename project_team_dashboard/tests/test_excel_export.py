@@ -147,6 +147,59 @@ class TestExcelExport(TeamDashboardCommon):
         today_headers = [cell.value for cell in sheet[1] if cell.fill.fgColor.rgb == "FFFDEBD0"]
         self.assertEqual(today_headers, ["19 Nov"], "today is a day of the bar")
 
+    def _export_rows(self, project):
+        result = self.Project.with_context(tz="UTC").export_gantt_excel([project.id])
+        sheet = openpyxl.load_workbook(io.BytesIO(base64.b64decode(result["data"]))).active
+        header = [cell.value for cell in sheet[1]]
+        return header, {row[1].value: row for row in sheet.iter_rows(min_row=2)}
+
+    def test_the_start_and_end_columns_leave_a_padded_date_empty(self):
+        project = self.Project.create({"name": "Padded Dates"})
+        self.Task.create(
+            [
+                {"name": "Start Only", "project_id": project.id, "planned_date_start": datetime(2026, 11, 16, 8)},
+                {"name": "End Only", "project_id": project.id, "planned_date_end": datetime(2026, 11, 20, 8)},
+                {"name": "Deadline Only", "project_id": project.id, "date_deadline": datetime(2026, 11, 24, 8)},
+                {
+                    "name": "Both Dates",
+                    "project_id": project.id,
+                    "planned_date_start": datetime(2026, 11, 17, 8),
+                    "planned_date_end": datetime(2026, 11, 19, 8),
+                },
+            ]
+        )
+
+        header, rows_by_name = self._export_rows(project)
+
+        self.assertEqual(
+            {
+                name: (row[header.index("Start")].value, row[header.index("End")].value)
+                for name, row in rows_by_name.items()
+            },
+            {
+                "Start Only": (datetime(2026, 11, 16), None),
+                "End Only": (None, datetime(2026, 11, 20)),
+                "Deadline Only": (None, None),
+                "Both Dates": (datetime(2026, 11, 17), datetime(2026, 11, 19)),
+            },
+        )
+
+    def test_a_milestone_with_its_end_date_alone_is_marked_on_that_date(self):
+        project = self.Project.create({"name": "Launch Plan"})
+        self.Task.create(
+            {
+                "name": "Launch",
+                "project_id": project.id,
+                "task_type": "milestone",
+                "planned_date_end": datetime(2026, 11, 20, 8),
+            }
+        )
+
+        header, rows_by_name = self._export_rows(project)
+
+        marked_days = [header[cell.column - 1] for cell in rows_by_name["Launch"] if cell.value == "◆"]
+        self.assertEqual(marked_days, ["20 Nov"])
+
     def test_the_rows_follow_the_start_time_of_the_user(self):
         project = self.Project.create({"name": "Tokyo Office"})
         self.Task.create(
