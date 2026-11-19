@@ -110,6 +110,51 @@ chart and a return through the breadcrumb.
 Users carry a **Default Dashboard Project**, editable from their
 preferences; the dashboard and the Backlog open on it.
 
+**The Team Dashboard as a record**
+
+A reader that can only search and read records, such as an agent behind
+an Odoo connector, gets the numbers of the screen from
+``project.team.board`` (*Team Dashboard board*). It stores nothing: its
+rows are an SQL view of one row per active project that is not a project
+template, per manager (an active user whose employee manages another
+active employee) and per active department, each in three periods, *This
+Week*, *Last Week* and *This Month*. A row has:
+
+* ``name``: the project, manager or department and the period, e.g.
+  "Website · This Week"; a department by its own name, not its complete
+  name;
+* ``mode``: ``project``, ``manager`` or ``department``;
+* ``project_id``, ``manager_user_id`` or ``department_id``: the row's
+  subject, set for its mode only;
+* ``period``: ``this_week``, ``last_week`` or ``this_month``;
+* ``data``: exactly what the screen shows for that subject and period,
+  computed when it is read and never stored. It is the result of the
+  screen's own call (``get_team_dashboard_data``,
+  ``get_team_dashboard_by_manager`` with all levels, or
+  ``get_team_dashboard_by_department``) for the period's first and last
+  day: the screen's week, Monday to Sunday, and the month from its first
+  to its last day, on the reader's today in their time zone. The member
+  cards, today's and the period's logged hours and the estimated
+  completion are in it, with every day counted as on the screen.
+
+A user finds and reads only the rows they open on the screen; the others
+are left out of searches, counts, groups and name searches, and reading
+one by its id raises an access error. A project row follows the project's
+own access (its visibility and team members, or its members where
+``project_member_access`` is installed); a manager row is the user's own
+or that of a manager below one of their employees; a department row is
+that of the user's department or one they manage. Timesheet approvers,
+every project manager among them, and HR officers find every manager and
+department. Either way a manager or a department of a company the user
+has not selected stays hidden, the user's own manager row aside, and the
+screen does not open it either. A user who may not read timesheets finds
+no project row, as the screen refuses them a project too. Reading every
+field of a project computes no dashboard, as the board is a model of its
+own, and a read of the board naming no fields lists its rows without
+``data``. The design record is
+``docs/adr/0016-the-team-dashboard-is-a-record-of-a-sql-view-with-its-data-computed-on-reading.md``
+in this repository.
+
 **Gantt Chart**
 
 The **Gantt Chart** plots the tasks of the selected projects that have
