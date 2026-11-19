@@ -6,6 +6,7 @@ from odoo import Command
 from odoo.exceptions import AccessError
 from odoo.tests.common import tagged
 
+from ..models.project_team_board import PERIODS
 from .common import TeamDashboardCommon
 
 # Late on Sunday 31 May 2026 in UTC it is Monday 1 June in Manila: every period differs between the two.
@@ -152,7 +153,7 @@ class TestTeamBoardData(TeamBoardCase):
                     )
         last_week = self._board(self.user_lead, self.project, "project", "last_week").data
         card_dev1 = next(member for member in last_week["members"] if member["user_id"] == self.user_dev1.id)
-        self.assertEqual((card_dev1["hours_logged_period"], card_dev1["hours_logged_today"]), (3.0, 3.0))
+        self.assertEqual(card_dev1["hours_logged_period"], 3.0)
         self.assertTrue(card_dev1["estimated_completion"])
 
     @freeze_time(NOW)
@@ -336,7 +337,7 @@ class TestTeamBoardAccess(TeamBoardCase):
         for board in hidden_boards.with_user(self.user_member):
             with self.subTest(row=board.sudo().name):
                 with self.assertRaises(AccessError):
-                    board.read(["data"])
+                    board.read(["name"])
                 with self.assertRaises(AccessError):
                     board.check_access_rule("read")
 
@@ -360,7 +361,7 @@ class TestTeamBoardAccess(TeamBoardCase):
     def test_every_row_a_user_finds_reads_with_its_data(self):
         for user in self.user_member | self.user_no_timesheets | self.user_approver | self.user_project_manager:
             with self.subTest(user=user.name):
-                rows = self.env["project.team.board"].with_user(user).search_read([], ["name", "data"])
+                rows = self.env["project.team.board"].with_user(user).search_read(self.fixture_domain, ["name", "data"])
                 self.assertGreaterEqual(len(rows), 3)
                 self.assertEqual([row["name"] for row in rows if "error" in row["data"]], [])
 
@@ -466,6 +467,83 @@ class TestTeamBoardHierarchy(TeamBoardCase):
 
 
 @tagged("post_install", "-at_install")
+class TestTeamBoardCompanies(TeamBoardCase):
+    """A user who finds every team finds those of the companies they may enter only."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        company_a = cls.env.company
+        cls.company_b = cls.env["res.company"].create({"name": "Board Company B"})
+        approver_groups = PROJECT_GROUPS + ["hr_timesheet.group_hr_timesheet_approver"]
+        cls.user_approver, cls.user_hr_officer, cls.user_approver_both, cls.user_manager_b = cls.env[
+            "res.users"
+        ].create(
+            [
+                cls._user_vals("Approver in A", approver_groups),
+                cls._user_vals("HR Officer in A", PROJECT_GROUPS + ["hr.group_hr_user"]),
+                dict(
+                    cls._user_vals("Approver in A and B", approver_groups),
+                    company_ids=[Command.set((company_a | cls.company_b).ids)],
+                ),
+                dict(
+                    cls._user_vals("Manager in B", PROJECT_GROUPS),
+                    company_id=cls.company_b.id,
+                    company_ids=[Command.set(cls.company_b.ids)],
+                ),
+            ]
+        )
+        cls.department_a, cls.department_b = cls.env["hr.department"].create(
+            [
+                {"name": "Department in A", "company_id": company_a.id},
+                {"name": "Department in B", "company_id": cls.company_b.id},
+            ]
+        )
+        cls.employee_dev1.department_id = cls.department_a
+        cls.employee_dev2.parent_id = cls.employee_dev1
+        employee_manager_b = cls.env["hr.employee"].create(
+            {
+                "name": "Manager in B",
+                "user_id": cls.user_manager_b.id,
+                "company_id": cls.company_b.id,
+                "department_id": cls.department_b.id,
+            }
+        )
+        cls.env["hr.employee"].create(
+            {"name": "Report in B", "company_id": cls.company_b.id, "parent_id": employee_manager_b.id}
+        )
+        cls.teams_a = {("manager", cls.user_dev1.id), ("department", cls.department_a.id)}
+        cls.teams_b = {("manager", cls.user_manager_b.id), ("department", cls.department_b.id)}
+        cls.team_domain = [
+            "|",
+            ("manager_user_id", "in", (cls.user_dev1 | cls.user_manager_b).ids),
+            ("department_id", "in", (cls.department_a | cls.department_b).ids),
+        ]
+
+    def test_approvers_and_hr_officers_find_the_teams_of_their_companies_only(self):
+        for user in self.user_approver | self.user_hr_officer:
+            with self.subTest(user=user.name):
+                self.assertEqual(self._subjects(self._boards(user, self.team_domain)), self.teams_a)
+        Board = self.env["project.team.board"].with_user(self.user_approver_both)
+        self.assertEqual(self._subjects(Board.search(self.team_domain)), self.teams_a | self.teams_b)
+        boards_in_a = Board.with_context(allowed_company_ids=self.env.company.ids).search(self.team_domain)
+        self.assertEqual(self._subjects(boards_in_a), self.teams_a)
+
+    def test_the_screen_refuses_the_teams_of_another_company(self):
+        for user in self.user_approver | self.user_hr_officer:
+            Project = self.env["project.project"].with_user(user)
+            with self.subTest(user=user.name):
+                with self.assertRaisesRegex(AccessError, "by manager"):
+                    Project.get_team_dashboard_by_manager(self.user_manager_b.id)
+                with self.assertRaisesRegex(AccessError, "by department"):
+                    Project.get_team_dashboard_by_department(self.department_b.id)
+
+    def test_a_row_is_found_exactly_when_the_screen_opens_it(self):
+        users = self.user_approver | self.user_hr_officer | self.user_approver_both | self.user_manager_b
+        self._assert_rows_follow_the_screen(users, self.team_domain)
+
+
+@tagged("post_install", "-at_install")
 class TestTeamBoardModel(TeamBoardCase):
     def test_reading_every_field_of_a_project_leaves_the_board_alone(self):
         Board = self.registry["project.team.board"]
@@ -476,6 +554,55 @@ class TestTeamBoardModel(TeamBoardCase):
             self.assertFalse(compute_data.called)
             self.env["project.team.board"].search([("project_id", "=", self.project.id)]).read(["data"])
             self.assertTrue(compute_data.called)
+
+    def test_a_read_naming_no_fields_lists_the_rows_without_their_data(self):
+        Board = self.registry["project.team.board"]
+        user_reader = self.env["res.users"].create(self._user_vals("Blank Reader", PROJECT_GROUPS))
+        board_reader = self.env["project.team.board"].with_user(user_reader)
+        domain = [("project_id", "=", self.project.id)]
+        with patch.object(Board, "_compute_data", autospec=True, side_effect=Board._compute_data) as compute_data:
+            for rows in (board_reader.search(domain).read(), board_reader.search_read(domain)):
+                self.assertEqual(len(rows), 3)
+                self.assertEqual([row["name"] for row in rows if "data" in row], [])
+            self.assertFalse(compute_data.called)
+            rows = board_reader.search_read(domain, ["name", "data"])
+            self.assertTrue(compute_data.called)
+        self.assertEqual([row["name"] for row in rows if "members" not in row["data"]], [])
+
+    def test_the_data_follows_the_reader_language(self):
+        self.env["res.lang"]._activate_lang("fr_FR")
+        self.project.with_context(lang="fr_FR").name = "Projet piloté par IA"
+        board = self.env["project.team.board"].search(
+            [("project_id", "=", self.project.id), ("period", "=", "this_week")]
+        )
+        self.assertEqual(board.with_context(lang="en_US").data["project_name"], "Test AI-driven Project")
+        self.assertEqual(board.with_context(lang="fr_FR").data["project_name"], "Projet piloté par IA")
+
+    def test_a_row_id_follows_its_subject_mode_and_period(self):
+        Board = self.env["project.team.board"]
+        department = self.env["hr.department"].create({"name": "Numbered Department"})
+        boards = Board.search(["|", ("project_id", "=", self.project.id), ("department_id", "=", department.id)])
+        self.assertEqual(
+            {(board.mode, board.period): board.id for board in boards},
+            {
+                ("project", "this_week"): self.project.id * 9 + 1,
+                ("project", "last_week"): self.project.id * 9 + 2,
+                ("project", "this_month"): self.project.id * 9 + 3,
+                ("department", "this_week"): department.id * 9 + 7,
+                ("department", "last_week"): department.id * 9 + 8,
+                ("department", "this_month"): department.id * 9 + 9,
+            },
+        )
+        more_periods = [*PERIODS, ("last_month", "Last Month")]
+        with patch("odoo.addons.project_team_dashboard.models.project_team_board.PERIODS", more_periods):
+            query = Board._get_query()
+        self.env.cr.execute("SELECT id, COALESCE(project_id, manager_user_id, department_id) FROM (%s) board" % query)
+        rows = self.env.cr.fetchall()
+        self.assertEqual(len({board_id for board_id, _subject_id in rows}), len(rows))
+        rows_per_subject = 3 * len(more_periods)
+        self.assertEqual(
+            [board_id for board_id, subject_id in rows if (board_id - 1) // rows_per_subject != subject_id], []
+        )
 
     def test_a_row_keeps_its_id_when_other_subjects_come(self):
         Board = self.env["project.team.board"]

@@ -89,7 +89,9 @@ active department, each in three periods, *This Week*, *Last Week* and
   last day, on the reader's today in their time zone. The member cards,
   today's and the period's logged hours and the estimated completion
   (planned on the employee's working schedule with leaves and public
-  holidays) are in it.
+  holidays) are in it. Only the period follows the reader's time zone:
+  today's logged hours, the overdue tasks and the day the estimated
+  completion starts from count on the server's date, as on the screen.
 
 A user finds and reads only the rows they open on the screen; the others
 are left out of searches, counts and groups, and reading one by its id
@@ -97,10 +99,14 @@ raises an access error. A project row follows the project's own access
 (its visibility, or its members where ``project_member_access`` is
 installed); a manager row is the user's own or that of a manager below
 one of their employees; a department row is that of the user's department
-or one they manage. Timesheet approvers and HR officers find every manager
-and department. A user who may not read timesheets finds no project row,
-as the screen refuses them a project too. Reading every field of a project
-computes no dashboard: the board is a model of its own. The design record
+or one they manage. Timesheet approvers, every project manager among them,
+and HR officers find every manager and department. Either way a manager or
+a department of a company the user may not enter stays hidden, the user's
+own team aside, and the screen refuses it too. A user who may not read
+timesheets finds no project row, as the screen refuses them a project too.
+Reading every field of a project computes no dashboard, as the board is a
+model of its own, and a read of the board naming no fields lists its rows
+without ``data``. The design record
 is ``docs/adr/0016-the-team-dashboard-is-a-record-of-a-sql-view-with-its-data-computed-on-reading.md``
 in this repository.
 

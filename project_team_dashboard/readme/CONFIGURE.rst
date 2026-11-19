@@ -42,13 +42,15 @@ Who opens which team in those two modes follows the user's employee:
 
 * **View by Manager**: the user themselves, or a manager one of whose
   employees reports to one of the user's employees, directly or further down
-  the hierarchy (the employee's *Manager*), in any company.
+  the hierarchy (the employee's *Manager*), across companies.
 * **View by Department**: a department the user's employee belongs to, or
   one it is the *Manager* of.
 * A user with **Timesheets: User: all timesheets** (Administrator includes
   it) or **Employees: Officer** opens every manager and every department.
   So does every **Project / Administrator**: Odoo gives project
   administrators the first of these rights.
+* In every case a department opens only in a company the user has selected,
+  and a manager other than the user only with an active employee in one.
 
 A manager's team is everyone below their employees, the manager left out,
 also where the hierarchy loops back: Odoo lets an employee manage their own

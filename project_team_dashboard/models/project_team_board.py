@@ -9,13 +9,13 @@ PERIODS = [("this_week", "This Week"), ("last_week", "Last Week"), ("this_month"
 # What each mode of the screen reads with the user's own rights: without them it raises.
 SCREEN_MODELS = {
     "project": ("project.project", "project.task", "account.analytic.line"),
-    "manager": ("project.project", "project.task"),
-    "department": ("project.project", "project.task"),
+    "manager": ("project.project", "project.task", "hr.employee.public"),
+    "department": ("project.project", "project.task", "hr.department"),
 }
 
 # The id is stable from one reading to the next: subject, mode and period.
 BOARD_QUERY = """
-    WITH periods (period, period_number, label) AS (VALUES %s),
+    WITH periods (period, period_number, label) AS (VALUES %(periods)s),
     subjects AS (
         SELECT 'project' AS mode, 0 AS mode_number, project.id AS subject_id,
                project.id AS project_id, NULL::integer AS manager_user_id,
@@ -41,7 +41,8 @@ BOARD_QUERY = """
           FROM hr_department department
          WHERE department.active
     )
-    SELECT subject.subject_id * 9 + subject.mode_number * 3 + periods.period_number + 1 AS id,
+    SELECT subject.subject_id * %(rows_per_subject)s + subject.mode_number * %(period_count)s
+           + periods.period_number + 1 AS id,
            subject.subject_name || ' · ' || periods.label AS name,
            subject.mode,
            subject.project_id,
@@ -80,7 +81,7 @@ class ProjectTeamBoard(models.Model):
     )
 
     @api.depends("mode", "project_id", "manager_user_id", "department_id", "period")
-    @api.depends_context("uid", "tz", "allowed_company_ids")
+    @api.depends_context("uid", "tz", "allowed_company_ids", "lang")
     def _compute_data(self):
         Project = self.env["project.project"]
         for board in self:
@@ -95,6 +96,13 @@ class ProjectTeamBoard(models.Model):
     def init(self):
         tools.drop_view_if_exists(self.env.cr, self._table)
         self.env.cr.execute("CREATE VIEW %s AS (%s)" % (self._table, self._get_query()))
+
+    def check_field_access_rights(self, operation, field_names):
+        readable_fnames = super().check_field_access_rights(operation, field_names)
+        # a read naming no fields would compute a whole dashboard per row: data only when named
+        if not field_names:
+            return [fname for fname in readable_fnames if fname != "data"]
+        return readable_fnames
 
     def _apply_ir_rules(self, query, mode="read"):
         super()._apply_ir_rules(query, mode)
@@ -112,7 +120,11 @@ class ProjectTeamBoard(models.Model):
             self.env.cr.mogrify("(%s, %s, %s)", (period, number, label)).decode()
             for number, (period, label) in enumerate(PERIODS)
         )
-        return BOARD_QUERY % period_values
+        return BOARD_QUERY % {
+            "periods": period_values,
+            "period_count": len(PERIODS),
+            "rows_per_subject": len(MODES) * len(PERIODS),
+        }
 
     def _get_period_dates(self):
         """The first and last day of the period, as the screen's _getDates counts them (weeks from
@@ -148,24 +160,7 @@ class ProjectTeamBoard(models.Model):
         return [("project_id", "in", self.env["project.project"]._search([]))]
 
     def _get_openable_manager_domain(self):
-        """The user and the managers below one of their employees (_check_manager_mode_access)."""
-        Project = self.env["project.project"]
-        if Project._sees_every_team():
-            return []
-        # archived employees too: the parent_of of the screen's check climbs through them
-        own_employees = Project._own_employees().with_context(active_test=False)
-        employees_below = Project._get_subordinate_employees(own_employees)
-        managers = self.env.user | employees_below.filtered("active").user_id
-        return [("manager_user_id", "in", managers.ids)]
+        return [("manager_user_id", "in", self.env["project.project"]._get_openable_manager_users().ids)]
 
     def _get_openable_department_domain(self):
-        """The departments of the user's employees and those they manage (_check_department_mode_access)."""
-        Project = self.env["project.project"]
-        if Project._sees_every_team():
-            return []
-        own_employees = Project._own_employees()
-        return [
-            "|",
-            ("department_id", "in", own_employees.department_id.ids),
-            ("department_id.manager_id", "in", own_employees.ids),
-        ]
+        return [("department_id", "in", self.env["project.project"]._get_openable_departments().ids)]

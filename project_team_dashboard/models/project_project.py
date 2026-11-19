@@ -772,7 +772,7 @@ class ProjectProject(models.Model):
         # Use sudo() for HR reads: project users may lack hr.group_hr_user
         Employee = self.env["hr.employee"].sudo()
         manager_employees = Employee.search([("user_id", "=", user_id)])
-        self._check_manager_mode_access(manager_user, manager_employees)
+        self._check_manager_mode_access(manager_user)
         if not manager_user.exists():
             return {"error": "User not found"}
         if not manager_employees:
@@ -862,15 +862,10 @@ class ProjectProject(models.Model):
         )
 
     @api.model
-    def _check_manager_mode_access(self, manager_user, manager_employees):
+    def _check_manager_mode_access(self, manager_user):
         """The Manager mode reads the logged hours of a whole team with elevated rights: a user
-        opens it for themselves or a manager below one of their employees in the hierarchy only.
-
-        Odoo lets an employee manage their own manager, or themselves: `parent_of` stops at a cycle.
-        """
-        if manager_user == self.env.user or self._sees_every_team():
-            return
-        if not self._own_employees().filtered_domain([("id", "parent_of", manager_employees.ids)]):
+        opens it for the managers of _get_openable_manager_users only."""
+        if not self.env.su and manager_user not in self._get_openable_manager_users():
             raise AccessError(
                 _("You can open the Team Dashboard by manager only for yourself and the managers who report to you.")
             )
@@ -878,14 +873,41 @@ class ProjectProject(models.Model):
     @api.model
     def _check_department_mode_access(self, department):
         """The Department mode reads the logged hours of a department with elevated rights: a user
-        opens it for a department their employee belongs to or manages only."""
-        if self._sees_every_team():
-            return
-        own_employees = self._own_employees()
-        if department not in own_employees.department_id and department.manager_id not in own_employees:
+        opens it for the departments of _get_openable_departments only."""
+        if not self.env.su and department not in self._get_openable_departments():
             raise AccessError(
                 _("You can open the Team Dashboard by department only for your own department or one you manage.")
             )
+
+    @api.model
+    def _get_openable_manager_users(self):
+        """The managers whose team the user opens, on the screen and on the board: themselves, and
+        the users with an employee below one of theirs, or any user for _sees_every_team, when the
+        user finds one of their active employees (the employees' company rules).
+
+        Odoo lets an employee manage their own manager, or themselves: the walk visits each
+        employee once.
+        """
+        employee_domain = [("user_id", "!=", False)]
+        if not self._sees_every_team():
+            # archived employees too: the managers below an archived one still report to the user
+            own_employees = self._own_employees().with_context(active_test=False)
+            users_below = self._get_subordinate_employees(own_employees).filtered("active").user_id
+            employee_domain = [("user_id", "in", users_below.ids)]
+        return self.env.user | self.env["hr.employee"].search(employee_domain).sudo().user_id
+
+    @api.model
+    def _get_openable_departments(self):
+        """The departments the user opens, on the screen and on the board, among those they find
+        (the departments' company rules): every one for _sees_every_team, else those of their
+        employees and those one of them manages."""
+        Department = self.env["hr.department"].with_context(active_test=False)
+        if self._sees_every_team():
+            return Department.search([])
+        own_employees = self._own_employees()
+        return Department.search(
+            ["|", ("id", "in", own_employees.department_id.ids), ("manager_id", "in", own_employees.ids)]
+        )
 
     @api.model
     def _sees_every_team(self):

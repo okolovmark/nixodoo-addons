@@ -68,10 +68,9 @@ DEPARTMENT_ID)``; the periods are ``this_week``, ``last_week`` and
 card each (current task, queue, backlog, other tasks, hours,
 ``hours_logged_today``, ``hours_logged_period``,
 ``estimated_completion``), and ``period_start`` and ``period_end``. Each
-row read costs one dashboard calculation, so read the rows you need: a
-read without a field list computes ``data`` for every row it returns.
-Read ``name``, ``mode`` and the subject alone to list the rows you may
-open.
+row read with ``data`` costs one dashboard calculation, so read the rows
+you need. A read without a field list leaves ``data`` out: it lists the
+rows you may open, and ``data`` comes only when you name it.
 
 Plan in the Gantt chart
 ~~~~~~~~~~~~~~~~~~~~~~~
