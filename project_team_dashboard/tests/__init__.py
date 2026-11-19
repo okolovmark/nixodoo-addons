@@ -13,4 +13,5 @@ from . import test_task_date_rollup
 from . import test_task_deadline
 from . import test_task_templates
 from . import test_task_views
+from . import test_team_board
 from . import test_team_dashboard

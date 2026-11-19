@@ -78,6 +78,7 @@ class TestDashboardAccess(TeamDashboardCommon):
                 "r",
                 "[('task_id', 'access', 'read')]",
             ),
+            "access_project_team_board_user": ("project.team.board", self.env.ref("base.group_user"), "r", False),
         }
         for xmlid, expected_row in expected_rows.items():
             access = self.env.ref("project_team_dashboard.%s" % xmlid)

@@ -28,6 +28,8 @@ FRENCH = {
     "User not found": "Utilisateur introuvable",
     "No employee record found for this user": "Aucun employé pour cet utilisateur",
     "Department not found": "Département introuvable",
+    "No employee record found for this user in the selected companies": "Aucun employé dans les sociétés choisies",
+    "Department not in the selected companies": "Département hors des sociétés choisies",
 }
 
 
@@ -71,6 +73,44 @@ class TestServerMessagesTranslated(TeamDashboardCommon):
             )
         with self.subTest(case="unknown department"):
             self.assertEqual(self.Project.get_team_dashboard_by_department(999999)["error"], "Département introuvable")
+
+    def test_messages_about_a_team_in_a_company_the_user_may_select(self):
+        # a database may switch the department company rule off: these messages follow it
+        self.env.ref("hr.hr_dept_comp_rule").active = True
+        company_b = self.env["res.company"].create({"name": "Company B"})
+        approver = self.env["res.users"].create(
+            {
+                "name": "Approver in A and B",
+                "login": "approver_a_b_fr",
+                "group_ids": [
+                    Command.set(
+                        (
+                            self.env.ref("project.group_project_user")
+                            | self.env.ref("hr_timesheet.group_hr_timesheet_approver")
+                        ).ids
+                    )
+                ],
+                "company_ids": [Command.set((self.env.company | company_b).ids)],
+            }
+        )
+        user_b = self.env["res.users"].create(
+            {
+                "name": "Manager in B",
+                "login": "manager_b_fr",
+                "company_id": company_b.id,
+                "company_ids": [Command.set(company_b.ids)],
+            }
+        )
+        department_b = self.env["hr.department"].create({"name": "Department in B", "company_id": company_b.id})
+        self.env["hr.employee"].create({"name": "Manager in B", "user_id": user_b.id, "company_id": company_b.id})
+        Project = self.Project.with_user(approver).with_context(allowed_company_ids=self.env.company.ids)
+        self.assertEqual(
+            Project.get_team_dashboard_by_manager(user_b.id)["error"], "Aucun employé dans les sociétés choisies"
+        )
+        self.assertEqual(
+            Project.get_team_dashboard_by_department(department_b.id)["error"],
+            "Département hors des sociétés choisies",
+        )
 
     def test_export_errors_sheet_and_column_titles(self):
         self.assertEqual(self.Project.export_gantt_excel([])["error"], "Aucun projet sélectionné")

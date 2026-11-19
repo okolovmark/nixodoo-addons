@@ -7,6 +7,7 @@ import xlsxwriter
 
 from odoo import Command, api, fields, models
 from odoo.exceptions import AccessError, ValidationError
+from odoo.fields import Domain
 from odoo.tools import get_lang
 
 # Their holders read every timesheet or every employee anyway: they may open any manager or department.
@@ -554,25 +555,47 @@ class ProjectProject(models.Model):
         Raises AccessError unless _check_manager_mode_access lets the user see that manager's team.
         """
         self.check_access("read")
+        manager_user = self.env["res.users"].browse(user_id or self.env.uid)
+        return self._get_manager_dashboard(
+            manager_user, self._get_openable_manager_users(), date_start, date_end, max_depth
+        )
 
-        if not user_id:
-            user_id = self.env.uid
-        manager_user = self.env["res.users"].browse(user_id)
-        # sudo: a project user may not read hr.employee
-        manager_employees = self.env["hr.employee"].sudo().search([("user_id", "=", user_id)])
-        self._check_manager_mode_access(manager_user, manager_employees)
+    @api.model
+    def get_team_dashboard_by_department(self, department_id, date_start=None, date_end=None):
+        """Return the cards of the members of the department, across every project they have open
+        tasks in.
+
+        Raises AccessError unless _check_department_mode_access lets the user see that department.
+        """
+        self.check_access("read")
+        # sudo: a project user may not read hr.department and hr.employee
+        department = self.env["hr.department"].sudo().browse(department_id).exists()
+        return self._get_department_dashboard(department, self._get_openable_departments(), date_start, date_end)
+
+    @api.model
+    def _get_manager_dashboard(self, manager_user, openable_users, date_start=None, date_end=None, max_depth=0):
+        """The Manager mode of manager_user for a user who opens the teams of openable_users
+        (_get_openable_manager_users), which the board computes once for its rows."""
+        is_openable = self._check_manager_mode_access(manager_user, openable_users)
         if not manager_user.exists():
             return {"error": self.env._("User not found")}
+        # sudo: a project user may not read hr.employee
+        manager_employees = self.env["hr.employee"].sudo().search([("user_id", "=", manager_user.id)])
         if not manager_employees:
+            return {"error": self.env._("No employee record found for this user"), "manager_name": manager_user.name}
+        if not is_openable:
             return {
-                "error": self.env._("No employee record found for this user"),
+                # an employee in a company the user cannot select stays unnamed
+                "error": self.env._("No employee record found for this user in the selected companies")
+                if manager_employees.company_id & self.env.user.company_ids
+                else self.env._("No employee record found for this user"),
                 "manager_name": manager_user.name,
             }
 
         subordinate_users = self._get_subordinate_employees(manager_employees, max_depth).user_id.filtered("active")
         if not subordinate_users:
             return {
-                "manager_id": user_id,
+                "manager_id": manager_user.id,
                 "manager_name": manager_user.name,
                 "max_depth": max_depth,
                 "period_start": date_start or "",
@@ -585,30 +608,28 @@ class ProjectProject(models.Model):
             date_start,
             date_end,
             label="manager_id",
-            label_value=user_id,
+            label_value=manager_user.id,
             extra={"manager_name": manager_user.name, "max_depth": max_depth},
         )
 
     @api.model
-    def get_team_dashboard_by_department(self, department_id, date_start=None, date_end=None):
-        """Return the cards of the members of the department, across every project they have open
-        tasks in.
-
-        Raises AccessError unless _check_department_mode_access lets the user see that department.
-        """
-        self.check_access("read")
-
-        # sudo: a project user may not read hr.department and hr.employee
-        department = self.env["hr.department"].sudo().browse(department_id).exists()
-        self._check_department_mode_access(department)
+    def _get_department_dashboard(self, department, openable_departments, date_start=None, date_end=None):
+        """The Department mode of department, read as superuser, for a user who opens
+        openable_departments (_get_openable_departments), which the board computes once for its rows."""
+        is_openable = self._check_department_mode_access(department, openable_departments)
         if not department:
             return {"error": self.env._("Department not found")}
+        if not is_openable:
+            # a department of a company the user cannot select stays unnamed
+            if department.company_id and department.company_id not in self.env.user.company_ids:
+                return {"error": self.env._("Department not found")}
+            return {"error": self.env._("Department not in the selected companies")}
 
-        employees = self.env["hr.employee"].sudo().search([("department_id", "=", department_id)])
+        employees = self.env["hr.employee"].sudo().search([("department_id", "=", department.id)])
         department_users = employees.user_id.filtered("active")
         if not department_users:
             return {
-                "department_id": department_id,
+                "department_id": department.id,
                 "department_name": department.complete_name or department.name,
                 "period_start": date_start or "",
                 "period_end": date_end or "",
@@ -620,39 +641,77 @@ class ProjectProject(models.Model):
             date_start,
             date_end,
             label="department_id",
-            label_value=department_id,
+            label_value=department.id,
             extra={"department_name": department.complete_name or department.name},
         )
 
     @api.model
-    def _check_manager_mode_access(self, manager_user, manager_employees):
+    def _check_manager_mode_access(self, manager_user, openable_users):
         """The Manager mode reads the logged hours of a whole team with elevated rights: a user
-        opens it for themselves or a manager below one of their employees in the hierarchy only.
-
-        Odoo lets an employee manage their own manager, or themselves: `parent_of` stops at a cycle.
-        """
-        if manager_user == self.env.user or self._sees_every_team():
-            return
-        if not self._own_employees().filtered_domain([("id", "parent_of", manager_employees.ids)]):
+        opens it for openable_users only. Return whether they do: a user who sees every team is
+        not refused, but told the manager has no employee, in the selected companies when the
+        manager has one in a company the user may select."""
+        is_openable = self.env.su or manager_user in openable_users
+        if not is_openable and not self._sees_every_team():
             raise AccessError(
                 self.env._(
                     "You can open the Team Dashboard by manager only for yourself and the managers who report to you."
                 )
             )
+        return is_openable
 
     @api.model
-    def _check_department_mode_access(self, department):
+    def _check_department_mode_access(self, department, openable_departments):
         """The Department mode reads the logged hours of a department with elevated rights: a user
-        opens it for a department their employee belongs to or manages only."""
-        if self._sees_every_team():
-            return
-        own_employees = self._own_employees()
-        if department not in own_employees.department_id and department.manager_id not in own_employees:
+        opens it for openable_departments only. Return whether they do: a user who sees every team
+        is not refused, but told the department does not exist or is outside the companies of the context."""
+        is_openable = self.env.su or department in openable_departments
+        if not is_openable and not self._sees_every_team():
             raise AccessError(
                 self.env._(
                     "You can open the Team Dashboard by department only for your own department or one you manage."
                 )
             )
+        return is_openable
+
+    @api.model
+    def _get_openable_manager_users(self):
+        """The managers whose team the user opens, on the screen and on the board: themselves, and
+        the users of the public employees of _get_openable_manager_employee_domain."""
+        employees = self.env["hr.employee.public"].search(self._get_openable_manager_employee_domain())
+        return employees.user_id | self.env["res.users"].browse(self.env.uid)
+
+    @api.model
+    def _get_openable_manager_employee_domain(self):
+        """The public employees, in a company of the context, of the users whose team the user opens
+        besides their own: those below one of their employees, or any for _sees_every_team. Under
+        active_test, the screen's default, which the board pins, these and the user's own employees
+        are the active ones.
+
+        Odoo lets an employee manage their own manager, or themselves: the walk visits each
+        employee once. Odoo 20 gives public employees no company rule: the company is a condition here.
+        """
+        domain = Domain("user_id", "!=", False) & Domain("company_id", "in", self.env.companies.ids)
+        if self._sees_every_team():
+            return domain
+        # archived employees too: the managers below an archived one still report to the user
+        own_employees = self._own_employees().with_context(active_test=False)
+        users_below = self._get_subordinate_employees(own_employees).filtered("active").user_id
+        return domain & Domain("user_id", "in", users_below.ids)
+
+    @api.model
+    def _get_openable_departments(self):
+        """The departments the user opens, on the screen and on the board."""
+        return self.env["hr.department"].with_context(active_test=False).search(self._get_openable_department_domain())
+
+    @api.model
+    def _get_openable_department_domain(self):
+        """The departments the user opens among those they find (the departments' company rule):
+        every one for _sees_every_team, else those of their employees and those one of them manages."""
+        if self._sees_every_team():
+            return Domain.TRUE
+        own_employees = self._own_employees()
+        return Domain("id", "in", own_employees.department_id.ids) | Domain("manager_id", "in", own_employees.ids)
 
     @api.model
     def _sees_every_team(self):
@@ -670,15 +729,20 @@ class ProjectProject(models.Model):
         hierarchy loops back to them too.
         """
         subordinates = self.env["hr.employee"].sudo()
-        level = manager_employees.child_ids - manager_employees
+        level = self._get_direct_reports(manager_employees) - manager_employees
         depth = 1
         while level:
             subordinates |= level
             if max_depth and depth >= max_depth:
                 break
-            level = level.child_ids - subordinates - manager_employees
+            level = self._get_direct_reports(level) - subordinates - manager_employees
             depth += 1
         return subordinates
+
+    @api.model
+    def _get_direct_reports(self, employees):
+        # not child_ids: Odoo 20 keeps archived employees out of it, whatever active_test
+        return employees.search([("parent_id", "in", employees.ids)])
 
     def _build_multiproject_dashboard(self, users, date_start, date_end, label, label_value, extra=None):
         """Return the cards of the users with open tasks, across all their projects, under the key
@@ -753,7 +817,8 @@ class ProjectProject(models.Model):
         else in their employee's; the viewer's today for a user with neither."""
         member_today_by_user = {}
         for user in users:
-            member_tz = user.tz or user.employee_id.tz
+            # sudo: the viewer may not read employees, and the timezone shows nothing of theirs but a day
+            member_tz = user.tz or user.sudo().employee_id.tz
             # tz=False would fall back to the viewer's stored timezone, not the one their client sends
             dated_records = self.with_context(tz=member_tz) if member_tz else self
             member_today_by_user[user.id] = fields.Date.context_today(dated_records)
@@ -810,7 +875,8 @@ class ProjectProject(models.Model):
         if remaining_hours <= 0:
             return False
 
-        employee = user.employee_id
+        # sudo: the viewer may not read employees, and the ETA shows nothing of theirs but a date
+        employee = user.sudo().employee_id
         calendar = employee.resource_calendar_id or (employee and self.env.company.resource_calendar_id)
         if not calendar:
             work_days = remaining_hours / 5.7
@@ -823,6 +889,8 @@ class ProjectProject(models.Model):
 
     @api.model
     def _get_project_label(self, project):
+        # sudo: who reads a task reads the name of its project, as core reads a many-to-one
+        project = project.sudo()
         return "%s - %s" % (project.key, project.name) if project.key else project.name
 
     @api.model
@@ -852,7 +920,8 @@ class ProjectProject(models.Model):
             "priority": task.priority,
             "sequence": task.sequence,
             "is_subtask": bool(task.parent_id),
-            "parent_key": task.parent_id.key or "",
+            # sudo: who reads a sub-task reads the key of its parent, as core reads a many-to-one
+            "parent_key": task.parent_id.sudo().key or "",
             "project_id": project.id,
             "project_name": self._get_project_label(project),
         }

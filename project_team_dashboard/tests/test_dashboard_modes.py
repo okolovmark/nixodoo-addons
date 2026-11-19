@@ -705,6 +705,33 @@ class TestDashboardModeAccessRule(TeamDashboardCommon):
         with self.assertRaisesRegex(AccessError, "by department"):
             Project.get_team_dashboard_by_department(missing_department_id)
 
+    def test_users_who_see_every_team_learn_that_a_manager_has_no_team(self):
+        Users = self.env["res.users"].with_context(active_test=False)
+        user_without_employee = Users.create(self._user_vals("No Employee", ["base.group_user"]))
+        user_project_admin = Users.create(self._user_vals("Project Admin", ["project.group_project_manager"]))
+        missing_user_id = Users.search([], order="id desc", limit=1).id + 1000
+        for user in self.user_approver | self.user_hr_officer | user_project_admin:
+            Project = self.env["project.project"].with_user(user)
+            with self.subTest(user=user.name):
+                self.assertEqual(Project.get_team_dashboard_by_manager(missing_user_id), {"error": "User not found"})
+                self.assertEqual(
+                    Project.get_team_dashboard_by_manager(user_without_employee.id),
+                    {"error": "No employee record found for this user", "manager_name": "No Employee"},
+                )
+
+    def test_users_who_see_every_team_learn_that_a_department_does_not_exist(self):
+        user_project_admin = self.env["res.users"].create(
+            self._user_vals("Project Admin", ["project.group_project_manager"])
+        )
+        Departments = self.env["hr.department"].with_context(active_test=False)
+        missing_department_id = Departments.search([], order="id desc", limit=1).id + 1
+        for user in self.user_approver | self.user_hr_officer | user_project_admin:
+            Project = self.env["project.project"].with_user(user)
+            with self.subTest(user=user.name):
+                self.assertEqual(
+                    Project.get_team_dashboard_by_department(missing_department_id), {"error": "Department not found"}
+                )
+
     def test_timesheet_approvers_and_hr_officers_open_every_manager_and_department(self):
         for user in self.user_approver | self.user_hr_officer:
             with self.subTest(user=user.name):
