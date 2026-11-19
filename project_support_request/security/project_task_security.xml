@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <!-- Read moves to task_comp_rule_read below; the uninstall hook gives it back. A function, not a
+         record of core's: once an administrator deletes that record, updating it fails the update. -->
+    <function model="ir.access" name="_support_request_narrow_core_task_restrictions" />
+
+    <record id="task_comp_rule_read" model="ir.access">
+        <field name="name">Project/Task: multi-company read, except own support requests</field>
+        <field name="model_id" ref="project.model_project_task" />
+        <field name="operation">r</field>
+        <field name="domain">user._support_request_task_read_domain()</field>
+    </record>
+</odoo>

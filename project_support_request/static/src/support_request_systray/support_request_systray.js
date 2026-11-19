@@ -11,7 +11,15 @@ const { DateTime } = luxon;
 
 const PAGE_SIZE = 5;
 const REFRESH_INTERVAL = 60000;
-const PRIORITY_CLASSES = { 2: "text-danger", 1: "text-warning" };
+const PRIORITY_CLASSES = {
+    0: "text-muted opacity-50",
+    1: "text-muted",
+    2: "text-info",
+    3: "text-warning",
+    4: "text-danger",
+};
+// Low, the level a task is created with.
+const DEFAULT_PRIORITY_LEVEL = "1";
 
 /** The Support item of the header: the user's open requests and a form to file a new one. */
 export class SupportRequestSystray extends Component {
@@ -36,6 +44,7 @@ export class SupportRequestSystray extends Component {
             showCreateForm: false,
             showAll: false,
             taskTypes: [],
+            priorityLabels: {},
         });
 
         // Not awaited: the header does not wait for the item.
@@ -57,6 +66,7 @@ export class SupportRequestSystray extends Component {
         try {
             const config = await rpc("/project_support_request/config", {});
             this.state.taskTypes = config.task_types || [];
+            this.state.priorityLabels = config.priority_levels || {};
         } catch {
             this.state.taskTypes = [];
         }
@@ -98,7 +108,11 @@ export class SupportRequestSystray extends Component {
         if (!createDate) {
             return "";
         }
-        const minutes = Math.floor(DateTime.now().diff(deserializeDateTime(createDate), "minutes").minutes);
+        // A creation date ahead of the browser's clock reads as just now.
+        const minutes = Math.max(
+            0,
+            Math.floor(DateTime.now().diff(deserializeDateTime(createDate), "minutes").minutes)
+        );
         if (minutes < 60) {
             return _t("%sm ago", minutes);
         }
@@ -109,8 +123,17 @@ export class SupportRequestSystray extends Component {
         return _t("%sd ago", Math.floor(hours / 24));
     }
 
+    priorityLevel(level) {
+        return Object.hasOwn(PRIORITY_CLASSES, level) ? level : DEFAULT_PRIORITY_LEVEL;
+    }
+
     priorityClass(level) {
-        return PRIORITY_CLASSES[level] || "text-muted";
+        return PRIORITY_CLASSES[this.priorityLevel(level)];
+    }
+
+    priorityTitle(level) {
+        const label = this.state.priorityLabels[this.priorityLevel(level)];
+        return label ? _t("Priority: %s", label) : undefined;
     }
 
     onBeforeOpen() {
