@@ -36,19 +36,23 @@ logged hours in View by Project mode. In the Manager and Department modes the
 logged hours of the listed users (across all projects), the employee hierarchy
 and the department members are read with elevated rights; the department
 picker list and the viewer's own department are loaded with the user's own
-rights.
+rights. In every mode the member's employee and working schedule behind the
+estimated completion are read with elevated rights.
 
 Who opens which team in those two modes follows the user's employee:
 
 * **View by Manager**: the user themselves, or a manager one of whose
   employees reports to one of the user's employees, directly or further down
-  the hierarchy (the employee's *Manager*), in any company.
+  the hierarchy (the employee's *Manager*), across companies.
 * **View by Department**: a department the user's employee belongs to, or
   one it is the *Manager* of.
 * A user with **Timesheets: User: all timesheets** (Administrator includes
   it) or **Employees: Officer** opens every manager and every department.
   So does every **Project / Administrator**: Odoo gives project
   administrators the first of these rights.
+* In every case a department opens only in a company the user may enter,
+  and a manager other than the user only with an active employee the user
+  finds there; the manager's team itself may reach into other companies.
 
 A manager's team is everyone below their employees, the manager left out,
 also where the hierarchy loops back: Odoo lets an employee manage their own
