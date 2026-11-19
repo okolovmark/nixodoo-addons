@@ -13,9 +13,10 @@ Plan a task
   the Deadline: not a stage change, not a start moved alone in the Gantt
   chart, not a change to a sub-task that leaves its parent's planned end
   where it was, not the same planned end saved again. A Deadline you set
-  by hand, alone or together with the planned end, stays until the planned
-  end changes again; so does the Deadline Odoo gives the next occurrence
-  of a recurring task. On the task form the Deadline changes as you edit
+  by hand, alone or together with the planned end or the project, stays
+  until the planned end changes again or the task moves into an AI-driven
+  project; so does the Deadline Odoo gives the next occurrence of a
+  recurring task. On the task form the Deadline changes as you edit
   the planned end; a Deadline you type after it is the one saved. Changing
   the Deadline alone leaves the plan where it is, and clearing the planned
   end leaves the Deadline. In other projects the planned end does not

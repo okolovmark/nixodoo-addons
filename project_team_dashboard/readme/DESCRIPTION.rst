@@ -1,7 +1,8 @@
 A team's work in Project at a glance: a **Team Dashboard** of workload
 cards per member, a multi-project **Gantt chart** with dependency lags,
-baselines and the stage history of tasks, a **Backlog** list, and planned
-dates of a task that roll up from its sub-tasks. It builds on
+baselines and the stage history of tasks, a **Backlog** list, planned
+dates of a task that roll up from its sub-tasks, and, in an AI-driven
+project, a Deadline that follows the planned end. It builds on
 ``project_ai_driven`` (task type, key, size, modules of a task, stage log)
 and on ``hr_timesheet`` (logged hours, employees).
 
@@ -36,11 +37,25 @@ the start is refused. A task created from a template gets no planned dates.
 
 A task with active sub-tasks takes its planned start and end from them: the
 earliest and the latest planned date of those sub-tasks, or no dates while
-none of them is dated. Archived sub-tasks are ignored, the deadline is
-never touched, and the roll-up climbs every level (Milestone > Task >
-Sub-task). Such a task is flagged ``is_planned_from_subtasks``: its planned
-dates are read-only on the task form and list, and a write that changes
-them is refused with a message to change the sub-tasks instead.
+none of them is dated. Archived sub-tasks are ignored, and the roll-up
+climbs every level (Milestone > Task > Sub-task). Such a task is flagged
+``is_planned_from_subtasks``: its planned dates are read-only on the task
+form and list, and a write that changes them is refused with a message to
+change the sub-tasks instead.
+
+**Deadline**
+
+In a project flagged **AI-driven Project** the Deadline of a task becomes
+its planned end, date and time, a rolled-up one included, when the planned
+end or the project differs from the plan the Deadline last followed. Each
+task records that plan in ``date_deadline_planned_end`` and
+``date_deadline_project_id``; a Deadline written by hand records the
+current plan, so it stays until the plan changes. Elsewhere, and on a task
+without a planned end, the Deadline stays as it is. The task form and its
+*Sub-tasks* and *Blocked By* lines carry the plan, so the Deadline follows
+the planned end as it is edited there. Installing or updating the module
+fills the plan of each task with its current planned end and project, and
+changes no Deadline.
 
 **Backlog**
 
