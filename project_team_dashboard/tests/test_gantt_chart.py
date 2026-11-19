@@ -118,6 +118,29 @@ class TestGanttChartData(TeamDashboardCommon):
         expected_start = str(end_dt - timedelta(days=1))
         self.assertEqual(task_data["planned_date_start"], expected_start)
 
+    def test_payload_tells_which_planned_dates_the_task_has(self):
+        task_values = {"project_id": self.project.id, "stage_id": self.stage_backlog.id}
+        start = self.now
+        end = self.now + timedelta(days=3)
+        tasks = self.Task.create(
+            [
+                dict(task_values, name="Both", planned_date_start=start, planned_date_end=end),
+                dict(task_values, name="Start Only", planned_date_start=start),
+                dict(task_values, name="End Only", planned_date_end=end),
+                dict(task_values, name="Deadline Only", date_deadline=self.today + timedelta(days=4)),
+            ],
+        )
+        result = self.Project.get_gantt_chart_data(self.project.id)
+        flags_by_task = {
+            task_data["id"]: (task_data.get("has_planned_date_start"), task_data.get("has_planned_date_end"))
+            for task_data in result["tasks"]
+        }
+        self.assertEqual(
+            [flags_by_task.get(task.id) for task in tasks],
+            [(True, True), (True, False), (False, True), (False, False)],
+            "a date padded to draw the bar is not one the task has",
+        )
+
     # ------------------------------------------------------------------
     # Tasks without dates
     # ------------------------------------------------------------------
@@ -524,6 +547,8 @@ class TestGanttChartData(TeamDashboardCommon):
             "child_ids",
             "planned_date_start",
             "planned_date_end",
+            "has_planned_date_start",
+            "has_planned_date_end",
             "stage_id",
             "stage_name",
             "stage_sequence",

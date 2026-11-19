@@ -247,12 +247,15 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
 
     var GANTT_DAY_MS = 86400000;
 
+    function wholeDaysBetween(original, moved) {
+        return Math.round((new Date(moved) - new Date(original)) / GANTT_DAY_MS);
+    }
+
     function shiftByWholeDays(original, moved) {
         if (!original || !moved) {
             return moved;
         }
-        var days = Math.round((new Date(moved) - new Date(original)) / GANTT_DAY_MS);
-        return window.moment(new Date(original)).add(days, "days").toDate();
+        return window.moment(new Date(original)).add(wholeDaysBetween(original, moved), "days").toDate();
     }
 
     function parseUtcDateTime(value) {
@@ -1851,7 +1854,8 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
         },
 
         /**
-         * Handle drag/resize of a gantt item - persist new dates via RPC.
+         * Persist a dragged or resized bar, by whole days. The payload pads a missing planned date
+         * to draw the bar: a move saves only the dates the task has, a resize also the edge it dragged.
          */
         _onGanttItemMove: function (item, callback) {
             var self = this;
@@ -1865,20 +1869,33 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
                 var parts = taskId.split("_");
                 taskId = parseInt(parts[parts.length - 1], 10);
             }
-            if (!taskId) {
+            var task = taskId && _.findWhere(this.ganttData.tasks, {id: taskId});
+            if (!task) {
                 callback(null);
                 return;
             }
 
-            var original = this._ganttItemsDS && this._ganttItemsDS.get(item.id);
-            item.start = shiftByWholeDays(original && original.start, item.start);
+            var original = this._ganttItemsDS.get(item.id);
+            var startOffset = item.start - original.start;
+            var startDays = wholeDaysBetween(original.start, item.start);
+            var endDays = item.end ? wholeDaysBetween(original.end, item.end) : startDays;
+            item.start = shiftByWholeDays(original.start, item.start);
+            var movedEnd;
             if (item.end) {
-                item.end = shiftByWholeDays(original && original.end, item.end);
+                item.end = shiftByWholeDays(original.end, item.end);
+                movedEnd = item.end;
+            } else {
+                // a milestone point is drawn on its start alone: its end moves by as many days
+                var plannedEnd = utcDateTimeToDate(task.planned_date_end);
+                movedEnd = shiftByWholeDays(plannedEnd, new Date(plannedEnd.getTime() + startOffset));
             }
-            var vals = {planned_date_start: formatUtcDateTime(new Date(item.start).getTime())};
-            // Point items (milestones) have no end date
-            if (item.end) {
-                vals.planned_date_end = formatUtcDateTime(new Date(item.end).getTime());
+            var isResize = startDays !== endDays;
+            var vals = {};
+            if (task.has_planned_date_start || (isResize && startDays !== 0)) {
+                vals.planned_date_start = formatUtcDateTime(item.start.getTime());
+            }
+            if (task.has_planned_date_end || (isResize && endDays !== 0)) {
+                vals.planned_date_end = formatUtcDateTime(movedEnd.getTime());
             }
 
             rpc.query({
