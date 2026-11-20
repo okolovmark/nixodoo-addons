@@ -29,3 +29,5 @@ Rejected: filling Verified by and Verified on of migrated cases from their last 
 - The 20.0 branch gets the same change when this work is forward-ported to it.
 
 Reversal cost: bring back the former keys and an editable flag. The states map back one to one except Failed, which has no former value. The flag values the conversion overwrote are not recoverable, and the verification stamps have no place in the former model.
+
+**2026-11-20:** from 16.0.2.18.0 the install hooks convert no case and remove no button: there is no former module to take over. The migration still does both on update.

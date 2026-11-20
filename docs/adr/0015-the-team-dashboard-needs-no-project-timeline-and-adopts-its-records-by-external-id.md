@@ -37,3 +37,5 @@ Rejected: find the holder by the record names alone. A name such as `action_team
 - The tests `test_01_flow_filling` and `test_invalid_dates` of `project_timeline` expect the assignment and closing dates to fill the planned dates, and that fill is off on purpose: run against the models of a database with the glue module, they fail. They pass where Odoo runs them: they are at-install tests, run while `project_timeline` loads and so before the glue module does.
 
 Reversal cost: depend on `project_timeline` again and drop the declarations and the glue module; the adoption hook does nothing once the records are held.
+
+**2026-11-20:** `project_ai_driven` no longer takes over its own former module (16.0.2.18.0); `take_over_module` stays a helper other modules call.

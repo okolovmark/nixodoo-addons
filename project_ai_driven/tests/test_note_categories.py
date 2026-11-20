@@ -15,7 +15,7 @@ from odoo.exceptions import AccessError, UserError
 from odoo.osv import expression
 from odoo.tests.common import tagged
 
-from ..hooks import FORMER_MODULE, LEGACY_MODULE, MODULE, categorize_span_notes, fill_task_messages, pre_init_hook
+from ..hooks import MODULE, categorize_span_notes, fill_task_messages, pre_init_hook
 from ..models.mail_message import NOTE_CATEGORIES, get_note_category
 from .common import ProjectAiDrivenCommon
 
@@ -397,10 +397,7 @@ class TestTaskMessageFill(NoteCategoryCase):
         script.migrate(self.env.cr, "16.0.2.7.0")
         self.assertEqual(self._stored_values(messages), expected_values)
 
-    def test_pre_init_hook_fills_without_a_module_to_take_over_from(self):
-        self.env.cr.execute(
-            "UPDATE ir_module_module SET state = 'uninstalled' WHERE name IN %s", ((FORMER_MODULE, LEGACY_MODULE),)
-        )
+    def test_pre_init_hook_fills(self):
         messages, expected_values = self._create_messages()
         self._set_columns(messages, None, None)
         pre_init_hook(self.env.cr)

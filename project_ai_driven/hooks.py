@@ -10,7 +10,7 @@ from psycopg2 import sql
 from psycopg2.extras import Json
 
 from odoo import SUPERUSER_ID, api
-from odoo.tools.sql import column_exists, create_column, create_index, rename_column, table_exists
+from odoo.tools.sql import column_exists, create_column, create_index, table_exists
 
 from .models.mail_message import NOTE_CATEGORIES, NOTE_CATEGORY_PATTERNS, NOTE_MODEL, NOTE_SUBTYPE, SPAN_OPENING
 from .models.project_pull_request import parse_pull_request_links
@@ -19,15 +19,7 @@ from .models.project_task_question import get_visible_text, has_content, has_med
 _logger = logging.getLogger(__name__)
 
 MODULE = "project_ai_driven"
-FORMER_MODULE = "project_software"
-LEGACY_MODULE = "kaertech_project_software"
 
-FLAG = "is_ai_driven"
-FORMER_FLAG = "is_software_project"
-FLAG_TABLE = "project_project"
-RENAMED_EXTERNAL_IDS = {
-    "project_project_view_form_inherit_software": "project_project_view_form_inherit_ai_driven",
-}
 OWNERSHIP_TABLES = ("ir_model_constraint", "ir_model_relation")
 FIELD_NAMING_COLUMNS = (
     ("ir_rule", "domain_force"),
@@ -38,54 +30,8 @@ FIELD_NAMING_COLUMNS = (
     ("ir_act_window", "context"),
 )
 
-# What the legacy module holds, under the names it knows. Not its questions and answers: their
-# content became question rows, and the fields stay with whatever replaces the legacy module.
-ADOPTED_MODELS = ("project.task.subtask", "project.task.testcase")
-ADOPTED_FIELDS = (
-    ("project.project", "is_software_project"),
-    ("project.task", "is_software_project"),
-    ("project.task", "solution"),
-    ("project.task", "priority_level"),
-    ("project.task", "task_type"),
-    ("project.task", "tshirt_estimate"),
-    ("project.task", "subtask_ids"),
-    ("project.task", "default_user"),
-    ("project.task", "completion"),
-    ("project.task", "completion_xml"),
-    ("project.task", "kanban_subtasks"),
-    ("project.task", "testcase_ids"),
-    ("project.task", "testcase_completion"),
-    ("project.task", "testcase_completion_xml"),
-    ("project.task", "kanban_testcases"),
-    ("project.task", "testcase_general_comments"),
-)
-ADOPTED_RECORDS = (
-    ("ir.model.access", "access_task_subtask"),
-    ("ir.model.access", "access_task_testcase"),
-    ("mail.message.subtype", "subtasks_subtype"),
-    ("mail.message.subtype", "all_subtask_subtype"),
-    ("ir.ui.view", "view_task_form2"),
-    ("ir.ui.view", "view_task_kanban_subtasks"),
-    ("ir.ui.view", "project_task_subtask_view_form"),
-    ("ir.ui.view", "project_task_subtask_view_search"),
-    ("ir.ui.view", "subtask_list_view"),
-    ("ir.ui.view", "view_task_form2_testcase"),
-    ("ir.ui.view", "view_task_kanban_testcase"),
-    ("ir.ui.view", "project_task_testcase_view_form"),
-    ("ir.ui.view", "project_task_testcase_view_search"),
-    ("ir.ui.view", "testcase_list_view"),
-    ("ir.ui.view", "view_task_form2_common"),
-    ("ir.ui.view", "view_task_tree2"),
-    ("ir.ui.view", "project_project_view_form_inherit_software"),
-    ("ir.actions.act_window", "action_view_subtask"),
-    ("ir.actions.act_window", "action_view_testcase"),
-    ("ir.ui.menu", "menu_action_view_subtask"),
-    ("ir.ui.menu", "menu_action_view_testcase"),
-)
-# These two also carried nodes that stayed in the legacy module.
-SPLIT_VIEWS = ("view_task_form2_common", "view_task_tree2")
-# Deleted from this module since. A database from before still holds them: taken over like the
-# rest, they go at the end of the update, as records this module no longer has.
+# Deleted from this module since: the update deletes them at its end, as records this module no
+# longer has.
 DROPPED_FIELDS = (
     ("project.task", "difficulty"),
     ("project.task", "knowledge_area_level"),
@@ -95,7 +41,7 @@ DROPPED_FIELDS = (
 DROPPED_FOREIGN_KEYS = ("project_task_tester_id_fkey",)
 # The relations of the task whose sub-views, in the views of the task, show a model of DROPPED_FIELDS.
 TASK_SUB_VIEW_MODELS = {"testcase_ids": "project.task.testcase"}
-# Deleted from this module since and left to the module that replaces the legacy one: only their
+# Deleted from this module since and left to any module that still declares them: only their
 # nodes go from the views of this module.
 MOVED_FIELDS = (("project.task", "questions"), ("project.task", "answers"))
 # Deleted from the test case model since; the checklist model still has methods of these names.
@@ -150,74 +96,6 @@ NAME_IS_FREE = """
         SELECT 1 FROM ir_model_data taken WHERE taken.module = %(module)s AND taken.name = imd.name
     )
 """
-REHOME_MODELS = (
-    """
-    UPDATE ir_model_data imd
-       SET module = %(module)s
-      FROM ir_model
-     WHERE imd.module = %(legacy)s
-       AND imd.model = 'ir.model'
-       AND imd.res_id = ir_model.id
-       AND ir_model.model IN %(models)s
-       AND
-    """
-    + NAME_IS_FREE
-)
-REHOME_FIELDS = (
-    """
-    UPDATE ir_model_data imd
-       SET module = %(module)s
-      FROM ir_model_fields field
-     WHERE imd.module = %(legacy)s
-       AND imd.model = 'ir.model.fields'
-       AND imd.res_id = field.id
-       AND (field.model IN %(models)s OR (field.model, field.name) IN %(fields)s)
-       AND
-    """
-    + NAME_IS_FREE
-)
-REHOME_SELECTIONS = (
-    """
-    UPDATE ir_model_data imd
-       SET module = %(module)s
-      FROM ir_model_fields_selection selection
-      JOIN ir_model_fields field ON field.id = selection.field_id
-     WHERE imd.module = %(legacy)s
-       AND imd.model = 'ir.model.fields.selection'
-       AND imd.res_id = selection.id
-       AND (field.model IN %(models)s OR (field.model, field.name) IN %(fields)s)
-       AND
-    """
-    + NAME_IS_FREE
-)
-REHOME_RECORDS = (
-    """
-    UPDATE ir_model_data imd
-       SET module = %(module)s
-     WHERE imd.module = %(legacy)s
-       AND (imd.model, imd.name) IN %(records)s
-       AND
-    """
-    + NAME_IS_FREE
-    + """
- RETURNING imd.model, imd.name, imd.res_id
-    """
-)
-REHOME_CONSTRAINTS = """
-    UPDATE ir_model_constraint con
-       SET module = target.id
-      FROM ir_module_module source, ir_module_module target, ir_model
-     WHERE source.name = %(legacy)s
-       AND target.name = %(module)s
-       AND con.module = source.id
-       AND con.model = ir_model.id
-       AND (ir_model.model IN %(models)s OR con.name IN %(foreign_keys)s)
-       AND NOT EXISTS (
-           SELECT 1 FROM ir_model_constraint taken WHERE taken.module = target.id AND taken.name = con.name
-       )
-"""
-
-
 TAKE_OVER_EXTERNAL_IDS = (
     """
     UPDATE ir_model_data imd
@@ -255,14 +133,6 @@ TAKE_OVER_VIEW_FILES = """
      WHERE left(arch_fs, length(%(former)s) + 1) = %(former)s || '/'
 """
 
-RENAME_FIELDS = """
-    UPDATE ir_model_fields field
-       SET name = %(field)s
-     WHERE field.name = %(former_field)s
-       AND NOT EXISTS (
-           SELECT 1 FROM ir_model_fields taken WHERE taken.model = field.model AND taken.name = %(field)s
-       )
-"""
 RENAME_RELATED_PATHS = """
     UPDATE ir_model_fields
        SET related = array_to_string(
@@ -294,18 +164,6 @@ RENAME_EXTERNAL_ID = """
            SELECT 1 FROM ir_model_data taken WHERE taken.module = %(module)s AND taken.name = %(new_name)s
        )
 """
-RENAME_FLAG_IN_ARCH = """
-    UPDATE ir_ui_view
-       SET arch_db = replace(arch_db::text, %(former_field)s, %(field)s)::jsonb
-     WHERE strpos(arch_db::text, %(former_field)s) > 0
-"""
-RENAME_FLAG_IN_TEXT = sql.SQL(
-    """
-    UPDATE {table}
-       SET {column} = replace({column}, %(former_field)s, %(field)s)
-     WHERE strpos({column}, %(former_field)s) > 0
-    """
-)
 
 MODULE_VIEWS = """
     SELECT view.id, view.model, view.arch_db
@@ -757,72 +615,22 @@ TASK_NOTES_OPENING_WITH_A_SPAN_WITHOUT_CATEGORY = sql.SQL(
 
 def pre_init_hook(cr):
     """Give the messages of tasks their task and the internal notes their
-    category, see fill_task_messages, and take over what this module held
-    under its former names.
-
-    A database can come here in three states.
-
-    project_software is installed: this module under its former name, on a
-    database from before the rename. It comes here by an explicit -i of this
-    module: the empty project_software whose update installed this one is
-    deleted, and updating project_software no longer does. Everything it owns
-    changes module: every external id, and every constraint and many2many
-    table registered to it. Anything left behind would be deleted with the
-    record or table it stands for, at the end of the run or when the emptied
-    module is uninstalled.
-
-    project_software was never installed but kaertech_project_software is: the
-    module this one was cut from, on a database from before the cut. Only what
-    moved here is taken over, see _take_over_legacy_records.
-
-    Neither is installed: nothing is taken over.
-
-    In the first two states the flag and the external ids that changed name
-    are then renamed where the database stores them, see _rename_flag. Models,
-    fields, selection values, foreign keys and data records thus keep their
-    database id, and the data files update them in place. A second run finds
-    nothing left to move or rename.
-
-    The database is then where an update of this module finds it, the fields
-    and the buttons deleted since included, the checklist under its new names
-    and without activities: see forget_dropped_fields,
-    forget_dropped_test_case_buttons, rename_checklist and
-    forget_checklist_activities.
+    category, see fill_task_messages.
     """
     fill_task_messages(cr)
-    if is_installed(cr, FORMER_MODULE):
-        take_over_module(cr, FORMER_MODULE, MODULE)
-    elif is_installed(cr, LEGACY_MODULE):
-        _take_over_legacy_records(cr)
-    else:
-        return
-    _rename_flag(cr)
-    rename_external_ids(cr, MODULE, RENAMED_EXTERNAL_IDS)
-    forget_dropped_fields(cr)
-    forget_dropped_test_case_buttons(cr)
-    rename_checklist(cr)
-    # stays last: it clears the registry caches the external id changes above leave stale
-    forget_checklist_activities(cr)
 
 
 def post_init_hook(cr, registry):
     """Migration scripts do not run on an install, and the column of pr_uri
     may hold the values project_task_pull_request stored in it. The tasks
-    that exist already have a past to log, too, and the column of their size
-    may hold sizes from before the size followed the hours, and hours that
-    are not a number. Their test cases may hold the states of the old
-    selection. Their questions and answers may still be the two Html columns
-    of the legacy module. Projects may have no key, where OCA project_key did
-    not run.
+    that exist already have a past to log, too, and hours that are not a
+    number. Projects may have no key, where OCA project_key did not run.
     """
     env = api.Environment(cr, SUPERUSER_ID, {})
     env["project.project"]._set_missing_keys()
     convert_old_pr_uri_values(env)
     fill_stage_log(env)
     clear_estimates_that_are_not_numbers(cr)
-    recompute_task_sizes(cr)
-    convert_test_case_states(cr)
-    convert_questions_to_rows(cr)
 
 
 def fill_task_messages(cr):
@@ -1349,68 +1157,6 @@ def take_over_module(cr, former, module):
     cr.execute(TAKE_OVER_VIEW_FILES, params)
 
 
-def _take_over_legacy_records(cr):
-    """Left alone, the data files would create a second copy of each view,
-    access right, action, menu and message subtype, and the update of the
-    legacy module would then delete the originals, taking the follower
-    subscriptions to the subtypes with them.
-
-    An adopted view forgets the file it was loaded from: that file was the
-    legacy module's, and its own data file names the new one when it is loaded.
-
-    The views in SPLIT_VIEWS are adopted with an empty arch. Their old arch also
-    names fields of the legacy module, and it is validated as soon as any other
-    view of the same form is loaded, before the data file writes the part that
-    belongs here. The legacy module, or the module that replaces it, adds its
-    own part back when its data files are loaded.
-
-    The fields in DROPPED_FIELDS and their foreign keys are adopted too. Left
-    with the legacy module, whether they go would depend on what replaces it.
-    """
-    params = {
-        "module": MODULE,
-        "legacy": LEGACY_MODULE,
-        "models": ADOPTED_MODELS,
-        "fields": ADOPTED_FIELDS + DROPPED_FIELDS,
-        "records": ADOPTED_RECORDS,
-        "foreign_keys": DROPPED_FOREIGN_KEYS,
-    }
-    for query in (REHOME_MODELS, REHOME_FIELDS, REHOME_SELECTIONS, REHOME_CONSTRAINTS):
-        cr.execute(query, params)
-    cr.execute(REHOME_RECORDS, params)
-    adopted_views = {name: res_id for model, name, res_id in cr.fetchall() if model == "ir.ui.view"}
-    if adopted_views:
-        cr.execute("UPDATE ir_ui_view SET arch_fs = NULL WHERE id IN %s", (tuple(adopted_views.values()),))
-    split_view_ids = tuple(res_id for name, res_id in adopted_views.items() if name in SPLIT_VIEWS)
-    if split_view_ids:
-        cr.execute(
-            "UPDATE ir_ui_view SET arch_db = jsonb_build_object('en_US', '<data/>') WHERE id IN %s",
-            (split_view_ids,),
-        )
-
-
-def _rename_flag(cr):
-    """Rename is_software_project to is_ai_driven: the column, the field on
-    every model that has it (models delegating to the project or the task
-    carry a copy) with its external id in whichever module holds one, and the
-    stored text that names it.
-
-    The views cannot wait for the data files: a view taken over is validated as
-    soon as another view of the same model is loaded. The text is replaced as a
-    substring, so that a default_<field> context key follows.
-    """
-    params = {"field": FLAG, "former_field": FORMER_FLAG}
-    if column_exists(cr, FLAG_TABLE, FORMER_FLAG) and not column_exists(cr, FLAG_TABLE, FLAG):
-        rename_column(cr, FLAG_TABLE, FORMER_FLAG, FLAG)
-    for query in (RENAME_FIELDS, RENAME_RELATED_PATHS, RENAME_FIELD_EXTERNAL_IDS, RENAME_FLAG_IN_ARCH):
-        cr.execute(query, params)
-    for table, column in FIELD_NAMING_COLUMNS:
-        cr.execute(
-            RENAME_FLAG_IN_TEXT.format(table=sql.Identifier(table), column=sql.Identifier(column)),
-            params,
-        )
-
-
 def forget_dropped_fields(cr):
     """Clear what the database stores about the fields in DROPPED_FIELDS and
     MOVED_FIELDS and an update of this module trips on or leaves behind,
@@ -1424,9 +1170,8 @@ def forget_dropped_fields(cr):
     validated against the fields of the model as soon as another view of the
     same form is loaded, before its own data file rewrites it. Their nodes are
     taken out of every translation of the arch, those in the sub-views of the
-    relations in TASK_SUB_VIEW_MODELS included; emptying the arch, as for the
-    views in SPLIT_VIEWS, would lose the translated terms the database alone
-    holds.
+    relations in TASK_SUB_VIEW_MODELS included; emptying the arch would lose
+    the translated terms the database alone holds.
 
     A foreign key goes with its column, but the row that registers it to this
     module would stay.
@@ -1491,10 +1236,8 @@ def forget_dropped_test_case_buttons(cr):
 
     Such a button fails the validation of the task form as soon as another
     view of it is loaded, as a field in DROPPED_FIELDS does: see
-    forget_dropped_fields. A view taken over from the legacy module has no
-    file of this module to be read from instead, even in dev mode. The buttons
-    of the same names in the checklist sub-view stay: the checklist model
-    still has their methods.
+    forget_dropped_fields. The buttons of the same names in the checklist
+    sub-view stay: the checklist model still has their methods.
 
     A second run finds nothing left.
     """
