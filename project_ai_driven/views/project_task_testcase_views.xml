@@ -166,8 +166,9 @@
                 <field name="testcase_completion_xml" />
                 <field name="kanban_testcases" />
             </templates>
+            <!-- the fields' groups drop their nodes, the template goes with them: an extension view takes no groups -->
             <xpath expr="//footer" position="before">
-                <div>
+                <div groups="project.group_project_user">
                     <t t-out="record.testcase_completion_xml.raw_value" />
                     <t t-out="record.kanban_testcases.raw_value" />
                 </div>

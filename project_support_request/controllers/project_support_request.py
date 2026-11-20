@@ -7,6 +7,7 @@ NO_SUPPORT_PROJECT_ERROR = (
 )
 INTERNAL_USERS_ONLY_ERROR = "Only internal users file support requests."
 TICKET_FIELDS = ("key", "name", "task_type", "stage_id", "priority_level", "create_date", "sequence")
+CLOSED_LIST_VIEW_XMLID = "project.open_view_all_tasks_list_view"
 
 
 class SupportRequestController(http.Controller):
@@ -20,10 +21,16 @@ class SupportRequestController(http.Controller):
         support_project = request.env["project.project"].sudo().search([("develops_this_odoo", "=", True)], limit=1)
         return support_project.id or 0
 
+    def _get_closed_list_view_id(self):
+        """Core's task list without grouping, else False for the default one: grouped by stage,
+        every closed request sits in the group of a folded stage, which opens folded.
+        """
+        closed_list_view = request.env.ref(CLOSED_LIST_VIEW_XMLID, raise_if_not_found=False)
+        return closed_list_view.id if closed_list_view else False
+
     def _get_task_types(self):
-        task_model = request.env["project.task"]
-        selection = task_model._fields["task_type"].selection
-        return selection(task_model) if callable(selection) else selection
+        """The (value, label) pairs of the task types, the labels in the user's language."""
+        return request.env["project.task"]._fields["task_type"]._description_selection(request.env)
 
     @http.route("/project_support_request/systray", type="jsonrpc", auth="user", methods=["POST"])
     def get_systray_requests(self, tab="bugs", limit=5, **kwargs):
@@ -72,11 +79,13 @@ class SupportRequestController(http.Controller):
     @http.route("/project_support_request/config", type="jsonrpc", auth="user", methods=["POST"])
     def get_config(self, **kwargs):
         """The support project, the user and the task types the widget builds its domains and
-        its type picker from, and the labels of the priority levels its dots are titled with.
+        its type picker from, the list view of its closed requests, and the labels of the
+        priority levels its dots are titled with.
         """
         return {
             "project_id": self._get_support_project_id() or False,
             "uid": request.env.uid,
+            "closed_list_view_id": self._get_closed_list_view_id(),
             "task_types": [{"value": value, "label": label} for value, label in self._get_task_types()],
             "priority_levels": dict(
                 request.env["project.task"]._fields["priority_level"]._description_selection(request.env)

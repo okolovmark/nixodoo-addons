@@ -1,7 +1,15 @@
+from unittest.mock import patch
+
+from lxml import etree
+
 from odoo import Command
 from odoo.tests.common import HttpCase, JsonRpcException, new_test_user, tagged
 
-from odoo.addons.project_support_request.controllers.project_support_request import INTERNAL_USERS_ONLY_ERROR
+from odoo.addons.project_support_request.controllers import project_support_request as support_request_controller
+from odoo.addons.project_support_request.controllers.project_support_request import (
+    CLOSED_LIST_VIEW_XMLID,
+    INTERNAL_USERS_ONLY_ERROR,
+)
 
 CONFIG_URL = "/project_support_request/config"
 CREATE_URL = "/project_support_request/create"
@@ -54,6 +62,44 @@ class TestSupportRequestRoutes(HttpCase):
             (True, 1, 0, 1),
         )
         self.assertEqual([ticket["id"] for ticket in systray["tickets"]], [task.id])
+
+    def test_the_task_types_are_labelled_in_the_users_language(self):
+        self.env["res.lang"]._activate_lang("fr_FR")
+        self.internal_user.lang = "fr_FR"
+        task_type_field = self.env["ir.model.fields"]._get("project.task", "task_type")
+        bug_type = task_type_field.selection_ids.filtered(lambda selection: selection.value == "bug")
+        bug_type.update_field_translations("name", {"fr_FR": "Anomalie"})
+        self.authenticate(self.internal_user.login, self.internal_user.login)
+
+        task_types = self.make_jsonrpc_request(CONFIG_URL)["task_types"]
+        labels = {task_type["value"]: task_type["label"] for task_type in task_types}
+        self.assertEqual((labels["bug"], labels["feature"]), ("Anomalie", "Feature"))
+
+        ticket = self.make_jsonrpc_request(CREATE_URL, {"name": "Filed in French", "task_type": "bug"})
+        self.assertEqual(self.env["project.task"].browse(ticket["ticket_id"]).task_type, "bug")
+        self.assertEqual(
+            self.make_jsonrpc_request(CREATE_URL, {"name": "Filed by its label", "task_type": "Anomalie"}),
+            {"error": "Invalid task type: Anomalie"},
+        )
+
+    def test_the_closed_requests_open_in_core_task_list_without_grouping(self):
+        self.authenticate(self.internal_user.login, self.internal_user.login)
+
+        closed_list_view = self.env.ref(CLOSED_LIST_VIEW_XMLID)
+        self.assertEqual(self.make_jsonrpc_request(CONFIG_URL)["closed_list_view_id"], closed_list_view.id)
+        tasks = self.env["project.task"].with_user(self.internal_user)
+        closed_list = etree.fromstring(tasks.get_views([(closed_list_view.id, "list")])["views"]["list"]["arch"])
+        self.assertIsNone(closed_list.get("default_group_by"))
+        self.assertLessEqual({"key", "task_type"}, set(closed_list.xpath("//field/@name")), "the AI-driven columns")
+        default_list = etree.fromstring(tasks.get_views([(False, "list")])["views"]["list"]["arch"])
+        self.assertEqual(default_list.get("default_group_by"), "stage_id")
+
+    def test_without_core_task_list_the_closed_requests_open_in_the_default_list(self):
+        self.authenticate(self.internal_user.login, self.internal_user.login)
+        with patch.object(support_request_controller, "CLOSED_LIST_VIEW_XMLID", "project.no_such_list_view"):
+            config = self.make_jsonrpc_request(CONFIG_URL)
+        self.assertIs(config["closed_list_view_id"], False)
+        self.assertEqual(config["project_id"], self.project.id)
 
     def test_a_portal_user_gets_no_support_project_and_files_no_request(self):
         self.authenticate(self.portal_user.login, self.portal_user.login)

@@ -33,8 +33,9 @@
   they can read and creates, changes and deletes those of the tasks they can
   change: core lets a project user read every task template without
   project, and so its lines, but change them only where the template may be
-  changed. The Checklist, Test Cases, Technical Solution and Sessions tabs
-  are hidden from users without that access.
+  changed. The Checklist, Test Cases, Technical Solution and Sessions tabs,
+  and the checklist and test case figures of the task's kanban card, are
+  hidden from users without that access.
 * **Project > Task Notes** and the **Notes** button of the task form are
   shown to users with the **User** access of *Project*. They list the notes
   of the tasks the user can read; the menu leaves out those of templates.

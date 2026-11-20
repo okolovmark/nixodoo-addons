@@ -245,7 +245,7 @@ export class SupportRequestSystray extends Component {
                 name: _t("Closed Tickets"),
                 res_model: "project.task",
                 views: [
-                    [false, "list"],
+                    [config.closed_list_view_id, "list"],
                     [false, "form"],
                 ],
                 domain: [

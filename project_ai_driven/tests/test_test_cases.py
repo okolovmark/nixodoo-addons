@@ -210,6 +210,45 @@ class TestTestCases(ProjectAiDrivenCommon):
             ],
         )
 
+    def test_a_case_created_passed_or_failed_by_a_default_is_stamped(self):
+        self.env["ir.default"].set("project.task.testcase", "state", "failed")
+        case_values = {"name": "Defaulted", "task_id": self.task.id}
+        testcase = self.Testcase.with_user(self.user_dev)
+        with freeze_time(EARLIER):
+            failed_case = testcase.create(case_values)
+        with freeze_time(LATER):
+            passed_cases = testcase.with_context(default_state="passed").create([case_values, case_values])
+        self.assertRecordValues(
+            failed_case | passed_cases,
+            [
+                {"state": "failed", "verified_by_id": self.user_dev.id, "verified_on": EARLIER},
+                {"state": "passed", "verified_by_id": self.user_dev.id, "verified_on": LATER},
+                {"state": "passed", "verified_by_id": self.user_dev.id, "verified_on": LATER},
+            ],
+        )
+
+    def test_only_a_not_run_given_clears_a_verification(self):
+        verification = {"verified_by_id": self.user_lead.id, "verified_on": EARLIER, "verification_kind": "demo"}
+        case = self._new_case(state="passed", test_reference=TEST_REFERENCE)
+        case.write({"state": "not_run", **verification})
+        prepared_case = self._new_case(name="Prepared", test_reference=TEST_REFERENCE)
+        prepared_case.write(verification)
+        created_cases = self.Testcase.with_context(default_test_reference=TEST_REFERENCE).create(
+            [
+                {"name": "Not run", "task_id": self.task.id, "state": "not_run", **verification},
+                {"name": "Not run by default", "task_id": self.task.id, **verification},
+            ]
+        )
+        self.assertEqual(
+            self._results(case | prepared_case | created_cases),
+            [
+                ("Boot test", "not_run", False, False, False, TEST_REFERENCE),
+                ("Not run", "not_run", False, False, False, TEST_REFERENCE),
+                ("Not run by default", "not_run", self.user_lead.id, EARLIER, "demo", TEST_REFERENCE),
+                ("Prepared", "not_run", self.user_lead.id, EARLIER, "demo", TEST_REFERENCE),
+            ],
+        )
+
     def test_the_result_buttons_give_a_manual_result_where_no_kind_is_set(self):
         for method_name, state in BUTTON_STATES.items():
             if state == "not_run":
@@ -290,9 +329,11 @@ class TestTestCases(ProjectAiDrivenCommon):
             )
         self._new_case(name="Unstamped pass", state="passed", verified_by_id=False, verified_on=False)
         self._new_case(name="Open case", test_reference=TEST_REFERENCE)
+        self._new_case(name="Prepared case", verification_kind="automated", test_reference=TEST_REFERENCE)
         results = [
             ("Open case", "not_run", False, False, False, TEST_REFERENCE),
             ("Passed case", "passed", self.user_dev.id, EARLIER, "automated", TEST_REFERENCE),
+            ("Prepared case", "not_run", False, False, "automated", TEST_REFERENCE),
             ("Unstamped pass", "passed", False, False, False, False),
         ]
         other_results = [("Failed case", "failed", self.user_dev.id, EARLIER, False, False)]
