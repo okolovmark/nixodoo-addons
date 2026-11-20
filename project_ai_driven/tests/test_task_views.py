@@ -119,9 +119,24 @@ class TestTaskOutsideProject(ProjectAiDrivenCommon):
         kanban_view = self.env.ref("project.view_task_kanban")
         return self.env["project.task"].with_user(user).get_views([(kanban_view.id, "kanban")])
 
-    def test_a_reader_outside_project_reads_every_field_but_the_line_counts(self):
+    def _read_every_field(self, user):
+        """read() of every task field the user may read that this module and its dependencies
+        define: a module installed beside them (hr_timesheet) adds fields of its own rights.
+        """
+        module = self.env["ir.module.module"].search([("name", "=", MODULE)])
+        modules = set((module | module.upstream_dependencies(exclude_states=("uninstallable",))).mapped("name"))
+        task = self.task.with_user(user)
+        field_names = [
+            field_name
+            for field_name in task.check_field_access_rights("read", None)
+            if set(task._fields[field_name]._modules) <= modules
+        ]
         self.env.invalidate_all()
-        (task_values,) = self.task.with_user(self.internal_user).read()
+        (task_values,) = task.read(field_names)
+        return task_values
+
+    def test_a_reader_outside_project_reads_every_field_but_the_line_counts(self):
+        task_values = self._read_every_field(self.internal_user)
         self.assertEqual(task_values["name"], self.task.name)
         self.assertFalse(set(LINE_COUNT_FIELDS) & set(task_values))
 
@@ -133,8 +148,7 @@ class TestTaskOutsideProject(ProjectAiDrivenCommon):
         self.assertFalse(set(LINE_COUNT_FIELDS) & set(views["models"]["project.task"]))
 
     def test_a_project_user_reads_and_sees_the_line_counts(self):
-        self.env.invalidate_all()
-        (task_values,) = self.task.with_user(self.user_dev).read()
+        task_values = self._read_every_field(self.user_dev)
         self.assertLessEqual(set(LINE_COUNT_FIELDS), set(task_values))
         self.assertEqual(task_values["testcase_completion"], 50)
         arch = self._kanban_view(self.user_dev)["views"]["kanban"]["arch"]
