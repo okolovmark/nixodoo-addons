@@ -176,11 +176,11 @@
                         <strong><t t-esc="data.project_name" /></strong>
                     </t>
                     <t t-if="dashboardMode === 'manager'">
-                        <strong><i class="fa fa-sitemap me-1" />Subordinates of <t t-esc="data.manager_name || ''" /></strong>
+                        <strong t-if="data.manager_name"><i class="fa fa-sitemap me-1" />Subordinates of <t t-esc="data.manager_name" /></strong>
                         <t t-if="data.project_count"> · <t t-esc="data.project_count" /> projects</t>
                     </t>
                     <t t-if="dashboardMode === 'department'">
-                        <strong><i class="fa fa-building me-1" /><t t-esc="data.department_name || ''" /></strong>
+                        <strong t-if="data.department_name"><i class="fa fa-building me-1" /><t t-esc="data.department_name" /></strong>
                         <t t-if="data.project_count"> · <t t-esc="data.project_count" /> projects</t>
                     </t>
                     <t t-if="data.period_start and data.period_end">
@@ -192,7 +192,10 @@
 
         <!-- Member cards grid -->
         <div class="o_team_dashboard_grid p-3">
-            <t t-if="data.members and data.members.length">
+            <t t-if="data.error">
+                <div class="alert alert-warning" role="alert"><t t-esc="data.error" /></div>
+            </t>
+            <t t-elif="data.members and data.members.length">
                 <div class="row g-3">
                     <t t-foreach="data.members" t-as="member">
                         <div class="col-12 col-md-6 col-xl-4">

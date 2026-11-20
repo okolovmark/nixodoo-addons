@@ -10,6 +10,8 @@ PLANNED_DATE_FIELDS = ("planned_date_start", "planned_date_end")
 # The fields of the plan the Deadline follows, and the field each records.
 DEADLINE_PLAN_SOURCES = {"date_deadline_planned_end": "planned_date_end", "date_deadline_project_id": "project_id"}
 DEADLINE_PLAN_FIELDS = tuple(DEADLINE_PLAN_SOURCES)
+# The fields whose write this module acts on, on each task of the recurrence the write reaches too.
+WRITE_ACTED_FIELDS = (*PLANNED_DATE_FIELDS, "child_ids", "depend_on_ids", "dependent_ids", "date_deadline")
 
 
 def local_date(utc_datetime, tz_name):
@@ -113,14 +115,18 @@ class Task(models.Model):
         return tasks
 
     def write(self, vals):
-        self._check_subtask_driven_dates(vals)
-        tasks_given_a_deadline = self._get_tasks_written_with(vals) if "date_deadline" in vals else self.browse()
+        """Apply this module's rules (planned dates from sub-tasks, dependency lags, the plan the
+        Deadline follows) to every task the write reaches: with recurrence_update, the occurrences too."""
+        # before super().write, which may drop recurrence_update
+        written_tasks = self._get_tasks_written_by(vals)
+        written_tasks._check_subtask_driven_dates(vals)
+        tasks_given_a_deadline = written_tasks if "date_deadline" in vals else self.browse()
         with self.env.protecting(self._get_given_deadline_fields(vals), tasks_given_a_deadline):
             result = super().write(vals)
         if "depend_on_ids" in vals or "dependent_ids" in vals:
-            self._prune_dependency_lags()
+            written_tasks._prune_dependency_lags()
         if "child_ids" in vals:
-            self._recompute_planned_dates_from_subtasks()
+            written_tasks._recompute_planned_dates_from_subtasks()
         tasks_given_a_deadline._record_deadline_plan()
         return result
 
@@ -264,6 +270,13 @@ class Task(models.Model):
             lambda task: not self.env.is_to_compute(plan_field, task)
             and not any(task[field_name] for field_name in DEADLINE_PLAN_FIELDS)
         )
+
+    def _get_tasks_written_by(self, vals):
+        """Return the tasks this module acts on in a write of vals: self, and when vals holds a field
+        of WRITE_ACTED_FIELDS the occurrences of their recurrences the write reaches too."""
+        if vals.keys().isdisjoint(WRITE_ACTED_FIELDS):
+            return self
+        return self._get_tasks_written_with(vals)
 
     def _get_given_deadline_fields(self, vals):
         """Return the Deadline and the fields of its plan when vals gives the Deadline, else none.
