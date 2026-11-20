@@ -8,9 +8,8 @@ from markupsafe import escape
 from odoo import Command
 from odoo.exceptions import AccessError, UserError, ValidationError
 
-from .common import ProjectAiDrivenCommon
+from .common import NO_ESTIMATE, NO_TYPE, ProjectAiDrivenCommon
 from .test_checklist import CHECKLIST_MODEL, MARKUP_NAME
-from .test_estimate_rule import NO_ESTIMATE, NO_TYPE
 
 DEADLINE = datetime(2026, 12, 1, 10, 0)
 REFUSAL = "Only the assignee or the reviewer of a checklist item can convert it into a sub-task."

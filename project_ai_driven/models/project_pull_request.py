@@ -102,6 +102,9 @@ class ProjectPullRequest(models.Model):
 
     @api.model
     def _search_display_name(self, operator, value):
+        if operator in Domain.NEGATIVE_OPERATORS:
+            # the ORM then searches the positive operator and negates the result, shown names included
+            return NotImplemented
         shown_name_domain = self._get_shown_name_domain(operator, value)
         if shown_name_domain is None:
             return super()._search_display_name(operator, value)
@@ -116,24 +119,27 @@ class ProjectPullRequest(models.Model):
 
     @api.model
     def _get_shown_name_domain(self, operator, value):
-        """Return the domain of the records shown as value, or None when value is
-        not written the way a record is shown, "owner/repo#12".
+        """Return the domain of the records value finds, for a positive
+        operator, or None when value holds no name written the way a record is
+        shown, "owner/repo#12". The other names of a collection stay a search
+        of the url.
         """
-        if operator in Domain.NEGATIVE_OPERATORS:
-            return None
         # "=" reaches a search method as "in", with the names in a collection
         names = value if operator == "in" else [value]
         if not isinstance(names, (list, tuple, AbstractSet)):
             return None
         shown_names = [isinstance(name, str) and SHOWN_NAME.fullmatch(name) for name in names]
-        if not shown_names or not all(shown_names):
+        if not any(shown_names):
             return None
         repository_operator = "=" if operator == "in" else operator
-        return Domain.OR(
+        domain = Domain.OR(
             Domain("repository", repository_operator, shown_name["repository"])
             & Domain("number", "=", int(shown_name["number"]))
             for shown_name in shown_names
+            if shown_name
         )
+        urls = [name for name, shown_name in zip(names, shown_names) if not shown_name]
+        return (domain | Domain("url", "in", urls)) if urls else domain
 
     @api.model
     def _with_canonical_url(self, vals):

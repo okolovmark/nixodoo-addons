@@ -149,3 +149,10 @@ the checklist items and test cases of its task from zero, takes no
 Resolution and no pull request of its task in any stage, and enters the
 first stage of its project, or the stage of its task when the project lists
 none, unchecked by the closing and the estimate rules.
+
+The update to 20.0.2.20.0 has no migration and writes nothing on existing
+records; it loads the views that add Task Type and Estimate to the kanban
+quick create and to the project sharing quick create. From it the closing and the estimate rules check a task moved
+to another project also when it keeps its stage, a save links an image the
+record already has instead of attaching it again, and a new record copies
+the files of other records its texts link as it copies their images.

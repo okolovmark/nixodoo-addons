@@ -7,6 +7,8 @@ from odoo.exceptions import ValidationError
 from odoo.tests.common import TransactionCase, new_test_user
 
 MODULE = "project_ai_driven"
+NO_TYPE = "Choose a Task Type"
+NO_ESTIMATE = "Enter an Estimate above zero hours"
 
 
 class ProjectAiDrivenCommon(TransactionCase):
@@ -110,6 +112,6 @@ class ProjectAiDrivenCommon(TransactionCase):
     def assertRefused(self, *message_parts):
         # each part as plain text, in any order: assertRaisesRegex takes one pattern
         with self.assertRaises(ValidationError) as refusal:
-            yield
+            yield refusal
         for message_part in message_parts:
             self.assertIn(message_part, refusal.exception.args[0])
