@@ -100,8 +100,12 @@
                             <div class="o_odoo_requests_ticket_item d-flex align-items-center px-3 py-2 border-bottom"
                                  role="button"
                                  t-on-click="(ev) => this.onTicketClick(ticket.id, ev)">
+                                <t t-set="dot" t-value="priorityDot(ticket.priority_level)"/>
                                 <span class="o_requests_priority_dot me-2"
-                                      t-att-style="'background-color: ' + priorityColor(ticket.priority_level)"/>
+                                      role="img"
+                                      t-att-class="dot.className"
+                                      t-att-title="'Priority: ' + dot.label"
+                                      t-att-aria-label="'Priority: ' + dot.label"/>
                                 <div class="flex-grow-1 overflow-hidden">
                                     <div class="text-truncate small">
                                         <span t-if="ticket.key"

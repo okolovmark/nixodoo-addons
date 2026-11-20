@@ -114,14 +114,14 @@ class Task(models.Model):
 
     def write(self, vals):
         self._check_subtask_driven_dates(vals)
-        with self.env.protecting(self._get_given_deadline_fields(vals), self):
+        tasks_given_a_deadline = self._get_tasks_written_with(vals) if "date_deadline" in vals else self.browse()
+        with self.env.protecting(self._get_given_deadline_fields(vals), tasks_given_a_deadline):
             result = super().write(vals)
         if "depend_on_ids" in vals or "dependent_ids" in vals:
             self._prune_dependency_lags()
         if "child_ids" in vals:
             self._recompute_planned_dates_from_subtasks()
-        if "date_deadline" in vals:
-            self._record_deadline_plan()
+        tasks_given_a_deadline._record_deadline_plan()
         return result
 
     @api.returns("self", lambda value: value.id)
