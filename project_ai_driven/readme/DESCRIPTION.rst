@@ -102,8 +102,10 @@ sub-task, which has no Resolution, type or estimate. Any refusal leaves the
 item and the task as they were, with no sub-task.
 
 The task's kanban card shows the current user's completion percentage over
-their non-cancelled items and the number of their TODO and Waiting items. The
-**Checklist** menu opens on your own TODO items (the *My* and *TODO* filters
+their non-cancelled items and the number of their TODO and Waiting items.
+These figures, the buttons of an item and the red of one's own TODO items
+are computed for the user who reads them, also where two users read the
+same task in one transaction. The **Checklist** menu opens on your own TODO items (the *My* and *TODO* filters
 are on by default); remove those filters to see every item you can read.
 
 **Test cases** (``project.task.testcase``)
@@ -138,10 +140,12 @@ Verification and Automated test reference.
 The next task of a recurrence, and each of its sub-tasks, starts the
 checklist items and the test cases of the task it repeats from zero: an item
 TODO without deadline, keeping its description, assignee and reviewer; a
-case Not run without Verified by, Verified on, Verification and comments,
-keeping its steps, expected results and Automated test reference. The task
-it repeats keeps its lines. The next task is created as a new task, so its
-items are posted to their assignee and reviewer.
+case Not run without Verified by, Verified on and comments, keeping its
+steps, expected results and Automated test reference. A case prepared Not
+run keeps its Verification too, which says how it is to be verified; a case
+with a result loses the Verification of that result. The task it repeats
+keeps its lines. The next task is created as a new task, so its items are
+posted to their assignee and reviewer.
 
 A case is found, read, changed, deleted and created by the users who can
 read its task, as a checklist item is, and moves only onto a task they can

@@ -68,7 +68,7 @@ export class TimesheetSystray extends Component {
         } catch (e) {
             this.state.running = false;
             this.state.timesheet = false;
-            this.state.message = "Error loading data";
+            this.state.message = this.env._t("Error loading data");
         }
         this.state.loading = false;
     }
@@ -135,6 +135,10 @@ export class TimesheetSystray extends Component {
         return "o_ts_icon_idle";
     }
 
+    get iconTitle() {
+        return this.state.running ? this.env._t("Timer running") : this.env._t("Timesheet timer");
+    }
+
     toggleDropdown(ev) {
         ev.preventDefault();
         ev.stopPropagation();
@@ -158,7 +162,7 @@ export class TimesheetSystray extends Component {
             }
             await this._fetchData();
         } catch (e) {
-            this.notification.add("Error stopping timer", { type: "danger" });
+            this.notification.add(this.env._t("Error stopping timer"), { type: "danger" });
         }
         this.state.loading = false;
     }
@@ -191,7 +195,7 @@ export class TimesheetSystray extends Component {
             }
             this._applyResult(result);
         } catch (e) {
-            this.notification.add("Error starting timer", { type: "danger" });
+            this.notification.add(this.env._t("Error starting timer"), { type: "danger" });
         }
         this.state.loading = false;
     }
@@ -232,7 +236,7 @@ export class TimesheetSystray extends Component {
             this.state.totalTasks = result.total_tasks || 0;
             this.state.showAll = true;
         } catch (e) {
-            this.notification.add("Error loading tasks", { type: "danger" });
+            this.notification.add(this.env._t("Error loading tasks"), { type: "danger" });
         }
         this.state.loading = false;
     }

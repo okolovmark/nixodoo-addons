@@ -4,6 +4,7 @@ from unittest.mock import patch
 from odoo import Command
 from odoo.exceptions import AccessError
 from odoo.tests.common import TransactionCase, tagged
+from odoo.tools.translate import PYTHON_TRANSLATION_COMMENT, TranslationModuleReader
 
 from odoo.addons.project_support_request.controllers import project_support_request as controller
 
@@ -287,7 +288,7 @@ class TestSupportRequest(TransactionCase):
         )
         self.assertEqual(
             self._call_route(portal_user, "create_request", name="Filed by a portal user"),
-            {"error": controller.INTERNAL_USERS_ONLY_ERROR},
+            {"error": "Only internal users file support requests."},
         )
         self.assertFalse(self.env["project.task"].search([("name", "=", "Filed by a portal user")]))
 
@@ -313,6 +314,27 @@ class TestSupportRequest(TransactionCase):
         self.project.active = False
 
         self._assert_not_configured()
+
+    def test_the_texts_of_the_support_item_are_exported_for_translation(self):
+        exported_terms = {
+            (source, PYTHON_TRANSLATION_COMMENT in comments)
+            for _module, _type, _name, _res_id, source, _value, comments in TranslationModuleReader(
+                self.env.cr, modules=["project_support_request"]
+            )
+        }
+        server_terms = (
+            "Only internal users file support requests.",
+            controller.NO_SUPPORT_PROJECT_ERROR,
+            "Support request title is required.",
+            "Invalid task type: %s",
+        )
+        web_terms = ("Priority: %s", "Lowest", "Low", "Medium", "High", "Highest", "%sm ago", "%sh ago", "%sd ago")
+
+        self.assertEqual(
+            ({(term, True) for term in server_terms} | {(term, False) for term in web_terms}) - exported_terms,
+            set(),
+            "the terms the translation export misses, True for those of the server",
+        )
 
     def _assert_not_configured(self):
         self.assertEqual(self._call_route(self.user_dev1, "_get_support_project_id"), 0)

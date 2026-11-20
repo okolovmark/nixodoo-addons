@@ -47,17 +47,21 @@ class TestNextOccurrenceLines(ProjectAiDrivenCommon):
         )
         cls.env["project.task.testcase"].create(
             [
-                {
-                    "name": "Case of %s" % task.name,
-                    "task_id": task.id,
-                    "state": "passed",
-                    "verification_kind": "manual",
-                    "steps_to_execute": "<p>Open the report</p>",
-                    "expected_results": "<p>It opens</p>",
-                    "comments": "<p>Opened at once</p>",
-                    "test_reference": TEST_REFERENCE,
-                }
+                case_values
                 for task in cls.source_tasks
+                for case_values in (
+                    {
+                        "name": "Case of %s" % task.name,
+                        "task_id": task.id,
+                        "state": "passed",
+                        "verification_kind": "manual",
+                        "steps_to_execute": "<p>Open the report</p>",
+                        "expected_results": "<p>It opens</p>",
+                        "comments": "<p>Opened at once</p>",
+                        "test_reference": TEST_REFERENCE,
+                    },
+                    {"name": "Prepared case of %s" % task.name, "task_id": task.id, "verification_kind": "demo"},
+                )
             ]
         )
         cls.env["project.task.question"].create(
@@ -104,14 +108,28 @@ class TestNextOccurrenceLines(ProjectAiDrivenCommon):
                             "expected_results": "<p>It opens</p>",
                             "comments": False,
                             "test_reference": TEST_REFERENCE,
-                        }
+                        },
+                        {
+                            "name": "Prepared case of %s" % source_task.name,
+                            "state": "not_run",
+                            "verified_by_id": False,
+                            "verified_on": False,
+                            "verification_kind": "demo",
+                            "steps_to_execute": False,
+                            "expected_results": False,
+                            "comments": False,
+                            "test_reference": False,
+                        },
                     ],
                 )
                 self.assertFalse(occurrence.question_ids)
                 self.assertRecordValues(source_task.checklist_item_ids, [{"state": "done", "deadline": EARLIER}])
                 self.assertRecordValues(
                     source_task.testcase_ids,
-                    [{"state": "passed", "verified_by_id": self.env.uid, "comments": "<p>Opened at once</p>"}],
+                    [
+                        {"state": "passed", "verified_by_id": self.env.uid, "comments": "<p>Opened at once</p>"},
+                        {"state": "not_run", "verified_by_id": False, "comments": False},
+                    ],
                 )
                 self.assertEqual(len(source_task.question_ids), 1)
 

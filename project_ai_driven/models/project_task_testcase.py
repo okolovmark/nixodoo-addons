@@ -1,5 +1,7 @@
 from odoo import api, fields, models
 
+from .project_task_recurrence import is_next_occurrence_creation
+
 TESTCASE_STATES = {
     "not_run": "Not run",
     "passed": "Passed",
@@ -52,7 +54,7 @@ class ProjectTaskTestcase(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         default_state = self._get_created_default_state(vals_list)
-        return super().create([self._prepare_result_values(vals, default_state) for vals in vals_list])
+        return super().create([self._prepare_result_values(vals, default_state, on_create=True) for vals in vals_list])
 
     def write(self, vals):
         return super().write(self._prepare_result_values(vals))
@@ -89,26 +91,45 @@ class ProjectTaskTestcase(models.Model):
             return False
         return self.default_get(["state"]).get("state")
 
-    def _prepare_result_values(self, vals, default_state=False):
+    def _prepare_result_values(self, vals, default_state=False, on_create=False):
         """vals with the verification their state gives: a pass or a fail, given
         or taken from default_state, is a new verification by the user who gives
         it (sudo keeps the user) where vals name no verifier or date; a Not run
-        given takes the verification back, whatever vals give. A case Not run by
-        default is a prepared one: it keeps the verification vals give.
+        given takes the verification back, whatever vals give, but for the
+        Verification of a case the recurrence prepares for the next task
+        (_get_copy_values_from_zero). A case Not run by default is a prepared
+        one: it keeps the verification vals give.
         """
         if vals.get("state") == "not_run":
-            return {**vals, **dict.fromkeys(VERIFICATION_FIELDS, False)}
+            taken_back_fields = VERIFICATION_FIELDS
+            if on_create and is_next_occurrence_creation(self.env):
+                taken_back_fields = ("verified_by_id", "verified_on")
+            return {**vals, **dict.fromkeys(taken_back_fields, False)}
         if vals.get("state", default_state) in VERIFIED_STATES:
             return {"verified_by_id": self.env.user.id, "verified_on": fields.Datetime.now(), **vals}
         return dict(vals)
 
     def _get_copy_values_from_zero(self):
-        """The values of a copy of each case that starts it over: Not run,
-        without verification and comments. It keeps the Automated test
-        reference, which names a test, not a run.
+        """The values of a copy of each case that starts it over, for the next
+        task of a recurrence: Not run, without Verified by, Verified on and
+        comments. It keeps the Automated test reference, which names a test,
+        not a run, and the Verification of a case prepared Not run, which says
+        how it is to be verified; a case with a result loses the Verification
+        of that result.
+
+        Not a Verification written after the creation, as a task copy writes
+        it: core creates the sub-tasks of the next task without pairing them
+        with those they repeat, so the Not run given keeps it there.
         """
         return [
-            record.copy_data({"state": "not_run", "comments": False, "test_reference": record.test_reference})[0]
+            record.copy_data(
+                {
+                    "state": "not_run",
+                    "comments": False,
+                    "test_reference": record.test_reference,
+                    "verification_kind": record.state == "not_run" and record.verification_kind,
+                }
+            )[0]
             for record in self
         ]
 
