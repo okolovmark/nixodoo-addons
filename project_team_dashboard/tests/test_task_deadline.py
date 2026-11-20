@@ -483,22 +483,21 @@ class TestTaskDeadline(TeamDashboardCommon):
 
     def test_the_next_occurrence_keeps_the_postponed_deadline_until_its_planned_end_changes(self):
         self.project.allow_recurring_tasks = True
-        task = self._create_task("Weekly", planned_date_end=MIDDAY_UTC)
+        task = self._create_task("Weekly", planned_date_end=MIDDAY_UTC, date_deadline=TYPED_DEADLINE)
         task.write({"recurring_task": True, "repeat_type": "forever"})
 
         task.state = "1_done"
 
         occurrence = task.recurrence_id.task_ids - task
+        next_end, next_deadline = datetime(2026, 3, 9, 12), datetime(2026, 4, 8, 12)
         self.assertEqual(len(occurrence), 1)
-        self.assertEqual(
-            (occurrence.planned_date_end, occurrence.date_deadline), (MIDDAY_UTC, datetime(2026, 3, 9, 12))
-        )
-        self.assertEqual(self._get_followed_plans(occurrence), [(MIDDAY_UTC, self.project)])
-        self.assertEqual(task.date_deadline, MIDDAY_UTC)
+        self.assertEqual((occurrence.planned_date_end, occurrence.date_deadline), (next_end, next_deadline))
+        self.assertEqual(self._get_followed_plans(occurrence), [(next_end, self.project)])
+        self.assertEqual(task.date_deadline, TYPED_DEADLINE)
 
         self._move_the_start_alone(occurrence)
 
-        self.assertEqual(occurrence.date_deadline, datetime(2026, 3, 9, 12))
+        self.assertEqual(occurrence.date_deadline, next_deadline)
 
         occurrence.planned_date_end = datetime(2026, 3, 10, 12)
 
