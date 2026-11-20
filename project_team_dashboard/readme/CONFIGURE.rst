@@ -31,12 +31,13 @@ Access
 
 Team Dashboard tasks are read with the user's project rights, and so are the
 logged hours in Project mode. In the Manager and Department modes the
-logged hours of the listed users (across all projects), the employee
-hierarchy and the department members are read with elevated rights; the
-department picker list and the viewer's own department are loaded with the
-user's own rights. In every mode the member's employee and working schedule
-behind the estimated completion are read with elevated rights, and so are
-the name of the project and the key of the parent of each task on a card.
+logged hours of the listed users (their timesheets of the selected
+companies, across all projects), the employee hierarchy and the department
+members are read with elevated rights; the department picker list and the
+viewer's own department are loaded with the user's own rights. In every
+mode the member's employee and working schedule behind the estimated
+completion are read with elevated rights, and so are the name of the
+project and the key of the parent of each task on a card.
 
 Who opens which team in those two modes follows the user's employee:
 

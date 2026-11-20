@@ -194,6 +194,30 @@ class TestMultiProjectGantt(TeamDashboardCommon):
         self.assertIn(self.task_p2.id, task_ids)
         self.assertNotIn(self.task_p1.id, task_ids)
 
+    def test_the_followed_tasks_of_a_project_the_user_cannot_read_stay_out(self):
+        project_hidden = self.Project.create({"name": "Team Members Only", "privacy_visibility": "followers"})
+        followed_tasks = self.Task.create(
+            [
+                {
+                    "name": "Followed Dated",
+                    "project_id": project_hidden.id,
+                    "planned_date_start": self.now,
+                    "planned_date_end": self.now + timedelta(days=2),
+                },
+                {"name": "Followed Undated", "project_id": project_hidden.id},
+            ]
+        )
+        followed_tasks.message_subscribe(partner_ids=self.user_dev1.partner_id.ids)
+        Project = self.Project.with_user(self.user_dev1)
+        self.assertFalse(project_hidden.with_user(self.user_dev1).has_access("read"))
+        self.assertEqual(self.Task.with_user(self.user_dev1).search([("id", "in", followed_tasks.ids)]), followed_tasks)
+
+        result = Project.get_gantt_chart_data(project_ids=[self.project.id, project_hidden.id])
+
+        self.assertEqual([task_data["id"] for task_data in result["tasks"]], self.task_p1.ids)
+        self.assertEqual(result["unscheduled"], [])
+        self.assertEqual(result["tasks_without_dates"], 0)
+
     def test_multi_project_tasks_without_dates_count(self):
         """tasks_without_dates counts across all requested projects."""
         # Create dateless tasks in both projects

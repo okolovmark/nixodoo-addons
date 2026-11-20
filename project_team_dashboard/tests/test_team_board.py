@@ -722,8 +722,8 @@ class TestTeamBoardHierarchy(TeamBoardCase):
 
 @tagged("post_install", "-at_install")
 class TestTeamBoardCompanies(TeamBoardCase):
-    """A user who finds every team finds those of the companies they may enter only: the
-    departments by their company rule, the managers by the company of their employee."""
+    """A user who finds every team finds those of the companies of the context only: the
+    departments by their company, the managers by the company of their employee."""
 
     @classmethod
     def setUpClass(cls):
@@ -838,6 +838,68 @@ class TestTeamBoardCompanies(TeamBoardCase):
             self.company_rules.active = is_active
             with self.subTest(company_rules_active=is_active):
                 self._assert_rows_follow_the_screen(users, self.team_domain)
+
+    def test_the_departments_of_the_selected_companies_open_whatever_the_department_company_rule(self):
+        department_without_company = self.env["hr.department"].create({"name": "Shared", "company_id": False})
+        departments = self.department_a | self.department_b | department_without_company
+        department_rule = self.env.ref("hr.hr_dept_comp_rule")
+        for user, error_b in (
+            (self.user_approver, "Department not found"),
+            (self.user_approver_both, "Department not in the selected companies"),
+        ):
+            Project = self.env["project.project"].with_user(user).with_context(allowed_company_ids=self.env.company.ids)
+            Board = (
+                self.env["project.team.board"].with_user(user).with_context(allowed_company_ids=self.env.company.ids)
+            )
+            for is_active in (True, False):
+                department_rule.active = is_active
+                with self.subTest(user=user.name, department_rule_active=is_active):
+                    self.assertEqual(Project.get_team_dashboard_by_department(self.department_b.id), {"error": error_b})
+                    self.assertNotIn("error", Project.get_team_dashboard_by_department(department_without_company.id))
+                    boards = Board.search(
+                        [
+                            ("mode", "=", "department"),
+                            ("department_id", "in", departments.ids),
+                            ("period", "=", "this_week"),
+                        ]
+                    )
+                    self.assertEqual(boards.department_id, self.department_a | department_without_company)
+
+    def test_a_plain_user_opens_their_department_with_its_company_selected_whatever_the_company_rule(self):
+        company_a = self.env.company
+        user_member_b = self.env["res.users"].create(
+            dict(
+                self._user_vals("Member in A and B", PROJECT_GROUPS),
+                company_ids=[Command.set((company_a | self.company_b).ids)],
+            )
+        )
+        self.env["hr.employee"].create(
+            {
+                "name": "Member in B",
+                "user_id": user_member_b.id,
+                "company_id": self.company_b.id,
+                "department_id": self.department_b.id,
+            }
+        )
+        department_rule = self.env.ref("hr.hr_dept_comp_rule")
+        Project = self.env["project.project"].with_user(user_member_b)
+        Board = self.env["project.team.board"].with_user(user_member_b)
+        board_domain = [("mode", "=", "department"), ("department_id", "=", self.department_b.id)]
+        company_ids_a = company_a.ids
+        company_ids_a_b = (company_a | self.company_b).ids
+        for is_active in (True, False):
+            department_rule.active = is_active
+            with self.subTest(department_rule_active=is_active):
+                with self.assertRaises(AccessError):
+                    Project.with_context(allowed_company_ids=company_ids_a).get_team_dashboard_by_department(
+                        self.department_b.id
+                    )
+                self.assertFalse(Board.with_context(allowed_company_ids=company_ids_a).search(board_domain))
+                data = Project.with_context(allowed_company_ids=company_ids_a_b).get_team_dashboard_by_department(
+                    self.department_b.id
+                )
+                self.assertNotIn("error", data)
+                self.assertTrue(Board.with_context(allowed_company_ids=company_ids_a_b).search(board_domain))
 
 
 @tagged("post_install", "-at_install")

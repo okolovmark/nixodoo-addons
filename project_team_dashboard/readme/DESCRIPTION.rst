@@ -95,11 +95,13 @@ backlog, other open tasks, the open task count, estimated and remaining
 hours, hours logged today and in the selected period (This Week, Last
 Week, This Month, Last Month or a custom range; a week starts on the first
 day of the week of the viewer's language), and an estimated
-completion date (ETA). The ETA plans the remaining hours on the working
-schedule of the member's employee (the company's when the employee has
-none) with leaves taken into account, and falls back to 5.7 hours a day,
-every day, when there is no employee or no schedule. The date of a task on
-a card is its planned end, labelled Deadline, red with *(OVERDUE)* once
+completion date (ETA). The hours logged are the member's timesheets on the
+project in Project mode, and their timesheets of the selected companies in
+the Manager and Department modes. The ETA plans the remaining hours on the
+working schedule of the member's employee (the company's when the employee
+has none) with leaves taken into account, and falls back to 5.7 hours a
+day, every day, when there is no employee or no schedule. The date of a
+task on a card is its planned end, labelled Deadline, red with *(OVERDUE)* once
 that day is past. In Project mode buttons open the project's form, its
 unassigned backlog, its tasks and the viewer's tasks in it; a card opens
 the member's backlog and kanban (Project mode) and closed tasks.
@@ -159,8 +161,9 @@ in this repository.
 
 **Gantt Chart**
 
-The **Gantt Chart** plots the tasks of the selected projects that have
-planned dates or a deadline, with their ancestors, on a timeline: Day, Week
+The **Gantt Chart** plots, for the selected projects the user can read,
+the tasks that have planned dates or a deadline, with their ancestors, on a
+timeline: Day, Week
 or Month scale paged a month at a time (a week on Day, a quarter on
 Month), *Fit All* and *Today*, grouped by user (the default), by task or by
 stage, *Show Closed* to add the Done and Cancelled tasks, faceted search
@@ -173,14 +176,14 @@ whose bar ends before today gets a red outline. Grouped by user, the bars
 of one person that overlap are highlighted, a task and its own sub-tasks
 excepted. Dependencies are drawn as orange elbow connectors from the
 predecessor's end into the successor's start. **Export Excel** downloads
-the open tasks of the selected projects that have planned dates or a
-deadline as an .xlsx Gantt chart, sorted by start, with today's column
-marked and the day headers in the user's language ("05 mars" in French);
-a planned date the task does not have leaves its Start or End cell
-empty. The search facets and grouping are not applied. The chart is drawn
-with vis-timeline 7.7.0, which the module ships
-(``static/lib/vis-timeline``, MIT License) and loads on the first chart
-shown; the library injects its own styles.
+the open tasks of those projects that have planned dates or a deadline as
+an .xlsx Gantt chart, sorted by start, with today's column marked and the
+day headers in the user's language ("05 mars" in French); a planned date
+the task does not have leaves its Start or End cell empty. The file is
+named after the first of those projects. The search facets and grouping
+are not applied. The chart is drawn with vis-timeline 7.7.0, which the
+module ships (``static/lib/vis-timeline``, MIT License) and loads on the
+first chart shown; the library injects its own styles.
 
 * **Attribute columns**: the left pane can show Assignees, Deadline,
   Estimate, Spent hours and Stage next to the task name, as a fixed-width
