@@ -5,6 +5,8 @@ import pytz
 from odoo import Command, _, api, fields, models
 from odoo.exceptions import AccessError, ValidationError
 
+from .project_task import local_date, local_datetime
+
 # Their holders read every timesheet or every employee anyway: they may open any manager or department.
 EVERY_TEAM_GROUPS = ("hr_timesheet.group_hr_timesheet_approver", "hr.group_hr_user")
 
@@ -94,112 +96,31 @@ class ProjectProject(models.Model):
         self.check_access_rights("read")
         project = self.env["project.project"].search([("id", "=", project_id)], limit=1)
         if not project:
-            return {"error": "Project not found"}
+            return {"error": _("Project not found")}
 
-        Task = self.env["project.task"]
         Timesheet = self.env["account.analytic.line"]
-
-        # Determine date range for utilization
-        today = fields.Date.today()
-        if date_start:
-            period_start = fields.Date.from_string(date_start)
-        else:
-            # Default: current week (Monday to Sunday)
-            period_start = today - timedelta(days=today.weekday())
-        if date_end:
-            period_end = fields.Date.from_string(date_end)
-        else:
-            period_end = period_start + timedelta(days=6)
-
-        # Get all open tasks for this project (not in folded/closed stages)
-        open_tasks = Task.search(
-            [
-                ("project_id", "=", project_id),
-                ("stage_id.fold", "=", False),
-            ],
+        today = fields.Date.context_today(self)
+        period_start, period_end = self._get_dashboard_period(date_start, date_end, today)
+        open_tasks = self.env["project.task"].search([("project_id", "=", project_id), ("stage_id.fold", "=", False)])
+        period_hours_by_user = self._get_logged_hours_by_user(
+            Timesheet, [("project_id", "=", project_id), ("date", ">=", period_start), ("date", "<=", period_end)]
+        )
+        member_today_by_user = self._get_member_today_by_user(open_tasks.user_ids)
+        today_hours_by_user = self._get_today_hours_by_user(
+            Timesheet, [("project_id", "=", project_id)], member_today_by_user
         )
 
-        # Collect all assigned users
-        user_ids_set = set(open_tasks.mapped("user_ids").ids)
-
-        # Pre-fetch all timesheets for the period using read_group
-        period_ts_data = Timesheet.read_group(
-            [
-                ("project_id", "=", project_id),
-                ("date", ">=", period_start),
-                ("date", "<=", period_end),
-            ],
-            ["unit_amount"],
-            ["user_id"],
-        )
-        period_hours_by_user = {r["user_id"][0]: r["unit_amount"] for r in period_ts_data if r["user_id"]}
-
-        today_ts_data = Timesheet.read_group(
-            [
-                ("project_id", "=", project_id),
-                ("date", "=", today),
-            ],
-            ["unit_amount"],
-            ["user_id"],
-        )
-        today_hours_by_user = {r["user_id"][0]: r["unit_amount"] for r in today_ts_data if r["user_id"]}
-
-        members_data = []
-
-        # Build per-user data
-        users = self.env["res.users"].browse(list(user_ids_set))
-        for user in users.sorted(key=lambda u: u.name):
-            user_tasks = open_tasks.filtered(lambda t, u=user: u in t.user_ids)
-
-            # Separate in-progress vs backlog tasks
-            in_progress_tasks = user_tasks.filtered(
-                lambda t: t.stage_id.is_in_progress,
-            )
-            backlog_tasks = user_tasks.filtered(lambda t: t.stage_id.is_backlog)
-            other_tasks = user_tasks - in_progress_tasks - backlog_tasks
-
-            # Determine current task: prefer in-progress, then most recently written
-            current_task = False
-            if in_progress_tasks:
-                current_task = in_progress_tasks.sorted(
-                    key=lambda t: t.write_date or t.create_date,
-                    reverse=True,
-                )[0]
-
-            # Build task queue: in-progress (excl current) first, then backlog, by sequence
-            queue_tasks = (in_progress_tasks - current_task) if current_task else in_progress_tasks
-            queue_tasks = queue_tasks.sorted(key=lambda t: (t.sequence, t.id))
-            backlog_sorted = backlog_tasks.sorted(key=lambda t: (t.sequence, t.id))
-
-            # Utilization: timesheets from pre-fetched read_group
-            hours_logged = period_hours_by_user.get(user.id, 0.0)
-            hours_today = today_hours_by_user.get(user.id, 0.0)
-
-            # Compute ETA: when will all remaining work be done?
-            total_remaining = max(sum(user_tasks.mapped("remaining_hours")), 0)
-            estimated_completion = self._compute_user_eta(
+        members_data = [
+            self._get_member_data(
                 user,
-                total_remaining,
+                open_tasks.filtered(lambda task, user=user: user in task.user_ids),
+                period_hours_by_user.get(user.id, 0.0),
+                today_hours_by_user.get(user.id, 0.0),
                 today,
+                member_today_by_user[user.id],
             )
-
-            members_data.append(
-                {
-                    "user_id": user.id,
-                    "user_name": user.name,
-                    "user_avatar_url": "/web/image/res.users/%d/avatar_128" % user.id,
-                    "current_task": (self._task_to_dict(current_task, today) if current_task else False),
-                    "queue": [self._task_to_dict(t, today) for t in queue_tasks],
-                    "backlog": [self._task_to_dict(t, today) for t in backlog_sorted],
-                    "other": [self._task_to_dict(t, today) for t in other_tasks.sorted("sequence")],
-                    "total_open_tasks": len(user_tasks),
-                    "total_planned_hours": sum(user_tasks.mapped("planned_hours")),
-                    "total_remaining_hours": sum(user_tasks.mapped("remaining_hours")),
-                    "hours_logged_period": hours_logged,
-                    "hours_logged_today": hours_today,
-                    "estimated_completion": estimated_completion,
-                },
-            )
+            for user in open_tasks.user_ids.sorted(key=lambda user: user.name)
+        ]
 
         # Unassigned tasks
         unassigned_tasks = open_tasks.filtered(lambda t: not t.user_ids)
@@ -215,7 +136,7 @@ class ProjectProject(models.Model):
             members_data.append(
                 {
                     "user_id": False,
-                    "user_name": "Unassigned",
+                    "user_name": _("Unassigned"),
                     "user_avatar_url": False,
                     "current_task": False,
                     "queue": [self._task_to_dict(t, today) for t in unassigned_in_progress.sorted("sequence")],
@@ -301,16 +222,20 @@ class ProjectProject(models.Model):
         Returns:
             dict with keys:
                 - tasks: list of task dicts
-                - today: today's date string (YYYY-MM-DD)
+                - today: the reader's today (YYYY-MM-DD)
                 - tasks_without_dates: int count of the unscheduled tasks
-                - user_tz: user's timezone string
+                - user_tz: the reader's time zone, which the days of the tasks are in
+                - columns: the attribute columns the user picked for the chart
+                - is_project_manager: whether the user may save baselines
+                - unscheduled: list of task dicts of the tasks without any date
         """
         self.check_access_rights("read")
+        today = fields.Date.context_today(self)
         result = {
             "tasks": [],
-            "today": fields.Date.to_string(fields.Date.today()),
+            "today": fields.Date.to_string(today),
             "tasks_without_dates": 0,
-            "user_tz": self.env.user.tz or "UTC",
+            "user_tz": self._get_reader_tz() or "UTC",
             "columns": self.env.user._get_gantt_columns(),
             "is_project_manager": self.env.user.has_group("project.group_project_manager"),
             "unscheduled": [],
@@ -332,7 +257,6 @@ class ProjectProject(models.Model):
         project_name_map = {project.id: self._get_project_label(project) for project in projects}
 
         Task = self.env["project.task"]
-        today = fields.Date.today()
 
         # not the requested ids: a follower of a task reads it in a project they cannot read
         domain = [
@@ -357,7 +281,7 @@ class ProjectProject(models.Model):
         queue = all_tasks
         while queue:
             next_queue = self.env["project.task"]
-            readable_parents = queue.parent_id._filter_access_rules("read")
+            readable_parents = self._get_gantt_readable_parents(queue)
             for task in queue:
                 parent = task.parent_id
                 if parent and parent.id not in visited and parent in readable_parents:
@@ -373,11 +297,6 @@ class ProjectProject(models.Model):
         children_map = {}  # task_id -> [child_ids in set]
         for task in all_tasks:
             children_map[task.id] = [c.id for c in task.child_ids if c.id in task_ids_set]
-
-        user_tz = pytz.timezone(result["user_tz"])
-
-        def _local_date(value):
-            return value and pytz.utc.localize(value).astimezone(user_tz).date()
 
         unscheduled_domain = [
             ("project_id", "in", projects.ids),
@@ -440,15 +359,10 @@ class ProjectProject(models.Model):
             if not date_start and not date_end:
                 # Skip tasks with no dates at all (shouldn't happen often)
                 continue
+            # a deadline-only bar sits on the Deadline's own day
+            end_day = date_end.date() if is_deadline_only else self._get_reader_day(date_end)
 
-            # Determine stage flags
             stage = task.stage_id
-            if not date_end:
-                is_overdue = False
-            elif hasattr(date_end, "date"):
-                is_overdue = date_end.date() < today
-            else:
-                is_overdue = date_end < datetime.combine(today, datetime.min.time())
 
             # User names
             user_names = ", ".join(task.user_ids.mapped("name")) if task.user_ids else ""
@@ -475,7 +389,7 @@ class ProjectProject(models.Model):
                 "is_in_progress": stage.is_in_progress,
                 "is_backlog": stage.is_backlog,
                 "is_closed": stage.fold,
-                "is_overdue": is_overdue,
+                "is_overdue": end_day < today,
                 "user_names": user_names,
                 "user_list": [{"id": u.id, "name": u.name} for u in task.user_ids],
                 "progress": task.progress,
@@ -486,9 +400,9 @@ class ProjectProject(models.Model):
             }
             task_dict.update(task._gantt_task_attributes(writable_ids, lags_by_task.get(task.id, {})))
             baseline_line = baseline_by_task.get(task.id, self.env["project.baseline.line"])
-            baseline_end = _local_date(baseline_line.planned_date_end)
-            plan_start = has_planned_dates and _local_date(task.planned_date_start)
-            plan_end = has_planned_dates and _local_date(task.planned_date_end)
+            baseline_end = self._get_reader_day(baseline_line.planned_date_end)
+            plan_start = has_planned_dates and self._get_reader_day(task.planned_date_start)
+            plan_end = has_planned_dates and self._get_reader_day(task.planned_date_end)
             task_dict.update(
                 {
                     "is_deadline_only": is_deadline_only,
@@ -540,31 +454,27 @@ class ProjectProject(models.Model):
 
         self.check_access_rights("read")
         if not project_ids:
-            return {"error": "No projects selected"}
+            return {"error": _("No projects selected")}
 
         gantt_data = self.get_gantt_chart_data(project_ids=project_ids, show_completed=False)
         tasks = gantt_data.get("tasks", [])
 
-        # Filter tasks with dates, sort by start date
         tasks_with_dates = [t for t in tasks if t.get("planned_date_start") and t.get("planned_date_end")]
-        tasks_with_dates.sort(key=lambda t: t["planned_date_start"])
-
         if not tasks_with_dates:
-            return {"error": "No tasks with planned dates"}
+            return {"error": _("No tasks with planned dates")}
+        bar_ends_by_task_id = {task["id"]: self._get_gantt_bar_ends(task) for task in tasks_with_dates}
+        tasks_with_dates.sort(key=lambda task: bar_ends_by_task_id[task["id"]])
+        bar_days_by_task_id = {
+            task_id: (bar_start.date(), bar_end.date()) for task_id, (bar_start, bar_end) in bar_ends_by_task_id.items()
+        }
 
-        # Find overall date range
-        all_starts = [t["planned_date_start"][:10] for t in tasks_with_dates]
-        all_ends = [t["planned_date_end"][:10] for t in tasks_with_dates]
-        min_date = datetime.strptime(min(all_starts), "%Y-%m-%d").date()
-        max_date = datetime.strptime(max(all_ends), "%Y-%m-%d").date()
-        # Pad by a few days
-        min_date = min_date - timedelta(days=1)
-        max_date = max_date + timedelta(days=1)
+        min_date = min(start_day for start_day, _end_day in bar_days_by_task_id.values()) - timedelta(days=1)
+        max_date = max(end_day for _start_day, end_day in bar_days_by_task_id.values()) + timedelta(days=1)
 
         try:
             import xlsxwriter
         except ImportError:
-            return {"error": "xlsxwriter not available"}
+            return {"error": _("xlsxwriter not available")}
 
         output = io.BytesIO()
         wb = xlsxwriter.Workbook(output, {"in_memory": True})
@@ -649,7 +559,7 @@ class ProjectProject(models.Model):
         )
 
         # Fixed columns
-        fixed_cols = ["Key", "Task", "Type", "Assignee", "Start", "End", "Progress", "Stage"]
+        fixed_cols = [_("Key"), _("Task"), _("Type"), _("Assignee"), _("Start"), _("End"), _("Progress"), _("Stage")]
         FIXED = len(fixed_cols)
 
         # Set column widths
@@ -672,7 +582,7 @@ class ProjectProject(models.Model):
         for i, h in enumerate(fixed_cols):
             ws.write(0, i, h, header_fmt)
 
-        today = fields.Date.today()
+        today = fields.Date.to_date(gantt_data["today"])
         for d in range(total_days):
             day = min_date + timedelta(days=d)
             fmt = today_header_fmt if day == today else date_header_fmt
@@ -684,10 +594,7 @@ class ProjectProject(models.Model):
             key = task.get("key", "")
             name = task.get("name", "")
             assignee = task.get("user_names", "")
-            start_str = task["planned_date_start"][:10]
-            end_str = task["planned_date_end"][:10]
-            start_dt = datetime.strptime(start_str, "%Y-%m-%d").date()
-            end_dt = datetime.strptime(end_str, "%Y-%m-%d").date()
+            start_dt, end_dt = bar_days_by_task_id[task["id"]]
 
             # Progress
             progress = task.get("progress", 0) or 0
@@ -751,6 +658,19 @@ class ProjectProject(models.Model):
         filename = "Gantt_%s.xlsx" % project_name.replace(" ", "_")[:30]
 
         return {"data": data, "filename": filename}
+
+    @api.model
+    def _get_gantt_bar_ends(self, task_data):
+        """Return the start and end, naive in the reader's timezone, of the bar of task_data, a task
+        of the Gantt payload: the moments the chart draws it from and to."""
+        # the payload holds str() of the datetimes, which carries microseconds when the value has them
+        bar_ends = [
+            fields.Datetime.to_datetime(task_data[key][:19]) for key in ("planned_date_start", "planned_date_end")
+        ]
+        if task_data["is_deadline_only"]:
+            # the payload puts a deadline-only bar at midnight of its Deadline already
+            return tuple(bar_ends)
+        return tuple(local_datetime(bar_end, self._get_reader_tz()) for bar_end in bar_ends)
 
     @api.model
     def get_team_dashboard_by_manager(self, user_id, date_start=None, date_end=None, max_depth=0):
@@ -844,8 +764,8 @@ class ProjectProject(models.Model):
             dict with department info and list of team member data dicts.
 
         Opens the departments of _get_openable_departments; another raises AccessError, except for
-        a user who sees every team, who gets the error dict of a department not found or not in the
-        selected companies instead.
+        a user who sees every team and for the user's own department, which get the error dict of a
+        department not found or not in the selected companies instead.
         Archived employees and tasks stay out whatever the caller's active_test.
         """
         return self.with_context(active_test=True)._get_team_dashboard_by_department(
@@ -916,10 +836,15 @@ class ProjectProject(models.Model):
     def _check_department_mode_access(self, department):
         """The Department mode reads the logged hours of a department with elevated rights: a user
         opens it for the departments of _get_openable_departments only. Return whether they do: a
-        user who sees every team is not refused, but told the department does not exist or is
-        outside the companies of the context."""
+        user who sees every team, or whose own department it is, is not refused, but told the
+        department does not exist or is outside the companies of the context."""
         is_openable = self.env.su or department in self._get_openable_departments()
-        if not is_openable and not self._sees_every_team():
+        is_answered = (
+            is_openable
+            or self._sees_every_team()
+            or bool(department.filtered_domain(self._get_own_department_domain()))
+        )
+        if not is_answered:
             raise AccessError(
                 _("You can open the Team Dashboard by department only for your own department or one you manage.")
             )
@@ -952,9 +877,14 @@ class ProjectProject(models.Model):
         company is a condition here."""
         domain = [("company_id", "in", [*self.env.companies.ids, False])]
         if not self._sees_every_team():
-            own_employees = self._own_employees()
-            domain += ["|", ("id", "in", own_employees.department_id.ids), ("manager_id", "in", own_employees.ids)]
+            domain += self._get_own_department_domain()
         return self.env["hr.department"].with_context(active_test=False).search(domain)
+
+    @api.model
+    def _get_own_department_domain(self):
+        """The departments of the user's active employees and those one of them manages, in any company."""
+        own_employees = self._own_employees()
+        return ["|", ("id", "in", own_employees.department_id.ids), ("manager_id", "in", own_employees.ids)]
 
     @api.model
     def _sees_every_team(self):
@@ -998,118 +928,129 @@ class ProjectProject(models.Model):
         Returns:
             dict with members list and metadata.
         """
-        Task = self.env["project.task"]
         # Use sudo() for timesheets: manager/dept view needs cross-user reads
         Timesheet = self.env["account.analytic.line"].sudo()
-        today = fields.Date.today()
-
-        if date_start:
-            period_start = fields.Date.from_string(date_start)
-        else:
-            period_start = today - timedelta(days=today.weekday())
-        if date_end:
-            period_end = fields.Date.from_string(date_end)
-        else:
-            period_end = period_start + timedelta(days=6)
-
-        user_ids_list = users.ids
-
-        # Get all open tasks for these users across all projects
-        open_tasks = Task.search(
-            [
-                ("user_ids", "in", user_ids_list),
-                ("stage_id.fold", "=", False),
-            ]
-        )
-
+        today = fields.Date.context_today(self)
+        period_start, period_end = self._get_dashboard_period(date_start, date_end, today)
+        open_tasks = self.env["project.task"].search([("user_ids", "in", users.ids), ("stage_id.fold", "=", False)])
         # the lines of invoices and bills are analytic lines too, with a quantity for hours and no project
         timesheet_domain = [("project_id", "!=", False), ("company_id", "in", self.env.companies.ids)]
-        period_ts_data = Timesheet.read_group(
-            timesheet_domain
-            + [
-                ("user_id", "in", user_ids_list),
-                ("date", ">=", period_start),
-                ("date", "<=", period_end),
-            ],
-            ["unit_amount"],
-            ["user_id"],
+        period_hours_by_user = self._get_logged_hours_by_user(
+            Timesheet,
+            timesheet_domain + [("user_id", "in", users.ids), ("date", ">=", period_start), ("date", "<=", period_end)],
         )
-        period_hours_by_user = {r["user_id"][0]: r["unit_amount"] for r in period_ts_data if r["user_id"]}
-
-        today_ts_data = Timesheet.read_group(
-            timesheet_domain
-            + [
-                ("user_id", "in", user_ids_list),
-                ("date", "=", today),
-            ],
-            ["unit_amount"],
-            ["user_id"],
-        )
-        today_hours_by_user = {r["user_id"][0]: r["unit_amount"] for r in today_ts_data if r["user_id"]}
-
-        # Collect unique projects for the result
-        project_ids_set = set(open_tasks.mapped("project_id").ids)
+        member_today_by_user = self._get_member_today_by_user(users)
+        today_hours_by_user = self._get_today_hours_by_user(Timesheet, timesheet_domain, member_today_by_user)
 
         members_data = []
-        for user in users.sorted(key=lambda u: u.name):
-            user_tasks = open_tasks.filtered(lambda t, u=user: u in t.user_ids)
+        for user in users.sorted(key=lambda user: user.name):
+            user_tasks = open_tasks.filtered(lambda task, user=user: user in task.user_ids)
             if not user_tasks:
                 continue
-
-            in_progress_tasks = user_tasks.filtered(
-                lambda t: t.stage_id.is_in_progress,
+            member_data = self._get_member_data(
+                user,
+                user_tasks,
+                period_hours_by_user.get(user.id, 0.0),
+                today_hours_by_user.get(user.id, 0.0),
+                today,
+                member_today_by_user[user.id],
             )
-            backlog_tasks = user_tasks.filtered(lambda t: t.stage_id.is_backlog)
-            other_tasks = user_tasks - in_progress_tasks - backlog_tasks
-
-            current_task = False
-            if in_progress_tasks:
-                current_task = in_progress_tasks.sorted(
-                    key=lambda t: t.write_date or t.create_date,
-                    reverse=True,
-                )[0]
-
-            queue_tasks = (in_progress_tasks - current_task) if current_task else in_progress_tasks
-            queue_tasks = queue_tasks.sorted(key=lambda t: (t.sequence, t.id))
-            backlog_sorted = backlog_tasks.sorted(key=lambda t: (t.sequence, t.id))
-
-            hours_logged = period_hours_by_user.get(user.id, 0.0)
-            hours_today = today_hours_by_user.get(user.id, 0.0)
-
-            total_remaining = max(sum(user_tasks.mapped("remaining_hours")), 0)
-            estimated_completion = self._compute_user_eta(user, total_remaining, today)
-
-            user_project_names = sorted(set(user_tasks.project_id.mapped(self._get_project_label)))
-
-            members_data.append(
-                {
-                    "user_id": user.id,
-                    "user_name": user.name,
-                    "user_avatar_url": "/web/image/res.users/%d/avatar_128" % user.id,
-                    "current_task": (self._task_to_dict(current_task, today) if current_task else False),
-                    "queue": [self._task_to_dict(t, today) for t in queue_tasks],
-                    "backlog": [self._task_to_dict(t, today) for t in backlog_sorted],
-                    "other": [self._task_to_dict(t, today) for t in other_tasks.sorted("sequence")],
-                    "total_open_tasks": len(user_tasks),
-                    "total_planned_hours": sum(user_tasks.mapped("planned_hours")),
-                    "total_remaining_hours": sum(user_tasks.mapped("remaining_hours")),
-                    "hours_logged_period": hours_logged,
-                    "hours_logged_today": hours_today,
-                    "estimated_completion": estimated_completion,
-                    "project_names": user_project_names,
-                }
-            )
+            member_data["project_names"] = sorted(set(user_tasks.project_id.mapped(self._get_project_label)))
+            members_data.append(member_data)
 
         result = {
             label: label_value,
             "period_start": fields.Date.to_string(period_start),
             "period_end": fields.Date.to_string(period_end),
             "members": members_data,
-            "project_count": len(project_ids_set),
+            "project_count": len(open_tasks.project_id),
         }
         if extra:
             result.update(extra)
         return result
+
+    @api.model
+    def _get_dashboard_period(self, date_start, date_end, today):
+        """Return the dates given, by default the week of today from Monday to Sunday, as the
+        screen's _getDates and the board count it."""
+        period_start = fields.Date.from_string(date_start) if date_start else today - timedelta(days=today.weekday())
+        period_end = fields.Date.from_string(date_end) if date_end else period_start + timedelta(days=6)
+        return period_start, period_end
+
+    @api.model
+    def _get_logged_hours_by_user(self, timesheets, domain):
+        groups = timesheets.read_group(domain, ["unit_amount"], ["user_id"])
+        return {group["user_id"][0]: group["unit_amount"] for group in groups if group["user_id"]}
+
+    @api.model
+    def _get_member_today_by_user(self, users):
+        """Return each user's today, the day core dates their timesheet lines on: in the timezone of
+        their preferences, in UTC, the server's, when they have none."""
+        # "UTC", not tz=False: an empty tz falls back to the reader's
+        return {user.id: fields.Date.context_today(self.with_context(tz=user.tz or "UTC")) for user in users}
+
+    @api.model
+    def _get_today_hours_by_user(self, timesheets, domain, member_today_by_user):
+        hours_by_user = {}
+        for day in set(member_today_by_user.values()):
+            day_user_ids = [user_id for user_id, member_today in member_today_by_user.items() if member_today == day]
+            hours_by_user.update(
+                self._get_logged_hours_by_user(
+                    timesheets, domain + [("user_id", "in", day_user_ids), ("date", "=", day)]
+                )
+            )
+        return hours_by_user
+
+    def _get_member_data(self, user, user_tasks, hours_logged_period, hours_logged_today, today, member_today):
+        """Return the card of user, whose open tasks are user_tasks: the current task is the
+        in-progress one written last, the others queue in sequence before the backlog.
+
+        Overdue follows the reader's today, the ETA the user's own member_today."""
+        in_progress_tasks = user_tasks.filtered(lambda task: task.stage_id.is_in_progress)
+        backlog_tasks = user_tasks.filtered(lambda task: task.stage_id.is_backlog)
+        other_tasks = user_tasks - in_progress_tasks - backlog_tasks
+        current_task = in_progress_tasks.sorted(key=lambda task: task.write_date or task.create_date, reverse=True)[:1]
+        queue_tasks = (in_progress_tasks - current_task).sorted(key=lambda task: (task.sequence, task.id))
+        total_remaining = max(sum(user_tasks.mapped("remaining_hours")), 0)
+        return {
+            "user_id": user.id,
+            "user_name": user.name,
+            "user_avatar_url": "/web/image/res.users/%d/avatar_128" % user.id,
+            "current_task": self._task_to_dict(current_task, today) if current_task else False,
+            "queue": [self._task_to_dict(task, today) for task in queue_tasks],
+            "backlog": [
+                self._task_to_dict(task, today)
+                for task in backlog_tasks.sorted(key=lambda task: (task.sequence, task.id))
+            ],
+            "other": [self._task_to_dict(task, today) for task in other_tasks.sorted("sequence")],
+            "total_open_tasks": len(user_tasks),
+            "total_planned_hours": sum(user_tasks.mapped("planned_hours")),
+            "total_remaining_hours": sum(user_tasks.mapped("remaining_hours")),
+            "hours_logged_period": hours_logged_period,
+            "hours_logged_today": hours_logged_today,
+            "estimated_completion": self._compute_user_eta(user, total_remaining, member_today),
+        }
+
+    @api.model
+    def _get_reader_tz(self):
+        """The reader's time zone, the one context_today counts their today in."""
+        return self.env.context.get("tz") or self.env.user.tz
+
+    @api.model
+    def _get_reader_day(self, utc_datetime):
+        return utc_datetime and local_date(utc_datetime, self._get_reader_tz())
+
+    @api.model
+    def _get_gantt_readable_parents(self, tasks):
+        """The parents of tasks the Gantt chart shows: those the reader reads, without a project or
+        in one they read in the companies of the context, archived or not. A follower reads a task in
+        a project they cannot read, which the chart leaves out as it leaves out that project's other
+        tasks."""
+        parents = tasks.parent_id._filter_access_rules("read")
+        readable_projects = (
+            self.env["project.project"].with_context(active_test=False).search([("id", "in", parents.project_id.ids)])
+        )
+        return parents.filtered(lambda parent: not parent.project_id or parent.project_id in readable_projects)
 
     @api.model
     def _get_project_label(self, project):
@@ -1118,8 +1059,10 @@ class ProjectProject(models.Model):
         return "%s - %s" % (project.key, project.name) if project.key else project.name
 
     def _task_to_dict(self, task, today):
-        """Convert a task record to a dictionary for the dashboard."""
+        """Convert a task record to a dictionary for the dashboard, its days the reader's."""
         project = task.project_id
+        planned_day_start = self._get_reader_day(task.planned_date_start)
+        planned_day_end = self._get_reader_day(task.planned_date_end)
         return {
             "id": task.id,
             "name": task.name,
@@ -1130,9 +1073,9 @@ class ProjectProject(models.Model):
             "effective_hours": task.effective_hours,
             "remaining_hours": task.remaining_hours,
             "progress": task.progress,
-            "planned_date_start": (str(task.planned_date_start.date()) if task.planned_date_start else ""),
-            "planned_date_end": str(task.planned_date_end.date()) if task.planned_date_end else "",
-            "is_overdue": bool(task.planned_date_end.date() < today) if task.planned_date_end else False,
+            "planned_date_start": fields.Date.to_string(planned_day_start) or "",
+            "planned_date_end": fields.Date.to_string(planned_day_end) or "",
+            "is_overdue": bool(planned_day_end) and planned_day_end < today,
             "kanban_state": task.kanban_state,
             "priority": task.priority,
             "sequence": task.sequence,

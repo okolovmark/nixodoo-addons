@@ -213,6 +213,65 @@ class TestMultiProjectGantt(TeamDashboardCommon):
         self.assertEqual(result["unscheduled"], [])
         self.assertEqual(result["tasks_without_dates"], 0)
 
+    def test_a_followed_parent_in_a_project_the_user_cannot_read_stays_off_the_chart(self):
+        project_hidden = self.Project.create({"name": "Team Members Only", "privacy_visibility": "followers"})
+        followed_parent = self.Task.create(
+            {"name": "Followed Parent", "project_id": project_hidden.id, "stage_id": self.stage_in_progress.id}
+        )
+        followed_parent.message_subscribe(partner_ids=self.user_dev1.partner_id.ids)
+        child = self.Task.create(
+            {
+                "name": "Child in a readable project",
+                "project_id": self.project.id,
+                "display_project_id": self.project.id,
+                "parent_id": followed_parent.id,
+                "stage_id": self.stage_in_progress.id,
+                "planned_date_start": self.now,
+                "planned_date_end": self.now + timedelta(days=2),
+            }
+        )
+        self.assertEqual(child.project_id, self.project)
+        self.assertEqual(self.Task.with_user(self.user_dev1).search([("id", "=", followed_parent.id)]), followed_parent)
+        Project = self.Project.with_user(self.user_dev1)
+
+        tasks_by_id = {
+            task_data["id"]: task_data
+            for task_data in Project.get_gantt_chart_data(project_ids=[self.project.id, self.project2.id])["tasks"]
+        }
+        self.assertNotIn(followed_parent.id, tasks_by_id)
+        self.assertFalse(tasks_by_id[child.id]["parent_id"])
+
+        followed_parent.project_id = self.Project.create({"name": "Readable Parent Project"})
+        tasks_by_id = {
+            task_data["id"]: task_data
+            for task_data in Project.get_gantt_chart_data(project_ids=[self.project.id, self.project2.id])["tasks"]
+        }
+        self.assertEqual(tasks_by_id[child.id]["parent_id"], followed_parent.id, "a parent in a project the user reads")
+
+    def test_a_parent_in_an_archived_project_stays_on_the_chart(self):
+        parent_project = self.Project.create({"name": "Archived Parent Project"})
+        parent = self.Task.create(
+            {"name": "Parent", "project_id": parent_project.id, "stage_id": self.stage_in_progress.id}
+        )
+        child = self.Task.create(
+            {
+                "name": "Child in an active project",
+                "project_id": self.project.id,
+                "display_project_id": self.project.id,
+                "parent_id": parent.id,
+                "stage_id": self.stage_in_progress.id,
+                "planned_date_start": self.now,
+                "planned_date_end": self.now + timedelta(days=2),
+            }
+        )
+        parent_project.active = False
+
+        result = self.Project.with_user(self.user_dev1).get_gantt_chart_data(project_ids=[self.project.id])
+
+        tasks_by_id = {task_data["id"]: task_data for task_data in result["tasks"]}
+        self.assertIn(parent.id, tasks_by_id)
+        self.assertEqual(tasks_by_id[child.id]["parent_id"], parent.id)
+
     def test_multi_project_tasks_without_dates_count(self):
         """tasks_without_dates counts across all requested projects."""
         # Create dateless tasks in both projects

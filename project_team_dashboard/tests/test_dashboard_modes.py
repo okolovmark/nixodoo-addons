@@ -237,7 +237,7 @@ class TestDashboardManagerMode(TeamDashboardCommon):
         data = self.env["project.project"].get_team_dashboard_by_manager(
             self.user_manager.id,
         )
-        today = fields.Date.today()
+        today = fields.Date.context_today(self.env["project.project"])
         expected_start = today - timedelta(days=today.weekday())
         expected_end = expected_start + timedelta(days=6)
         self.assertEqual(data["period_start"], fields.Date.to_string(expected_start))
@@ -272,9 +272,11 @@ class TestDashboardManagerMode(TeamDashboardCommon):
         # No subordinates → no users → empty members
         self.assertEqual(data["members"], [])
 
+    @freeze_time("2026-06-03 12:00:00")
     def test_manager_dashboard_with_timesheets(self):
         """Test that timesheets are aggregated across projects."""
-        today = fields.Date.today()
+        # the members have no time zone: their lines are dated on the UTC day
+        today = date(2026, 6, 3)
         self.env["account.analytic.line"].create(
             {
                 "name": "Dev1 work",
@@ -427,9 +429,11 @@ class TestDashboardDepartmentMode(TeamDashboardCommon):
         )
         self.assertEqual(data["members"], [])
 
+    @freeze_time("2026-06-03 12:00:00")
     def test_department_dashboard_with_timesheets(self):
         """Test timesheet aggregation in department mode."""
-        today = fields.Date.today()
+        # dev1 has no time zone: their lines are dated on the UTC day
+        today = date(2026, 6, 3)
         self.env["account.analytic.line"].create(
             {
                 "name": "Dev1 QA work",

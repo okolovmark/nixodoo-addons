@@ -65,7 +65,7 @@
         <div class="o_dashboard_filter_bar d-flex align-items-center gap-3 px-3 py-2 bg-light border-bottom flex-wrap">
             <!-- === Project mode filters === -->
             <t t-if="dashboardMode === 'project'">
-                <div class="o_project_filter_wrapper d-flex align-items-center gap-2">
+                <div class="o_project_filter_wrapper d-flex align-items-center gap-2 mw-100">
                     <label class="fw-bold mb-0 small">Project:</label>
                     <div class="o_project_search_wrapper position-relative" style="width: 280px;">
                         <input
@@ -91,7 +91,7 @@
 
             <!-- === Manager mode filters === -->
             <t t-if="dashboardMode === 'manager'">
-                <div class="o_user_filter_wrapper d-flex align-items-center gap-2">
+                <div class="o_user_filter_wrapper d-flex align-items-center gap-2 mw-100">
                     <label class="fw-bold mb-0 small">Manager:</label>
                     <div class="o_user_search_wrapper position-relative" style="width: 250px;">
                         <input
@@ -128,7 +128,7 @@
 
             <!-- === Department mode filters === -->
             <t t-if="dashboardMode === 'department'">
-                <div class="o_dept_filter_wrapper d-flex align-items-center gap-2">
+                <div class="o_dept_filter_wrapper d-flex align-items-center gap-2 mw-100">
                     <label class="fw-bold mb-0 small">Department:</label>
                     <div class="o_dept_search_wrapper position-relative" style="width: 300px;">
                         <input
