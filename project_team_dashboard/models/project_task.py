@@ -14,13 +14,18 @@ DEADLINE_PLAN_FIELDS = tuple(DEADLINE_PLAN_SOURCES)
 WRITE_ACTED_FIELDS = (*PLANNED_DATE_FIELDS, "child_ids", "depend_on_ids", "dependent_ids", "date_deadline")
 
 
-def local_date(utc_datetime, tz_name):
-    """Return the date of a naive UTC datetime in the time zone tz_name, in UTC when it is empty or unknown."""
+def local_datetime(utc_datetime, tz_name):
+    """Return a naive UTC datetime as a naive one in the time zone tz_name, in UTC when it is empty or unknown."""
     try:
         time_zone = pytz.timezone(tz_name or "UTC")
     except pytz.UnknownTimeZoneError:
         time_zone = pytz.utc
-    return pytz.utc.localize(utc_datetime).astimezone(time_zone).date()
+    return pytz.utc.localize(utc_datetime).astimezone(time_zone).replace(tzinfo=None)
+
+
+def local_date(utc_datetime, tz_name):
+    """Return the date of a naive UTC datetime in the time zone tz_name, in UTC when it is empty or unknown."""
+    return local_datetime(utc_datetime, tz_name).date()
 
 
 class Task(models.Model):
@@ -141,13 +146,15 @@ class Task(models.Model):
 
     @api.model
     def action_open_backlog(self):
-        """Open backlog with the user's default project pre-selected."""
+        """Open the backlog on the user's default project when they find it in the companies of the context."""
         action = self.env["ir.actions.act_window"]._for_xml_id(
             "project_team_dashboard.action_project_task_backlog",
         )
-        project = self.env.user.dashboard_default_project_id
+        project = self.env["project.project"].search(
+            [("id", "=", self.env.user.dashboard_default_project_id.id)], limit=1
+        )
         action["context"] = {
-            "search_default_project_id": project.id if project else False,
+            "search_default_project_id": project.id,
             "search_default_unassigned": True,
         }
         return action

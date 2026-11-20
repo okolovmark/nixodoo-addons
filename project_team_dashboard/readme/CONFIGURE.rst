@@ -23,9 +23,9 @@ Users
 
 * Each user sets their **Default Dashboard Project** in Preferences (an
   administrator on the user form); the Backlog menu and the Team Dashboard
-  open on it. When it is not among the projects the Team Dashboard lists
-  (those the user reads in the companies selected in the switcher), the
-  Team Dashboard opens on the first of them.
+  open on it. When it is not among the projects the user reads in the
+  companies selected in the switcher, the Backlog opens on every project
+  and the Team Dashboard on the first of the projects it lists.
 * The estimated completion of a member card plans on the working schedule
   of the user's employee in the current company, or of the company: give
   each member an employee with a schedule for an estimate that skips
@@ -91,8 +91,10 @@ why under the toolbar:
   select, or one that no longer exists.
 
 Any user opening their own team without an active employee reads the
-first message. Give a team lead an employee with the right *Manager* for
-them to see their team.
+first message, and one opening their own department, or one they
+manage, outside the selected companies reads one of the last two; any
+other department is refused them. Give a team lead an employee with the
+right *Manager* for them to see their team.
 
 Gantt chart: dependencies can be linked and lags edited by users with write
 access to the dependent task. Only **Project / Administrator** can save a

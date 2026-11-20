@@ -1,3 +1,4 @@
+from odoo import Command
 from odoo.tests.common import tagged
 
 from .common import TeamDashboardCommon
@@ -20,6 +21,27 @@ class TestProjectTask(TeamDashboardCommon):
         self.env.user.dashboard_default_project_id = False
         action = self.env["project.task"].action_open_backlog()
         self.assertFalse(action["context"]["search_default_project_id"])
+
+    def test_the_backlog_opens_on_the_default_project_only_where_the_user_finds_it(self):
+        company_a = self.env.company
+        company_b = self.env["res.company"].create({"name": "Backlog Company B"})
+        project_b = self.env["project.project"].create({"name": "Project in B", "company_id": company_b.id})
+        project_hidden, project_archived = self.env["project.project"].create(
+            [{"name": "Team Members Only", "privacy_visibility": "followers"}, {"name": "Archived", "active": False}]
+        )
+        self.user_dev1.company_ids = [Command.link(company_b.id)]
+        Task = self.env["project.task"].with_user(self.user_dev1)
+        for default_project, company_ids, expected_project in (
+            (project_b, (company_a | company_b).ids, project_b),
+            (project_b, company_a.ids, self.env["project.project"]),
+            (project_hidden, company_a.ids, self.env["project.project"]),
+            (project_archived, company_a.ids, self.env["project.project"]),
+        ):
+            with self.subTest(project=default_project.name, companies=company_ids):
+                self.user_dev1.dashboard_default_project_id = default_project
+                action = Task.with_context(allowed_company_ids=company_ids).action_open_backlog()
+                self.assertEqual(action["context"]["search_default_project_id"], expected_project.id)
+                self.assertTrue(action["context"]["search_default_unassigned"])
 
 
 @tagged("post_install", "-at_install")
