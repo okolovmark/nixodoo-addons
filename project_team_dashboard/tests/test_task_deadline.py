@@ -3,6 +3,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 from odoo import Command, fields
+from odoo.exceptions import AccessError
 from odoo.tests import Form, tagged
 from odoo.tools import SQL
 
@@ -240,6 +241,20 @@ class TestTaskDeadline(TeamDashboardCommon):
                     "//field[@name='%s']/list/field[@column_invisible='True']/@name" % lines_field_name
                 )
                 self.assertLessEqual(set(DEADLINE_PLAN_FIELDS), set(hidden_columns))
+
+    def test_a_portal_collaborator_cannot_read_the_planned_end_the_deadline_follows(self):
+        portal_user = self.env["res.users"].create(self._user_vals("Portal Reader", ["base.group_portal"]))
+        self.project.write(
+            {
+                "privacy_visibility": "portal",
+                "collaborator_ids": [Command.create({"partner_id": portal_user.partner_id.id, "access_mode": "edit"})],
+            }
+        )
+        shared_task = self._create_task("Shared", planned_date_end=EVENING_UTC).with_user(portal_user)
+        self.assertEqual(shared_task.read(["date_deadline"])[0]["date_deadline"], EVENING_UTC)
+
+        with self.assertRaises(AccessError):
+            shared_task.read(["date_deadline_planned_end"])
 
     def test_the_deadline_alone_does_not_move_the_plan_and_is_set_against_it(self):
         task = self._create_task("Planned", planned_date_start=datetime(2026, 3, 1, 9), planned_date_end=EVENING_UTC)

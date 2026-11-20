@@ -147,8 +147,11 @@ export class TeamDashboardAction extends Component {
         if (!this.props.state) {
             this.state.departmentId = currentUser.department_id?.[0] || false;
             if (!this.state.projectId) {
-                const defaultProject = currentUser.dashboard_default_project_id;
-                this.state.projectId = defaultProject ? defaultProject[0] : projects[0]?.id || false;
+                // a default project of a company not selected is not among the projects found
+                const defaultProjectId = currentUser.dashboard_default_project_id?.[0];
+                const openedProject =
+                    projects.find((project) => project.id === defaultProjectId) || projects[0];
+                this.state.projectId = openedProject?.id || false;
             }
         }
         this.acceptedTeams = pick(this.state, ...Object.values(MODE_TEAM_KEYS));
