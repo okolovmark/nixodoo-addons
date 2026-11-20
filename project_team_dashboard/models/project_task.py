@@ -66,9 +66,10 @@ class Task(models.Model):
     # Not on project_id.is_ai_driven: flagging a project leaves the Deadlines of its tasks alone.
     @api.depends(*DEADLINE_PLAN_SOURCES.values())
     def _compute_date_deadline(self):
-        """In an AI-driven project the Deadline becomes the date of the planned end for the user who
-        saves, a rolled-up one included, when the planned end or the project differs from the plan
-        the Deadline last followed. Odoo also runs this when a dependency of the planned end changes
+        """In an AI-driven project the Deadline becomes the date of the planned end, a rolled-up one
+        included, when the planned end or the project differs from the plan the Deadline last
+        followed: its date in the timezone of the save's context (the web client sends the user's),
+        else of the user who saves. Odoo also runs this when a dependency of the planned end changes
         and leaves it as it was (a stage change under project_timeline): the Deadline stays then.
         Every saved task records its plan, so that ticking AI-driven Project aligns nothing; a task
         without a planned end keeps its Deadline.
@@ -81,7 +82,7 @@ class Task(models.Model):
             followed_plan = task._get_followed_deadline_plan()
             should_align = bool(task.planned_date_end) and task.project_id.is_ai_driven and plan != followed_plan
             if should_align:
-                task.date_deadline = local_date(task.planned_date_end, self.env.user.tz)
+                task.date_deadline = local_date(task.planned_date_end, self.env.context.get("tz") or self.env.user.tz)
             # the followed plan is in cache now: assigning it unchanged writes nothing
             task.update(dict(zip(DEADLINE_PLAN_FIELDS, plan if should_align or task.id else followed_plan)))
 

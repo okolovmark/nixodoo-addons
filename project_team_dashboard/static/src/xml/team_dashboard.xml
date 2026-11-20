@@ -477,7 +477,7 @@
         <t t-if="dashboardMode === 'project'">
             <div class="o_gantt_container d-none">
                 <div class="o_gantt_toolbar d-flex align-items-center gap-2 px-2 py-2 border-bottom bg-light flex-wrap">
-                    <div class="o_gantt_project_filter d-flex align-items-center gap-2">
+                    <div class="o_gantt_project_filter d-flex align-items-center gap-2 mw-100">
                         <label class="fw-bold mb-0 small">Projects:</label>
                         <!-- Multi-project tags display -->
                         <div class="o_gantt_multiproject_tags">

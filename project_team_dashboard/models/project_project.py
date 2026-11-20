@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 
 import pytz
@@ -117,7 +118,6 @@ class ProjectProject(models.Model):
                 period_hours_by_user.get(user.id, 0.0),
                 today_hours_by_user.get(user.id, 0.0),
                 today,
-                member_today_by_user[user.id],
             )
             for user in open_tasks.user_ids.sorted(key=lambda user: user.name)
         ]
@@ -254,7 +254,6 @@ class ProjectProject(models.Model):
             return result
 
         is_multi = len(pids) > 1
-        project_name_map = {project.id: self._get_project_label(project) for project in projects}
 
         Task = self.env["project.task"]
 
@@ -416,7 +415,7 @@ class ProjectProject(models.Model):
             )
             # Include project_name for multi-project mode
             if is_multi:
-                task_dict["project_name"] = project_name_map.get(task.project_id.id, "")
+                task_dict["project_name"] = self._get_project_label(task.project_id)
             tasks_data.append(task_dict)
 
         unscheduled_data = []
@@ -433,7 +432,7 @@ class ProjectProject(models.Model):
             }
             task_dict.update(task._gantt_task_attributes(writable_ids, {}))
             if is_multi:
-                task_dict["project_name"] = project_name_map.get(task.project_id.id, "")
+                task_dict["project_name"] = self._get_project_label(task.project_id)
             unscheduled_data.append(task_dict)
 
         result.update(
@@ -478,7 +477,7 @@ class ProjectProject(models.Model):
 
         output = io.BytesIO()
         wb = xlsxwriter.Workbook(output, {"in_memory": True})
-        ws = wb.add_worksheet("Gantt Chart")
+        ws = wb.add_worksheet(self._get_gantt_sheet_title())
 
         # Formats
         header_fmt = wb.add_format(
@@ -660,6 +659,13 @@ class ProjectProject(models.Model):
         return {"data": data, "filename": filename}
 
     @api.model
+    def _get_gantt_sheet_title(self):
+        """The translated title as Excel takes it: Odoo's patched add_worksheet drops the characters
+        Excel refuses and cuts it to 31, but leaves the apostrophes Excel refuses at either end."""
+        sheet_title = re.sub(r"[\[\]:*?/\\]", "", _("Gantt Chart"))[:31].strip("'")
+        return sheet_title or "Gantt Chart"
+
+    @api.model
     def _get_gantt_bar_ends(self, task_data):
         """Return the start and end, naive in the reader's timezone, of the bar of task_data, a task
         of the Gantt payload: the moments the chart draws it from and to."""
@@ -691,7 +697,8 @@ class ProjectProject(models.Model):
 
         Opens the managers of _get_openable_manager_users; another raises AccessError, except for a
         user who sees every team, who gets the error dict of a user not found or of a manager
-        without an employee in the companies of the context instead.
+        without an employee in the companies of the context instead, as does a user for a manager
+        who reports to them.
         Archived employees and tasks stay out whatever the caller's active_test.
         """
         return self.with_context(active_test=True)._get_team_dashboard_by_manager(
@@ -823,10 +830,12 @@ class ProjectProject(models.Model):
     def _check_manager_mode_access(self, manager_user):
         """The Manager mode reads the logged hours of a whole team with elevated rights: a user
         opens it for the managers of _get_openable_manager_users only. Return whether they do: a
-        user who sees every team is not refused, but told the manager has no employee, in the
-        selected companies when the manager has one in a company the user may select."""
+        user who sees every team, or whom the manager reports to, is not refused, but told the
+        manager has no employee, in the selected companies when the manager has one in a company
+        the user may select."""
         is_openable = self.env.su or manager_user in self._get_openable_manager_users()
-        if not is_openable and not self._sees_every_team():
+        is_answered = is_openable or self._sees_every_team() or manager_user in self._get_users_below()
+        if not is_answered:
             raise AccessError(
                 _("You can open the Team Dashboard by manager only for yourself and the managers who report to you.")
             )
@@ -862,12 +871,16 @@ class ProjectProject(models.Model):
         """
         employee_domain = [("user_id", "!=", False), ("company_id", "in", self.env.companies.ids)]
         if not self._sees_every_team():
-            # archived employees too: the managers below an archived one still report to the user
-            own_employees = self._own_employees().with_context(active_test=False)
-            users_below = self._get_subordinate_employees(own_employees).filtered("active").user_id
-            employee_domain.append(("user_id", "in", users_below.ids))
+            employee_domain.append(("user_id", "in", self._get_users_below().ids))
         manager_users = self.env["hr.employee"].with_context(active_test=True).search(employee_domain).sudo().user_id
         return self.env.user | manager_users
+
+    @api.model
+    def _get_users_below(self):
+        """The users who report to the user: those of the active employees below the user's own, in any company."""
+        # archived employees too: the managers below an archived one still report to the user
+        own_employees = self._own_employees().with_context(active_test=False)
+        return self._get_subordinate_employees(own_employees).filtered("active").user_id
 
     @api.model
     def _get_openable_departments(self):
@@ -953,7 +966,6 @@ class ProjectProject(models.Model):
                 period_hours_by_user.get(user.id, 0.0),
                 today_hours_by_user.get(user.id, 0.0),
                 today,
-                member_today_by_user[user.id],
             )
             member_data["project_names"] = sorted(set(user_tasks.project_id.mapped(self._get_project_label)))
             members_data.append(member_data)
@@ -1001,11 +1013,20 @@ class ProjectProject(models.Model):
             )
         return hours_by_user
 
-    def _get_member_data(self, user, user_tasks, hours_logged_period, hours_logged_today, today, member_today):
+    @api.model
+    def _get_member_planning_day(self, user):
+        """Return the day the member's estimated completion starts on: in the timezone of their
+        preferences, else of the employee whose working schedule it is planned on, else UTC, where
+        _get_member_today_by_user falls back to UTC alone."""
+        # sudo: the reader may not read employees, and the day shows nothing of theirs
+        tz_name = user.tz or user.sudo().employee_id.tz or "UTC"
+        return fields.Date.context_today(self.with_context(tz=tz_name))
+
+    def _get_member_data(self, user, user_tasks, hours_logged_period, hours_logged_today, today):
         """Return the card of user, whose open tasks are user_tasks: the current task is the
         in-progress one written last, the others queue in sequence before the backlog.
 
-        Overdue follows the reader's today, the ETA the user's own member_today."""
+        Overdue follows the reader's today, the ETA the user's own _get_member_planning_day."""
         in_progress_tasks = user_tasks.filtered(lambda task: task.stage_id.is_in_progress)
         backlog_tasks = user_tasks.filtered(lambda task: task.stage_id.is_backlog)
         other_tasks = user_tasks - in_progress_tasks - backlog_tasks
@@ -1028,7 +1049,7 @@ class ProjectProject(models.Model):
             "total_remaining_hours": sum(user_tasks.mapped("remaining_hours")),
             "hours_logged_period": hours_logged_period,
             "hours_logged_today": hours_logged_today,
-            "estimated_completion": self._compute_user_eta(user, total_remaining, member_today),
+            "estimated_completion": self._compute_user_eta(user, total_remaining, self._get_member_planning_day(user)),
         }
 
     @api.model
@@ -1056,7 +1077,7 @@ class ProjectProject(models.Model):
     def _get_project_label(self, project):
         # sudo: who reads a task reads the name of its project, as core reads a many-to-one
         project = project.sudo()
-        return "%s - %s" % (project.key, project.name) if project.key else project.name
+        return "%s - %s" % (project.key, project.name) if project.key else project.name or ""
 
     def _task_to_dict(self, task, today):
         """Convert a task record to a dictionary for the dashboard, its days the reader's."""

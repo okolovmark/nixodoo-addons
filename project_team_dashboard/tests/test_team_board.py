@@ -714,8 +714,13 @@ class TestTeamBoardCompanies(TeamBoardCase):
             with self.subTest(company_rules_active=is_active, companies="A"):
                 ProjectInA = Project.with_context(allowed_company_ids=self.env.company.ids)
                 self.assertNotIn("error", ProjectInA.get_team_dashboard_by_manager(user_lead.id))
-                with self.assertRaisesRegex(AccessError, "by manager"):
-                    ProjectInA.get_team_dashboard_by_manager(user_below.id)
+                self.assertEqual(
+                    ProjectInA.get_team_dashboard_by_manager(user_below.id),
+                    {
+                        "error": "No employee record found for this user in the selected companies",
+                        "manager_name": "Below the Lead in B",
+                    },
+                )
                 with self.assertRaisesRegex(AccessError, "by manager"):
                     ProjectInA.get_team_dashboard_by_manager(self.user_dev1.id)
                 self.assertEqual(
@@ -785,6 +790,66 @@ class TestTeamBoardCompanies(TeamBoardCase):
                 self.assertFalse(self._board(user_member, self.department_b, "department"))
                 with self.assertRaisesRegex(AccessError, "by department"):
                     Project.get_team_dashboard_by_department(department_other_b.id)
+
+    def test_a_plain_user_is_told_a_manager_reporting_to_them_has_no_employee_in_the_selected_companies(self):
+        user_lead_a_b, user_lead_a, user_report_a_b, user_report_a = self.env["res.users"].create(
+            [
+                dict(
+                    self._user_vals("Lead in A and B", PROJECT_GROUPS),
+                    company_ids=[Command.set((self.env.company | self.company_b).ids)],
+                ),
+                self._user_vals("Lead in A", PROJECT_GROUPS),
+                *(
+                    dict(
+                        self._user_vals(name, PROJECT_GROUPS),
+                        company_id=self.company_b.id,
+                        company_ids=[Command.set(self.company_b.ids)],
+                    )
+                    for name in ("Report of the Lead in A and B", "Report of the Lead in A")
+                ),
+            ]
+        )
+        Employee = self.env["hr.employee"]
+        for user_lead, user_report in ((user_lead_a_b, user_report_a_b), (user_lead_a, user_report_a)):
+            employee_lead = Employee.create(
+                {"name": user_lead.name, "user_id": user_lead.id, "company_id": self.company_b.id}
+            )
+            employee_report = Employee.create(
+                {
+                    "name": user_report.name,
+                    "user_id": user_report.id,
+                    "company_id": self.company_b.id,
+                    "parent_id": employee_lead.id,
+                }
+            )
+            Employee.create(
+                {
+                    "name": "Team of %s" % user_report.name,
+                    "company_id": self.company_b.id,
+                    "parent_id": employee_report.id,
+                }
+            )
+        report_boards = [("mode", "=", "manager"), ("manager_user_id", "in", (user_report_a_b | user_report_a).ids)]
+        self.assertEqual(len(self.env["project.team.board"].search(report_boards)), 2 * len(PERIODS))
+        for is_active in (True, False):
+            self.company_rules.active = is_active
+            for user_lead, user_report, error in (
+                (user_lead_a_b, user_report_a_b, "No employee record found for this user in the selected companies"),
+                (user_lead_a, user_report_a, "No employee record found for this user"),
+            ):
+                with self.subTest(company_rules_active=is_active, user=user_lead.name):
+                    ProjectInA = (
+                        self.env["project.project"]
+                        .with_user(user_lead)
+                        .with_context(allowed_company_ids=self.env.company.ids)
+                    )
+                    self.assertEqual(
+                        ProjectInA.get_team_dashboard_by_manager(user_report.id),
+                        {"error": error, "manager_name": user_report.name},
+                    )
+                    self.assertFalse(self.env["project.team.board"].with_env(ProjectInA.env).search(report_boards))
+                    with self.assertRaisesRegex(AccessError, "by manager"):
+                        ProjectInA.get_team_dashboard_by_manager(self.user_manager_b.id)
 
     def test_a_user_opens_their_own_team_whatever_the_company_of_their_employees(self):
         companies = self.env.company | self.company_b

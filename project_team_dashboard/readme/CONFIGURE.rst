@@ -91,10 +91,12 @@ why under the toolbar:
   select, or one that no longer exists.
 
 Any user opening their own team without an active employee reads the
-first message, and one opening their own department, or one they
-manage, outside the selected companies reads one of the last two; any
-other department is refused them. Give a team lead an employee with the
-right *Manager* for them to see their team.
+first message, one opening a manager who reports to them, with active
+employees only outside the selected companies, one of the first two, and
+one opening their own department, or one they manage, outside the
+selected companies one of the last two; any other manager or department
+is refused them. Give a team lead an employee with the right *Manager*
+for them to see their team.
 
 Gantt chart: dependencies can be linked and lags edited by users with write
 access to the dependent task. Only **Project / Administrator** can save a
