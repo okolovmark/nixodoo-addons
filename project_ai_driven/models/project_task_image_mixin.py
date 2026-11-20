@@ -26,6 +26,8 @@ START_TAG = re.compile(r"""<([A-Za-z][^\s/<>"']*)(?=[\s/>])(?:[^<>"']|"[^"]*"|'[
 TAG_ATTRIBUTE = re.compile(r"""\s([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?""")
 # the pattern of html.unescape: references unescaped one by one give the value it gives
 CHARACTER_REFERENCE = re.compile(r"&(?:#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?)")
+# read without its leading zeros: html.unescape runs an int() that refuses over 4300 digits
+DECIMAL_REFERENCE = re.compile(r"&#0*([0-9]+)(;?)")
 SRCSET_SEPARATORS = re.compile(r"[\t\n\f\r ,]*")
 SRCSET_URL = re.compile(r"[^\t\n\f\r ]+")
 SRCSET_DESCRIPTORS = re.compile(r"(?:[^,(]|\([^)]*\)?)*,?")
@@ -85,6 +87,20 @@ URL_ATTRIBUTES = {
 }
 
 
+def unescape(text):
+    """html.unescape(text), without its int() on a long decimal reference."""
+    return CHARACTER_REFERENCE.sub(unescape_reference, text)
+
+
+def unescape_reference(reference):
+    decimal_reference = DECIMAL_REFERENCE.fullmatch(reference.group())
+    if not decimal_reference:
+        return html.unescape(reference.group())
+    digits, semicolon = decimal_reference.groups()
+    # past seven digits the number is beyond U+10FFFF, which html.unescape reads as U+FFFD
+    return "\ufffd" if len(digits) > 7 else html.unescape("&#%s%s" % (digits, semicolon))
+
+
 def unescape_with_spans(raw_value):
     """raw_value html-unescaped, and the function giving the span in raw_value
     of a span of the unescaped value: a character reference maps as a whole.
@@ -93,7 +109,7 @@ def unescape_with_spans(raw_value):
     value_parts = []
     raw_position = value_length = 0
     for reference in CHARACTER_REFERENCE.finditer(raw_value):
-        text = html.unescape(reference.group())
+        text = unescape_reference(reference)
         value_length += reference.start() - raw_position
         references.append((value_length, value_length + len(text), *reference.span()))
         value_parts += [raw_value[raw_position : reference.start()], text]
@@ -158,7 +174,7 @@ def replace_urls(html_text, get_new_url, url_attributes=URL_ATTRIBUTES):
                 url_values.append((attribute.span(value_group), unescaped_value, *url_reader))
                 attributes[name] = unescaped_value[0]
             else:
-                attributes[name] = html.unescape(raw_value)
+                attributes[name] = unescape(raw_value)
         new_parts = []
         tag_position = 0
         for (start, end), unescaped_value, read_urls, kind in url_values:

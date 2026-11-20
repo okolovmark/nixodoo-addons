@@ -1,4 +1,5 @@
 import base64
+import html
 import io
 import re
 import struct
@@ -28,6 +29,7 @@ from ..models.project_task_image_mixin import (
     replace_image_sources,
     replace_urls,
     replace_value_urls,
+    unescape,
 )
 from .common import ProjectAiDrivenCommon
 
@@ -1090,6 +1092,27 @@ class TestFileLinks(InlineImagesCase):
         self.assertFalse(self._attachments(task), "its token matches nothing: nothing copied")
         self.assertEqual(task.description, links_html(*links))
 
+    def test_reference_of_thousands_of_digits_in_a_kept_comment(self):
+        spec = self._attach_file(self.task, b"%PDF-1.4 spec", "spec.pdf")
+        # a reference in a plain attribute and in one a url is read from
+        comment = '<p>x<!-- <a title="&#%s;" href="/web/content/&#%s;"> --></p>' % ("9" * 5000, "9" * 5000)
+        task = (
+            self.env["project.task"]
+            .with_user(self.user_dev)
+            .sudo()
+            .create(
+                {
+                    "name": "Next occurrence",
+                    "project_id": self.project.id,
+                    "description": comment + links_html(file_link(spec)),
+                }
+            )
+        )
+        [spec_copy] = self._attachments(task)
+        self.assertEqual(
+            task.description, comment + links_html(file_link(spec_copy)), "the comment kept, the link copied"
+        )
+
     def test_link_whose_id_names_no_attachment_stays(self):
         links = ("/web/content/%s?download=true" % ("9" * 5000), "/web/content/%s" % ("9" * 10))
         image = '<p><img src="/web/image/%s"></p>' % ("9" * 5000)
@@ -1201,6 +1224,22 @@ class TestUrlReaders(BaseCase):
         for (base_url, url), local_url in cases.items():
             with self.subTest(base_url=base_url, url=url):
                 self.assertEqual(get_local_url(url, get_base_host(base_url)), local_url)
+
+    def test_unescape_gives_what_html_unescape_gives(self):
+        for text in (
+            "a &amp; b",
+            "&lt;&#60;&#x3C;",
+            "&notit; &amp",
+            "&#1114111;&#1114112;&#xD800;",
+            "&#0000003;",
+            "&#65x&#x41",
+            "&#0001114112;&#10000000;",
+            "",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(unescape(text), html.unescape(text))
+        self.assertEqual(unescape("&#%s;x" % ("9" * 5000)), "\ufffdx", "past U+10FFFF, without int()")
+        self.assertEqual(unescape("&#%s65;" % ("0" * 5000)), "A", "leading zeros aside")
 
     def test_access_token_read_as_the_server_reads_it(self):
         links = {
