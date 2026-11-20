@@ -1,4 +1,6 @@
-from datetime import timedelta
+from datetime import date, timedelta
+
+from freezegun import freeze_time
 
 from odoo import fields
 from odoo.tests.common import tagged
@@ -179,7 +181,7 @@ class TestTeamDashboard(TeamDashboardCommon):
     def test_dashboard_default_period_is_current_week(self):
         """Test that default period covers the current week (Monday to Sunday)."""
         data = self.env["project.project"].get_team_dashboard_data(self.project.id)
-        today = fields.Date.today()
+        today = fields.Date.context_today(self.env["project.project"])
         expected_start = today - timedelta(days=today.weekday())
         expected_end = expected_start + timedelta(days=6)
         self.assertEqual(data["period_start"], fields.Date.to_string(expected_start))
@@ -200,9 +202,11 @@ class TestTeamDashboard(TeamDashboardCommon):
         self.assertEqual(unassigned_data["hours_logged_period"], 0)
         self.assertEqual(unassigned_data["hours_logged_today"], 0)
 
+    @freeze_time("2026-06-03 12:00:00")
     def test_dashboard_with_timesheets(self):
         """Test that timesheet hours are aggregated per user."""
-        today = fields.Date.today()
+        # dev1 has no time zone: their lines are dated on the UTC day
+        today = date(2026, 6, 3)
         self.env["account.analytic.line"].create(
             {
                 "name": "Dev1 work",
@@ -279,7 +283,7 @@ class TestTaskToDict(TeamDashboardCommon):
                 "planned_date_end": yesterday,
             },
         )
-        today = fields.Date.today()
+        today = fields.Date.context_today(self.env["project.project"])
         result = self.env["project.project"]._task_to_dict(task, today)
         self.assertTrue(result["is_overdue"])
 

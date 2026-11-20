@@ -30,10 +30,11 @@ Work the backlog
 ~~~~~~~~~~~~~~~~
 
 **Project > Backlog** opens the Backlog-stage tasks of your Default
-Dashboard Project, filtered on *Unassigned*; remove that filter to see
-assigned tasks too. Reorder by drag, filter *My Tasks*, *Blocked* or
-*Overdue*, and group by Assignee, Start Date, Project or Type. To assign a
-task, open it.
+Dashboard Project (of every project when it is archived or you do not
+read it in the companies selected in the switcher), filtered on
+*Unassigned*; remove that filter to see assigned tasks too. Reorder by
+drag, filter *My Tasks*, *Blocked* or *Overdue*, and group by Assignee,
+Start Date, Project or Type. To assign a task, open it.
 
 Team Dashboard
 ~~~~~~~~~~~~~~

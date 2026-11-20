@@ -127,16 +127,14 @@ class ProjectTeamBoard(models.Model):
         }
 
     def _get_period_dates(self):
-        """The first and last day of the period, as the screen's _getDates counts them (weeks from
-        Monday), on the user's today."""
+        """The first and last day of the period on the reader's today, as the screen's _getDates
+        counts them: a week is the screen's default week (_get_dashboard_period) of its day."""
         self.ensure_one()
         today = fields.Date.context_today(self)
         if self.period == "this_month":
             return date_utils.start_of(today, "month"), date_utils.end_of(today, "month")
-        monday = date_utils.start_of(today, "week")
-        if self.period == "last_week":
-            monday -= timedelta(weeks=1)
-        return monday, monday + timedelta(days=6)
+        week_day = today - timedelta(weeks=1) if self.period == "last_week" else today
+        return self.env["project.project"]._get_dashboard_period(False, False, week_day)
 
     def _get_openable_domain(self):
         """The rows whose dashboard the screen opens for the user: a mode's rows are hidden when

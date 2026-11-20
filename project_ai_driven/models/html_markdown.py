@@ -1,3 +1,4 @@
+import math
 import re
 from urllib.parse import parse_qsl, unquote, urlsplit
 
@@ -19,12 +20,13 @@ LIST_TAGS = ("ol", "ul")
 CHECKLIST_CLASS = "o_checklist"
 CHECKED_ITEM_CLASS = "o_checked"
 CELL_TAGS = ("td", "th")
-TABLE_PART_TAGS = ("thead", "tbody", "tfoot", "tr")
+ROW_GROUP_TAGS = ("thead", "tbody", "tfoot")
+TABLE_PART_TAGS = ROW_GROUP_TAGS + ("tr",)
 LINK_SCHEMES = ("", "http", "https", "mailto")
 IMAGE_SCHEMES = ("", "http", "https")
 DEFAULT_PORTS = {"http": 80, "https": 443}
-# merged cells pad a table with empty ones: capped, so that a few bytes of HTML cannot make megabytes
-MAX_SPAN = 100
+# a colspan pads its row with empty cells: capped, so that a few bytes of HTML cannot make megabytes; a rowspan
+# pads only the rows its row group has
 MAX_TABLE_COLUMNS = 100
 NOT_MOVED_IMAGE = "[image not yet moved to an attachment]"
 WHITESPACE = re.compile(r"\s+")
@@ -32,10 +34,20 @@ REPEATED_SPACES = re.compile(r" {2,}")
 LINE_BREAK_RUN = re.compile(r"\n{3,}")
 BACKTICK_RUN = re.compile(r"`+")
 ASCII_DIGITS = re.compile(r"[0-9]+")
-LIST_BLOCK = re.compile(r"(?:-|[0-9]+\.) ")
+# the id of an attachment as the editor writes it, at most ten digits: int() refuses over 4300
+ATTACHMENT_ID = re.compile(r"[0-9]{1,10}")
+# a span or a list number read from a text, leading zeros aside: int() refuses over 4300 digits
+BOUNDED_NUMBER = re.compile(r"0*([0-9]{1,9})")
+# a CommonMark list number has nine digits at most
+MAX_LIST_NUMBER = 999999999
+LIST_BLOCK = re.compile(r"(?:[-+]|[0-9]{1,9}[.)]) ")
+# a line opening a list item, its indent and marker captured: a list block indents its other lines further
+LIST_ITEM_LINE = re.compile(r"^( *)([-+]|[0-9]{1,9}[.)]) ", re.MULTILINE)
+# + and not *: "* **", an item of two stars, is a rule
+OTHER_LIST_MARKS = {"-": "+", "+": "-", ".": ")", ")": "."}
 # After a task list box on its line, a block that is no paragraph would be its text. BLOCK_MARKUP finds most;
 # this one finds an ordered list and a code block, whose fence BLOCK_MARKUP sees only as a line of its own.
-BOX_ALONE_BLOCK = re.compile(r"[0-9]+\. |`{3,}\n")
+BOX_ALONE_BLOCK = re.compile(r"[0-9]{1,9}\. |`{3,}\n")
 TASK_LIST_BOX = re.compile(r"\[[ xX]\](?:\s|$)")
 # A heading, quote, list item, code fence of three or more, rule, setext underline, table row, table
 # delimiter row or HTML block (a tag, comment or declaration) when a line starts with it. A backtick run with a
@@ -54,7 +66,7 @@ URL_USERINFO = re.compile(r"((?:(?<![\w+.-])[a-z][a-z0-9+.-]*:)?//)[^/?#\s]*@", 
 # In text only an http(s) url, git+https too, loses its user: "//@ts-ignore" or "ssh://git@host" are no secret.
 HTTP_USERINFO = re.compile(r"((?<![\w+.-])(?:[a-z][a-z0-9.-]*\+)?https?://)[^/?#\s]*@", re.IGNORECASE)
 LINK_TARGET_UNSAFE = re.compile(r"[\x00-\x20\x7f()<>]")
-ATTACHMENT_PATH = re.compile(r"/web/(?:image|content)/(?:ir\.attachment/)?([0-9]+)(?:[-/].*)?", re.DOTALL)
+ATTACHMENT_PATH = re.compile(r"/web/(?:image|content)/(?:ir\.attachment/)?([0-9]{1,10})(?:[-/].*)?", re.DOTALL)
 ATTACHMENT_ROUTE = re.compile(r"/web/(?:image|content)/?")
 TOKEN_NAME = re.compile(r"token|secret|signature|passw|credential|api_?key|^(?:key|sig|auth)$")
 PORTAL_SIGNATURE_NAMES = ("hash", "pid")
@@ -91,7 +103,7 @@ def html_to_markdown(html_content, attachment_names=None, heading_level=1, base_
     root = parse_html(html_content)
     if root is None:
         return ""
-    return "\n\n".join(_MarkdownWriter(attachment_names or {}, heading_level, base_url).get_blocks(root))
+    return _join_blocks(_MarkdownWriter(attachment_names or {}, heading_level, base_url).get_blocks(root))
 
 
 def get_linked_attachment_ids(html_content):
@@ -107,7 +119,7 @@ def get_linked_attachment_ids(html_content):
 
 def get_attachment_id(url):
     """The id of the attachment a /web/image or /web/content url names, relative or absolute on any host, else None."""
-    _scheme, _authority, path, query = URL_PARTS.match(_normalise_url(url)).groups()
+    _scheme, _authority, path, query = URL_PARTS.match(normalise_url(url)).groups()
     attachment_path = ATTACHMENT_PATH.fullmatch(path)
     if attachment_path:
         return int(attachment_path.group(1))
@@ -116,7 +128,7 @@ def get_attachment_id(url):
         for name, value in parse_qsl(query or ""):
             parameters.setdefault(name, value)
         attachment_id = parameters.get("id", "")
-        if parameters.get("model", "ir.attachment") == "ir.attachment" and ASCII_DIGITS.fullmatch(attachment_id):
+        if parameters.get("model", "ir.attachment") == "ir.attachment" and ATTACHMENT_ID.fullmatch(attachment_id):
             return int(attachment_id)
     return None
 
@@ -205,7 +217,31 @@ def _get_address(scheme, authority):
     return url_parts.hostname, None if port == DEFAULT_PORTS.get(scheme.lower()) else port
 
 
-def _normalise_url(url):
+def get_base_host(base_url):
+    """(scheme, (host, port)) of base_url as get_local_url compares it, the (host, port) None where it names none."""
+    scheme, authority = URL_PARTS.match(normalise_url(base_url)).group(1, 2)
+    scheme = scheme or ""
+    return scheme, _get_address(scheme, authority) if authority is not None else None
+
+
+def get_local_url(url, base_host):
+    """url, normalised, from its path on where it names this database, else None: a relative url, or one on
+    the host of base_host (get_base_host) by any scheme, as Odoo picks the database by host. The url's port
+    and base_host's must be equal, each counted as none where it is the default of its own scheme (of
+    base_host's for a protocol-relative url), written or left out. Callers read http(s) and relative urls
+    only.
+    """
+    url_parts = URL_PARTS.match(url)
+    scheme, authority = url_parts.group(1, 2)
+    if authority is not None:
+        base_scheme, base_address = base_host
+        address = _get_address(scheme or base_scheme, authority)
+        if address is None or address != base_address:
+            return None
+    return url[url_parts.start(3) :]
+
+
+def normalise_url(url):
     """url as a browser reads it: tabs and line breaks dropped, outer spaces and control characters stripped."""
     return URL_TAB_OR_NEWLINE.sub("", url or "").strip(URL_EDGE_CHARACTERS)
 
@@ -299,17 +335,69 @@ def _join_lines(lines):
     return ["\n".join(lines)] if lines else []
 
 
+def _get_outer_item_lines(block):
+    """The matches of the lines opening the outermost items of block, the least indented; none where block
+    opens no list.
+    """
+    if not LIST_ITEM_LINE.match(block):
+        return []
+    item_line_matches = list(LIST_ITEM_LINE.finditer(block))
+    outer_indent = min(len(item_line_match.group(1)) for item_line_match in item_line_matches)
+    return [item_line_match for item_line_match in item_line_matches if len(item_line_match.group(1)) == outer_indent]
+
+
+def _separate_list(block, previous_mark):
+    """block and the mark of its last outermost list item, None where it is no list. Where its first outermost
+    item has previous_mark, that of the list right before it, its outermost items take the other mark of
+    OTHER_LIST_MARKS: CommonMark reads two lists of the same mark one after the other as one list.
+    """
+    item_line_matches = _get_outer_item_lines(block)
+    if not item_line_matches:
+        return block, None
+    last_mark = item_line_matches[-1].group(2)[-1]
+    if item_line_matches[0].group(2)[-1] != previous_mark:
+        return block, last_mark
+    parts = []
+    end = 0
+    for item_line_match in item_line_matches:
+        mark_end = item_line_match.end(2)
+        parts += [block[end : mark_end - 1], OTHER_LIST_MARKS[block[mark_end - 1]]]
+        end = mark_end
+    parts.append(block[end:])
+    return "".join(parts), OTHER_LIST_MARKS[last_mark]
+
+
+def _join_blocks(blocks):
+    separated_blocks = []
+    mark = None
+    for block in blocks:
+        block, mark = _separate_list(block, mark)
+        separated_blocks.append(block)
+    return "\n\n".join(separated_blocks)
+
+
 def _join_item_blocks(blocks):
-    """The blocks of a list item: a nested list right under the line above it, any other block a paragraph apart."""
-    parts = blocks[:1]
-    for block in blocks[1:]:
-        parts.extend(("\n" if LIST_BLOCK.match(block) else "\n\n", block))
-    return "".join(parts)
+    """The blocks of a list item, a nested list right under the line above it and any other block a paragraph
+    apart, and the mark of the last outermost list item of its last block, None where that is no list.
+    """
+    parts = []
+    mark = None
+    for block in blocks:
+        block, mark = _separate_list(block, mark)
+        if parts:
+            parts.append("\n" if LIST_BLOCK.match(block) else "\n\n")
+        parts.append(block)
+    return "".join(parts), mark
 
 
-def _get_span(cell, attribute):
+def _get_span(cell, attribute, maximum):
+    """The span the attribute of cell gives, at most maximum: 1 where it gives none, 0 where it gives 0."""
     span = (cell.get(attribute) or "").strip()
-    return min(int(span), MAX_SPAN) if ASCII_DIGITS.fullmatch(span) and int(span) else 1
+    bounded_span = BOUNDED_NUMBER.fullmatch(span)
+    if not bounded_span:
+        # ten digits or more past the leading zeros: past any table
+        return maximum if ASCII_DIGITS.fullmatch(span) else 1
+    return min(int(bounded_span.group(1)), maximum)
 
 
 def _get_table_row(cells):
@@ -320,9 +408,7 @@ class _MarkdownWriter:
     def __init__(self, attachment_names, heading_level, base_url):
         self.attachment_names = attachment_names
         self.heading_level = heading_level
-        base_scheme, base_authority = URL_PARTS.match(_normalise_url(base_url)).group(1, 2)
-        self.base_scheme = base_scheme or ""
-        self.base_address = _get_address(self.base_scheme, base_authority) if base_authority is not None else None
+        self.base_host = get_base_host(base_url)
         self.link_depth = 0
         self.cell_depth = 0
 
@@ -373,7 +459,7 @@ class _MarkdownWriter:
         if tag == "pre":
             return self._get_code_block(element)
         if tag == "blockquote":
-            quoted_text = "\n\n".join(self.get_blocks(element))
+            quoted_text = _join_blocks(self.get_blocks(element))
             return ["\n".join(("> " + line).rstrip() for line in quoted_text.split("\n"))] if quoted_text else []
         if tag == "hr":
             return ["---"]
@@ -406,11 +492,8 @@ class _MarkdownWriter:
 
     def _get_local_attachment_id(self, url):
         """The id of the attachment url names in this database: by a relative url or one on the host of base_url."""
-        scheme, authority = URL_PARTS.match(url).group(1, 2)
-        if authority is not None:
-            address = _get_address(scheme or self.base_scheme, authority)
-            if address is None or address != self.base_address:
-                return None
+        if get_local_url(url, self.base_host) is None:
+            return None
         return get_attachment_id(url)
 
     def _get_attachment_pointer(self, kind, attachment_id, element_name):
@@ -419,7 +502,7 @@ class _MarkdownWriter:
         return "[%s](attachment %d)" % (label, attachment_id)
 
     def _get_image(self, element):
-        source = _normalise_url(element.get("src"))
+        source = normalise_url(element.get("src"))
         if not source:
             return ""
         scheme = _get_scheme(source)
@@ -437,7 +520,7 @@ class _MarkdownWriter:
         self.link_depth += 1
         content = self._get_inline_content(element)
         self.link_depth -= 1
-        url = _normalise_url(element.get("href"))
+        url = normalise_url(element.get("href"))
         if not url or _get_scheme(url) not in LINK_SCHEMES:
             return content
         clean_url = strip_url_tokens(url)
@@ -462,10 +545,13 @@ class _MarkdownWriter:
         is_ordered = element.tag == "ol"
         is_checklist = _has_class(element, CHECKLIST_CLASS)
         start = (element.get("start") or "").strip()
-        number = int(start) if ASCII_DIGITS.fullmatch(start) else 1
+        bounded_start = BOUNDED_NUMBER.fullmatch(start)
+        number = int(bounded_start.group(1)) if bounded_start else 1
         indent = "  "
         blocks = []
         lines = []
+        # the mark of the list last written at the nested level: a nested list of that mark right after would join it
+        nested_mark = None
         inline_parts = [self._get_text(element.text)]
         for child in element:
             if not _is_block(child):
@@ -475,18 +561,21 @@ class _MarkdownWriter:
             if loose_paragraph:
                 blocks.extend(_join_lines(lines) + loose_paragraph)
                 lines = []
+                nested_mark = None
             inline_parts = [self._get_text(child.tail)]
             if child.tag in LIST_TAGS or _is_list_only(child):
                 nested_blocks = self._get_list(child) if child.tag in LIST_TAGS else self.get_blocks(child)
                 if nested_blocks:
-                    lines.extend(_indent_lines(_join_item_blocks(nested_blocks).split("\n"), indent))
+                    nested_text, nested_mark = _separate_list(_join_item_blocks(nested_blocks)[0], nested_mark)
+                    lines.extend(_indent_lines(nested_text.split("\n"), indent))
                 continue
             item_blocks = self.get_blocks(child) if child.tag == "li" else self._get_element_blocks(child)
             if not item_blocks:
                 continue
-            marker = "%d. " % number if is_ordered else "- "
+            marker = "%d. " % min(number, MAX_LIST_NUMBER) if is_ordered else "- "
             indent = " " * len(marker)
-            item_lines = _join_item_blocks(item_blocks).split("\n")
+            item_text, nested_mark = _join_item_blocks(item_blocks)
+            item_lines = item_text.split("\n")
             # the box is part of the item's text: its nested lists stay under the list marker
             if is_checklist and child.tag == "li":
                 box = "[x]" if _has_class(child, CHECKED_ITEM_CLASS) else "[ ]"
@@ -534,9 +623,15 @@ class _MarkdownWriter:
         """
         rows = []
         spanned_rows = {}
+        previous_row_group = None
         for row in element.iter("tr"):
             if next(row.iterancestors("table"), None) is not element:
                 continue
+            # HTML ends a row span with its row group: a thead, tbody or tfoot, or a run of rows right in the table
+            row_group = next(row.iterancestors("table", *ROW_GROUP_TAGS))
+            if row_group is not previous_row_group:
+                spanned_rows = {}
+            previous_row_group = row_group
             covered_columns = set(spanned_rows)
             new_spans = {}
             cells = []
@@ -545,12 +640,13 @@ class _MarkdownWriter:
                     continue
                 while len(cells) in covered_columns:
                     cells.append("")
-                rowspan = _get_span(cell, "rowspan")
+                # rowspan="0" spans the rest of the row group, as HTML reads it
+                rowspan = _get_span(cell, "rowspan", math.inf) or math.inf
                 cell_text = self._get_cell(cell)
                 if len(cells) >= MAX_TABLE_COLUMNS:
                     cells[-1] = " ".join(filter(None, (cells[-1], cell_text)))
                     continue
-                for offset in range(min(_get_span(cell, "colspan"), MAX_TABLE_COLUMNS - len(cells))):
+                for offset in range(_get_span(cell, "colspan", MAX_TABLE_COLUMNS - len(cells)) or 1):
                     if rowspan > 1:
                         new_spans[len(cells)] = rowspan - 1
                     cells.append("" if offset else cell_text)

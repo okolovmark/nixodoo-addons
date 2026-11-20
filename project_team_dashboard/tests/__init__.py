@@ -1,4 +1,5 @@
 from . import common
+from . import test_dashboard_days
 from . import test_dashboard_modes
 from . import test_excel_export
 from . import test_gantt_chart
@@ -8,6 +9,7 @@ from . import test_gantt_stage_history
 from . import test_hooks
 from . import test_multiproject_gantt
 from . import test_project_task
+from . import test_server_messages
 from . import test_task_date_rollup
 from . import test_task_deadline
 from . import test_task_views

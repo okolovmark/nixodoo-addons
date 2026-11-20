@@ -65,6 +65,10 @@ def parse_single_pull_request_link(text):
     return links[0]
 
 
+def _negate(domain):
+    return [expression.NOT_OPERATOR, *expression.normalize_domain(domain)]
+
+
 class ProjectPullRequest(models.Model):
     _name = "project.pull.request"
     _description = "Pull Request"
@@ -111,6 +115,9 @@ class ProjectPullRequest(models.Model):
 
     @api.model
     def _name_search(self, name="", args=None, operator="ilike", limit=100, name_get_uid=None):
+        # a domain on a many2many passes one name with in as written, and core's in takes only a list
+        if operator in ("in", "not in") and isinstance(name, str):
+            name = [name]
         shown_name_domain = self._get_shown_name_domain(name, operator)
         if not shown_name_domain:
             return super()._name_search(name, args, operator, limit, name_get_uid)
@@ -119,13 +126,38 @@ class ProjectPullRequest(models.Model):
 
     @api.model
     def _get_shown_name_domain(self, name, operator):
-        """Return the domain of the records shown as name, or None when name is
-        not written the way a record is shown, "owner/repo#12".
+        """Return the domain of the records name matches, or None when name
+        holds no name written the way a record is shown, "owner/repo#12".
+
+        A negative operator excludes what its positive one finds: a domain on a
+        many2one passes it here as written. A list, for in and not in, may mix
+        shown names with urls.
         """
-        # a domain on a many2one may search for a list of names
+        if operator in ("in", "not in"):
+            return self._get_shown_names_domain(name, operator) if isinstance(name, (list, tuple)) else None
         shown_name = isinstance(name, str) and SHOWN_NAME.fullmatch(name)
-        if not shown_name or operator in expression.NEGATIVE_TERM_OPERATORS:
+        if not shown_name:
             return None
+        if operator in expression.NEGATIVE_TERM_OPERATORS:
+            positive_operator = expression.TERM_OPERATORS_NEGATION[operator]
+            return _negate(self._get_one_shown_name_domain(shown_name, positive_operator))
+        return self._get_one_shown_name_domain(shown_name, operator)
+
+    @api.model
+    def _get_shown_names_domain(self, names, operator):
+        """The names that are not shown names stay a search of the url."""
+        shown_names = [isinstance(name, str) and SHOWN_NAME.fullmatch(name) for name in names]
+        if not any(shown_names):
+            return None
+        urls = [name for name, shown_name in zip(names, shown_names) if not shown_name]
+        url_domains = [[("url", "in", urls)]] if urls else []
+        domain = expression.OR(
+            url_domains + [self._get_one_shown_name_domain(shown_name, "=") for shown_name in shown_names if shown_name]
+        )
+        return _negate(domain) if operator == "not in" else domain
+
+    @api.model
+    def _get_one_shown_name_domain(self, shown_name, operator):
         return [("repository", operator, shown_name["repository"]), ("number", "=", int(shown_name["number"]))]
 
     @api.model

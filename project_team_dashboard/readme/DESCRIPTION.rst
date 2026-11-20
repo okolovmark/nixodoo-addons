@@ -44,8 +44,10 @@ Assignee, Type, Priority, Size and Estimate (h), filters *My Tasks*,
 *Unassigned*, *Blocked*, *Overdue* and groupings by Assignee, Start Date,
 Project and Type. Project users also search it by **Module**, a module's
 technical name or title, as in the task search of ``project_ai_driven``.
-It opens filtered on the user's **Default Dashboard Project** and on
-unassigned tasks. **Estimate (h)** is the task's **Estimate** in hours,
+It opens filtered on unassigned tasks and on the user's **Default
+Dashboard Project** when the user reads it in the selected companies and
+it is not archived.
+**Estimate (h)** is the task's **Estimate** in hours,
 and **Size** the size ``project_ai_driven`` computes from it.
 
 **Team Dashboard**
@@ -67,6 +69,13 @@ Month or a custom range), and an estimated completion date. The estimate
 plans the remaining hours on the employee's working schedule with leaves
 taken into account, and falls back to 5.7 hours a day when no employee or
 schedule exists. Links open the member's kanban, backlog or closed tasks.
+
+The days are the reader's, in their time zone (UTC when none is set): the
+dates of the tasks, in the Gantt chart's Excel export too, which of them
+are overdue, and *Today* in the Gantt chart and its export. A member's
+hours logged today and the day their estimated completion starts from are
+the member's own, the day Odoo dates their timesheets on: in the time zone
+of their preferences, UTC when they have none.
 
 Logged hours are timesheet lines: in View by Project the lines of the
 project, as far as the user may read them; in the other two modes the
@@ -107,9 +116,9 @@ active department, each in three periods, *This Week*, *Last Week* and
   last day, on the reader's today in their time zone. The member cards,
   today's and the period's logged hours and the estimated completion
   (planned on the employee's working schedule with leaves and public
-  holidays) are in it. Only the period follows the reader's time zone:
-  today's logged hours, the overdue tasks and the day the estimated
-  completion starts from count on the server's date, as on the screen.
+  holidays) are in it. Its days are those of the screen: the reader's,
+  but a member's hours logged today and the day their estimated
+  completion starts from, which are the member's own.
 
 A user finds and reads only the rows they open on the screen; the others
 are left out of searches, counts and groups, and reading one by its id
@@ -133,14 +142,15 @@ in this repository.
 
 The **Gantt Chart** view plots the planned dates of the tasks of the
 selected projects the user reads (a task they follow in a project they
-cannot read stays out) on a timeline: Day, Week or Month scale paged a
-month at a time (a week on Day, a quarter on Month), grouped by user (the
-default), by task or by stage, optional completed tasks, a counter of
-tasks without dates, faceted search with a jump to any shown task by key
-or name, several projects at once. Bars take the colour of their stage
-(closed stages grey, legend built from the stages shown); an open task
-past its planned end gets a red outline. Dependencies are drawn as orange
-elbow connectors from the predecessor's end into the successor's start.
+cannot read stays out, also as the parent of a task shown) on a timeline:
+Day, Week or Month scale paged a month at a time (a week on Day, a quarter
+on Month), grouped by user (the default), by task or by stage, optional
+completed tasks, a counter of tasks without dates, faceted search with a
+jump to any shown task by key or name, several projects at once. Bars
+take the colour of their stage (closed stages grey, legend built from the
+stages shown); an open task past its planned end gets a red outline.
+Dependencies are drawn as orange elbow connectors from the predecessor's
+end into the successor's start.
 **Export Excel** downloads the open tasks of the selected projects that
 have planned dates or a deadline as an .xlsx Gantt chart named after the
 first of those projects the user reads, sorted by start date; closed

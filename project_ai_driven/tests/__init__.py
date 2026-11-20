@@ -18,6 +18,7 @@ from . import test_task_brief
 from . import test_task_key_routes
 from . import test_task_keys
 from . import test_task_modules
+from . import test_task_quick_create
 from . import test_task_sessions
 from . import test_task_size
 from . import test_task_views

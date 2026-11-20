@@ -99,8 +99,56 @@ class TestHtmlToMarkdown(TransactionCase):
             '<ul><li class="o_checked">Plain<ul class="list-unstyled o_checklist"><li class="o_checked">Ticked</li>'
             "</ul></li></ul>"
             '<ul class="o_checklist"><li>Box<ol><li>one</li></ol></li></ul>',
-            "- Plain\n  - [x] Ticked\n\n- [ ] Box\n  1. one",
+            "- Plain\n  - [x] Ticked\n\n+ [ ] Box\n  1. one",
         )
+
+    def test_lists_of_a_kind_next_to_each_other_stay_apart(self):
+        self.assertMarkdown(
+            "<ul><li>a</li></ul><ul><li>b</li></ul><div><ul><li>c</li></ul></div>"
+            '<ol><li>one</li></ol><ol start="5"><li>five</li><li>six<ol><li>x</li></ol></li></ol>'
+            "<ul><li>d</li></ul><p>then</p><ul><li>e</li></ul>",
+            "- a\n\n+ b\n\n- c\n\n1. one\n\n5) five\n6) six\n   1. x\n\n- d\n\nthen\n\n- e",
+        )
+        self.assertMarkdown(
+            "<blockquote><ul><li>a</li></ul><ul><li>b</li></ul></blockquote>"
+            "<ul><li>item<ul><li>a</li></ul><ul><li>b</li></ul></li></ul>",
+            "> - a\n>\n> + b\n\n- item\n  - a\n  + b",
+        )
+
+    def test_the_other_bullet_of_a_list_makes_no_rule(self):
+        self.assertMarkdown("<ul><li>a</li></ul><ul><li>**</li></ul>", "- a\n\n+ **")
+
+    def test_nested_lists_next_to_each_other_stay_apart(self):
+        self.assertMarkdown(
+            '<ol><li>a</li><ol><li>x</li></ol><ol start="5"><li>y</li></ol></ol>', "1. a\n   1. x\n   5) y"
+        )
+        self.assertMarkdown(
+            '<ul><li>a</li><li class="oe-nested"><ul><li>x</li></ul></li><li class="oe-nested"><ul><li>y</li></ul></li>'
+            '<li>b<ul><li>z</li></ul></li><ul><li>w</li></ul><li>c</li><li class="oe-nested"><ul><li>v</li></ul></li></ul>',
+            "- a\n  - x\n  + y\n- b\n  - z\n  + w\n- c\n  - v",
+        )
+        self.assertMarkdown(
+            "<ul><li>a</li><ul><li>x</li></ul>Between<ul><li>y</li></ul></ul>", "- a\n  - x\n\nBetween\n\n  - y"
+        )
+
+    def test_a_list_after_one_opening_with_a_nested_list_stays_apart(self):
+        self.assertMarkdown(
+            '<ul><li class="oe-nested"><ol><li>x</li></ol></li><li>y</li></ul><ul><li>z</li></ul>',
+            "  1. x\n- y\n\n+ z",
+        )
+        self.assertMarkdown(
+            '<ul><li class="oe-nested"><ul><li>x</li></ul></li></ul><ul><li>z</li></ul>', "  - x\n\n+ z"
+        )
+
+    def test_a_number_of_ten_digits_opens_no_list(self):
+        self.assertMarkdown("<ol><li>a</li></ol><p>1234567890. Released</p>", "1. a\n\n1234567890. Released")
+        self.assertMarkdown(
+            "<ol><li>a</li></ol><ol><li>b</li></ol><p>1234567890) x</p>", "1. a\n\n1) b\n\n1234567890) x"
+        )
+        self.assertMarkdown(
+            "<ul><li>a<ol><li>x</li></ol><p>1234567890. y</p></li></ul>", "- a\n  1. x\n\n  1234567890. y"
+        )
+        self.assertMarkdown('<ul class="o_checklist"><li><p>1234567890. z</p></li></ul>', "- [ ] 1234567890. z")
 
     def test_a_checklist_item_opening_with_a_code_block_or_a_quote_has_its_box_alone(self):
         self.assertMarkdown(
@@ -163,6 +211,25 @@ class TestHtmlToMarkdown(TransactionCase):
                 '<img src="/web/image?model=res.partner&amp;id=8"><a href="https://example.com/page/9">y</a>'
             ),
             {3, 4, 5, 6},
+        )
+
+    def test_ids_of_more_than_ten_digits_name_no_attachment(self):
+        long_id = "9" * 5000
+        self.assertEqual(
+            get_linked_attachment_ids(
+                '<img src="/web/image/%s"><a href="/web/content/%s?download=true">x</a>'
+                '<img src="/web/image?model=ir.attachment&amp;id=%s"><img src="/web/image/12">' % ((long_id,) * 3)
+            ),
+            {12},
+        )
+        self.assertEqual(
+            get_linked_attachment_ids(
+                '<img src="/web/image/%s"><img src="/web/image/%s">'
+                '<img src="/web/image?model=ir.attachment&amp;id=%s"><img src="/web/image?model=ir.attachment&amp;id=%s">'
+                % ("9" * 10, "8" * 11, "7" * 10, "6" * 11)
+            ),
+            {9999999999, 7777777777},
+            "ten digits are read, eleven are not",
         )
 
     def test_attachment_urls_become_pointers_in_every_form_without_their_token(self):
@@ -430,10 +497,49 @@ class TestHtmlToMarkdown(TransactionCase):
             "<table><tr>%s</tr>%s</table>" % ("<td colspan='1000' rowspan='1000'>x</td>" * 20, "<tr></tr>" * 200)
         )
         rows = markdown.split("\n")
-        self.assertEqual(len(rows), 101, "a header, its rule and the 99 rows the cells span")
+        self.assertEqual(len(rows), 202, "a header, its rule and the 200 rows of the table: a span fills no other")
         self.assertEqual({row.count(" | ") for row in rows}, {99})
         self.assertTrue(rows[0].startswith("| x |  | "), rows[0][:20])
         self.assertTrue(rows[0].endswith(" | %s |" % " ".join(["x"] * 19)), rows[0][-60:])
+
+    def test_a_row_span_runs_to_the_end_of_its_table(self):
+        rows_html = "".join("<tr><td>%d</td></tr>" % number for number in range(2, 106))
+        markdown = html_to_markdown(
+            '<table><tr><td rowspan="200">tall</td><td rowspan="%s">taller</td><td>1</td></tr>%s</table>'
+            % ("9" * 5000, rows_html)
+        )
+        rows = markdown.split("\n")
+        self.assertEqual(rows[0], "| tall | taller | 1 |")
+        self.assertEqual(rows[2:], ["|  |  | %d |" % number for number in range(2, 106)], "no row shifts a column")
+
+    def test_a_row_span_ends_with_its_row_group(self):
+        self.assertMarkdown(
+            '<table><thead><tr><th rowspan="50">H</th><th>I</th></tr></thead>'
+            "<tbody><tr><td>1</td><td>2</td></tr></tbody><tr><td>3</td><td>4</td></tr></table>",
+            "| H | I |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |",
+        )
+        self.assertMarkdown(
+            '<table><tbody><tr><td rowspan="0">A</td><td>1</td></tr><tr><td>2</td></tr></tbody>'
+            '<tbody><tr><td>3</td><td>4</td></tr></tbody><tr><td rowspan="00">B</td><td>5</td></tr><tr><td>6</td></tr>'
+            "</table>",
+            "| A | 1 |\n| --- | --- |\n|  | 2 |\n| 3 | 4 |\n| B | 5 |\n|  | 6 |",
+        )
+
+    def test_numbers_of_thousands_of_digits_are_bounded(self):
+        many = "9" * 5000
+        zeros = "0" * 5000
+        markdown = html_to_markdown(
+            '<table><tr><td colspan="%s" rowspan="%s">x</td></tr></table>'
+            '<ol start="%s"><li>a</li></ol><ol start="999999999"><li>b</li><li>c</li></ol>'
+            '<table><tr><td colspan="%s2">y</td></tr></table><ol start="%s3"><li>d</li></ol>'
+            % (many, many, many, zeros, zeros)
+        )
+        rows = markdown.split("\n\n")[0].split("\n")
+        self.assertEqual(len(rows), 2, "a header and its rule: a span adds no row of its own")
+        self.assertEqual(rows[0].count(" | "), 99, "the cell spans the most columns a span gives")
+        self.assertIn("\n\n1. a\n\n999999999) b\n999999999) c", markdown, "a list number has nine digits at most")
+        self.assertIn("\n\n| y |  |\n| --- | --- |\n\n", markdown, "leading zeros aside, the span is read")
+        self.assertIn("\n\n3. d", markdown)
 
 
 @tagged("post_install", "-at_install")
@@ -612,6 +718,11 @@ class TestTaskBrief(ProjectAiDrivenCommon):
         )
         self.assertNotIn("access_token", brief)
         self.assertNotIn(plan.access_token, brief)
+
+    def test_brief_of_a_text_linking_an_id_of_thousands_of_digits(self):
+        long_id = "9" * 5000
+        self.brief_task.description = '<p><img src="/web/image/%s"></p>' % long_id
+        self.assertEqual(get_sections(self._brief())["Description"], "![](/web/image/%s)" % long_id)
 
     def test_attachment_urls_point_at_this_database_only_on_its_host(self):
         plan = self.env["ir.attachment"].create(

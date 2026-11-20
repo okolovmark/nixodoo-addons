@@ -7,6 +7,7 @@ from unittest.mock import patch
 from psycopg2 import sql
 
 from odoo import Command
+from odoo.exceptions import AccessError
 from odoo.tests.common import Form, tagged
 
 from ..hooks import post_init_hook
@@ -253,6 +254,20 @@ class TestTaskDeadline(TeamDashboardCommon):
                     "//field[@name='%s']/tree/field[@invisible='1']/@name" % lines_field_name
                 )
                 self.assertLessEqual(set(DEADLINE_PLAN_FIELDS), set(hidden_columns))
+
+    def test_a_portal_collaborator_cannot_read_the_planned_end_of_the_deadline(self):
+        collaborator = self.env["res.users"].create(self._user_vals("Sharing Collaborator", ["base.group_portal"]))
+        shared_project = self.env["project.project"].create({"name": "Shared", "privacy_visibility": "portal"})
+        self.env["project.collaborator"].create(
+            {"project_id": shared_project.id, "partner_id": collaborator.partner_id.id}
+        )
+        shared_project.message_subscribe(partner_ids=collaborator.partner_id.ids)
+        task = self._create_task("Shared", project=shared_project, planned_date_end=MIDDAY_UTC)
+        shared_task = task.with_user(collaborator)
+
+        self.assertEqual(shared_task.read(["name"])[0]["name"], "Shared")
+        with self.assertRaises(AccessError):
+            shared_task.read(["date_deadline_planned_end"])
 
     def test_a_deadline_typed_after_a_move_on_the_form_stays_while_a_subtask_is_edited(self):
         other_project = self.env["project.project"].create(
