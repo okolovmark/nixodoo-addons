@@ -1,5 +1,5 @@
 import math
-from collections import Counter
+from collections import Counter, defaultdict
 
 from markupsafe import escape
 
@@ -134,6 +134,11 @@ class ProjectTask(models.Model):
     )
     pr_legacy = fields.Char(string="PR (old value)", readonly=True, copy=False)
     pr_required_states = fields.Many2many(related="project_id.pr_required_states")
+    is_estimate_required = fields.Boolean(
+        compute="_compute_is_estimate_required",
+        compute_sudo=True,
+        help="The task sits in a stage its AI-driven project lists in Stages Requiring a Type and an Estimate.",
+    )
     resolution = fields.Selection(
         [
             ("code", "Code"),
@@ -259,9 +264,9 @@ class ProjectTask(models.Model):
             record.pr_uri = record.pull_request_ids._origin.sorted("id")[:1].url
 
     def _inverse_pr_uri(self):
-        for record in self:
-            if not record.pr_uri:
-                continue
+        links_per_url = {}
+        tasks_per_url = defaultdict(self.browse)
+        for record in self.filtered("pr_uri"):
             link = parse_single_pull_request_link(record.pr_uri)
             if not link:
                 raise ValidationError(
@@ -271,12 +276,22 @@ class ProjectTask(models.Model):
                     )
                     % record.pr_uri
                 )
-            pull_request = self.env["project.pull.request"]._find_or_create(link)
-            if pull_request not in record.pull_request_ids:
-                record.pull_request_ids = [Command.link(pull_request.id)]
+            links_per_url.setdefault(link.url, link)
+            tasks_per_url[link.url] |= record
+        for url, tasks in tasks_per_url.items():
+            pull_request = self.env["project.pull.request"]._find_or_create(links_per_url[url])
+            tasks_without_pull_request = tasks.filtered(lambda task: pull_request not in task.pull_request_ids)
+            if tasks_without_pull_request:
+                tasks_without_pull_request.write({"pull_request_ids": [Command.link(pull_request.id)]})
         # The value written names a pull request to add; the field goes on reading the first one.
         with self.env.protecting([self._fields["pr_uri"]], self):
             self._compute_pr_uri()
+
+    @api.depends("stage_id", "project_id.is_ai_driven", "project_id.estimate_required_states")
+    def _compute_is_estimate_required(self):
+        required_tasks = self._filter_estimate_rule_tasks()
+        for record in self:
+            record.is_estimate_required = record in required_tasks
 
     # message_ids clears only the count cached within a transaction: an open form shows a new note on reload
     @api.depends("message_ids")
@@ -330,12 +345,12 @@ class ProjectTask(models.Model):
         vals = self._without_recurrence_update(vals)
         if len(self) == 1 and len(tasks) > 1:
             handle_history_divergence(self, "description", vals)
-        former_stages = tasks._get_former_stages(vals)
+        former_projects_and_stages = tasks._get_former_projects_and_stages(vals)
         former_modules = tasks._get_former_modules(vals)
         # not tasks.write: the overrides above this one already run for this write
         result = super(ProjectTask, tasks._with_silent_assignment(tasks - self)).write(vals)
         tasks._check_modules_installed(tasks._get_added_modules(former_modules))
-        moved_tasks = tasks._filter_moved_from(former_stages)
+        moved_tasks = tasks._filter_moved_from(former_projects_and_stages)
         moved_tasks._apply_closing_rule()
         moved_tasks._apply_estimate_rule()
         return result
@@ -504,16 +519,25 @@ class ProjectTask(models.Model):
             return self
         return self.with_context(**{SILENT_ASSIGNMENT_KEY: SilentAssignmentTaskIds(silent_tasks.ids)})
 
-    def _get_former_stages(self, vals):
-        """Return {task id: stage} when vals may move the tasks to another stage:
-        a project change recomputes the stage.
+    def _get_former_projects_and_stages(self, vals):
+        """Return {task id: (project, stage)} when vals may move the tasks to
+        another project or stage: a project change recomputes the stage, and
+        core makes the display_project_id of a subtask its project. A new
+        parent_id stays out: ADR 0002 leaves that move unchecked.
         """
-        if "stage_id" not in vals and "project_id" not in vals:
+        if not vals.keys() & {"stage_id", "project_id", "display_project_id"}:
             return {}
-        return {record.id: record.stage_id for record in self}
+        return {record.id: (record.project_id, record.stage_id) for record in self}
 
-    def _filter_moved_from(self, former_stages):
-        return self.filtered(lambda record: record.id in former_stages and record.stage_id != former_stages[record.id])
+    def _filter_moved_from(self, former_projects_and_stages):
+        """Return the tasks whose project or stage changed. A task enters a
+        stage also when it keeps it in another project: core keeps the stage
+        when the new project has it too.
+        """
+        return self.filtered(
+            lambda record: record.id in former_projects_and_stages
+            and (record.project_id, record.stage_id) != former_projects_and_stages[record.id]
+        )
 
     def _get_former_modules(self, vals):
         if "module_ids" not in vals:
