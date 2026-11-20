@@ -13,6 +13,7 @@ One branch per Odoo version (`16.0`, `20.0`), modules at the repository root.
 | `project_member_access` | A project's Access mode (Standard, Public, Private) and members with a role (Reader, Contributor, Editor, Admin) that decide reads and writes inside Public and Private projects; Standard projects keep Odoo's access | - |
 | `project_support_request` | A Support item in the header of the web client that files requests as tasks of the project that develops this Odoo, and lists the user's open ones | - |
 | `project_team_dashboard` | A Team Dashboard of workload cards by project, manager or department, a multi-project Gantt chart with dependency lags, baselines and the stage history of tasks, a Backlog list, stage flags for work in progress and backlog, and planned dates of a task that roll up from its sub-tasks | `use_team_dashboard` |
+| `web_bundle_refresh_notice` | Odoo's own *The page appears to be out of date.* notice in open backend tabs whose code a module update has made out of date, which Odoo shows only after a version upgrade | - |
 
 ## Using a module
 
