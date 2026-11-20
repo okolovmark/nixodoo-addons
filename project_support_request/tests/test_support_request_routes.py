@@ -79,3 +79,22 @@ class TestSupportRequestRoutes(HttpCase):
             {"error": INTERNAL_USERS_ONLY_ERROR},
         )
         self.assertFalse(self.env["project.task"].search([("name", "=", "Filed by a portal user over JSON-RPC")]))
+
+    def test_a_user_without_the_company_of_the_support_project_lists_their_request(self):
+        own_company = self.env["res.company"].create({"name": "Company of the Filer"})
+        filer = new_test_user(
+            self.env,
+            login="support_route_other_company",
+            groups="base.group_user",
+            company_id=own_company.id,
+            company_ids=[Command.set(own_company.ids)],
+        )
+        self.authenticate(filer.login, filer.login)
+
+        ticket = self._result(CREATE_URL, name="Filed from another company", task_type="bug")
+
+        systray = self._result(SYSTRAY_URL, tab="bugs", limit=0)
+        self.assertNotEqual(self.env["project.task"].browse(ticket["ticket_id"]).company_id, own_company)
+        self.assertEqual(
+            (systray["bugs_count"], [listed["id"] for listed in systray["tickets"]]), (1, [ticket["ticket_id"]])
+        )
