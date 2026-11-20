@@ -20,11 +20,11 @@ Odoo, as tasks of the project flagged **Develops This Odoo**
   access to their own requests, the form looks editable there, yet saving is
   refused. The project itself stays closed to them. Other users' requests,
   tasks of other projects and portal users gain nothing from it.
-* *New Ticket* takes a title and a task type and creates the task in the
-  first unfolded stage of the project, with the user as its UAT user, no
-  assignee and no estimate. Every internal user files requests, with or
-  without Project rights and whether or not they read the project: the task
-  is created with superuser rights, in the user's name.
+* *New Support Request* takes a title and a task type and creates the task
+  in the first unfolded stage of the project, with the user as its UAT
+  user, no assignee and no estimate. Every internal user files requests,
+  with or without Project rights and whether or not they read the project:
+  the task is created with superuser rights, in the user's name.
 * Without an active project carrying the flag the item is hidden.
 * Only internal users file and list requests: for any other user, a portal
   user for one, the item's routes name no project, list nothing and refuse
@@ -33,7 +33,9 @@ Odoo, as tasks of the project flagged **Develops This Odoo**
 The task key (``key``) is shown before the title where a module of the
 database declares it, such as OCA ``project_key``.
 
-The task types of *New Ticket* are labelled in the user's language, and the
-item's messages are translatable. Neither this module nor
+The task types of *New Support Request* are labelled in the user's
+language, and every text of the item is translatable: its labels and
+messages, the errors the server answers with, the priority levels of the
+dots and the ages of the requests. Neither this module nor
 ``project_ai_driven`` ships a translation: both read in English until one
 is loaded.

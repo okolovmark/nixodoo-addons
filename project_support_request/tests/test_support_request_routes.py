@@ -1,9 +1,11 @@
 import json
+from unittest.mock import patch
 
 from odoo import Command
 from odoo.tests.common import HttpCase, new_test_user, tagged
+from odoo.tools.translate import code_translations
 
-from odoo.addons.project_support_request.controllers.project_support_request import INTERNAL_USERS_ONLY_ERROR
+from odoo.addons.project_support_request.controllers.project_support_request import NO_SUPPORT_PROJECT_ERROR
 
 CONFIG_URL = "/project_support_request/config"
 CREATE_URL = "/project_support_request/create"
@@ -80,6 +82,41 @@ class TestSupportRequestRoutes(HttpCase):
 
         self.assertIn({"value": "bug", "label": "Anomalie"}, task_types)
 
+    def test_the_errors_of_a_request_come_in_the_users_language(self):
+        self.env["res.lang"]._activate_lang("fr_FR")
+        filer = new_test_user(self.env, login="support_route_french", groups="base.group_user", lang="fr_FR")
+        portal_user = new_test_user(
+            self.env, login="support_route_french_portal", groups="base.group_portal", lang="fr_FR"
+        )
+        french_terms = {
+            "Support request title is required.": "La demande d'assistance n'a pas de titre.",
+            "Invalid task type: %s": "Type de tâche inconnu : %s",
+            NO_SUPPORT_PROJECT_ERROR: "Aucun projet actif ne développe cet Odoo.",
+            "Only internal users file support requests.": "Seuls les utilisateurs internes en déposent.",
+        }
+
+        with patch.dict(code_translations.python_translations, {("project_support_request", "fr_FR"): french_terms}):
+            self.authenticate(filer.login, filer.login)
+            errors = [
+                self._result(CREATE_URL, name="  ")["error"],
+                self._result(CREATE_URL, name="Filed with an unknown type", task_type="no_such_type")["error"],
+            ]
+            self.project.develops_this_odoo = False
+            self.env.flush_all()
+            errors.append(self._result(CREATE_URL, name="Filed without a support project")["error"])
+            self.authenticate(portal_user.login, portal_user.login)
+            errors.append(self._result(CREATE_URL, name="Filed by a portal user")["error"])
+
+        self.assertEqual(
+            errors,
+            [
+                "La demande d'assistance n'a pas de titre.",
+                "Type de tâche inconnu : no_such_type",
+                "Aucun projet actif ne développe cet Odoo.",
+                "Seuls les utilisateurs internes en déposent.",
+            ],
+        )
+
     def test_a_request_is_filed_with_the_type_picked_and_refused_with_an_unknown_one(self):
         self.authenticate(self.internal_user.login, self.internal_user.login)
 
@@ -100,7 +137,7 @@ class TestSupportRequestRoutes(HttpCase):
         )
         self.assertEqual(
             self._result(CREATE_URL, name="Filed by a portal user over JSON-RPC"),
-            {"error": INTERNAL_USERS_ONLY_ERROR},
+            {"error": "Only internal users file support requests."},
         )
         self.assertFalse(self.env["project.task"].search([("name", "=", "Filed by a portal user over JSON-RPC")]))
 

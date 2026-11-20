@@ -2,6 +2,7 @@
 
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
+import { sprintf } from "@web/core/utils/strings";
 import { priorityDot, ticketAge } from "./support_request_utils";
 
 const { Component, useState, onWillStart, onWillUnmount, onMounted } = owl;
@@ -120,6 +121,10 @@ export class SupportRequestSystray extends Component {
         return priorityDot;
     }
 
+    priorityTitle(label) {
+        return sprintf(this.env._t("Priority: %s"), label);
+    }
+
     _openRequest(requestId) {
         this.actionService.doAction({
             type: "ir.actions.act_window",
@@ -200,7 +205,7 @@ export class SupportRequestSystray extends Component {
             ev.stopPropagation();
         }
         if (!this.state.createName.trim()) {
-            this.notification.add(this.env._t("Please enter a ticket title."), { type: "warning" });
+            this.notification.add(this.env._t("Please enter a title for the support request."), { type: "warning" });
             return;
         }
         this.state.creating = true;
@@ -218,7 +223,7 @@ export class SupportRequestSystray extends Component {
             this.state.isOpen = false;
             this._openRequest(result.ticket_id);
         } catch {
-            this.notification.add(this.env._t("Error creating ticket"), { type: "danger" });
+            this.notification.add(this.env._t("Error creating the support request"), { type: "danger" });
         }
         this.state.creating = false;
     }
@@ -238,7 +243,7 @@ export class SupportRequestSystray extends Component {
             this.state.total = result.total || 0;
             this.state.showAll = true;
         } catch {
-            this.notification.add(this.env._t("Error loading tickets"), { type: "danger" });
+            this.notification.add(this.env._t("Error loading support requests"), { type: "danger" });
         }
         this.state.loading = false;
     }
@@ -262,7 +267,7 @@ export class SupportRequestSystray extends Component {
             }
             this.actionService.doAction({
                 type: "ir.actions.act_window",
-                name: this.env._t("Closed Tickets"),
+                name: this.env._t("Closed Support Requests"),
                 res_model: "project.task",
                 views: [
                     [false, "list"],
@@ -276,7 +281,7 @@ export class SupportRequestSystray extends Component {
                 target: "current",
             });
         } catch {
-            this.notification.add(this.env._t("Error opening closed tickets"), { type: "danger" });
+            this.notification.add(this.env._t("Error opening closed support requests"), { type: "danger" });
         }
     }
 }

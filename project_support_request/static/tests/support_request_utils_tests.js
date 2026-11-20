@@ -1,6 +1,8 @@
 /** @odoo-module **/
 
 import { startServer } from "@bus/../tests/helpers/mock_python_environment";
+import { translatedTerms } from "@web/core/l10n/translation";
+import { patchWithCleanup } from "@web/../tests/helpers/utils";
 import { priorityDot, ticketAge } from "@project_support_request/support_request_systray/support_request_utils";
 
 const { DateTime } = luxon;
@@ -32,6 +34,20 @@ QUnit.module(
             assert.deepEqual([false, "9"].map(priorityDot), [priorityDot("1"), priorityDot("1")]);
         });
 
+        QUnit.test("the labels of the levels read in the user's language", (assert) => {
+            patchWithCleanup(translatedTerms, {
+                Lowest: "Très basse",
+                Low: "Basse",
+                Medium: "Moyenne",
+                High: "Haute",
+                Highest: "Très haute",
+            });
+            assert.deepEqual(
+                ["0", "1", "2", "3", "4", "9"].map((level) => priorityDot(level).label),
+                ["Très basse", "Basse", "Moyenne", "Haute", "Très haute", "Basse"]
+            );
+        });
+
         QUnit.module("ticketAge");
 
         QUnit.test("the create date is read in UTC, whatever the browser's time zone", (assert) => {
@@ -48,6 +64,21 @@ QUnit.module(
 
         QUnit.test("a request without a create date has no age", (assert) => {
             assert.strictEqual(ticketAge(""), "");
+        });
+
+        QUnit.test("the age reads in the user's language", (assert) => {
+            patchWithCleanup(translatedTerms, {
+                "%sm ago": "il y a %s min",
+                "%sh ago": "il y a %s h",
+                "%sd ago": "il y a %s j",
+            });
+            const now = DateTime.fromISO("2026-11-19T10:30:00Z");
+            assert.deepEqual(
+                ["2026-11-19 10:00:00", "2026-11-19 07:15:00", "2026-11-16 10:30:00"].map((createDate) =>
+                    ticketAge(createDate, now)
+                ),
+                ["il y a 30 min", "il y a 3 h", "il y a 3 j"]
+            );
         });
     }
 );
