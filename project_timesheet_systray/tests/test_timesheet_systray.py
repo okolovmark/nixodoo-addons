@@ -14,6 +14,7 @@ RUNNING_TIMER_FIELDS = (
     "task_id",
     "task_name",
     "task_key",
+    "is_task_readable",
     "project_id",
     "project_name",
     "date_time",

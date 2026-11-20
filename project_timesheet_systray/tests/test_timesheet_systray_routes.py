@@ -5,6 +5,7 @@ from unittest.mock import patch
 from odoo import Command
 from odoo.exceptions import UserError
 from odoo.tests.common import HttpCase, new_test_user, tagged
+from odoo.tools import translate
 
 from .common import TimesheetSystrayCase
 
@@ -32,28 +33,6 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
         body = self._call(url, **params)
         self.assertNotIn("error", body, url)
         return body["result"]
-
-    def _create_unfollowed_task(self, privacy_visibility):
-        """A task of Dev One in a project of that visibility, which Dev One follows no longer."""
-        project = self.env["project.project"].create(
-            {
-                "name": "Project Visible to %s" % privacy_visibility,
-                "privacy_visibility": privacy_visibility,
-                "allow_timesheets": True,
-                "type_ids": [Command.set(self.stage_in_progress.ids)],
-            }
-        )
-        task = self.env["project.task"].create(
-            {
-                "name": "Task Unfollowed by Its Assignee",
-                "project_id": project.id,
-                "stage_id": self.stage_in_progress.id,
-                "user_ids": [Command.set(self.user_dev1.ids)],
-            }
-        )
-        task.message_unsubscribe(self.user_dev1.partner_id.ids)
-        self.assertNotIn(self.user_dev1.partner_id, task.message_partner_ids)
-        return task
 
     def _start_timer_on(self, task):
         started = self._result(START_URL, task_id=task.id)
@@ -105,7 +84,7 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
         self.assertEqual([task_data["task_id"] for task_data in task_list["tasks"]], [self.task.id])
 
         started = self._result(START_URL, task_id=self.task.id)
-        self.assertTrue(started["running"])
+        self.assertEqual((started["running"], started["timesheet"]["is_task_readable"]), (True, True))
         line = self.env["account.analytic.line"].browse(started["timesheet"]["id"])
         self.assertEqual((line.task_id, line.employee_id, line.unit_amount), (self.task, self.employee_dev1, 0))
         self.assertEqual(self._result(SYSTRAY_URL)["timesheet"]["id"], line.id)
@@ -150,6 +129,32 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
                 (task_data["task_id"], task_data["project_id"], task_data["project_name"])
                 for task_data in task_list["tasks"]
             ],
+        )
+
+    def test_a_task_of_a_project_with_timesheets_off_is_not_listed(self):
+        project = self.env["project.project"].create(
+            {
+                "name": "Project Without Timesheets",
+                "allow_timesheets": False,
+                "type_ids": [Command.set(self.stage_in_progress.ids)],
+            }
+        )
+        task = self.env["project.task"].create(
+            {
+                "name": "Task Without Timesheets",
+                "project_id": project.id,
+                "stage_id": self.stage_in_progress.id,
+                "user_ids": [Command.set(self.user_dev1.ids)],
+            }
+        )
+        self.authenticate(self.user_dev1.login, DEV1_PASSWORD)
+
+        task_list = self._result(SYSTRAY_URL, limit=0)
+
+        self.assertEqual(
+            ([task_data["task_id"] for task_data in task_list["tasks"]], task_list["total_tasks"]),
+            ([self.task.id], 1),
+            "%s must not be listed" % task.name,
         )
 
     def test_an_assignee_who_unfollowed_a_task_of_a_followers_only_project_follows_it_again_on_start(self):
@@ -203,8 +208,15 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
 
         timesheet = systray["timesheet"] or {}
         self.assertEqual(
-            (systray["running"], timesheet.get("id"), timesheet.get("task_name"), timesheet.get("project_id")),
-            (True, line.id, task.name, task.project_id.id),
+            (
+                systray["running"],
+                timesheet.get("id"),
+                timesheet.get("task_name"),
+                timesheet.get("project_id"),
+                timesheet.get("is_task_readable"),
+            ),
+            (True, line.id, task.name, task.project_id.id, False),
+            "the running card names the task, with no link to a task the user no longer reads",
         )
         self._start_half_an_hour_ago(line)
         self.assertFalse(self._result(STOP_URL, timesheet_id=line.id)["running"])
@@ -262,3 +274,78 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
         self.env.invalidate_all()
         self.assertNotIn(self.user_dev1.partner_id, task.message_partner_ids)
         self.assertEqual(running_line.unit_amount, 0)
+
+    def _start_then_unfollow(self, task):
+        """A timer of Dev One on `task`, whose line the rules on time lines then hide from them."""
+        line = self._start_timer_on(task)
+        task.message_unsubscribe(self.user_dev1.partner_id.ids)
+        self.env.flush_all()
+        self.assertFalse(self.env["account.analytic.line"].with_user(self.user_dev1).search([("id", "=", line.id)]))
+        return line
+
+    def test_a_timesheet_user_who_unfollows_the_task_of_a_running_timer_sees_and_stops_it(self):
+        task = self._create_unfollowed_task("followers")
+        self.authenticate(self.user_dev1.login, DEV1_PASSWORD)
+        line = self._start_then_unfollow(task)
+
+        systray = self._result(SYSTRAY_URL)
+
+        timesheet = systray["timesheet"] or {}
+        self.assertEqual(
+            (systray["running"], timesheet.get("id"), timesheet.get("is_task_readable")), (True, line.id, True)
+        )
+        self._start_half_an_hour_ago(line)
+        self.assertFalse(self._result(STOP_URL, timesheet_id=line.id)["running"])
+        line.invalidate_recordset(["unit_amount"])
+        self.assertAlmostEqual(line.unit_amount, 0.5, delta=0.05)
+
+    def test_a_start_ends_a_running_timer_whose_line_the_user_no_longer_reads(self):
+        task = self._create_unfollowed_task("followers")
+        self.authenticate(self.user_dev1.login, DEV1_PASSWORD)
+        first_line = self._start_then_unfollow(task)
+        self._start_half_an_hour_ago(first_line)
+
+        self._start_timer_on(self.task)
+
+        first_line.invalidate_recordset(["unit_amount"])
+        self.assertAlmostEqual(first_line.unit_amount, 0.5, delta=0.05)
+
+    def test_the_systray_neither_shows_nor_stops_a_running_timer_of_another_user(self):
+        other_line = self._create_timesheet(self.task, self.user_dev2, self.employee_dev2)
+        self.authenticate(self.user_dev1.login, DEV1_PASSWORD)
+
+        self.assertFalse(self._result(SYSTRAY_URL)["running"])
+        self.assertIn("error", self._result(STOP_URL, timesheet_id=other_line.id))
+        other_line.invalidate_recordset(["unit_amount"])
+        self.assertEqual(other_line.unit_amount, 0)
+
+    def test_the_route_messages_follow_the_user_language(self):
+        self.env["res.lang"]._activate_lang("fr_FR")
+        new_test_user(
+            self.env,
+            "timesheet_systray_fr",
+            groups="base.group_user,project.group_project_user,hr_timesheet.group_hr_timesheet_user",
+            password="timesheet_systray_fr",
+            lang="fr_FR",
+        )
+        french_messages = {
+            "Task not found": "Tâche introuvable",
+            "No employee linked to your user": "Aucun employé lié à votre utilisateur",
+            "Timer is not running": "Le minuteur ne tourne pas",
+            "No tasks in progress": "Aucune tâche en cours",
+        }
+        self.authenticate("timesheet_systray_fr", "timesheet_systray_fr")
+
+        with patch.object(
+            translate.code_translations,
+            "get_python_translations",
+            lambda module, lang: french_messages if lang == "fr_FR" else {},
+        ):
+            answers = (
+                self._result(START_URL, task_id=self.task.id + 1000000)["error"],
+                self._result(START_URL, task_id=self.task.id)["error"],
+                self._result(STOP_URL, timesheet_id=0)["error"],
+                self._result(SYSTRAY_URL)["message"],
+            )
+
+        self.assertEqual(answers, tuple(french_messages.values()))

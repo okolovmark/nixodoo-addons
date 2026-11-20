@@ -6,7 +6,7 @@
             <div class="o_timesheet_systray_icon d-flex align-items-center px-1"
                  role="button"
                  t-on-click="toggleDropdown"
-                 t-att-title="state.running ? 'Timer running' : 'Timesheet timer'">
+                 t-att-title="iconTitle">
                 <i class="fa fa-hourglass-half" t-att-class="iconClass"/>
                 <span class="o_ts_icon_label ms-1">Timelog</span>
                 <span t-if="state.running"
@@ -39,15 +39,15 @@
                         <div class="d-flex align-items-start mb-2">
                             <i class="fa fa-tasks me-2 mt-1" style="color: #555;"/>
                             <div class="flex-grow-1 overflow-hidden">
-                                <a href="#" class="text-truncate d-block text-decoration-none"
+                                <a t-if="state.timesheet.is_task_readable" href="#"
+                                   class="text-truncate d-block text-decoration-none"
                                    t-on-click="onOpenTask"
                                    t-att-title="state.timesheet.task_name">
-                                    <span t-if="state.timesheet.task_key"
-                                          class="o_ts_task_key me-1">
-                                        <t t-esc="state.timesheet.task_key"/>
-                                    </span>
-                                    <strong class="text-dark"><t t-esc="state.timesheet.task_name"/></strong>
+                                    <t t-call="project_timesheet_systray.RunningTaskLabel"/>
                                 </a>
+                                <div t-else="" class="text-truncate" t-att-title="state.timesheet.task_name">
+                                    <t t-call="project_timesheet_systray.RunningTaskLabel"/>
+                                </div>
                                 <div class="small text-truncate" style="color: #555;">
                                     <i class="fa fa-folder-o me-1"/>
                                     <t t-esc="state.timesheet.project_name"/>
@@ -123,11 +123,19 @@
                         <i class="fa fa-coffee fa-2x"/>
                     </div>
                     <div class="text-muted fw-bold">
-                        <t t-esc="state.message || 'No tasks in progress'"/>
+                        <t t-if="state.message" t-esc="state.message"/>
+                        <t t-else="">No tasks in progress</t>
                     </div>
                 </div>
             </div>
         </div>
+    </t>
+
+    <t t-name="project_timesheet_systray.RunningTaskLabel" owl="1">
+        <span t-if="state.timesheet.task_key" class="o_ts_task_key me-1">
+            <t t-esc="state.timesheet.task_key"/>
+        </span>
+        <strong class="text-dark"><t t-esc="state.timesheet.task_name"/></strong>
     </t>
 
 </templates>
