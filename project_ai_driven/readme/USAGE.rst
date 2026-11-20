@@ -59,10 +59,18 @@ On the task form:
   moving the task to a stage that requires them. The refusal names what is
   missing.
 
+In the kanban view of an AI-driven project, the quick create of a column
+shows **Task Type** and **Estimate** after the assignees. In a column whose
+stage requires them, fill both, the Estimate above zero, before adding the
+task; elsewhere they may stay empty. When the quick create is refused, the
+full form of a new task opens with the title typed.
+
 An image pasted or dropped into a text of a task, of a question row or of a
 test case becomes an attachment of the task when the record is saved: it
 shows among the attachments of the task's chatter, and the text shows it
-from there. A duplicated task gets its own copies of the images.
+from there. The same image pasted again on the task links the attachment it
+has. A duplicated task gets its own copies of the images and of the files
+its texts link.
 
 **Project > Checklist** lists the checklist items of the tasks you can read
 in the selected companies, opened on your own TODO items. Group by project,
@@ -203,8 +211,9 @@ A tool that writes a text over RPC may send its images inline, as
 ``<img src="data:image/png;base64,..." data-filename="...">``: the create or
 write makes each an attachment of the task, and a read of the text gives the
 ``/web/image/<id>?access_token=<token>`` link in its place. To show an image
-of another task in a new task, question row or test case, it sends the link
-as it read it, access token included: the new record gets its own copy.
+or link a file of another task in a new task, question row or test case, it
+sends the ``/web/image/<id>`` or ``/web/content/<id>`` link as it read it,
+access token included: the new record gets its own copy.
 
 A migration or an ``odoo shell`` script moves the inline images of texts
 saved before 16.0.2.13.0 with
@@ -214,7 +223,8 @@ tasks and of their question rows and test cases, and returns ``records``
 (the tasks and rows whose texts change), ``images`` (the attachments
 created), ``bytes`` (their size before core resizes them) and ``texts``
 (``{record: {field name: new text}}``). An image core cannot read stays
-inline and counts nowhere.
+inline and counts nowhere, and one the task already has is linked and not
+counted.
 
 * ``dry_run=True`` creates and changes nothing, counts as a run would, and
   returns empty ``texts``.
@@ -222,7 +232,7 @@ inline and counts nowhere.
   caller, which can store them by SQL to keep ``write_date`` and
   ``write_uid``; the default stores them as a save does, which updates both.
   A returned text the caller does not store keeps its inline images, and
-  the next run attaches them again.
+  the next run links the attachments this one created.
 
 An agent or a tool reads a whole task with one read that names the brief:
 ``read([<task id>], ["brief"])`` on ``project.task``, or ``search_read`` with

@@ -304,6 +304,12 @@ change saved for the following or for all tasks of a recurrence reaches the
 tasks of that recurrence only, each one checked and its Assigning Date set
 or cleared as Odoo's write of several tasks sets or clears it.
 
+The update to 16.0.2.21.0 has no migration and writes nothing on existing
+records; it loads the view that adds Task Type and Estimate to the kanban
+quick create. From it the closing and the estimate rules check a task moved
+to another project also when it keeps its stage, and a save links an image
+the task already has instead of attaching it again.
+
 **Coming from project_task_pull_request**
 
 This module declares ``pr_uri`` on the task and ``pr_required_states`` on

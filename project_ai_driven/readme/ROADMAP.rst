@@ -84,16 +84,21 @@
   the bold, and nothing between the bold and the category.
 * The eight categories and their spelling are fixed in the module:
   ``Bugfix`` or ``Deployment`` in bold is no category.
-* An image is attached once per save: the same image pasted again in a later
-  save becomes another attachment of the task.
-* Only the ``src`` of an ``<img>`` is read. An image in a ``srcset``, a
-  ``<picture>`` source or a CSS background stays as it is, inline or linked,
-  and so does an absolute link to another task's image
-  (``https://<host>/web/image/<id>``): a copy of the text still links the
-  source task's attachment.
-* A file of another task linked as ``/web/content/<id>`` keeps pointing at
-  that task's attachment in a copied text, and the link breaks when that
-  task is deleted.
+* A link to another task's image or file on a host or port other than that
+  of ``web.base.url`` stays as it is: a copy of the text still links the
+  source task's attachment, and the link breaks when that task is deleted.
+* An image in another attribute (a ``poster``, a ``data-*``) is not read
+  and stays as it is, inline or linked. Neither is a ``<style>`` element,
+  which the sanitizer drops.
+* A file link is copied only where a new record, or a row moved to another
+  task, copies images: a write that pastes one leaves it pointing at the
+  other task.
+* A link is copied in the forms ``/web/image/<id>`` and ``/web/content/<id>``
+  only: the other forms the brief reads, such as
+  ``/web/content/ir.attachment/<id>/datas`` or ``/web/content?id=<id>``,
+  stay as they are.
+* A large image that a copied text both shows and links as a file gives
+  the new task two attachments: the image resized, the file as uploaded.
 * An image taken out of a text, and the images of a deleted question row or
   test case, stay among the attachments of the task.
 * The brief removes tokens from a url that stands as a word of a text or of
