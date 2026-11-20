@@ -113,11 +113,15 @@ Comments. The **Status** of a case is its result: Not run (the default),
 Passed, Failed, Waiting or Not applicable.
 
 * **Verified by** and **Verified on**: who gave the last Passed or Failed,
-  and when. A create or write that sets Passed or Failed fills them with the
-  user who makes it, also under ``sudo()``, and the current time; a value
-  the same call gives is kept. Passed or Failed given again is a new
-  verification. Not run clears them and **Verification**; Waiting and Not
-  applicable leave them.
+  and when. A create or write that sets Passed or Failed, or a create that
+  takes it from a default (the context's or an ``ir.default``), fills them
+  with the user who makes it, also under ``sudo()``, and the current time; a
+  value the same call gives is kept. Passed or Failed given again is a new
+  verification. A create or write that gives Not run clears them and
+  **Verification**, whatever values it sends for them; Waiting and Not
+  applicable leave them. A create or write without a state keeps the values
+  it gives: a case created Not run by default keeps the Verification it is
+  prepared with.
 * **Verification**: Manual, Automated test or Demo. A result button other
   than Not run sets it to Manual when it is empty.
 * **Automated test reference**: the automated test that verifies the case,
@@ -138,6 +142,16 @@ case Not run without Verified by, Verified on, Verification and comments,
 keeping its steps, expected results and Automated test reference. The task
 it repeats keeps its lines. The next task is created as a new task, so its
 items are posted to their assignee and reviewer.
+
+A case is found, read, changed, deleted and created by the users who can
+read its task, as a checklist item is, and moves only onto a task they can
+read, so the images of its texts reach only such a task.
+
+The completion percentages and the card summaries of the checklist and the
+test cases (``completion``, ``completion_xml``, ``kanban_checklist``,
+``testcase_completion``, ``testcase_completion_xml``, ``kanban_testcases``)
+are for **Project / User** only, as the lines they count: the task cards of
+another user show neither, and a read of the task leaves them out.
 
 **Questions** (``project.task.question``)
 
