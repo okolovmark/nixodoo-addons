@@ -1,4 +1,6 @@
+import logging
 import re
+from contextlib import ExitStack
 from unittest.mock import patch
 
 import odoo.tests
@@ -8,6 +10,17 @@ from odoo.tools import config, file_open
 from odoo.addons.web.tests import test_js
 
 MODULE = "project_team_dashboard"
+
+
+class HootSummary(logging.Handler):
+    """The count of passed tests in the summary Hoot logs at the end of a run, which reports a filter
+    that selects no test as a success."""
+
+    passed_count = 0
+
+    def emit(self, record):
+        if match := re.match(r"\[HOOT\] Passed (\d+) tests", record.getMessage()):
+            self.passed_count = int(match[1])
 
 
 @odoo.tests.tagged("post_install", "-at_install")
@@ -73,6 +86,13 @@ class HootModuleCase(test_js.HootCommon):
     def _run_hoot(self):
         if self._web_suite_runs_this_module():
             self.skipTest(f"{self.web_suite_class.__name__} runs the Hoot tests of {MODULE} in this run")
+        summary = HootSummary()
+        browser_logger = self._logger.getChild("browser")
+        browser_logger.addHandler(summary)
+        self.addCleanup(browser_logger.removeHandler, summary)
+        if not browser_logger.isEnabledFor(logging.RUNBOT):
+            self.addCleanup(browser_logger.setLevel, browser_logger.level)
+            browser_logger.setLevel(logging.RUNBOT)
         self.browser_js(
             f"{self.url}&id={self._generate_hash(f'@{MODULE}')}",
             "",
@@ -82,6 +102,7 @@ class HootModuleCase(test_js.HootCommon):
             success_signal="[HOOT] Test suite succeeded",
             error_checker=test_js.unit_test_error_checker,
         )
+        self.assertGreater(summary.passed_count, 0, f"Hoot finds no test of {MODULE} under its filter")
 
 
 @odoo.tests.tagged("hoot", "post_install", "-at_install")
@@ -162,6 +183,44 @@ class TestHootRunners(odoo.tests.TransactionCase):
                     patch.object(self.registry, "updated_modules", []),
                 ):
                     self.assertEqual(runner._web_suite_runs_this_module(), is_left_to_web)
+
+    def _run_with_browser_log(self, runner_class, test_method, browser_message):
+        """Run the runner on a browser that logs browser_message alone, and return its browser logger,
+        whose level lets that message through only once the runner raises it."""
+        runner = runner_class(test_method)
+        runner._logger = logging.getLogger(f"{__name__}.{self._testMethodName}.{runner_class.__name__}")
+        browser_logger = runner._logger.getChild("browser")
+        browser_logger.setLevel(logging.WARNING)
+        browser_logger.propagate = False
+
+        def browser_js(*args, **kwargs):
+            browser_logger.log(logging.RUNBOT, browser_message)
+
+        with (
+            ExitStack() as runner_cleanups,
+            patch.object(runner, "addCleanup", runner_cleanups.callback),
+            patch.object(runner, "_web_suite_runs_this_module", return_value=False),
+            patch.object(runner, "browser_js", browser_js),
+        ):
+            runner._run_hoot()
+        return browser_logger
+
+    def test_a_run_gives_the_browser_logger_back_as_it_found_it(self):
+        for runner_class, test_method in self.RUNNERS:
+            with self.subTest(runner=runner_class.__name__):
+                browser_logger = self._run_with_browser_log(runner_class, test_method, "[HOOT] Passed 3 tests")
+                self.assertEqual(browser_logger.level, logging.WARNING)
+                self.assertFalse(browser_logger.handlers)
+
+    def test_a_run_whose_filter_selects_no_test_fails(self):
+        for runner_class, test_method in self.RUNNERS:
+            with (
+                self.subTest(runner=runner_class.__name__),
+                self.assertRaisesRegex(AssertionError, f"Hoot finds no test of {MODULE} under its filter"),
+            ):
+                self._run_with_browser_log(
+                    runner_class, test_method, "[HOOT] Passed 0 tests (0 assertions, total time: 2ms)"
+                )
 
     def test_the_suite_check_reads_the_module_of_test_files_only(self):
         module_test_file = {"url": f"/{MODULE}/static/tests/gantt.test.js", "filename": "gantt.test.js"}

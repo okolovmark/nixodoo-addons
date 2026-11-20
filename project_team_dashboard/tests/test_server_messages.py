@@ -75,8 +75,6 @@ class TestServerMessagesTranslated(TeamDashboardCommon):
             self.assertEqual(self.Project.get_team_dashboard_by_department(999999)["error"], "Département introuvable")
 
     def test_messages_about_a_team_in_a_company_the_user_may_select(self):
-        # a database may switch the department company rule off: these messages follow it
-        self.env.ref("hr.hr_dept_comp_rule").active = True
         company_b = self.env["res.company"].create({"name": "Company B"})
         approver = self.env["res.users"].create(
             {

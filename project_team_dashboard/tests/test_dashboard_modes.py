@@ -1,3 +1,5 @@
+from datetime import date
+
 from freezegun import freeze_time
 
 from odoo import Command, fields
@@ -460,6 +462,76 @@ class TestDashboardDepartmentMode(TeamDashboardCommon):
         )
         dev1_data = next(m for m in data["members"] if m["user_id"] == self.user_dev1.id)
         self.assertAlmostEqual(dev1_data["hours_logged_today"], 3.0)
+
+
+@tagged("post_install", "-at_install")
+class TestDashboardModeHours(TeamDashboardCommon):
+    """The Manager and Department modes count the timesheets of the companies of the context: not
+    the analytic lines of invoices and bills, which hold a quantity and no project."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        companies = cls.env.company | cls.env["res.company"].create({"name": "Hours Company B"})
+        cls.company_a, cls.company_b = companies
+        cls.user_approver, cls.user_manager = cls.env["res.users"].create(
+            [
+                dict(
+                    cls._user_vals(
+                        "Approver in A and B",
+                        ["project.group_project_user", "hr_timesheet.group_hr_timesheet_approver"],
+                    ),
+                    company_ids=[Command.set(companies.ids)],
+                ),
+                cls._user_vals("Hours Manager", ["base.group_user"]),
+            ]
+        )
+        cls.department = cls.env["hr.department"].create({"name": "Hours Department"})
+        employee_manager = cls.env["hr.employee"].create({"name": "Hours Manager", "user_id": cls.user_manager.id})
+        cls.employee_dev1.write({"parent_id": employee_manager.id, "department_id": cls.department.id})
+        cls.user_dev1.write({"tz": "UTC", "company_ids": [Command.link(cls.company_b.id)]})
+        cls.env["hr.employee"].create(
+            {"name": "Dev One in B", "user_id": cls.user_dev1.id, "company_id": cls.company_b.id}
+        )
+        project_b = cls.env["project.project"].create({"name": "Project in B", "company_id": cls.company_b.id})
+        task = cls.env["project.task"].create(
+            {"name": "Open task", "project_id": cls.project.id, "user_ids": [Command.set(cls.user_dev1.ids)]}
+        )
+        cls.env["account.analytic.line"].with_context(allowed_company_ids=companies.ids).create(
+            [
+                dict(line_vals, name="Line of %s hours" % line_vals["unit_amount"], user_id=cls.user_dev1.id)
+                for line_vals in (
+                    {"project_id": cls.project.id, "task_id": task.id, "unit_amount": 2.0, "date": date(2026, 6, 3)},
+                    {"project_id": cls.project.id, "task_id": task.id, "unit_amount": 1.0, "date": date(2026, 6, 2)},
+                    {"project_id": project_b.id, "unit_amount": 3.0, "date": date(2026, 6, 3)},
+                    {"account_id": cls.project.account_id.id, "unit_amount": 5.0, "date": date(2026, 6, 3)},
+                )
+            ]
+        )
+
+    @freeze_time("2026-06-03 12:00:00")
+    def test_the_hours_are_those_of_the_timesheets_of_the_selected_companies(self):
+        for companies, today_hours, period_hours in (
+            (self.company_a, 2.0, 3.0),
+            (self.company_a | self.company_b, 5.0, 6.0),
+        ):
+            Project = (
+                self.env["project.project"]
+                .with_user(self.user_approver)
+                .with_context(tz="UTC", allowed_company_ids=companies.ids)
+            )
+            for mode, payload in (
+                ("manager", Project.get_team_dashboard_by_manager(self.user_manager.id, "2026-06-01", "2026-06-07")),
+                (
+                    "department",
+                    Project.get_team_dashboard_by_department(self.department.id, "2026-06-01", "2026-06-07"),
+                ),
+            ):
+                with self.subTest(companies=companies.mapped("name"), mode=mode):
+                    card = next(member for member in payload["members"] if member["user_id"] == self.user_dev1.id)
+                    self.assertEqual(
+                        (card["hours_logged_today"], card["hours_logged_period"]), (today_hours, period_hours)
+                    )
 
 
 @tagged("post_install", "-at_install")
