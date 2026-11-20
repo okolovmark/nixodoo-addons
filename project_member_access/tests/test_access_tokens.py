@@ -109,6 +109,16 @@ class TestAccessTokens(MemberAccessCommon):
                 recurring_tasks[0].write(planted(recurrence_update=recurrence_update))
                 self.assertEqual(recurring_tasks.mapped("access_token"), [False, False])
 
+    def test_a_token_written_on_a_recurrence_with_recurrent_unticked_is_cleared_inside(self):
+        for recurrence_update in ("all", "subsequent"):
+            with self.subTest(recurrence_update=recurrence_update):
+                recurring_tasks = self._create_task(self.private_project) | self._create_task(self.private_project)
+                self.env["project.task.recurrence"].create(
+                    {"mon": True, "task_ids": [Command.set(recurring_tasks.ids)]}
+                )
+                recurring_tasks[0].write(planted(recurrence_update=recurrence_update, recurring_task=False))
+                self.assertEqual(recurring_tasks.mapped("access_token"), [False, False])
+
     def test_an_attachment_token_survives_the_project_going_private(self):
         attachments = self.env["ir.attachment"].create(
             [

@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime
 
 from odoo import Command
 from odoo.exceptions import AccessError, UserError, ValidationError
@@ -283,6 +284,89 @@ class TestMemberChecks(MemberAccessCommon):
         self.assertFalse(tasks.user_ids)
         tasks.with_user(self.editor).write({"stage_id": self.stage_done.id})
         self.assertEqual(tasks.stage_id, self.stage_done)
+
+    def _create_recurrence_of_two(self, first_project):
+        """Two tasks of one recurrence created by the Contributor: the first in first_project,
+        assigned to them, the second in the Public project, assigned to no one.
+        """
+        for project in first_project | self.public_project:
+            self._lead(project, self.contributor)
+        first_task = self._create_task(first_project, self.contributor, name="First occurrence").with_env(self.env)
+        first_task.user_ids = self.contributor
+        second_task = self._create_task(self.public_project, self.contributor, name="Second occurrence")
+        tasks = first_task | second_task
+        self.env["project.task.recurrence"].create({"mon": True, "task_ids": [Command.set(tasks.ids)]})
+        return tasks
+
+    def test_a_change_of_all_tasks_of_a_recurrence_is_checked_on_each(self):
+        tasks = self._create_recurrence_of_two(self.public_project)
+        changes = {
+            "sets its UAT users": {"uat_user_ids": [Command.set(self.reader.ids)]},
+            "moves it to another stage": {"stage_id": self.stage_done.id},
+        }
+        for refusal, vals in changes.items():
+            with (
+                self.subTest(refusal=refusal),
+                self.assertRefused(AccessError, "Only an assignee of %s," % tasks[1].display_name, refusal),
+            ):
+                tasks[0].with_user(self.contributor).write({**vals, "recurrence_update": "all"})
+            self.assertRecordValues(tasks, [{"uat_user_ids": [], "stage_id": self.stage_todo.id}] * 2)
+        for vals in changes.values():
+            tasks[0].with_user(self.contributor).write({**vals, "recurrence_update": "this"})
+        self.assertRecordValues(
+            tasks,
+            [
+                {"uat_user_ids": self.reader.ids, "stage_id": self.stage_done.id},
+                {"uat_user_ids": [], "stage_id": self.stage_todo.id},
+            ],
+        )
+
+    def test_a_change_of_the_assignees_of_all_tasks_of_a_recurrence_takes_an_admin_of_each_project(self):
+        tasks = self._create_recurrence_of_two(self.standard_project)
+        assignee_link = {"user_ids": [Command.link(self.reader.id)]}
+        with self.assertRefused(AccessError, "Only an Admin of Public changes the assignees"):
+            tasks[0].with_user(self.contributor).write({**assignee_link, "recurrence_update": "all"})
+        self.assertEqual(tasks.user_ids, self.contributor)
+        tasks[0].with_user(self.contributor).write({**assignee_link, "recurrence_update": "this"})
+        self.assertEqual([task.user_ids for task in tasks], [self.contributor | self.reader, self.env["res.users"]])
+
+    def test_a_change_of_the_following_tasks_of_a_recurrence_is_checked_on_those_only(self):
+        self._lead(self.public_project, self.contributor)
+        tasks = self.env["project.task"]
+        for name in ("Earlier occurrence", "Saved occurrence", "Later occurrence"):
+            tasks |= self._create_task(self.public_project, self.contributor, name=name).with_env(self.env)
+        tasks[1].user_ids = self.contributor
+        self.env["project.task.recurrence"].create({"mon": True, "task_ids": [Command.set(tasks.ids)]})
+        # tasks of one transaction share their creation date
+        self.env.flush_all()
+        for day, task in enumerate(tasks, start=1):
+            self.env.cr.execute(
+                "UPDATE project_task SET create_date = %s WHERE id = %s", (datetime(2099, 1, day), task.id)
+            )
+        tasks.invalidate_recordset(["create_date"])
+        stage_move = {"stage_id": self.stage_done.id, "recurrence_update": "subsequent"}
+
+        with self.assertRefused(
+            AccessError, "Only an assignee of %s," % tasks[2].display_name, "moves it to another stage"
+        ):
+            tasks[1].with_user(self.contributor).write(stage_move)
+        self.assertEqual(tasks.stage_id, self.stage_todo)
+        tasks[2].user_ids = self.contributor
+        tasks[1].with_user(self.contributor).write(stage_move)
+        self.assertEqual([task.stage_id for task in tasks], [self.stage_todo, self.stage_done, self.stage_done])
+
+    def test_a_move_of_all_tasks_of_a_recurrence_into_a_project_is_checked_on_each(self):
+        tasks = self._create_task(self.standard_project, self.contributor, name="First occurrence") | self._create_task(
+            self.standard_project, self.contributor, name="Second occurrence", user_ids=[Command.set(self.admin.ids)]
+        )
+        self.env["project.task.recurrence"].create({"mon": True, "task_ids": [Command.set(tasks.ids)]})
+        project_move = {"project_id": self.public_project.id}
+
+        with self.assertRefused(AccessError, "Only an Admin of Public moves a task with assignees into it"):
+            tasks[0].with_user(self.contributor).write({**project_move, "recurrence_update": "all"})
+        self.assertEqual(tasks.project_id, self.standard_project)
+        tasks[0].with_user(self.contributor).write({**project_move, "recurrence_update": "this"})
+        self.assertEqual([task.project_id for task in tasks], [self.public_project, self.standard_project])
 
     def test_a_settings_administrator_creates_a_task_with_assignees(self):
         task = self._create_task(self.private_project, self.sysadmin, user_ids=[Command.set(self.reader.ids)])

@@ -1,6 +1,6 @@
 # A project's access is a mode and member roles, decided by global rules inside Public and Private projects only
 
-Status: accepted (2026-11-17)
+Status: accepted (2026-11-17), amended (2026-11-20: a change applied to several tasks of a recurrence is checked on each; the next task of a recurrence in a Private project takes its member assignees only)
 
 Odoo decides who sees a project and its tasks from the project's visibility (followers, internal users, portal) and the follower lists, and who may change a task from the Project groups. Group record rules are OR-ed, so a module can add access with a rule of its own but never take any away: a field such as "visible to all internal users" left unticked hides nothing, because the core employee rule still shows every project whose visibility is not followers-only. Following a project or a task opens it, whatever the follower's part in the work. Who may assign a task or move its stage is not expressed at all.
 
@@ -35,7 +35,7 @@ A member row keeps its project and its user: a change is a removal and an additi
 
 **Portal tokens.** A portal access token opens a record to whoever holds the link, whatever the rules say. Entering Public or Private clears the tokens of the project and of its tasks, and none is kept there afterwards, whatever wrote it. Attachment tokens stay: the editor writes them into the links of images pasted into descriptions and messages, and a token opens that one file only. Images pasted into task texts become attachments of the task with an access token on save (ADR 0011), so their URL keeps opening that one image to whoever holds it, a removed member included. They are left so: revoking the token would break the link in the text.
 
-**Constraints.** A Public or Private project keeps at least one Admin: the last one is neither removed nor lowered. In a Private project only a member is set as assignee or UAT user; tasks already carrying a non-member when a project turns Private are left as they are. A Private project cannot be the project that develops this Odoo, where every employee files support requests.
+**Constraints.** A Public or Private project keeps at least one Admin: the last one is neither removed nor lowered. In a Private project only a member is set as assignee or UAT user; tasks already carrying a non-member when a project turns Private, or when the user stops being a member, are left as they are. The next task of a recurrence there, created by Odoo's recurrence job, takes only the assignees of the task it repeats who are still members: a refusal would undo the job's run for every due recurrence. A Private project cannot be the project that develops this Odoo, where every employee files support requests.
 
 Rejected: rewriting the core rules (`project_public_members_rule`, `task_visibility_rule` and the others) to add the mode. They are noupdate records of `project`; an uninstall would leave them naming fields that no longer exist, and every other module's rule on the same models would need the same treatment.
 
@@ -48,7 +48,7 @@ Rejected: member roles that act in every project. Switching a database to roles 
 - `privacy_visibility` shows on the project form in Standard only; inside Public and Private projects the mode decides. The share buttons are hidden there.
 - An Odoo group still gates what a role can use: creating or deleting a task needs the Project / User access rights, changing the project's settings the Project / Administrator rights, as before. A role opens nothing a user's groups do not.
 - Moving a task out of a Public or Private project is an edit; moving one in is a create there. A task that leaves for a Standard project, and so its assignees or UAT users changed in the same write, is judged by the rules of the project it lands in: one moved out with them cleared and moved back in has lost them without the role that changes them inside.
-- The role checks judge the tasks written. A change applied to all or to the following tasks of a recurrence reaches those tasks unchecked: Odoo writes the same values to them in the same call. Left open (ROADMAP).
+- The role checks judge the tasks written, and a change applied to all or to the following tasks of a recurrence writes each of those tasks: they are found before the write, from the recurrence as it stands, and one refusal refuses the change, naming the task it is about.
 - A stage shared between a Standard and a Public or Private project is changed only by an Admin of the latter.
 - A refusal names no record the user cannot read; reading is checked before the role checks.
 - A search on tasks carries the rule's subqueries on the project's user sets for every internal user who is not an administrator.
