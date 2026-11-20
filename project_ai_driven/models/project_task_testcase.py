@@ -54,11 +54,14 @@ class ProjectTaskTestcase(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        return super().create([self._prepare_result_values(vals) for vals in vals_list])
+        default_state = self._get_created_default_state(vals_list)
+        return super().create(
+            [self._prepare_result_values(vals, vals.get("state", default_state)) for vals in vals_list]
+        )
 
     def write(self, vals):
         check_task_line_move(self, vals)
-        return super().write(self._prepare_result_values(vals))
+        return super().write(self._prepare_result_values(vals, vals.get("state")))
 
     def action_set_passed(self):
         return self._set_manual_result("passed")
@@ -78,34 +81,44 @@ class ProjectTaskTestcase(models.Model):
 
     def _set_manual_result(self, state):
         """A result given with a button (the task's case list or cards, the
-        case form) is a person's verdict: Manual, unless the case already says
-        how it is verified.
+        form of a case opened from the Test Cases menu) is a person's verdict:
+        Manual, unless the case already says how it is verified.
         """
         unset_cases = self.filtered(lambda record: not record.verification_kind)
         unset_cases.write({"state": state, "verification_kind": "manual"})
         return (self - unset_cases).write({"state": state})
 
-    def _prepare_result_values(self, vals):
-        result_vals = dict(vals)
-        for field_name, value in self._get_verification_values(result_vals.get("state")).items():
-            result_vals.setdefault(field_name, value)
-        return result_vals
+    @api.model
+    def _get_created_default_state(self, vals_list):
+        """The state a create gives a case sent without one: a context or user default included."""
+        if all("state" in vals for vals in vals_list):
+            return False
+        return self.default_get(["state"]).get("state")
+
+    def _prepare_result_values(self, vals, state):
+        """Return vals with the verification of state, the state the records
+        get (a create's default included): a pass or a fail fills what vals
+        leave out. Only a Not run vals give clears it, whatever vals give with
+        it: a case prepared Not run by default keeps its Verification.
+        """
+        if vals.get("state") == "not_run":
+            return {**vals, **dict.fromkeys(VERIFICATION_FIELDS, False)}
+        return {**self._get_verification_values(state), **vals}
 
     def _get_verification_values(self, state):
         """A pass or a fail is a new verification, by the user who gives it
-        (sudo keeps the user); Not run takes the verification back.
+        (sudo keeps the user).
         """
         if state in VERIFIED_STATES:
             return {"verified_by_id": self.env.user.id, "verified_on": fields.Datetime.now()}
-        if state == "not_run":
-            return dict.fromkeys(VERIFICATION_FIELDS, False)
         return {}
 
     def _get_task_copy_values(self, keep_progress):
         """The values of a copy of each case for a copy of its task: it keeps
         its automated test reference, and with keep_progress its result,
         verification included, and its comments; else it is Not run without
-        comments.
+        comments. A Not run case gets its verification back after the copy,
+        see _write_verification_on_copy.
         """
         return [
             {
@@ -125,3 +138,15 @@ class ProjectTaskTestcase(models.Model):
             "verified_on": self.verified_on,
             "verification_kind": self.verification_kind,
         }
+
+    def _write_verification_on_copy(self, case_copy):
+        """Write the verification of this case, when it is Not run, on its
+        copy case_copy. The copy is created with its state, as a default may
+        be another one, and a Not run given takes the verification back; a
+        verification written alone stays.
+        """
+        self.ensure_one()
+        result_values = self._get_result_values()
+        verification_values = {fname: result_values[fname] for fname in VERIFICATION_FIELDS}
+        if self.state == "not_run" and any(verification_values.values()):
+            case_copy.write(verification_values)

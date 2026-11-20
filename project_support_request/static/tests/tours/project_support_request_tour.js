@@ -124,13 +124,9 @@ registry.category("web_tour.tours").add("project_support_request_other_company_t
                 run: "click",
             },
             {
-                content: "Unfold the folded stage of the closed requests",
-                trigger: ".o_list_view .o_group_header:contains(Done)",
-                run: "click",
-            },
-            {
-                content: "The closed request is listed",
-                trigger: ".o_list_view .o_data_row .o_data_cell:contains(Closed request from another company)",
+                content: "The closed request is listed, in a list grouped by nothing",
+                trigger:
+                    ".o_list_view:not(:has(.o_group_header)) .o_data_row .o_data_cell:contains(Closed request from another company)",
                 run: "click",
             },
             {
