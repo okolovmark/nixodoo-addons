@@ -2,18 +2,20 @@ import { defineMailModels } from "@mail/../tests/mail_test_helpers";
 import { expect, test } from "@odoo/hoot";
 import { queryAll, queryAllTexts } from "@odoo/hoot-dom";
 import { animationFrame, mockDate } from "@odoo/hoot-mock";
-import { contains, mountWithCleanup, onRpc } from "@web/../tests/web_test_helpers";
+import { contains, mockService, mountWithCleanup, onRpc } from "@web/../tests/web_test_helpers";
 
 import { SupportRequestSystray } from "@project_support_request/support_request_systray/support_request_systray";
 
 defineMailModels();
 
 const PRIORITY_LEVELS = { 4: "Highest", 3: "High", 2: "Medium", 1: "Low", 0: "Lowest" };
+const CLOSED_LIST_VIEW_ID = 42;
 
-function mockRequests(tickets, priorityLevels = PRIORITY_LEVELS) {
+function mockRequests(tickets, priorityLevels = PRIORITY_LEVELS, closedListViewId = CLOSED_LIST_VIEW_ID) {
     onRpc("/project_support_request/config", () => ({
         project_id: 1,
         uid: 7,
+        closed_list_view_id: closedListViewId,
         task_types: [],
         priority_levels: priorityLevels,
     }));
@@ -38,6 +40,20 @@ async function openSupportItem() {
     await mountWithCleanup(SupportRequestSystray);
     await animationFrame();
     await contains(".o_support_request_systray").click();
+}
+
+async function viewClosedRequests() {
+    let openedAction;
+    mockService("action", {
+        doAction(action) {
+            openedAction = action;
+            expect.step("doAction");
+        },
+    });
+    await openSupportItem();
+    await contains(".o_support_request_menu button[name=view_closed]").click();
+    await expect.waitForSteps(["doAction"]);
+    return openedAction;
 }
 
 function priorityDots() {
@@ -101,4 +117,29 @@ test("a request created ahead of the browser's clock is 0 minutes old", async ()
     await openSupportItem();
 
     expect(queryAllTexts(".o_support_request_ticket small")).toEqual(["Backlog · 0m ago"]);
+});
+
+test("View Closed lists the user's closed requests in the list view the config names", async () => {
+    mockRequests([]);
+    const openedAction = await viewClosedRequests();
+
+    expect(openedAction.views).toEqual([
+        [CLOSED_LIST_VIEW_ID, "list"],
+        [false, "form"],
+    ]);
+    expect(openedAction.domain).toEqual([
+        ["project_id", "=", 1],
+        ["stage_id.fold", "=", true],
+        ["uat_user_ids", "in", [7]],
+    ]);
+});
+
+test("View Closed opens the default task list where the config names no list view", async () => {
+    mockRequests([], PRIORITY_LEVELS, false);
+    const openedAction = await viewClosedRequests();
+
+    expect(openedAction.views).toEqual([
+        [false, "list"],
+        [false, "form"],
+    ]);
 });

@@ -13,6 +13,7 @@ The 16.0 branch decided this first. Its record, `docs/adr/0007-a-checklist-item-
 **What differs from 16.0.**
 
 - 16.0 says it in two overrides, `_apply_ir_rules` and `_filter_access_rules_python`, held by `project.task.access.mixin`, and only for read: there whoever reads a task creates, changes and deletes its items and rows, and test cases follow no task access, so every project user reaches every case. Odoo 16 has no templates. This branch has no override and no mixin.
+  - 2026-11-20: 16.0 gives test cases the mixin too: there a case follows the read access of its task, as an item and a row do.
 - Reading, writing or deleting an item or a row deleted meanwhile raises `MissingError`, as core does for a record whose access domain it cannot evaluate: of two users deleting the same line from an open task form, the second save fails. On 16.0 a missing item passes the check.
 
 **Consequences.**

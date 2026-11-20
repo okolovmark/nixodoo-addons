@@ -169,7 +169,12 @@ A tool that gives test case results over RPC writes ``state`` on
 of ``passed`` or ``failed`` fills ``verified_by_id`` and ``verified_on``
 unless it sends them. It sends ``verification_kind`` (``manual``,
 ``automated`` or ``demo``) and ``test_reference`` with the result: only the
-buttons set ``manual`` by themselves.
+buttons set ``manual`` by themselves. A create or write that sends
+``not_run`` clears ``verified_by_id``, ``verified_on`` and
+``verification_kind``, also the values it sends for them, and leaves
+``test_reference``. To prepare a case with its kind before its run, create
+it without ``state``, or write ``verification_kind`` alone on a case Not
+run: the case keeps it.
 
 A tool reads the notes of one category of a task with ``search_read`` on
 ``mail.message``, the domain ``[("task_id", "=", <task id>),

@@ -96,7 +96,12 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
                         "test_reference": "/module:TestClass.test_method",
                     },
                     {"name": "%s case failed" % label, "task_id": task.id, "state": "failed", "sequence": 5},
-                    {"name": "%s case not run" % label, "task_id": task.id},
+                    {
+                        "name": "%s case not run" % label,
+                        "task_id": task.id,
+                        "verification_kind": "automated",
+                        "test_reference": "/module:TestClass.test_prepared",
+                    },
                 ],
             )
             cls.env["project.task.question"].with_user(cls.user_dev).create(
@@ -165,6 +170,50 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
         )
         self.assertFalse(comments, "a copied item is posted to no one")
 
+    def test_a_duplicate_from_a_column_of_task_states_keeps_the_results_of_the_cases(self):
+        source_tasks = self.task | self.subtask
+        source_values = self._line_values(source_tasks)
+
+        # The context of a column of the task kanban grouped by State.
+        with freeze_time(LATER):
+            task_copy = self.task.with_context(default_state="01_in_progress").copy()
+
+        self.assertLinesCopied(task_copy | task_copy.child_ids, source_values, source_tasks)
+
+    def test_a_duplicate_under_another_default_case_state_keeps_the_results_of_the_cases(self):
+        source_tasks = self.task | self.subtask
+        source_values = self._line_values(source_tasks)
+        self.env["ir.default"].set("project.task.testcase", "state", "waiting")
+
+        with freeze_time(LATER):
+            task_copy = self.task.copy()
+
+        self.assertLinesCopied(task_copy | task_copy.child_ids, source_values, source_tasks)
+
+    def test_a_task_duplicated_with_its_subtask_gives_each_copy_the_results_of_the_cases(self):
+        source_values = self._line_values(self.task | self.subtask)
+
+        with freeze_time(LATER):
+            task_copy, subtask_copy = (self.task | self.subtask).copy()
+
+        self.assertEqual(
+            self._line_values(task_copy | task_copy.child_ids | subtask_copy), [*source_values, source_values[1]]
+        )
+
+    def test_a_duplicated_project_with_an_archived_subtask_keeps_the_results_of_the_cases(self):
+        archived_subtask = self.env["project.task"].create(
+            {"name": "Archived sub-task", "project_id": self.project.id, "parent_id": self.task.id, "active": False}
+        )
+        self.assertEqual(self.task.with_context(active_test=False).child_ids[0], archived_subtask)
+        source_tasks = self.task | self.subtask
+        source_values = self._line_values(source_tasks)
+
+        with freeze_time(LATER):
+            project_copy = self.project.copy()
+
+        task_copy = project_copy.tasks.filtered(lambda task: not task.parent_id)
+        self.assertLinesCopied(task_copy | task_copy.child_ids, source_values, source_tasks)
+
     def test_a_project_user_duplicating_a_task_takes_its_lines_and_those_of_its_subtask(self):
         source_tasks = self.task | self.subtask
         source_values = self._line_values(source_tasks)
@@ -181,9 +230,13 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
         )
         self.assertFalse(employee.has_group("project.group_project_user"))
 
-        # core fails such a user's whole copy of a to-do on its own project roles: copy_data is this module's part
+        # core fails such a user's whole copy of a to-do on its own project roles: copy_data and the
+        # verifications written on the copy after it are this module's part
         (employee_values,) = todo.with_user(employee).copy_data()
         (project_user_values,) = todo.with_user(self.user_dev).copy_data()
+        todo_copy = todo.with_user(self.user_dev).copy()
+        # checked by not raising: the user may not read the cases, so nothing is read or written
+        todo.with_user(employee)._write_case_verifications_on_copies(todo_copy, {})
 
         self.assertFalse(employee_values.keys() & LINE_FIELDS.keys(), "no line field the user may not read")
         self.assertEqual(
@@ -358,3 +411,13 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
 
         self.assertEqual(task_copy.checklist_item_ids.mapped("name"), ["Given item"])
         self.assertEqual(len(task_copy.testcase_ids), 3)
+
+    def test_a_copy_given_cases_and_subtasks_takes_no_verification_of_the_source(self):
+        given_cases = [Command.create({"name": "Given case %s" % index}) for index in range(3)]
+        subtask_values = {"name": "Given sub-task", "project_id": self.project.id, "testcase_ids": given_cases}
+
+        task_copy = self.task.copy({"testcase_ids": given_cases, "child_ids": [Command.create(subtask_values)]})
+
+        given_copy_cases = task_copy.testcase_ids | task_copy.child_ids.testcase_ids
+        self.assertEqual(len(given_copy_cases), 6)
+        self.assertFalse(given_copy_cases.filtered("verification_kind"))
