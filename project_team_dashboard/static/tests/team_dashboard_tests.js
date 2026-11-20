@@ -3,6 +3,65 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
 
     var TeamDashboard = require("project_team_dashboard.team_dashboard");
     var busTestEnv = require("@bus/../tests/helpers/mock_python_environment");
+    var ajax = require("web.ajax");
+    var AjaxService = require("web.AjaxService");
+    var session = require("web.session");
+    var Widget = require("web.Widget");
+    var registerCleanup = require("@web/../tests/helpers/cleanup").registerCleanup;
+    var testUtils = require("@web/../tests/helpers/utils");
+
+    var userContext = {allowed_company_ids: [3], lang: "en_US", tz: "Asia/Tokyo", uid: 2};
+
+    /**
+     * A dashboard of the user 2 whose calls reach the server as in the web client: through the
+     * ajax service and the session, which adds the user's context.
+     */
+    function newDashboard(html) {
+        var ajaxService = new AjaxService();
+        var Parent = Widget.extend({
+            custom_events: {
+                call_service: function (ev) {
+                    if (ev.data.service === "ajax") {
+                        ev.data.callback(ajaxService[ev.data.method].apply(ajaxService, ev.data.args));
+                    }
+                },
+                get_session: function (ev) {
+                    ev.data.callback({uid: 2});
+                },
+            },
+        });
+        var parent = new Parent();
+        registerCleanup(function () {
+            parent.destroy();
+        });
+        var dashboard = new TeamDashboard(parent, {});
+        dashboard.setElement($(html || '<div><div class="o_team_dashboard_content"/></div>'));
+        return dashboard;
+    }
+
+    /** Answer each call sent to the server with `answer(params)` and return the list the calls are pushed to. */
+    function serveCalls(answer) {
+        var sentCalls = [];
+        function send(params) {
+            sentCalls.push(params);
+            var answered = Promise.resolve().then(function () {
+                return answer(params);
+            });
+            answered.abort = function () {};
+            return answered;
+        }
+        testUtils.patchWithCleanup(session, {user_context: userContext});
+        testUtils.patchWithCleanup(ajax, {
+            jsonRpc: function (url, fctName, params) {
+                return send(params);
+            },
+            // web.rpc's path, which adds no context: a call sent that way shows here without one
+            rpc: function (url, params) {
+                return send(params);
+            },
+        });
+        return sentCalls;
+    }
 
     QUnit.module("project_team_dashboard", {
         // The bus test helpers fetch model definitions when the run begins. Run alone, these
@@ -385,10 +444,11 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
 
         QUnit.module("ganttItem");
 
-        function fakeDashboard() {
-            var dashboard = Object.create(TeamDashboard.prototype);
+        function ganttDashboard() {
+            var dashboard = newDashboard();
             dashboard._ganttStageColors = {};
             dashboard._ganttCanLink = false;
+            dashboard._loadGanttData = function () {};
             return dashboard;
         }
 
@@ -403,7 +463,7 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
         };
 
         QUnit.test("a range bar is drawn at the stored UTC instants", function (assert) {
-            var item = fakeDashboard()._ganttItem(ganttTask, "", false);
+            var item = ganttDashboard()._ganttItem(ganttTask, "", false);
             assert.ok(item.start instanceof Date && item.end instanceof Date);
             assert.strictEqual(item.start.getTime(), Date.UTC(2026, 10, 12, 1));
             assert.strictEqual(item.end.getTime(), Date.UTC(2026, 10, 17));
@@ -411,7 +471,7 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
 
         QUnit.test("a milestone point is drawn at its stored UTC start", function (assert) {
             var milestone = _.extend({}, ganttTask, {task_type: "milestone"});
-            var item = fakeDashboard()._ganttItem(milestone, "", false);
+            var item = ganttDashboard()._ganttItem(milestone, "", false);
             assert.strictEqual(item.type, "point");
             assert.ok(item.start instanceof Date);
             assert.strictEqual(item.start.getTime(), Date.UTC(2026, 10, 12, 1));
@@ -419,62 +479,48 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
 
         QUnit.module("onGanttItemMove");
 
+        function sentArgs(sentCalls) {
+            return sentCalls.map(function (params) { return params.args; });
+        }
+
+        function acceptWrite() {
+            return Promise.resolve(true);
+        }
+
         QUnit.test("a dragged bar is saved as UTC datetimes", async function (assert) {
-            var rpc = require("web.rpc");
-            var originalQuery = rpc.query;
-            var written = [];
-            rpc.query = function (params) {
-                written.push(params);
-                return Promise.resolve(true);
-            };
-            try {
-                var dashboard = fakeDashboard();
-                dashboard._loadGanttData = function () {};
-                dashboard.ganttData = {tasks: [ganttTask]};
-                dashboard._ganttItemsDS = itemStore([dashboard._ganttItem(ganttTask, "", false)]);
-                var item = {id: 11, start: new Date(Date.UTC(2026, 10, 14, 1)), end: new Date(Date.UTC(2026, 10, 19))};
-                var saved = await new Promise(function (resolve) {
-                    dashboard._onGanttItemMove(item, resolve);
-                });
-                assert.strictEqual(saved, item);
-                assert.deepEqual(written.map(function (call) { return call.args; }), [[[11], {
-                    planned_date_start: "2026-11-14 01:00:00",
-                    planned_date_end: "2026-11-19 00:00:00",
-                }]]);
-                assert.notStrictEqual(item.start.getTimezoneOffset(), 0, "the browser runs outside UTC");
-            } finally {
-                rpc.query = originalQuery;
-            }
+            var sentCalls = serveCalls(acceptWrite);
+            var dashboard = ganttDashboard();
+            dashboard.ganttData = {tasks: [ganttTask]};
+            dashboard._ganttItemsDS = itemStore([dashboard._ganttItem(ganttTask, "", false)]);
+            var item = {id: 11, start: new Date(Date.UTC(2026, 10, 14, 1)), end: new Date(Date.UTC(2026, 10, 19))};
+            var saved = await new Promise(function (resolve) {
+                dashboard._onGanttItemMove(item, resolve);
+            });
+            assert.strictEqual(saved, item);
+            assert.deepEqual(sentArgs(sentCalls), [[[11], {
+                planned_date_start: "2026-11-14 01:00:00",
+                planned_date_end: "2026-11-19 00:00:00",
+            }]]);
+            assert.notStrictEqual(item.start.getTimezoneOffset(), 0, "the browser runs outside UTC");
         });
 
         var dayMs = 86400000;
 
         /** Drag the drawn bar of `task` by `startShift`/`endShift` ms and return what it saves. */
         async function savedOnDrag(task, startShift, endShift) {
-            var rpc = require("web.rpc");
-            var originalQuery = rpc.query;
-            var written = [];
-            rpc.query = function (params) {
-                written.push(params.args);
-                return Promise.resolve(true);
-            };
-            try {
-                var dashboard = fakeDashboard();
-                dashboard._loadGanttData = function () {};
-                dashboard.ganttData = {tasks: [task]};
-                var drawn = dashboard._ganttItem(task, "", false);
-                dashboard._ganttItemsDS = itemStore([drawn]);
-                var dragged = _.extend({}, drawn, {start: new Date(drawn.start.getTime() + startShift)});
-                if (drawn.end) {
-                    dragged.end = new Date(drawn.end.getTime() + endShift);
-                }
-                await new Promise(function (resolve) {
-                    dashboard._onGanttItemMove(dragged, resolve);
-                });
-            } finally {
-                rpc.query = originalQuery;
+            var sentCalls = serveCalls(acceptWrite);
+            var dashboard = ganttDashboard();
+            dashboard.ganttData = {tasks: [task]};
+            var drawn = dashboard._ganttItem(task, "", false);
+            dashboard._ganttItemsDS = itemStore([drawn]);
+            var dragged = _.extend({}, drawn, {start: new Date(drawn.start.getTime() + startShift)});
+            if (drawn.end) {
+                dragged.end = new Date(drawn.end.getTime() + endShift);
             }
-            return written;
+            await new Promise(function (resolve) {
+                dashboard._onGanttItemMove(dragged, resolve);
+            });
+            return sentArgs(sentCalls);
         }
 
         function plannedTask(values) {
@@ -621,40 +667,26 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
             });
 
             QUnit.test("a dragged bar is saved with its hours kept", async function (assert) {
-                var rpc = require("web.rpc");
-                var originalQuery = rpc.query;
-                var written = [];
-                rpc.query = function (params) {
-                    written.push(params.args);
-                    return Promise.resolve(true);
-                };
-                try {
-                    var dashboard = Object.create(TeamDashboard.prototype);
-                    dashboard._loadGanttData = function () {};
-                    dashboard.ganttData = {tasks: [{id: 21, has_planned_date_start: true, has_planned_date_end: true}]};
-                    var stored = {id: 21, start: new Date(Date.UTC(2026, 10, 12, 1)), end: new Date(Date.UTC(2026, 10, 15, 10))};
-                    dashboard._ganttItemsDS = {get: function (id) { return id === stored.id ? stored : null; }};
-                    var dragged = 2 * 86400000 + 15 * 3600000;
-                    var item = {id: 21, start: new Date(stored.start.getTime() + dragged), end: new Date(stored.end.getTime() + dragged)};
-                    await new Promise(function (resolve) {
-                        dashboard._onGanttItemMove(item, resolve);
-                    });
-                    assert.deepEqual(written, [[[21], {
-                        planned_date_start: "2026-11-15 01:00:00",
-                        planned_date_end: "2026-11-18 10:00:00",
-                    }]]);
-                } finally {
-                    rpc.query = originalQuery;
-                }
+                var sentCalls = serveCalls(acceptWrite);
+                var dashboard = ganttDashboard();
+                dashboard.ganttData = {tasks: [{id: 21, has_planned_date_start: true, has_planned_date_end: true}]};
+                var stored = {id: 21, start: new Date(Date.UTC(2026, 10, 12, 1)), end: new Date(Date.UTC(2026, 10, 15, 10))};
+                dashboard._ganttItemsDS = itemStore([stored]);
+                var dragged = 2 * 86400000 + 15 * 3600000;
+                var item = {id: 21, start: new Date(stored.start.getTime() + dragged), end: new Date(stored.end.getTime() + dragged)};
+                await new Promise(function (resolve) {
+                    dashboard._onGanttItemMove(item, resolve);
+                });
+                assert.deepEqual(sentArgs(sentCalls), [[[21], {
+                    planned_date_start: "2026-11-15 01:00:00",
+                    planned_date_end: "2026-11-18 10:00:00",
+                }]]);
             });
         });
 
         QUnit.module("team pickers", function () {
-            var rpc = require("web.rpc");
-
             function pickerDashboard(mode) {
-                var dashboard = Object.create(TeamDashboard.prototype);
-                dashboard.$el = $('<div><input class="o_user_search_input"/><input class="o_dept_search_input"/></div>');
+                var dashboard = newDashboard('<div><input class="o_user_search_input"/><input class="o_dept_search_input"/></div>');
                 dashboard._renderDashboard = function () {};
                 return Object.assign(dashboard, {
                     dashboardMode: mode,
@@ -671,18 +703,8 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
                 return {preventDefault: function () {}, currentTarget: $("<a/>").attr(attribute, id).text(name)[0]};
             }
 
-            async function withServer(answer, callback) {
-                var originalQuery = rpc.query;
-                var queriedIds = [];
-                rpc.query = function (params) {
-                    queriedIds.push(params.args[0]);
-                    return answer();
-                };
-                try {
-                    await callback(queriedIds);
-                } finally {
-                    rpc.query = originalQuery;
-                }
+            function queriedIds(sentCalls) {
+                return sentCalls.map(function (params) { return params.args[0]; });
             }
 
             function refuse() {
@@ -692,36 +714,186 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
             function ignoreRefusal() {}
 
             QUnit.test("a refused manager gives the picker and later reloads back to the previous one", async function (assert) {
+                var sentCalls = serveCalls(refuse);
                 var dashboard = pickerDashboard("manager");
-                await withServer(refuse, async function (queriedIds) {
-                    await dashboard._onUserSearchSelect(pick("data-user-id", 7, "Boss")).catch(ignoreRefusal);
-                    await dashboard._loadDashboard().catch(ignoreRefusal);
-                    assert.deepEqual(queriedIds, [7, 2]);
-                });
+                await dashboard._onUserSearchSelect(pick("data-user-id", 7, "Boss")).catch(ignoreRefusal);
+                await dashboard._loadDashboard().catch(ignoreRefusal);
+                assert.deepEqual(queriedIds(sentCalls), [7, 2]);
                 assert.strictEqual(dashboard.managerName, "Me");
                 assert.strictEqual(dashboard.$(".o_user_search_input").val(), "Me");
             });
 
             QUnit.test("a refused department gives the picker and later reloads back to the previous one", async function (assert) {
+                var sentCalls = serveCalls(refuse);
                 var dashboard = pickerDashboard("department");
-                await withServer(refuse, async function (queriedIds) {
-                    await dashboard._onDeptSearchSelect(pick("data-dept-id", 9, "Other Department")).catch(ignoreRefusal);
-                    await dashboard._loadDashboard().catch(ignoreRefusal);
-                    assert.deepEqual(queriedIds, [9, 3]);
-                });
+                await dashboard._onDeptSearchSelect(pick("data-dept-id", 9, "Other Department")).catch(ignoreRefusal);
+                await dashboard._loadDashboard().catch(ignoreRefusal);
+                assert.deepEqual(queriedIds(sentCalls), [9, 3]);
                 assert.strictEqual(dashboard.departmentName, "Own Department");
                 assert.strictEqual(dashboard.$(".o_dept_search_input").val(), "Own Department");
             });
 
             QUnit.test("an opened manager and department stay picked", async function (assert) {
+                serveCalls(function () { return Promise.resolve({members: []}); });
                 var dashboard = pickerDashboard("manager");
-                await withServer(function () { return Promise.resolve({members: []}); }, async function () {
-                    await dashboard._onUserSearchSelect(pick("data-user-id", 7, "Boss"));
-                    dashboard.dashboardMode = "department";
-                    await dashboard._onDeptSearchSelect(pick("data-dept-id", 9, "Other Department"));
-                });
+                await dashboard._onUserSearchSelect(pick("data-user-id", 7, "Boss"));
+                dashboard.dashboardMode = "department";
+                await dashboard._onDeptSearchSelect(pick("data-dept-id", 9, "Other Department"));
                 assert.deepEqual([dashboard.managerId, dashboard.$(".o_user_search_input").val()], [7, "Boss"]);
                 assert.deepEqual([dashboard.departmentId, dashboard.$(".o_dept_search_input").val()], [9, "Other Department"]);
+            });
+        });
+
+        QUnit.module("team loads", function () {
+            function sentContexts(sentCalls) {
+                return sentCalls.map(function (params) {
+                    return [params.model + "." + params.method, params.kwargs.context];
+                });
+            }
+
+            function renderedDashboard(mode) {
+                var dashboard = newDashboard();
+                Object.assign(dashboard, {
+                    dashboardMode: mode,
+                    viewMode: "cards",
+                    period: "this_week",
+                    maxDepth: 0,
+                    projects: [{id: 1, name: "Own Project", key: false}],
+                    projectId: 1,
+                    managerUsers: [{id: 2, name: "Me"}],
+                    managerId: 2,
+                    managerName: "Me",
+                    departments: [
+                        {id: 3, name: "Own Department", complete_name: "Own Department"},
+                        {id: 9, name: "Other Department", complete_name: "Other Department"},
+                    ],
+                    departmentId: 3,
+                    departmentName: "Own Department",
+                });
+                dashboard._renderDashboard();
+                return dashboard;
+            }
+
+            QUnit.test("the start loads the projects, the pickers and the defaults in the user's context", async function (assert) {
+                var answers = {
+                    "project.project.search_read": [{id: 1, name: "Own Project", key: false}],
+                    "res.users.search_read": [{id: 2, name: "Me"}],
+                    "hr.department.search_read": [{id: 3, name: "Own Department", complete_name: "Own Department"}],
+                    "hr.employee.search_read": [{id: 4, department_id: [3, "Own Department"]}],
+                    "res.users.read": [{id: 2, dashboard_default_project_id: false}],
+                };
+                var sentCalls = serveCalls(function (params) {
+                    return Promise.resolve(answers[params.model + "." + params.method]);
+                });
+                var dashboard = newDashboard();
+                await dashboard.willStart();
+                assert.deepEqual(sentContexts(sentCalls), Object.keys(answers).map(function (call) {
+                    return [call, userContext];
+                }));
+                assert.deepEqual([dashboard.managerName, dashboard.departmentName, dashboard.projectId], ["Me", "Own Department", 1]);
+            });
+
+            QUnit.test("a default project among the projects found opens, another gives way to the first one", async function (assert) {
+                var savedDefault = [5, "Second Project"];
+                serveCalls(function () {
+                    return Promise.resolve([{id: 2, dashboard_default_project_id: savedDefault}]);
+                });
+                var dashboard = newDashboard();
+                dashboard.projects = [{id: 1, name: "Own Project", key: false}, {id: 5, name: "Second Project", key: false}];
+                await dashboard._loadUserDefaultProject();
+                assert.strictEqual(dashboard.projectId, 5, "the default project found");
+                savedDefault = [8, "Project of a company not selected"];
+                await dashboard._loadUserDefaultProject();
+                assert.strictEqual(dashboard.projectId, 1, "the first project found");
+            });
+
+            QUnit.test("the Gantt loads its tasks in the user's context", async function (assert) {
+                var sentCalls = serveCalls(function () { return Promise.resolve({tasks: [], columns: []}); });
+                var dashboard = renderedDashboard("project");
+                dashboard._renderGantt = function () {};
+                await dashboard._loadGanttData();
+                assert.deepEqual(
+                    sentCalls.map(function (params) {
+                        return [params.method, params.kwargs.project_ids, (params.kwargs.context || {}).allowed_company_ids];
+                    }),
+                    [["get_gantt_chart_data", [1], [3]]]
+                );
+            });
+
+            QUnit.test("each mode loads its team in the user's context", async function (assert) {
+                var sentCalls = serveCalls(function () { return Promise.resolve({members: []}); });
+                var dashboard = renderedDashboard("project");
+                for (var mode of ["project", "manager", "department"]) {
+                    dashboard.dashboardMode = mode;
+                    await dashboard._loadDashboard();
+                }
+                assert.deepEqual(sentContexts(sentCalls), [
+                    ["project.project.get_team_dashboard_data", userContext],
+                    ["project.project.get_team_dashboard_by_manager", userContext],
+                    ["project.project.get_team_dashboard_by_department", userContext],
+                ]);
+            });
+
+            QUnit.test("a team answered with an error keeps the toolbar and the picker of its mode", async function (assert) {
+                var errors = {
+                    get_team_dashboard_by_manager: "No employee record found for this user in the selected companies",
+                    get_team_dashboard_by_department: "Department not in the selected companies",
+                };
+                serveCalls(function (params) { return Promise.resolve({error: errors[params.method]}); });
+                for (var [mode, pickerSelector, error] of [
+                    ["manager", ".o_user_search_input", errors.get_team_dashboard_by_manager],
+                    ["department", ".o_dept_search_input", errors.get_team_dashboard_by_department],
+                ]) {
+                    var dashboard = renderedDashboard(mode);
+                    await dashboard._loadDashboard();
+                    assert.deepEqual(
+                        [
+                            dashboard.$(".o_dashboard_mode_btn").length,
+                            dashboard.$(".o_dashboard_mode_btn.btn-primary").data("mode"),
+                            dashboard.$(pickerSelector).length,
+                            dashboard.$(".o_team_dashboard_refresh").length,
+                            dashboard.$(".o_team_dashboard_grid .alert-warning").text(),
+                        ],
+                        [3, mode, 1, 1, error],
+                        mode
+                    );
+                }
+            });
+
+            QUnit.test("a manager or department not found leaves the header without a team", async function (assert) {
+                serveCalls(function (params) {
+                    return Promise.resolve({
+                        error: params.method === "get_team_dashboard_by_manager" ? "User not found" : "Department not found",
+                    });
+                });
+                for (var mode of ["manager", "department"]) {
+                    var dashboard = renderedDashboard(mode);
+                    await dashboard._loadDashboard();
+                    var $header = dashboard.$(".o_period_info");
+                    assert.deepEqual([$header.find("strong").length, $header.text().trim()], [0, ""], mode);
+                }
+            });
+
+            QUnit.test("a refused team shows the toolbar of its mode, whose picker opens another team", async function (assert) {
+                var isRefused = true;
+                var sentCalls = serveCalls(function () {
+                    return isRefused
+                        ? Promise.reject({message: {data: {name: "odoo.exceptions.AccessError"}}})
+                        : Promise.resolve({members: [], department_name: "Other Department"});
+                });
+                var dashboard = renderedDashboard("project");
+                var departmentModeButton = dashboard.$('.o_dashboard_mode_btn[data-mode="department"]')[0];
+                await Promise.resolve(dashboard._onDashboardModeChange({currentTarget: departmentModeButton}))
+                    .catch(function () {});
+                assert.strictEqual(dashboard.$(".o_dashboard_mode_btn.btn-primary").data("mode"), "department");
+                assert.strictEqual(dashboard.$(".o_dept_search_input").val(), "Own Department");
+                isRefused = false;
+                await dashboard._onDeptSearchSelect({
+                    preventDefault: function () {},
+                    currentTarget: dashboard.$('.o_dept_search_item[data-dept-id="9"]')[0],
+                });
+                assert.deepEqual(sentCalls.map(function (params) { return params.args[0]; }), [3, 9]);
+                assert.strictEqual(dashboard.$(".o_dept_search_input").val(), "Other Department");
             });
         });
     });

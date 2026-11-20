@@ -1,5 +1,7 @@
 import json
+import re
 from datetime import date, datetime, timedelta
+from unittest.mock import patch
 
 from lxml import etree
 from psycopg2 import sql
@@ -50,6 +52,12 @@ class TestTaskDateRollup(TeamDashboardCommon):
 
     def _assert_planned_dates(self, task, date_start, date_end):
         self.assertEqual((task.planned_date_start, task.planned_date_end), (date_start, date_end))
+
+    def _create_occurrences(self):
+        recurrence = self.env["project.task.recurrence"].create({"repeat_unit": "week", "mon": True})
+        return self._create_task("First", recurrence_id=recurrence.id) | self._create_task(
+            "Second", recurrence_id=recurrence.id
+        )
 
     def test_leaf_task_dates_stay_manual(self):
         task = self._create_task("Leaf", self._day(0), self._day(3))
@@ -199,6 +207,62 @@ class TestTaskDateRollup(TeamDashboardCommon):
         self._create_task("Child", self._day(4), self._day(7), parent_id=parent.id)
         with self.assertRaisesRegex(UserError, "Parent"):
             parent.write({"planned_date_start": self._day(1)})
+
+    def test_a_save_reaching_the_occurrences_refuses_dates_of_one_planned_from_its_subtasks(self):
+        for recurrence_update in ("subsequent", "all"):
+            with self.subTest(recurrence_update=recurrence_update):
+                first, second = self._create_occurrences()
+                self._create_task("Sub-task of Second", self._day(4), self._day(7), parent_id=second.id)
+                self.assertEqual((first | second).mapped("is_planned_from_subtasks"), [False, True])
+                with self.assertRaisesRegex(UserError, "task '%s'" % re.escape(second.display_name)):
+                    first.write({"planned_date_start": self._day(1), "recurrence_update": recurrence_update})
+
+    def test_a_save_on_the_subsequent_occurrences_leaves_an_earlier_one_planned_from_its_subtasks(self):
+        first, second = self._create_occurrences()
+        self._create_task("Sub-task of First", self._day(4), self._day(7), parent_id=first.id)
+        self._stagger_create_dates(first | second)
+        self.assertTrue(first.is_planned_from_subtasks)
+        second.write({"planned_date_start": self._day(1), "recurrence_update": "subsequent"})
+        self._assert_planned_dates(first, self._day(4), self._day(7))
+        self.assertEqual(second.planned_date_start, self._day(1))
+
+    def test_the_occurrences_are_looked_for_only_for_a_field_the_module_acts_on(self):
+        TaskModel = self.registry["project.task"]
+        occurrences = self._create_occurrences()
+        with patch.object(
+            TaskModel, "_get_tasks_written_with", autospec=True, side_effect=TaskModel._get_tasks_written_with
+        ) as get_written_tasks:
+            renaming_tasks = occurrences[0]._get_tasks_written_by({"name": "Renamed", "recurrence_update": "all"})
+            self.assertEqual((renaming_tasks, get_written_tasks.called), (occurrences[0], False))
+            planning_tasks = occurrences[0]._get_tasks_written_by(
+                {"planned_date_start": self._day(1), "recurrence_update": "all"}
+            )
+            self.assertEqual((planning_tasks, get_written_tasks.called), (occurrences, True))
+
+    def test_a_save_of_subtasks_reaching_the_occurrences_rolls_each_up(self):
+        for recurrence_update in ("subsequent", "all"):
+            with self.subTest(recurrence_update=recurrence_update):
+                occurrences = self._create_occurrences()
+                occurrences[0].write(
+                    {
+                        "planned_date_start": self._day(0),
+                        "planned_date_end": self._day(30),
+                        "child_ids": [
+                            Command.create(
+                                {
+                                    "name": "Added",
+                                    "project_id": self.project.id,
+                                    "planned_date_start": self._day(5),
+                                    "planned_date_end": self._day(6),
+                                }
+                            ),
+                        ],
+                        "recurrence_update": recurrence_update,
+                    }
+                )
+                for occurrence in occurrences:
+                    self.assertEqual(len(occurrence.child_ids), 1)
+                    self._assert_planned_dates(occurrence, self._day(5), self._day(6))
 
     def test_write_of_rolled_up_value_is_allowed(self):
         """`_check_subtask_driven_dates` lets a write of the rolled-up values through."""

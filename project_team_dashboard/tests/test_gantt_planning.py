@@ -186,6 +186,31 @@ class TestDependencyLag(GanttPlanningCommon):
         self.task_a.write({"dependent_ids": [Command.clear()]})
         self.assertFalse(lag.exists())
 
+    def test_lags_pruned_on_every_occurrence_a_save_reaches(self):
+        for recurrence_update in ("subsequent", "all"):
+            with self.subTest(recurrence_update=recurrence_update):
+                recurrence = self.env["project.task.recurrence"].create({"repeat_unit": "week", "mon": True})
+                occurrences = self.Task.create(
+                    [
+                        {
+                            "name": name,
+                            "project_id": self.project.id,
+                            "recurrence_id": recurrence.id,
+                            "depend_on_ids": [Command.link(self.task_a.id)],
+                        }
+                        for name in ("First", "Second")
+                    ]
+                )
+                lags = self.Lag.create(
+                    [
+                        {"task_id": occurrence.id, "depends_on_id": self.task_a.id, "lag_days": 2}
+                        for occurrence in occurrences
+                    ]
+                )
+                occurrences[0].write({"depend_on_ids": [Command.clear()], "recurrence_update": recurrence_update})
+                self.assertFalse(occurrences.depend_on_ids)
+                self.assertFalse(lags.exists())
+
 
 @tagged("post_install", "-at_install")
 class TestGanttDependencyHelpers(GanttPlanningCommon):
