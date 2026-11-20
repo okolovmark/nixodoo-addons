@@ -2,24 +2,33 @@ import { defineMailModels } from "@mail/../tests/mail_test_helpers";
 import { expect, test } from "@odoo/hoot";
 import { queryAll, queryAllTexts } from "@odoo/hoot-dom";
 import { animationFrame, mockDate } from "@odoo/hoot-mock";
-import { contains, mockService, mountWithCleanup, onRpc } from "@web/../tests/web_test_helpers";
+import {
+    contains,
+    mockService,
+    mountWithCleanup,
+    onRpc,
+    patchTranslations,
+} from "@web/../tests/web_test_helpers";
 
 import { SupportRequestSystray } from "@project_support_request/support_request_systray/support_request_systray";
 
 defineMailModels();
 
+const CONFIG_URL = "/project_support_request/config";
+const CREATE_URL = "/project_support_request/create";
+const SYSTRAY_URL = "/project_support_request/systray";
 const PRIORITY_LEVELS = { 4: "Highest", 3: "High", 2: "Medium", 1: "Low", 0: "Lowest" };
 const CLOSED_LIST_VIEW_ID = 42;
 
 function mockRequests(tickets, priorityLevels = PRIORITY_LEVELS, closedListViewId = CLOSED_LIST_VIEW_ID) {
-    onRpc("/project_support_request/config", () => ({
+    onRpc(CONFIG_URL, () => ({
         project_id: 1,
         uid: 7,
         closed_list_view_id: closedListViewId,
         task_types: [],
         priority_levels: priorityLevels,
     }));
-    onRpc("/project_support_request/systray", () => ({
+    onRpc(SYSTRAY_URL, () => ({
         configured: true,
         bugs_count: tickets.length,
         others_count: 0,
@@ -141,5 +150,86 @@ test("View Closed opens the default task list where the config names no list vie
     expect(openedAction.views).toEqual([
         [false, "list"],
         [false, "form"],
+    ]);
+});
+
+test("its notifications and the closed requests action read in the user's language", async () => {
+    patchTranslations({
+        project_support_request: {
+            "Closed Support Requests": "Demandes d'assistance closes",
+            "Please enter a title for the support request.": "Saisissez un titre.",
+            "No active project develops this Odoo: a Settings administrator ticks Develops This Odoo on the AI-driven project that develops it, or restores the archived one that carries it.":
+                "Aucun projet actif ne développe cet Odoo.",
+            "Error opening closed support requests": "Erreur à l'ouverture des demandes closes",
+            "Error creating the support request": "Erreur à la création de la demande",
+            "Error loading support requests": "Erreur au chargement des demandes",
+        },
+    });
+    let supportProjectId = 1;
+    let failingUrl = null;
+    const mockRoute = (url, answer) =>
+        onRpc(url, () => {
+            if (url === failingUrl) {
+                throw new Error("The server is down.");
+            }
+            return answer();
+        });
+    mockRoute(CONFIG_URL, () => ({ project_id: supportProjectId, uid: 7, task_types: [], priority_levels: {} }));
+    mockRoute(CREATE_URL, () => ({ error: "Not expected" }));
+    mockRoute(SYSTRAY_URL, () => ({ configured: true, bugs_count: 0, others_count: 0, tickets: [], total: 0 }));
+    mockService("notification", { add: (message) => expect.step(String(message)) });
+    mockService("action", { doAction: (action) => expect.step(String(action.name)) });
+    const systray = await mountWithCleanup(SupportRequestSystray);
+
+    await systray.onViewClosed();
+    await systray.onSubmitCreate();
+    supportProjectId = false;
+    await systray.onViewClosed();
+    failingUrl = CONFIG_URL;
+    await systray.onViewClosed();
+    failingUrl = CREATE_URL;
+    systray.state.createName = "A request";
+    await systray.onSubmitCreate();
+    failingUrl = SYSTRAY_URL;
+    await systray.onShowMore();
+
+    expect.verifySteps([
+        "Demandes d'assistance closes",
+        "Saisissez un titre.",
+        "Aucun projet actif ne développe cet Odoo.",
+        "Erreur à l'ouverture des demandes closes",
+        "Erreur à la création de la demande",
+        "Erreur au chargement des demandes",
+    ]);
+});
+
+test("the age of a request and the title of its dot read in the user's language", async () => {
+    patchTranslations({
+        project_support_request: {
+            "%sm ago": "il y a %s min",
+            "%sh ago": "il y a %s h",
+            "%sd ago": "il y a %s j",
+            "Priority: %s": "Priorité : %s",
+        },
+    });
+    mockDate("2026-11-19 12:00:00");
+    mockRequests(
+        ["2026-11-19 11:30:00", "2026-11-19 08:30:00", "2026-11-16 12:00:00"].map((createDate) => ({
+            create_date: createDate,
+            priority_level: "4",
+        })),
+        { 4: "Très haute" }
+    );
+    await openSupportItem();
+
+    expect(queryAllTexts(".o_support_request_ticket small")).toEqual([
+        "Backlog · il y a 30 min",
+        "Backlog · il y a 3 h",
+        "Backlog · il y a 3 j",
+    ]);
+    expect(queryAll(".o_support_request_ticket [data-icon=circle]").map((dot) => dot.title)).toEqual([
+        "Priorité : Très haute",
+        "Priorité : Très haute",
+        "Priorité : Très haute",
     ]);
 });

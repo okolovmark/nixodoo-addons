@@ -567,12 +567,14 @@ class ProjectTask(models.Model):
     def _write_case_verifications_on_copies(self, copied_tasks, default):
         """Give each Not run case of copied_tasks, sub-tasks included, the
         verification of its source case, which its create took back. A copy
-        from or into a template has none to keep.
+        from or into a template takes its Verification alone, see
+        _write_verification_on_copy.
         """
-        if self._is_template_copy() or not self.has_field_access(self._fields["testcase_ids"], "read"):
+        if not self.has_field_access(self._fields["testcase_ids"], "read"):
             return
+        keep_progress = not self._is_template_copy()
         for case, case_copy in self._get_copied_case_pairs(copied_tasks, default, copied_tasks):
-            case._write_verification_on_copy(case_copy)
+            case._write_verification_on_copy(case_copy, keep_progress)
 
     def _get_copied_case_pairs(self, copied_tasks, default, new_tasks):
         """Yield each case of self and of their sub-tasks with its copy, as
@@ -590,6 +592,27 @@ class ProjectTask(models.Model):
             if not default.get("child_ids"):
                 source_subtasks = task.child_ids.filtered("active") - new_tasks
                 yield from source_subtasks._get_copied_case_pairs(copied_task.child_ids.sorted("id"), {}, new_tasks)
+
+    def _resolve_copied_dependencies(self, copied_tasks):
+        super()._resolve_copied_dependencies(copied_tasks)
+        # the only place core pairs the tasks a recurrence repeats with their occurrences
+        if is_next_occurrence_creation(self.env):
+            self._write_case_kinds_on_occurrences(copied_tasks)
+
+    def _write_case_kinds_on_occurrences(self, occurrences):
+        """Give each case of the occurrences of self, sub-tasks included, the
+        Verification of its source case when that one is Not run: a prepared
+        case keeps how it is to be verified, which the Not run its copy is
+        created with took back. The tasks are paired with core's
+        _create_task_mapping, not _get_copied_case_pairs: core builds the
+        occurrence's sub-tasks from the same child_ids it pairs. The cases are
+        read and written in sudo, as the recurrence builds them.
+        """
+        task_mapping, _task_dependencies = self._create_task_mapping(occurrences.sudo())
+        for source_id, occurrence in task_mapping.items():
+            source_cases = self.browse(source_id).sudo().testcase_ids
+            for case, case_copy in zip(source_cases, occurrence.testcase_ids.sorted("id")):
+                case._write_verification_on_copy(case_copy, keep_progress=False)
 
     @api.model
     def _without_size(self, vals):

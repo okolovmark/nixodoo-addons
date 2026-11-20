@@ -12,11 +12,15 @@ class ProjectTaskRecurrence(models.Model):
         first stage of its project, or in the stage of the task it repeats when
         the project lists none. Neither stage rule checks that creation: a
         refusal would take the closing of the task it repeats with it.
+
+        The tasks repeated carry the key too: core pairs them with their
+        occurrences in _resolve_copied_dependencies, whose override in this
+        module gives the cases of the occurrences their Verification kind.
         """
-        occurrences = super(
-            ProjectTaskRecurrence,
-            self.with_context(project_ai_driven_next_occurrence=NEXT_OCCURRENCE_CREATION),
-        )._create_next_occurrences(occurrences_from)
+        marked_context = {"project_ai_driven_next_occurrence": NEXT_OCCURRENCE_CREATION}
+        occurrences = super(ProjectTaskRecurrence, self.with_context(**marked_context))._create_next_occurrences(
+            occurrences_from.with_context(**marked_context)
+        )
         # the occurrences go back without the key: a later create through them is checked
         return occurrences.with_context(self.env.context)
 
@@ -29,7 +33,8 @@ class ProjectTaskRecurrence(models.Model):
 
         It takes the checklist items and the test cases of its task from zero,
         as a task created from a template does, and no question row: core's
-        copy values are built without lines and get these here. Sudo, as core
+        copy values are built without lines and get these here, the
+        Verification of a prepared case after the creation. Sudo, as core
         builds its values: whoever closes the task, the occurrence gets them.
 
         The child tasks of an occurrence get their values from this method too.

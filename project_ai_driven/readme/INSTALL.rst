@@ -156,3 +156,9 @@ quick create and to the project sharing quick create. From it the closing and th
 to another project also when it keeps its stage, a save links an image the
 record already has instead of attaching it again, and a new record copies
 the files of other records its texts link as it copies their images.
+
+The update to 20.0.2.21.0 has no migration and writes nothing on existing
+records. From it a task or a project created from a template, a project
+template made from a project, and the next occurrence of a recurring task,
+sub-tasks included, keep the Verification of each test case that was Not
+run with one; the cases copied before stay as they are.
