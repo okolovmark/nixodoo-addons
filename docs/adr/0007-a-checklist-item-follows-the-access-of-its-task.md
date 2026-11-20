@@ -19,6 +19,7 @@ Rejected: following the user's companies instead of the selected ones. The Check
 - A rule any module adds to `project.task` applies to the items without a change here.
   - 2026-11-17: 16.0.2.7.0 moves the two overrides into `project.task.access.mixin`; question rows (`project.task.question`, ADR 0008) follow the access of their task through it too.
   - 2026-11-17: in 16.0.2.12.0 session rows (`project.task.session`, ADR 0010) follow it too, and a create or a write of `task_id` checks read access on the task it names before anything else.
+  - 2026-11-20: in 16.0.2.21.0 test cases (`project.task.testcase`, ADR 0005) follow it too: the Test Cases menu lists the cases of the tasks of the selected companies, and an image in the texts of a case becomes an attachment of its task (ADR 0011) only through a save of the case the user may make.
 - An item already deleted passes the check, as core lets a missing record through: two users deleting the same line from an open task form do not fail.
 - A search of items carries a subquery of the tasks the user can read.
 

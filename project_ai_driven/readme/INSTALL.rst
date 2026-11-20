@@ -305,6 +305,17 @@ tasks of that recurrence only, each one checked and its Assigning Date set
 or cleared as Odoo's write of several tasks sets or clears it.
 
 The update to 16.0.2.21.0 has no migration and writes nothing on existing
+records. From it a test case follows the access of its task, the companies
+selected in the company switcher included: the **Test Cases** menu no
+longer lists the cases of a task the user cannot read, nor of a task in a
+company that is not selected. The completion and the card summaries of the
+checklist and the test cases are read by **Project / User** only: a user
+without that group reads the task without them. A create or a write that
+gives a case Not run drops the Verified by, Verified on and Verification it
+sends, and a create that takes Passed or Failed from a default is stamped.
+The deploy is one update of the module, with nothing else to run.
+
+The update to 16.0.2.22.0 has no migration and writes nothing on existing
 records; it loads the view that adds Task Type and Estimate to the kanban
 quick create. From it the closing and the estimate rules check a task moved
 to another project also when it keeps its stage, and a save links an image

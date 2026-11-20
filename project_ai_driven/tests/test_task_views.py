@@ -6,6 +6,7 @@ from odoo.tests.common import TransactionCase, tagged
 from odoo.tools.template_inheritance import apply_inheritance_specs
 
 from ..hooks import MODULE
+from .common import ProjectAiDrivenCommon
 
 VIEW_TAGS = ("form", "tree", "kanban", "calendar")
 STARS = "//field[@name='priority'][@widget='priority']"
@@ -21,6 +22,15 @@ STAR_COUNTS = {
     "project.view_task_calendar": 1,
 }
 HIDDEN_ON_FLAGGED_PROJECTS = {"invisible": [("is_ai_driven", "=", True)]}
+# computed from the checklist items and the test cases, whose readers are project users
+LINE_COUNT_FIELDS = (
+    "completion",
+    "completion_xml",
+    "kanban_checklist",
+    "testcase_completion",
+    "testcase_completion_xml",
+    "kanban_testcases",
+)
 
 
 @tagged("post_install", "-at_install")
@@ -91,3 +101,57 @@ class TestTaskViews(TransactionCase):
         for node in hours_nodes:
             self.assertFalse(node.get("readonly"))
             self.assertNotIn("readonly", node.get("attrs") or "")
+
+
+@tagged("post_install", "-at_install")
+class TestTaskOutsideProject(ProjectAiDrivenCommon):
+    """An internal user without Project rights reads the tasks of a project open to employees."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.internal_user = cls._create_user("Internal Only", "project_ai_driven_internal", "internal@example.com")
+        cls.env["project.task.testcase"].create(
+            [{"name": "Passed", "task_id": cls.task.id, "state": "passed"}, {"name": "Open", "task_id": cls.task.id}],
+        )
+
+    def _kanban_view(self, user):
+        kanban_view = self.env.ref("project.view_task_kanban")
+        return self.env["project.task"].with_user(user).get_views([(kanban_view.id, "kanban")])
+
+    def _read_every_field(self, user):
+        """read() of every task field the user may read that this module and its dependencies
+        define: a module installed beside them (hr_timesheet) adds fields of its own rights.
+        """
+        module = self.env["ir.module.module"].search([("name", "=", MODULE)])
+        modules = set((module | module.upstream_dependencies(exclude_states=("uninstallable",))).mapped("name"))
+        task = self.task.with_user(user)
+        field_names = [
+            field_name
+            for field_name in task.check_field_access_rights("read", None)
+            if set(task._fields[field_name]._modules) <= modules
+        ]
+        self.env.invalidate_all()
+        (task_values,) = task.read(field_names)
+        return task_values
+
+    def test_a_reader_outside_project_reads_every_field_but_the_line_counts(self):
+        task_values = self._read_every_field(self.internal_user)
+        self.assertEqual(task_values["name"], self.task.name)
+        self.assertFalse(set(LINE_COUNT_FIELDS) & set(task_values))
+
+    def test_the_task_cards_outside_project_name_no_line_count(self):
+        views = self._kanban_view(self.internal_user)
+        arch = views["views"]["kanban"]["arch"]
+        self.assertFalse(set(LINE_COUNT_FIELDS) & set(etree.fromstring(arch).xpath("//field/@name")))
+        self.assertNotRegex(arch, r"\brecord\.(%s)\b" % "|".join(LINE_COUNT_FIELDS))
+        self.assertFalse(set(LINE_COUNT_FIELDS) & set(views["models"]["project.task"]))
+
+    def test_a_project_user_reads_and_sees_the_line_counts(self):
+        task_values = self._read_every_field(self.user_dev)
+        self.assertLessEqual(set(LINE_COUNT_FIELDS), set(task_values))
+        self.assertEqual(task_values["testcase_completion"], 50)
+        arch = self._kanban_view(self.user_dev)["views"]["kanban"]["arch"]
+        self.assertLessEqual(set(LINE_COUNT_FIELDS), set(etree.fromstring(arch).xpath("//field/@name")))
+        for raw_field in ("completion_xml", "kanban_checklist", "testcase_completion_xml", "kanban_testcases"):
+            self.assertIn("record.%s.raw_value" % raw_field, arch)
