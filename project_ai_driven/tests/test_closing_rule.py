@@ -543,37 +543,87 @@ class TestClosingRule(ProjectAiDrivenCommon):
         next_subtask.write({"stage_id": self.stage_done.id, "pr_uri": self.pull_request.url})
         self.assertRecordValues(next_subtask, [{"stage_id": self.stage_done.id, "resolution": "code"}])
 
-    def test_next_occurrence_that_keeps_the_stage_takes_what_closed_the_last(self):
+    def test_next_occurrence_that_keeps_the_stage_takes_nothing_of_what_closed_the_last(self):
         # an occurrence starts in the first stage of its project
         self.project.pr_required_states = self.stage_progress
         closed_task = self._create_recurring_task(self.stage_progress)
+        self._create_task(
+            name="Subtask",
+            parent_id=closed_task.id,
+            resolution="code",
+            pull_request_ids=[Command.link(self.pull_request.id)],
+        )
 
         next_task = self._close_last_occurrence(closed_task)
 
+        self.assertEqual(next_task.child_ids.name, "Subtask")
         self.assertRecordValues(
-            next_task,
-            [
-                {
-                    "stage_id": self.stage_progress.id,
-                    "resolution": "code",
-                    "pull_request_ids": self.pull_request.ids,
-                    "pr_uri": self.pull_request.url,
-                },
-            ],
+            next_task | next_task.child_ids,
+            [{"stage_id": self.stage_progress.id, "resolution": False, "pull_request_ids": [], "pr_uri": False}] * 2,
+        )
+        self.assertRecordValues(
+            closed_task | closed_task.child_ids,
+            [{"resolution": "code", "pull_request_ids": self.pull_request.ids}] * 2,
         )
 
-    def test_recurring_task_set_done_is_refused_when_the_first_stage_is_marked(self):
-        """The next occurrence starts in the first stage, which is not the stage
-        of the task it repeats: it takes no Resolution, and the rule refuses it.
+    def test_a_recurring_task_set_done_or_cancelled_gives_its_next_occurrence_the_marked_first_stage(self):
+        """The next occurrence and its sub-task start in the first stage
+        without a Resolution: their creation is not checked.
         """
         self.project.pr_required_states = self.stage_progress
-        recurring_task = self._create_recurring_task(self.stage_review)
+        for closed_state in ("1_done", "1_canceled"):
+            with self.subTest(closed_state=closed_state):
+                recurring_task = self._create_recurring_task(self.stage_review)
+                self._create_task(name="Subtask", parent_id=recurring_task.id, stage_id=self.stage_review.id)
+
+                recurring_task.state = closed_state
+
+                next_task = recurring_task.recurrence_id.task_ids - recurring_task
+                self.assertRecordValues(recurring_task, [{"stage_id": self.stage_review.id, "state": closed_state}])
+                self.assertEqual(next_task.child_ids.name, "Subtask")
+                self.assertRecordValues(
+                    next_task | next_task.child_ids,
+                    [{"stage_id": self.stage_progress.id, "resolution": False, "pull_request_ids": []}] * 2,
+                )
+
+    def test_the_next_occurrence_moved_back_into_a_marked_stage_is_checked(self):
+        self.project.pr_required_states = self.stage_progress
+        next_task = self._close_last_occurrence(self._create_recurring_task(self.stage_review))
+        next_task.stage_id = self.stage_review
 
         with self.assertRefused("Choose a Resolution"):
-            self._close_last_occurrence(recurring_task)
+            next_task.stage_id = self.stage_progress
+        self.assertEqual(next_task.stage_id, self.stage_review)
+
+    def test_a_recurring_task_closed_into_a_marked_stage_is_checked(self):
+        self.project.write({"allow_recurring_tasks": True, "pr_required_states": self.stage_progress | self.stage_done})
+        recurring_task = self._create_task(stage_id=self.stage_review.id, recurring_task=True, repeat_type="forever")
+
+        with self.assertRefused("Choose a Resolution"):
+            recurring_task.write({"stage_id": self.stage_done.id, "state": "1_done"})
 
         self.assertRecordValues(recurring_task, [{"stage_id": self.stage_review.id, "state": "01_in_progress"}])
         self.assertEqual(recurring_task.recurrence_id.task_ids, recurring_task)
+
+    def test_the_next_occurrences_come_back_without_their_exemption(self):
+        self.project.pr_required_states = self.stage_progress
+        recurring_task = self._create_recurring_task(self.stage_review)
+
+        next_task = self.env["project.task.recurrence"]._create_next_occurrences(recurring_task)
+
+        self.assertEqual(next_task.stage_id, self.stage_progress)
+        with self.assertRefused("Choose a Resolution"):
+            next_task.env["project.task"].create(
+                {"name": "Task", "project_id": self.project.id, "stage_id": self.stage_progress.id}
+            )
+
+    def test_no_value_a_caller_can_send_exempts_a_task_from_the_rule(self):
+        self.project.pr_required_states = self.stage_progress
+        for value in (True, 1, "1"):
+            with self.subTest(value=value), self.assertRefused("Choose a Resolution"):
+                self.env["project.task"].with_context(project_ai_driven_next_occurrence=value).create(
+                    {"name": "Task", "project_id": self.project.id, "stage_id": self.stage_progress.id}
+                )
 
     def test_user_who_cannot_read_the_project(self):
         """The rule is called as the write of a task calls it. The write is left

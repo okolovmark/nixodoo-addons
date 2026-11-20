@@ -14,17 +14,15 @@
   values of the same write, runs both rules before the Resolution, the task
   type and the estimate of that write arrive. Setting them in an earlier
   write avoids it.
-* Neither rule is run when a stage gets marked or a project gets flagged, so
-  a task can sit in a marked stage without what the stage requires: a
-  Resolution, a pull request, a task type or an estimate. Such a task cannot
-  be duplicated, and it stops the duplication of its project, until it gets
-  it.
-* A recurring task cannot be set Done or Cancelled while the first stage of
-  its AI-driven project is marked for the closing rule, unless the task sits
-  in that stage: its next occurrence enters that stage without a
-  Resolution, and the refusal takes the change of state with it. The same
-  holds where that stage is marked for the estimate rule and the task has no
-  task type or no estimate.
+* Neither rule is run when a stage gets marked or a project gets flagged,
+  nor on the next occurrence of a recurring task, so a task can sit in a
+  marked stage without what the stage requires: a Resolution, a pull
+  request, a task type or an estimate. Such a task cannot be duplicated, and
+  it stops the duplication of its project, until it gets it.
+* The next occurrence of a recurring task is exempt from both rules by a
+  key in the context of its creation: a task that an automation of an
+  administrator, run on creation, creates inside that creation is exempt
+  too.
 * A checklist item is not converted into a sub-task while the first unfolded
   stage of its AI-driven project is marked for either rule: the sub-task
   enters that stage without a Resolution, a task type or an estimate. The

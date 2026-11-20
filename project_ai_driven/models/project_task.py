@@ -13,6 +13,11 @@ from .project_task_testcase import TESTCASE_STATES
 
 KANBAN_TESTCASE_STATES = ("not_run", "failed", "waiting")
 LINE_FIELDS = ("checklist_item_ids", "testcase_ids", "question_ids")
+# A question row was asked and answered for the run before: the next occurrence takes none.
+OCCURRENCE_LINE_FIELDS = tuple(field_name for field_name in LINE_FIELDS if field_name != "question_ids")
+# The value of the context key under which core creates the next occurrences: an object of
+# this module, which no RPC call can send, so no caller switches the stage rules off with it.
+NEXT_OCCURRENCE_CREATION = object()
 # Marked for an upgrade or a removal, a module is still installed.
 INSTALLED_MODULE_STATES = ("installed", "to upgrade", "to remove")
 
@@ -30,6 +35,10 @@ def get_size(hours):
 def _is_create_command(command):
     # A list from the web client, with a virtual id; a tuple from Command.create.
     return isinstance(command, (list, tuple)) and command[0] == Command.CREATE
+
+
+def is_next_occurrence_creation(env):
+    return env.context.get("project_ai_driven_next_occurrence") is NEXT_OCCURRENCE_CREATION
 
 
 class ProjectTask(models.Model):
@@ -313,8 +322,9 @@ class ProjectTask(models.Model):
         tasks = super().create(vals_list)
         # Sudo: a default of the context may set modules too, and a read checks the field's groups.
         tasks._check_modules_installed(tasks.sudo().module_ids)
-        tasks._apply_closing_rule()
-        tasks._apply_estimate_rule()
+        if not is_next_occurrence_creation(self.env):
+            tasks._apply_closing_rule()
+            tasks._apply_estimate_rule()
         # The caller's env: an override may return the tasks in sudo, past the item's access rights.
         tasks.with_env(self.env)._create_checklist_items(new_items_per_task)
         return tasks
@@ -347,7 +357,7 @@ class ProjectTask(models.Model):
         Every copy takes the lines of its source here, as core builds the
         sub-tasks of a copy from their copy_data alone: from zero on a copy
         from or into a template, else as they are. The next occurrence of a
-        recurring task takes none.
+        recurring task takes its lines from the recurrence instead.
         """
         vals_list = super().copy_data(default=default)
         keep_progress = not self._is_template_copy()
@@ -454,15 +464,14 @@ class ProjectTask(models.Model):
             vals.setdefault("resolution", self.resolution)
             vals.setdefault("pull_request_ids", [Command.set(self.pull_request_ids.ids)])
 
+    @api.model
     def _remove_closing_values(self, vals):
-        """Take back what _add_closing_values added to the values of a copy
-        that was given another stage since, as the next occurrence of a
-        recurring task is.
+        """Drop the Resolution and the pull requests from the values of a task
+        that is new work, as the next occurrence of a recurring task is, in
+        whatever stage it starts and whatever put them there.
         """
-        self.ensure_one()
-        if not self._is_stage_kept_in(vals):
-            vals.pop("resolution", None)
-            vals.pop("pull_request_ids", None)
+        vals.pop("resolution", None)
+        vals.pop("pull_request_ids", None)
 
     def _clear_closing_values(self):
         self.write({"resolution": False, "pull_request_ids": [Command.clear()]})
@@ -478,23 +487,23 @@ class ProjectTask(models.Model):
         """
         return bool(self.env.context.get("copy_from_template") or self.env.context.get("convert_to_template"))
 
-    def _add_line_values(self, vals, keep_progress):
+    def _add_line_values(self, vals, keep_progress, field_names=LINE_FIELDS):
         """Complete the values of a copy with the lines of this task, unless the
         values set them.
         """
         self.ensure_one()
-        for field_name, lines_values in self._get_line_copy_values(keep_progress).items():
+        for field_name, lines_values in self._get_line_copy_values(keep_progress, field_names).items():
             vals.setdefault(field_name, [Command.create(line_values) for line_values in lines_values])
 
-    def _get_line_copy_values(self, keep_progress):
+    def _get_line_copy_values(self, keep_progress, field_names=LINE_FIELDS):
         """Return {line field: [values of the copy of each line]} for the line
-        fields the user may read, as core copies no other field of a task.
-        keep_progress keeps the state, the result or the answer of each line,
-        and the deadline of an item or the comments of a case.
+        fields of field_names the user may read, as core copies no other field
+        of a task. keep_progress keeps the state, the result or the answer of
+        each line, and the deadline of an item or the comments of a case.
         """
         return {
             field_name: self[field_name]._get_task_copy_values(keep_progress)
-            for field_name in LINE_FIELDS
+            for field_name in field_names
             if self.has_field_access(self._fields[field_name], "read")
         }
 
