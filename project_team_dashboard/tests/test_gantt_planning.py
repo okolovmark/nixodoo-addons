@@ -537,3 +537,9 @@ class TestGanttPlanningPayload(GanttPlanningCommon):
         child_data = next(task_data for task_data in payload["tasks"] if task_data["id"] == visible_child.id)
         self.assertIs(child_data["parent_id"], False, "The sub-task row links no parent the user cannot open")
         self.assertEqual(child_data["parent_label"], "HID-1")
+        hidden_parent.key = False
+        self.env.invalidate_all()
+        unkeyed_child_data = next(
+            task_data for task_data in self._payload(self.user_dev1)["tasks"] if task_data["id"] == visible_child.id
+        )
+        self.assertEqual(unkeyed_child_data["parent_label"], "Hidden Parent")
