@@ -20,7 +20,6 @@ _logger = logging.getLogger(__name__)
 
 MODULE = "project_ai_driven"
 
-OWNERSHIP_TABLES = ("ir_model_constraint", "ir_model_relation")
 FIELD_NAMING_COLUMNS = (
     ("ir_rule", "domain_force"),
     ("ir_filters", "domain"),
@@ -89,49 +88,6 @@ MODEL_NAME_COLUMNS = (
     ("rating_rating", "res_model"),
     ("rating_rating", "parent_res_model"),
 )
-
-# An external id is unique per module: a name this module already holds is left alone.
-NAME_IS_FREE = """
-    NOT EXISTS (
-        SELECT 1 FROM ir_model_data taken WHERE taken.module = %(module)s AND taken.name = imd.name
-    )
-"""
-TAKE_OVER_EXTERNAL_IDS = (
-    """
-    UPDATE ir_model_data imd
-       SET module = %(module)s
-     WHERE imd.module = %(former)s
-       AND
-    """
-    + NAME_IS_FREE
-)
-TAKE_OVER_OWNERSHIP = sql.SQL(
-    """
-    UPDATE {table} owned
-       SET module = target.id
-      FROM ir_module_module source, ir_module_module target
-     WHERE source.name = %(former)s
-       AND target.name = %(module)s
-       AND owned.module = source.id
-       AND NOT EXISTS (
-           SELECT 1 FROM {table} taken WHERE taken.module = target.id AND taken.name = owned.name
-       )
-    """
-)
-DROP_OWNERSHIP = sql.SQL(
-    """
-    DELETE FROM {table} owned
-     USING ir_module_module source, ir_module_module target
-     WHERE source.name = %(former)s
-       AND target.name = %(module)s
-       AND owned.module = source.id
-    """
-)
-TAKE_OVER_VIEW_FILES = """
-    UPDATE ir_ui_view
-       SET arch_fs = %(module)s || substr(arch_fs, length(%(former)s) + 1)
-     WHERE left(arch_fs, length(%(former)s) + 1) = %(former)s || '/'
-"""
 
 RENAME_RELATED_PATHS = """
     UPDATE ir_model_fields
@@ -1126,35 +1082,6 @@ def _get_old_value_kind(value, links):
     if value_text.startswith("memory://"):
         return MEMORY_REFERENCE
     return OTHER_LINK if re.fullmatch(r"\w[\w+.-]*://\S+", value_text) else OTHER_TEXT
-
-
-def is_installed(cr, module_name):
-    cr.execute(
-        "SELECT 1 FROM ir_module_module WHERE name = %s AND state IN ('installed', 'to upgrade')",
-        (module_name,),
-    )
-    return bool(cr.fetchone())
-
-
-def take_over_module(cr, former, module):
-    """Hand to module everything the module former owns: its external ids, the
-    constraints and many2many tables registered to it, and the views loaded
-    from its files. For the pre_init_hook of a module that replaces another
-    one; the caller clears the registry caches.
-
-    A row whose name module already holds cannot move: it is dropped, what it
-    stands for stays.
-
-    A view remembers the file it was loaded from, and a hard reset of the view
-    or a server in dev mode reads its arch from that file again.
-    """
-    params = {"module": module, "former": former}
-    cr.execute(TAKE_OVER_EXTERNAL_IDS, params)
-    cr.execute("DELETE FROM ir_model_data WHERE module = %(former)s", params)
-    for table in OWNERSHIP_TABLES:
-        cr.execute(TAKE_OVER_OWNERSHIP.format(table=sql.Identifier(table)), params)
-        cr.execute(DROP_OWNERSHIP.format(table=sql.Identifier(table)), params)
-    cr.execute(TAKE_OVER_VIEW_FILES, params)
 
 
 def forget_dropped_fields(cr):
