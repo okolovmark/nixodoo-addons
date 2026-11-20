@@ -1,5 +1,6 @@
 from lxml import etree
 
+from odoo import Command
 from odoo.exceptions import AccessError
 from odoo.tests import tagged
 from odoo.tools.safe_eval import safe_eval
@@ -26,6 +27,26 @@ class TestProjectTask(TeamDashboardCommon):
         self.env.user.dashboard_default_project_id = False
         action = self.env["project.task"].action_open_backlog()
         self.assertFalse(action["context"]["search_default_project_id"])
+
+    def test_the_backlog_preselects_the_default_project_only_where_the_user_finds_it(self):
+        company_a = self.env.company
+        company_b = self.env["res.company"].create({"name": "Backlog Company B"})
+        project_b = self.env["project.project"].create({"name": "Project in B", "company_id": company_b.id})
+        project_hidden = self.env["project.project"].create({"name": "Members Only", "privacy_visibility": "followers"})
+        project_archived = self.env["project.project"].create({"name": "Archived", "active": False})
+        self.user_dev1.company_ids = [Command.link(company_b.id)]
+        Task = self.env["project.task"].with_user(self.user_dev1)
+        self.assertTrue(project_archived.with_user(self.user_dev1).has_access("read"))
+        for default_project, companies, preselected_project_id in (
+            (project_b, company_a | company_b, project_b.id),
+            (project_b, company_a, False),
+            (project_hidden, company_a | company_b, False),
+            (project_archived, company_a | company_b, False),
+        ):
+            self.user_dev1.dashboard_default_project_id = default_project
+            with self.subTest(project=default_project.name, companies=companies.mapped("name")):
+                action = Task.with_context(allowed_company_ids=companies.ids).action_open_backlog()
+                self.assertEqual(action["context"]["search_default_project_id"], preselected_project_id)
 
     def test_the_backlog_leaves_done_and_cancelled_tasks_out(self):
         open_task, done_task, cancelled_task = self.env["project.task"].create(

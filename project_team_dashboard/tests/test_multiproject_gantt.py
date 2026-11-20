@@ -218,6 +218,40 @@ class TestMultiProjectGantt(TeamDashboardCommon):
         self.assertEqual(result["unscheduled"], [])
         self.assertEqual(result["tasks_without_dates"], 0)
 
+    def test_a_parent_followed_in_a_project_the_user_cannot_read_stays_off_the_chart(self):
+        project_hidden = self.Project.create({"name": "Team Members Only", "privacy_visibility": "followers"})
+        parent_followed, parent_readable = self.Task.create(
+            [
+                {"name": "Followed Parent", "project_id": project_hidden.id},
+                {"name": "Parent in a Readable Project", "project_id": self.project_plain.id},
+            ]
+        )
+        parent_followed.message_subscribe(partner_ids=self.user_dev1.partner_id.ids)
+        child_of_followed, child_of_readable = self.Task.create(
+            [
+                {
+                    "name": "Child of %s" % parent.name,
+                    "project_id": self.project.id,
+                    "parent_id": parent.id,
+                    "planned_date_start": self.now,
+                    "planned_date_end": self.now + timedelta(days=2),
+                }
+                for parent in parent_followed | parent_readable
+            ]
+        )
+        Project = self.Project.with_user(self.user_dev1)
+        self.assertTrue(parent_followed.with_user(self.user_dev1).has_access("read"))
+        self.assertFalse(project_hidden.with_user(self.user_dev1).has_access("read"))
+        self.assertTrue(self.project_plain.with_user(self.user_dev1).has_access("read"))
+
+        result = Project.get_gantt_chart_data(project_ids=[self.project.id, self.project2.id])
+
+        parent_by_task = {task_data["id"]: task_data["parent_id"] for task_data in result["tasks"]}
+        self.assertNotIn(parent_followed.id, parent_by_task)
+        self.assertIs(parent_by_task[child_of_followed.id], False)
+        self.assertEqual(parent_by_task[child_of_readable.id], parent_readable.id)
+        self.assertIn(parent_readable.id, parent_by_task)
+
     def test_multi_project_tasks_without_dates_count(self):
         """tasks_without_dates counts across all requested projects."""
         # Create dateless tasks in both projects

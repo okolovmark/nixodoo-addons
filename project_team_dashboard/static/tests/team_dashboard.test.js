@@ -114,7 +114,12 @@ function makePayload() {
     };
 }
 
-function serveDirectory({ defaultProjectId = false } = {}) {
+/**
+ * @param {Object} [options]
+ * @param {[number, string]|false} [options.defaultProject] the user's Default Dashboard Project,
+ *  among PROJECTS or not
+ */
+function serveDirectory({ defaultProject = false } = {}) {
     onRpc("project.project", "search_read", ({ kwargs }) => {
         expect(kwargs.domain).toEqual([["is_template", "=", false]]);
         return PROJECTS;
@@ -129,12 +134,11 @@ function serveDirectory({ defaultProjectId = false } = {}) {
         if (!args[1]?.includes("dashboard_default_project_id")) {
             return;
         }
-        const project = PROJECTS.find((project) => project.id === defaultProjectId);
         return [
             {
                 id: 7,
                 department_id: [3, "Company / R&D"],
-                dashboard_default_project_id: project ? [project.id, project.name] : false,
+                dashboard_default_project_id: defaultProject,
             },
         ];
     });
@@ -274,11 +278,19 @@ describe("on desktop", () => {
     });
 
     test("without a project in the action the user's default project is shown", async () => {
-        serveDirectory({ defaultProjectId: 2 });
+        serveDirectory({ defaultProject: [2, "Mobile App"] });
         serveDashboard();
         await mountDashboard({});
         expect.verifySteps([projectCall({ project_id: 2 })]);
         expect(".o_team_dashboard_project_picker input").toHaveValue("Mobile App");
+    });
+
+    test("a default project the user does not find in the selected companies gives way to the first one found", async () => {
+        serveDirectory({ defaultProject: [3, "Project of Another Company"] });
+        serveDashboard();
+        await mountDashboard({});
+        expect.verifySteps([projectCall({ project_id: 1 })]);
+        expect(".o_team_dashboard_project_picker input").toHaveValue("WEB - Website");
     });
 
     test("picking a project loads its cards", async () => {

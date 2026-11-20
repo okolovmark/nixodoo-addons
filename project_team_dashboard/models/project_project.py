@@ -214,14 +214,17 @@ class ProjectProject(models.Model):
         all_tasks = Task.search(domain)
         task_ids_set = set(all_tasks.ids)
 
-        # the readable ancestors of the tasks on the chart join it, dated or not; none of them is a
-        # template, since has_template_ancestor leaves out every task under a template too
+        # the chart shows no task of a project the user cannot read, a parent they follow there included
         ancestors_needed = Task
         visited = set(task_ids_set)
         queue = all_tasks
         while queue:
             next_queue = Task
-            readable_parents = queue.parent_id._filtered_access("read")
+            parents = queue.parent_id._filtered_access("read")
+            parent_projects = parents.project_id._filtered_access("read")
+            readable_parents = parents.filtered(
+                lambda parent: not parent.project_id or parent.project_id in parent_projects
+            )
             for task in queue:
                 parent = task.parent_id
                 if parent and parent.id not in visited and parent in readable_parents:
@@ -682,10 +685,11 @@ class ProjectProject(models.Model):
     @api.model
     def _check_department_mode_access(self, department, openable_departments):
         """The Department mode reads the logged hours of a department with elevated rights: a user
-        opens it for openable_departments only. Return whether they do: a user who sees every team
-        is not refused, but told the department does not exist or is outside the companies of the context."""
+        opens it for openable_departments only. Return whether they do: a user who sees every team,
+        or whose own department it is, is not refused, but told the department does not exist or is
+        outside the companies of the context."""
         is_openable = self.env.su or department in openable_departments
-        if not is_openable and not self._sees_every_team():
+        if not (is_openable or self._sees_every_team() or self._is_own_department(department)):
             raise AccessError(
                 self.env._(
                     "You can open the Team Dashboard by department only for your own department or one you manage."
@@ -731,10 +735,18 @@ class ProjectProject(models.Model):
         domain = Domain("company_id", "in", [*self.env.companies.ids, False])
         if self._sees_every_team():
             return domain
+        return domain & self._get_own_department_domain()
+
+    @api.model
+    def _get_own_department_domain(self):
+        """The departments of the user's employees and those one of them manages, in any company."""
         own_employees = self._own_employees()
-        return domain & (
-            Domain("id", "in", own_employees.department_id.ids) | Domain("manager_id", "in", own_employees.ids)
-        )
+        return Domain("id", "in", own_employees.department_id.ids) | Domain("manager_id", "in", own_employees.ids)
+
+    @api.model
+    def _is_own_department(self, department):
+        # sudo: a project user may not read hr.department, nor one of a company outside the context
+        return bool(department.sudo().filtered_domain(self._get_own_department_domain()))
 
     @api.model
     def _sees_every_team(self):
@@ -840,16 +852,10 @@ class ProjectProject(models.Model):
 
     @api.model
     def _get_member_today_by_user(self, users):
-        """Return each user's today in their own timezone, the one core dates their timesheets in,
-        else in their employee's; the viewer's today for a user with neither."""
-        member_today_by_user = {}
-        for user in users:
-            # sudo: the viewer may not read employees, and the timezone shows nothing of theirs but a day
-            member_tz = user.tz or user.sudo().employee_id.tz
-            # tz=False would fall back to the viewer's stored timezone, not the one their client sends
-            dated_records = self.with_context(tz=member_tz) if member_tz else self
-            member_today_by_user[user.id] = fields.Date.context_today(dated_records)
-        return member_today_by_user
+        """Return each user's today on the day core dates their timesheet lines on: in the timezone of
+        their preferences, in UTC when they have none, as the web client sends no other."""
+        # "UTC", not tz=False: an empty tz falls back to the viewer's
+        return {user.id: fields.Date.context_today(self.with_context(tz=user.tz or "UTC")) for user in users}
 
     @api.model
     def _get_today_hours_by_user(self, timesheets, domain, member_today_by_user):

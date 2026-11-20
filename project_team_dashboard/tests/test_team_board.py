@@ -495,7 +495,7 @@ class TestTeamBoardAccess(TeamBoardCase):
             "the 8 hours left fit in Monday on the employee's schedule, not in 5.7 hours a day",
         )
 
-    # Monday in UTC, the viewer's day, and already Tuesday in Manila, the employee's
+    # Monday in UTC, the day of a member without a timezone, and already Tuesday in Manila, the employee's
     @freeze_time("2026-06-01 23:30:00")
     def test_a_card_reads_the_employee_of_its_member_whatever_core_lets_the_viewer_read(self):
         def compute_readable_employee(users):
@@ -520,8 +520,8 @@ class TestTeamBoardAccess(TeamBoardCase):
             card_dev1 = next(member for member in board.data["members"] if member["user_id"] == self.user_dev1.id)
         self.assertEqual(
             card_dev1["estimated_completion"],
-            "2026-06-02",
-            "the 8 hours left fit in the employee's Tuesday on their schedule",
+            "2026-06-01",
+            "the 8 hours left fit in the member's Monday on the employee's schedule",
         )
 
     def test_a_user_who_opens_no_mode_is_refused_the_board(self):
@@ -890,16 +890,68 @@ class TestTeamBoardCompanies(TeamBoardCase):
         for is_active in (True, False):
             department_rule.active = is_active
             with self.subTest(department_rule_active=is_active):
-                with self.assertRaises(AccessError):
+                self.assertEqual(
                     Project.with_context(allowed_company_ids=company_ids_a).get_team_dashboard_by_department(
                         self.department_b.id
-                    )
+                    ),
+                    {"error": "Department not in the selected companies"},
+                )
                 self.assertFalse(Board.with_context(allowed_company_ids=company_ids_a).search(board_domain))
                 data = Project.with_context(allowed_company_ids=company_ids_a_b).get_team_dashboard_by_department(
                     self.department_b.id
                 )
                 self.assertNotIn("error", data)
                 self.assertTrue(Board.with_context(allowed_company_ids=company_ids_a_b).search(board_domain))
+
+    def test_a_plain_user_learns_that_a_department_of_theirs_is_outside_the_selected_companies(self):
+        company_a = self.env.company
+        users = self.env["res.users"].create(
+            [
+                dict(self._user_vals(name, PROJECT_GROUPS), company_ids=[Command.set((company_a | self.company_b).ids)])
+                for name in ("Member selecting B", "Member no longer selecting B")
+            ]
+        )
+        user_selecting_b, user_not_selecting_b = users
+        employees_b = self.env["hr.employee"].create(
+            [
+                {
+                    "name": user.name,
+                    "user_id": user.id,
+                    "company_id": self.company_b.id,
+                    "department_id": self.department_b.id,
+                }
+                for user in users
+            ]
+        )
+        user_not_selecting_b.company_ids = [Command.set(company_a.ids)]
+        departments_managed_b = self.env["hr.department"].create(
+            [
+                {"name": "Managed by %s" % employee.name, "company_id": self.company_b.id, "manager_id": employee.id}
+                for employee in employees_b
+            ]
+        )
+        department_other_b = self.env["hr.department"].create({"name": "Other in B", "company_id": self.company_b.id})
+        expected_errors = {
+            user_selecting_b: "Department not in the selected companies",
+            user_not_selecting_b: "Department not found",
+        }
+        department_rule = self.env.ref("hr.hr_dept_comp_rule")
+        for is_active in (True, False):
+            department_rule.active = is_active
+            for user, department_managed in zip(users, departments_managed_b, strict=True):
+                own_departments = self.department_b | department_managed
+                board_domain = [("mode", "=", "department"), ("department_id", "in", own_departments.ids)]
+                Project = self.env["project.project"].with_user(user).with_context(allowed_company_ids=company_a.ids)
+                Board = self.env["project.team.board"].with_user(user).with_context(allowed_company_ids=company_a.ids)
+                with self.subTest(user=user.name, department_rule_active=is_active):
+                    for department in own_departments:
+                        self.assertEqual(
+                            Project.get_team_dashboard_by_department(department.id), {"error": expected_errors[user]}
+                        )
+                    with self.assertRaisesRegex(AccessError, "by department"):
+                        Project.get_team_dashboard_by_department(department_other_b.id)
+                    self.assertEqual(Board.sudo().search(board_domain).department_id, own_departments)
+                    self.assertFalse(Board.search(board_domain))
 
 
 @tagged("post_install", "-at_install")
