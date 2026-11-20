@@ -239,7 +239,11 @@ give its own. What a line keeps depends on the copy:
   answer, Answered by and Answered on. An item keeps its description,
   assignee and reviewer, a case its steps, expected results and Automated
   test reference, a row its round, question and addressee.
-* The next occurrence of a recurring task takes no line.
+* The next occurrence of a recurring task, and each of its sub-tasks,
+  starts the items and the cases from zero, as a task created from a
+  template does, and takes no question row. The task it repeats keeps its
+  lines. The occurrence is created as a new task, so its items are posted
+  to their assignee and reviewer.
 
 A task converted to a template is no copy: it keeps its lines.
 
@@ -291,8 +295,8 @@ and portal users have no access.
   pull requests of its source, unless the copy is given its own. That is a
   plain Duplicate, and every task of a duplicated project. A copy sent to
   another stage and the copy of a task without a stage take nothing. The
-  next occurrence of a recurring task takes nothing either, unless it starts
-  in the stage of the task it repeats. The old value is never copied.
+  next occurrence of a recurring task takes nothing either, in any stage: it
+  is new work. The old value is never copied.
 * A task created from a template, a task template or the tasks of a project
   created from a project template, takes neither, whatever stage it keeps,
   and meets the closing rule as a new task: in a marked stage it is refused.
@@ -326,10 +330,17 @@ stage. Any other stage, a project that is not flagged AI-driven and a write
 that leaves the stage as it is let everything through, so a task already
 sitting in a marked stage stays editable. The ``state`` of a task (Done,
 Cancelled) is not part of the rule: a task set Done outside the marked
-stages needs no Resolution. No context key skips the rule.
+stages needs no Resolution. No context key a caller sends skips the rule.
 
 Templates are outside the rule: a task template, its sub-tasks and the
 tasks of a project template enter a marked stage without a Resolution.
+
+The next occurrence of a recurring task, created by Odoo when the task it
+repeats is set Done or Cancelled, enters the first stage of its project, or
+the stage of that task when the project lists none, unchecked by either rule,
+its sub-tasks included: a refusal would undo the change of state with it. The
+task set Done or Cancelled is checked as any task, and so is the occurrence
+when it is moved into a marked stage later.
 
 **The estimate rule**
 
@@ -345,9 +356,10 @@ The type and the estimate may come in the same write as the stage, and a
 task created straight into a marked stage needs both in the values of its
 creation. Any other stage, a project that is not flagged AI-driven and a
 write that leaves the stage as it is let everything through, so a task
-already sitting in a marked stage stays editable. No context key skips the
-rule. A stage marked for both rules refuses for the Resolution first.
-Templates are outside this rule too.
+already sitting in a marked stage stays editable. No context key a caller
+sends skips the rule. A stage marked for both rules refuses for the
+Resolution first. Templates are outside this rule too, and so is the
+creation of the next occurrence of a recurring task (above).
 
 The next occurrence of a recurring task is a copy of the task, so it
 carries its task type and its estimate.

@@ -142,3 +142,10 @@ install hook does, gives the keys the database lacks:
 * A run with ``test_enable`` gives no keys, since keys are off in a test
   run: run the update without it, or call ``_set_missing_keys`` on
   ``project.project`` from a shell afterwards.
+
+The update to 20.0.2.18.0 has no migration and writes nothing on existing
+records. A next occurrence of a recurring task created from then on takes
+the checklist items and test cases of its task from zero, takes no
+Resolution and no pull request of its task in any stage, and enters the
+first stage of its project, or the stage of its task when the project lists
+none, unchecked by the closing and the estimate rules.

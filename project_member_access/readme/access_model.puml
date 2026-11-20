@@ -59,8 +59,7 @@ note as Rows
   inside  = Public or Private project
 
   <b>allow</b>, for the current user
-  read: Public, or member (Project Administrator: any)
-  task read: its project is read
+  read: Public, or member (Project Administrator: any), tasks included
   task create: contributor_user_ids
   task write: readable and (own task or editor_user_ids)
     own task = its creator, an assignee or a UAT user

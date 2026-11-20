@@ -4,6 +4,7 @@ from unittest.mock import patch
 from freezegun import freeze_time
 
 from odoo import Command
+from odoo.tests.common import new_test_user
 
 from .common import ProjectAiDrivenCommon
 
@@ -125,9 +126,6 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
             }
             for task in tasks
         ]
-
-    def _line_counts(self, tasks):
-        return [[len(task[field_name]) for field_name in LINE_FIELDS] for task in tasks]
 
     def assertLinesCopied(self, copied_tasks, source_values, source_tasks, copy_values=None):
         self.assertEqual(self._line_values(copied_tasks), copy_values or source_values)
@@ -282,21 +280,63 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
         self.assertTrue(self.task.is_template)
         self.assertEqual(self._line_values(source_tasks), source_values)
 
-    def test_the_next_occurrence_of_a_recurring_task_and_its_subtask_take_no_lines(self):
+    def test_the_next_occurrence_of_a_recurring_task_and_its_subtask_take_items_and_cases_from_zero_and_no_rows(self):
         self.project.allow_recurring_tasks = True
         self.task.write({"recurring_task": True, "repeat_type": "forever"})
         self.assertTrue(self.task.recurrence_id)
+        source_tasks = self.task | self.subtask
+        source_values = self._line_values(source_tasks)
+        occurrence_values = [
+            {
+                **{
+                    field_name: [
+                        {**line_values, **VALUES_FROM_ZERO[field_name]} for line_values in task_values[field_name]
+                    ]
+                    for field_name in ("checklist_item_ids", "testcase_ids")
+                },
+                "question_ids": [],
+            }
+            for task_values in source_values
+        ]
 
         self.task.state = "1_done"
 
         next_task = self.task.recurrence_id.task_ids - self.task
         self.assertEqual(next_task.child_ids.name, self.subtask.name)
-        self.assertEqual(self._line_counts(next_task | next_task.child_ids), [[0, 0, 0]] * 2)
+        self.assertLinesCopied(next_task | next_task.child_ids, source_values, source_tasks, occurrence_values)
+
+    def test_the_items_of_the_next_occurrence_are_posted_to_their_assignee_and_reviewer(self):
+        self.project.allow_recurring_tasks = True
+        self.task.write({"recurring_task": True, "repeat_type": "forever"})
+
+        self.task.state = "1_done"
+
+        next_task = self.task.recurrence_id.task_ids - self.task
+        item_posts = next_task.message_ids.filtered(
+            lambda message: message.subtype_id == self.env.ref("project_ai_driven.checklist_subtype")
+        )
+        self.assertEqual(item_posts.partner_ids, (self.user_dev | self.user_lead).partner_id)
+
+    def test_a_portal_collaborator_closing_the_task_gives_the_next_occurrence_its_items_and_cases(self):
+        portal_user = new_test_user(self.env, "project_ai_driven_portal", groups="base.group_portal")
+        self.project.write(
+            {
+                "allow_recurring_tasks": True,
+                "privacy_visibility": "portal",
+                "collaborator_ids": [Command.create({"partner_id": portal_user.partner_id.id, "access_mode": "edit"})],
+            }
+        )
+        self.task.write({"recurring_task": True, "repeat_type": "forever"})
+
+        self.task.with_user(portal_user).state = "1_done"
+
+        next_task = self.task.recurrence_id.task_ids - self.task
         self.assertEqual(
-            self._line_counts(self.task | self.subtask), [[3, 3, 3]] * 2, "the last occurrence keeps its lines"
+            [[len(task[field_name]) for field_name in LINE_FIELDS] for task in next_task | next_task.child_ids],
+            [[3, 3, 0]] * 2,
         )
 
-    def test_the_next_occurrence_of_a_recurring_task_builds_no_line_values(self):
+    def test_the_next_occurrence_of_a_recurring_task_builds_its_line_values_from_zero_only(self):
         self.project.allow_recurring_tasks = True
         self.task.write({"recurring_task": True, "repeat_type": "forever"})
         task_model = type(self.env["project.task"])
@@ -304,13 +344,14 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
         with patch.object(
             task_model, "_get_line_copy_values", autospec=True, side_effect=task_model._get_line_copy_values
         ) as line_copy_values:
-            self.subtask.copy()
-            self.assertTrue(line_copy_values.called, "a duplicate builds them")
-            line_copy_values.reset_mock()
             self.task.state = "1_done"
 
         self.assertTrue(self.task.recurrence_id.task_ids - self.task, "the next occurrence")
-        self.assertFalse(line_copy_values.called)
+        self.assertCountEqual(
+            [call.args for call in line_copy_values.call_args_list],
+            [(task, False, ("checklist_item_ids", "testcase_ids")) for task in self.task | self.subtask],
+            "once per task, without progress or question rows",
+        )
 
     def test_a_copy_given_lines_takes_those(self):
         task_copy = self.subtask.copy({"checklist_item_ids": [Command.create({"name": "Given item"})]})

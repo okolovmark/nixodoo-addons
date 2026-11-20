@@ -6,6 +6,7 @@ from .project_member import RESTRICTED_ACCESS_MODES
 from odoo.addons.project.models.project_task import CLOSED_STATES
 
 ROLE_CHECKED_FIELDS = {"project_id", "user_ids", "uat_user_ids", "stage_id", "state"}
+PRIVATE_PROJECT_PEOPLE_FIELDS = ("user_ids", "uat_user_ids")
 # The project of a task follows them, and a sub-task shown under its parent follows its parent's.
 PROJECT_MOVING_FIELDS = {"project_id", "parent_id"}
 STAGE_SETTING_FIELDS = {"project_id", "stage_id"}
@@ -39,12 +40,13 @@ class ProjectTask(models.Model):
         for record in self:
             record.is_uat_user_change_allowed = not is_role_checked or record._origin._may_change_uat_users(user)
 
-    @api.constrains("user_ids", "uat_user_ids", "project_id")
+    @api.constrains(*PRIVATE_PROJECT_PEOPLE_FIELDS, "project_id")
     def _check_private_project_people_are_members(self):
         for record in self.sudo().filtered(lambda task: task.project_id.access_mode == "private"):
             # the people fields keep archived users: an archived member stays a member
             members = record.project_id.with_context(active_test=False).member_user_ids
-            non_members = (record.user_ids | record.uat_user_ids) - members
+            people = record.env["res.users"].union(record[field_name] for field_name in PRIVATE_PROJECT_PEOPLE_FIELDS)
+            non_members = people - members
             if non_members:
                 # checked before the create restriction: the project is not named
                 raise ValidationError(
