@@ -43,24 +43,6 @@ nixodoo-addons:
 
 Then `nix run .#update-repos`, and install the module.
 
-### A database that has `project_software` installed
-
-`project_software` is the former name of `project_ai_driven`. The release that renamed it kept `project_software`
-as an empty module depending on `project_ai_driven`, so that updating it installed the new module; the release after
-it removed the empty module.
-
-- A database updated through the rename release has both installed, `project_software` owning nothing. Uninstall
-  `project_software` once no installed module depends on it, and drop it from `addons.yaml`. With its code gone
-  and the module still installed, Odoo logs `Some modules are not loaded, some dependencies or manifest may be
-  missing` at every start until it is uninstalled.
-- A database from before the rename installs `project_ai_driven` (`-i project_ai_driven`) with the server stopped.
-  Its `pre_init_hook` takes over every record of `project_software` under its database id and renames the flag
-  `is_software_project` to `is_ai_driven`; `project_software` is then empty and is uninstalled as above. A module
-  that depends on `project_software` switches its dependency and the flag name in the same deploy.
-
-Everything the upgrade needs is in the *Installation* section of
-[`project_ai_driven/README.rst`](project_ai_driven/README.rst).
-
 ## Development
 
 - `ruff check` and `ruff format` (config in `ruff.toml`); `pre-commit install` runs both on commit.
