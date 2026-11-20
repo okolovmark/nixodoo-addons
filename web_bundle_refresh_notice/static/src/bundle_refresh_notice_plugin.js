@@ -11,10 +11,17 @@ import { session } from "@web/session";
 const VERSIONS_ROUTE = "/web_bundle_refresh_notice/versions";
 
 /**
+ * @param {Object<string, string> | null | undefined} versions `{ file: version }`
+ */
+function hasVersions(versions) {
+    return Boolean(versions && Object.keys(versions).length);
+}
+
+/**
  * Odoo's own refresh notice (`AssetsWatchdogPlugin`) for a bundle change that keeps the server
- * version, a module deploy: the watchdog only speaks when the server version differs. The tab
- * keeps the bundle versions the server gave when it started, and shows the notice once the
- * server gives others: any file in another version, gone or new.
+ * version, a module deploy: the watchdog only speaks when the server version differs. The page
+ * carries the bundle versions it was rendered with (`session.bundle_versions`), and the tab shows
+ * the notice once the server gives others: any file in another version, gone or new.
  */
 export class BundleRefreshNoticePlugin extends Plugin {
     busService = usePlugin(BusPlugin);
@@ -24,9 +31,11 @@ export class BundleRefreshNoticePlugin extends Plugin {
     checkTimeoutId = null;
 
     setup() {
-        // A deploy between the page's render and this answer leaves the tab without a notice
-        // until the next deploy.
-        this.baselineRequest = this.fetchVersions();
+        // A page rendered before this module was installed carries no baseline: its tab stays quiet.
+        this.baselineVersions = session.bundle_versions;
+        if (!hasVersions(this.baselineVersions)) {
+            return;
+        }
         this.busService.subscribe("bundle_changed", ({ server_version }) => {
             if (server_version === session.server_version && !this.isNoticeDisplayed) {
                 // The watchdog's random wait, so open tabs do not all ask, nor reload, at once.
@@ -52,12 +61,9 @@ export class BundleRefreshNoticePlugin extends Plugin {
     }
 
     async checkBundleVersions() {
-        const baselineVersions = await this.baselineRequest;
-        if (!baselineVersions) {
-            return;
-        }
         const serverVersions = await this.fetchVersions();
-        const isOutdated = serverVersions && !shallowEqual(serverVersions, baselineVersions);
+        const isOutdated =
+            hasVersions(serverVersions) && !shallowEqual(serverVersions, this.baselineVersions);
         if (isOutdated && !this.isNoticeDisplayed) {
             this.displayNotice();
         }

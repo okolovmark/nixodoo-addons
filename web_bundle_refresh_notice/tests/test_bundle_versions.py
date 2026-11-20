@@ -1,4 +1,6 @@
 import inspect
+import json
+import re
 from collections import defaultdict
 from unittest.mock import patch
 
@@ -10,10 +12,11 @@ from odoo.tests.common import HttpCase, JsonRpcException, new_test_user, tagged
 from odoo.addons.base.models.assetsbundle import AssetsBundle
 
 VERSIONS_URL = "/web_bundle_refresh_notice/versions"
+SESSION_INFO = re.compile(r"odoo\.__session_info__ = (?P<session_info>.*);$", re.MULTILINE)
 
 
 @tagged("post_install", "-at_install")
-class TestBundleVersionsRoute(HttpCase):
+class TestBundleVersions(HttpCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -24,21 +27,26 @@ class TestBundleVersionsRoute(HttpCase):
             for extension in ("js", "css")
         }
 
-    def _get_page_versions(self, page_url):
-        """The versions the URLs of the page give each file of a tracked bundle."""
+    def _open_page(self, page_url):
+        """The versions the URLs of the page give each file of a tracked bundle, and the baseline its session
+        carries."""
         response = self.url_open(page_url)
         self.assertEqual(response.status_code, 200)
-        page_versions = defaultdict(set)
-        for url in html.fromstring(response.content).xpath("//script/@src | //link/@href"):
+        page = html.fromstring(response.content)
+        url_versions = defaultdict(set)
+        for url in page.xpath("//script/@src | //link/@href"):
             if url.startswith("/web/assets/"):
                 version, file_name = url.rsplit("/", 2)[1:]
-                if self.env["ir.asset"]._parse_bundle_name(file_name, False)[0] in AssetsBundle.TRACKED_BUNDLES:
-                    page_versions[file_name].add(version)
-        return page_versions
+                bundle_name = self.env["ir.asset"]._parse_bundle_name(file_name, version == "debug")[0]
+                if bundle_name in AssetsBundle.TRACKED_BUNDLES:
+                    url_versions[file_name].add(version)
+        session_script = page.xpath("string(//script[contains(., 'odoo.__session_info__')])")
+        session_info = json.loads(SESSION_INFO.search(session_script)["session_info"])
+        return url_versions, session_info.get("bundle_versions")
 
     def test_the_versions_are_those_the_web_client_page_carries(self):
         self.authenticate(self.internal_user.login, self.internal_user.login)
-        page_versions = self._get_page_versions("/odoo")
+        page_versions, page_baseline = self._open_page("/odoo")
 
         route_versions = self.make_jsonrpc_request(VERSIONS_URL)
 
@@ -46,19 +54,43 @@ class TestBundleVersionsRoute(HttpCase):
             set(route_versions), self.tracked_files, "the script and the stylesheet of each tracked bundle"
         )
         self.assertEqual(page_versions, {file_name: {version} for file_name, version in route_versions.items()})
+        self.assertEqual(page_baseline, route_versions, "the page's session carries what the route answers")
+
+    def test_the_session_info_of_another_caller_carries_no_versions(self):
+        self.authenticate(self.internal_user.login, self.internal_user.login)
+
+        session_info = self.make_jsonrpc_request("/web/session/get_session_info")
+
+        self.assertEqual(session_info["uid"], self.internal_user.id)
+        self.assertNotIn("bundle_versions", session_info)
+
+    def test_the_versions_are_asked_without_the_website_of_the_context(self):
+        asked_contexts = []
+
+        def record_context(qweb, *args, **kwargs):
+            asked_contexts.append(qweb.env.context)
+            return []
+
+        with patch.object(self.env.registry["ir.qweb"], "_get_asset_nodes", record_context):
+            self.env["ir.http"].with_context(website_id=1)._get_bundle_versions()
+
+        self.assertTrue(asked_contexts)
+        self.assertEqual([context for context in asked_contexts if "website_id" in context], [])
 
     def test_a_session_in_debug_assets_gets_the_versions_of_a_normal_session(self):
         self.authenticate(self.internal_user.login, self.internal_user.login)
         normal_versions = self.make_jsonrpc_request(VERSIONS_URL)
 
-        self.assertEqual(self.url_open("/odoo?debug=assets").status_code, 200)
+        debug_page_versions, debug_page_baseline = self._open_page("/odoo?debug=assets")
         self.assertEqual(session_store().get(self.session.sid).debug, "assets")
+        self.assertEqual(set().union(*debug_page_versions.values()), {"debug"}, "the page loads unversioned files")
         debug_versions = self.make_jsonrpc_request(VERSIONS_URL)
 
         self.assertEqual(set(debug_versions), self.tracked_files)
         self.assertEqual(debug_versions, normal_versions)
+        self.assertEqual(debug_page_baseline, normal_versions)
 
-    def test_an_override_of_the_page_asset_nodes_gives_the_route_its_versions(self):
+    def test_an_override_of_the_page_asset_nodes_gives_the_session_and_the_route_their_versions(self):
         self.authenticate(self.internal_user.login, self.internal_user.login)
         actual_versions = self.make_jsonrpc_request(VERSIONS_URL)
         model_cls = self.env.registry["ir.qweb"]
@@ -82,18 +114,23 @@ class TestBundleVersionsRoute(HttpCase):
 
         with patch.object(model_cls, "_get_asset_nodes", get_asset_nodes_of_other_versions):
             route_versions = self.make_jsonrpc_request(VERSIONS_URL)
+            _page_versions, page_baseline = self._open_page("/odoo")
 
+        other_versions = {file_name: f"{version}-other" for file_name, version in actual_versions.items()}
         self.assertEqual(set(route_versions), self.tracked_files)
-        self.assertEqual(
-            route_versions, {file_name: f"{version}-other" for file_name, version in actual_versions.items()}
-        )
+        self.assertEqual(route_versions, other_versions)
+        self.assertEqual(page_baseline, other_versions)
 
-    def test_the_route_reads_the_cache_entries_of_the_page_asset_links(self):
-        model_cls = self.env.registry["ir.qweb"]
-        generate_asset_links_cache = model_cls._generate_asset_links_cache
+    def test_the_baseline_and_the_route_read_the_cache_entries_of_the_page_asset_links(self):
+        qweb_cls = self.env.registry["ir.qweb"]
+        http_cls = self.env.registry["ir.http"]
+        generate_asset_links_cache = qweb_cls._generate_asset_links_cache
+        webclient_rendering_context = http_cls.webclient_rendering_context
         cache_signature = inspect.signature(generate_asset_links_cache)
         cache_keys = []
+        baseline_cache_keys = []
         call_depth = 0
+        is_in_rendering_context = False
 
         def record_cache_key(qweb, *args, **kwargs):
             nonlocal call_depth
@@ -102,7 +139,7 @@ class TestBundleVersionsRoute(HttpCase):
                 # The method's ormcache key: its arguments, the assets params as sorted items.
                 call_arguments = cache_signature.bind(qweb, *args, **kwargs)
                 call_arguments.apply_defaults()
-                cache_keys.append(
+                (baseline_cache_keys if is_in_rendering_context else cache_keys).append(
                     tuple(
                         (name, tuple(sorted(value.items())) if name == "assets_params" else value)
                         for name, value in list(call_arguments.arguments.items())[1:]
@@ -114,16 +151,29 @@ class TestBundleVersionsRoute(HttpCase):
             finally:
                 call_depth -= 1
 
+        def record_rendering_context(ir_http):
+            nonlocal is_in_rendering_context
+            is_in_rendering_context = True
+            try:
+                return webclient_rendering_context(ir_http)
+            finally:
+                is_in_rendering_context = False
+
         self.authenticate(self.internal_user.login, self.internal_user.login)
-        with patch.object(model_cls, "_generate_asset_links_cache", record_cache_key):
+        with (
+            patch.object(qweb_cls, "_generate_asset_links_cache", record_cache_key),
+            patch.object(http_cls, "webclient_rendering_context", record_rendering_context),
+        ):
             self.assertEqual(self.url_open("/odoo").status_code, 200)
             page_cache_keys = set(cache_keys)
             cache_keys.clear()
             self.make_jsonrpc_request(VERSIONS_URL)
         route_cache_keys = set(cache_keys)
 
-        self.assertEqual(len(route_cache_keys), len(self.tracked_files), "one entry per file of a tracked bundle")
-        self.assertEqual(route_cache_keys - page_cache_keys, set(), "cache entries the page was not rendered from")
+        for caller, caller_cache_keys in (("baseline", set(baseline_cache_keys)), ("route", route_cache_keys)):
+            with self.subTest(caller=caller):
+                self.assertEqual(len(caller_cache_keys), len(self.tracked_files), "one entry per tracked file")
+                self.assertEqual(caller_cache_keys - page_cache_keys, set(), "entries the page was not rendered from")
 
     def test_a_session_on_the_website_editor_gets_the_versions_of_a_plain_session(self):
         if self.env["ir.module.module"]._get("website").state != "installed":
@@ -152,7 +202,7 @@ class TestBundleVersionsRoute(HttpCase):
         plain_versions = self.make_jsonrpc_request(VERSIONS_URL)
 
         self.authenticate(website_editor.login, website_editor.login)
-        editor_page_versions = self._get_page_versions(
+        editor_page_versions, editor_page_baseline = self._open_page(
             f"/website/force/{website.id}?path=/odoo/action-website.website_preview"
         )
         editor_versions = self.make_jsonrpc_request(VERSIONS_URL)
@@ -164,6 +214,7 @@ class TestBundleVersionsRoute(HttpCase):
         )
         self.assertEqual(set(editor_versions), self.tracked_files)
         self.assertEqual(editor_versions, plain_versions)
+        self.assertEqual(editor_page_baseline, plain_versions)
 
     def test_a_session_awaiting_an_identity_check_still_gets_the_versions(self):
         self.env["ir.config_parameter"].set_bool("base.session_check_device", True)

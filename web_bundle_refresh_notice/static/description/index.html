@@ -380,18 +380,26 @@ a deploy would keep running the old JavaScript, calling routes that may be
 gone, until they are reloaded.</p>
 <p>How a tab decides:</p>
 <ul class="simple">
-<li>When it starts, it asks <tt class="docutils literal">/web_bundle_refresh_notice/versions</tt> for the
-files of <tt class="docutils literal">web.assets_web</tt> and their versions, as the web client’s asset
-URLs carry them (Odoo versions the script and the stylesheet apart), and
-keeps the answer.</li>
+<li>The page carries its baseline: the files of <tt class="docutils literal">web.assets_web</tt> and their
+versions, as the web client’s asset URLs name them (Odoo versions the
+script and the stylesheet apart), in its session info
+(<tt class="docutils literal">bundle_versions</tt>). The tab needs no request to start. A deploy that
+lands between the page’s render and the tab’s start is usually noticed
+too, as the bus replays to the tab what it sent after the render; a bus
+worker another tab started and shares may not, and the tab then compares
+at the next <tt class="docutils literal">bundle_changed</tt>.</li>
 <li>On <tt class="docutils literal">bundle_changed</tt> with an unchanged server version, it waits 10 to 60
-seconds, the random spread of Odoo’s own notice, asks again and compares:
-a file in another version, a new file or a gone file brings the notice. A
+seconds, the random spread of Odoo’s own notice, asks
+<tt class="docutils literal">/web_bundle_refresh_notice/versions</tt> for the same and compares: a file
+in another version, a new file or a gone file brings the notice. A
 further <tt class="docutils literal">bundle_changed</tt> restarts the wait, so a burst of them brings
-one request.</li>
-<li>The route answers the same whatever the session’s debug mode or website,
-so <tt class="docutils literal">debug=assets</tt> tabs, dark mode tabs and the website editor are
-compared too.</li>
+one request. A failed request or an empty answer brings nothing, and the
+tab keeps its baseline for the next <tt class="docutils literal">bundle_changed</tt>.</li>
+<li>The page and the route give the same whatever the session’s debug mode or
+website, so <tt class="docutils literal">debug=assets</tt> tabs, dark mode tabs and the website editor
+are compared too. Both read the same cached link lists the web client
+page renders its asset tags from; a worker that has not cached them yet
+builds them first.</li>
 <li>The route skips the identity check, so a session awaiting one gets no lock
 dialog for it: its answer is asset checksums, which page URLs carry
 anyway.</li>
@@ -402,7 +410,8 @@ is never reloaded without the user.</li>
 <p>The notice runs wherever <tt class="docutils literal">web.assets_backend</tt> is loaded, the same pages as
 Odoo’s own notice: the backend web client. The website, the portal, Point of
 Sale and the subcontracting portal load other bundles and do not get it, nor
-do tabs opened before the module was installed.</p>
+do tabs opened before the module was installed: a page without a baseline
+leaves its tab quiet.</p>
 <p><strong>Table of contents</strong></p>
 <div class="contents local topic" id="contents">
 <ul class="simple">
@@ -432,11 +441,6 @@ runs the old code, which may call routes the update removed.</li>
 <div class="section" id="known-issues-roadmap">
 <h1><a class="toc-backref" href="#toc-entry-2">Known issues / Roadmap</a></h1>
 <ul class="simple">
-<li>A tab takes the versions it compares with from a request when it starts.
-If that request fails, during the restart itself for one, the tab stays
-quiet until it is reloaded; a deploy that lands between the page render
-and that request goes unnoticed in that tab. Taking these versions at
-render time, in <tt class="docutils literal">session_info</tt>, would close both.</li>
 <li>A change that touches only a bundle Odoo does not track brings no notice:
 a dark mode stylesheet alone (<tt class="docutils literal">web.assets_web_dark</tt>), for one.</li>
 <li>The website editor test runs only in a database with <tt class="docutils literal">website</tt>

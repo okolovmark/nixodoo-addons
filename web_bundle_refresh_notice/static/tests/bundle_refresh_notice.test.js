@@ -8,6 +8,7 @@ import {
     MockServer,
     mountWithCleanup,
     onRpc,
+    patchWithCleanup,
 } from "@web/../tests/web_test_helpers";
 import { location } from "@web/core/browser/browser";
 import { rpcBus } from "@web/core/network/rpc";
@@ -35,12 +36,17 @@ function makeSessionExpiredError() {
 }
 
 /**
- * Starts a tab whose requests to the versions route get the given answers in turn, the last one
- * for every later request; an error answer is the request's error.
+ * Starts a tab whose page carries the given baseline, and whose requests to the versions route get
+ * the given answers in turn, the last one for every later request; an error answer is the
+ * request's error.
  *
+ * @param {Object<string, string> | undefined} baselineVersions none in the page when undefined
  * @param {...(Object<string, string> | Error)} answers
  */
-async function startTab(...answers) {
+async function startTab(baselineVersions, ...answers) {
+    if (baselineVersions !== undefined) {
+        patchWithCleanup(session, { bundle_versions: baselineVersions });
+    }
     onRpc(VERSIONS_ROUTE, () => {
         expect.step(VERSIONS_ROUTE);
         const answer = answers.length > 1 ? answers.shift() : answers[0];
@@ -51,7 +57,7 @@ async function startTab(...answers) {
     });
     location.addEventListener("reload", () => expect.step("reload"));
     await mountWithCleanup(WebClient);
-    expect.verifySteps([VERSIONS_ROUTE], { message: "the tab takes its baseline when it starts" });
+    expect.verifySteps([], { message: "the tab takes its baseline from its page, not the server" });
 }
 
 async function sendBundleChanged(serverVersion = session.server_version) {
@@ -144,13 +150,13 @@ test("the server is asked silently, without the loading indicator", async () => 
     };
     rpcBus.addEventListener("RPC:REQUEST", recordRequestSettings);
     after(() => rpcBus.removeEventListener("RPC:REQUEST", recordRequestSettings));
-    await startTab(BASELINE_VERSIONS);
+    await startTab(BASELINE_VERSIONS, { ...BASELINE_VERSIONS });
 
     await sendBundleChanged();
     await waitLongest();
 
     expect.verifySteps([VERSIONS_ROUTE]);
-    expect(requestSettings).toEqual([{ silent: true }, { silent: true }]);
+    expect(requestSettings).toEqual([{ silent: true }]);
 });
 
 test("a burst of bundle changes asks the server once and shows one notice", async () => {
@@ -191,22 +197,46 @@ test("a change of server version is left to Odoo's own notice", async () => {
     await sendBundleChanged("NEW_MAJOR_VERSION");
     await waitLongest();
 
-    expect.verifySteps([], { message: "the server is not asked again" });
+    expect.verifySteps([], { message: "the server is not asked" });
     expect(".o_notification").toHaveCount(1, { message: "Odoo's notice, not a second one" });
 });
 
-test("a tab whose baseline request failed stays quiet", async () => {
-    await startTab(makeSessionExpiredError(), DEPLOYED_VERSIONS);
+test("a page that carries no baseline leaves its tab quiet", async () => {
+    await startTab(undefined, DEPLOYED_VERSIONS);
 
     await sendBundleChanged();
     await waitLongest();
 
-    expect.verifySteps([], { message: "the server is not asked again" });
+    expect.verifySteps([], { message: "the server is not asked" });
+    expect(".o_notification").toHaveCount(0);
+});
+
+test("an empty baseline leaves the tab quiet", async () => {
+    await startTab({}, DEPLOYED_VERSIONS);
+
+    await sendBundleChanged();
+    await waitLongest();
+
+    expect.verifySteps([], { message: "the server is not asked" });
     expect(".o_notification").toHaveCount(0);
 });
 
 test("a failed request shows nothing, and the tab keeps its baseline", async () => {
     await startTab(BASELINE_VERSIONS, makeSessionExpiredError(), DEPLOYED_VERSIONS);
+
+    await sendBundleChanged();
+    await waitLongest();
+    expect.verifySteps([VERSIONS_ROUTE]);
+    expect(".o_notification").toHaveCount(0);
+
+    await sendBundleChanged();
+    await waitLongest();
+    expect.verifySteps([VERSIONS_ROUTE]);
+    expect(".o_notification").toHaveCount(1);
+});
+
+test("an empty answer shows nothing, and the tab keeps its baseline", async () => {
+    await startTab(BASELINE_VERSIONS, {}, DEPLOYED_VERSIONS);
 
     await sendBundleChanged();
     await waitLongest();
