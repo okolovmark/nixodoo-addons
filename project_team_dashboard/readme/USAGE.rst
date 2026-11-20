@@ -32,11 +32,11 @@ Work the backlog
 
 **Project > Backlog** opens the open Backlog-stage tasks of your Default
 Dashboard Project, filtered on *Unassigned*; remove that filter to see
-assigned tasks too. A Default Dashboard Project that is archived, of a
-company you have not selected, or one you cannot read, gives no project
-filter: the list opens on every project. Reorder by drag, filter *My
-Tasks*, *Blocked* or *Overdue*, and group by Assignee, Start Date, Project
-or Type. To assign a task, open it.
+assigned tasks too. A Default Dashboard Project that is archived, a
+project template, of a company you have not selected, or one you cannot
+read, gives no project filter: the list opens on every project. Reorder
+by drag, filter *My Tasks*, *Blocked* or *Overdue*, and group by
+Assignee, Start Date, Project or Type. To assign a task, open it.
 
 Team Dashboard
 ~~~~~~~~~~~~~~

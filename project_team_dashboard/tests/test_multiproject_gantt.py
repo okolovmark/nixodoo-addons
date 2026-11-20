@@ -252,6 +252,25 @@ class TestMultiProjectGantt(TeamDashboardCommon):
         self.assertEqual(parent_by_task[child_of_readable.id], parent_readable.id)
         self.assertIn(parent_readable.id, parent_by_task)
 
+    def test_a_parent_kept_from_a_project_not_selected_is_labelled_by_its_own_project(self):
+        project_unselected = self.Project.create({"name": "Unselected Project", "key": "UNSL"})
+        parent = self.Task.create({"name": "Parent Elsewhere", "project_id": project_unselected.id})
+        child = self.Task.create(
+            {
+                "name": "Child Here",
+                "project_id": self.project.id,
+                "parent_id": parent.id,
+                "planned_date_start": self.now,
+                "planned_date_end": self.now + timedelta(days=2),
+            }
+        )
+
+        result = self.Project.get_gantt_chart_data(project_ids=[self.project.id, self.project2.id])
+
+        label_by_task = {task_data["id"]: task_data["project_name"] for task_data in result["tasks"]}
+        self.assertEqual(label_by_task[parent.id], "UNSL - Unselected Project")
+        self.assertEqual(label_by_task[child.id], "Test AI-driven Project")
+
     def test_multi_project_tasks_without_dates_count(self):
         """tasks_without_dates counts across all requested projects."""
         # Create dateless tasks in both projects

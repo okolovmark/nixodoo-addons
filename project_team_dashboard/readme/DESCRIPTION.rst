@@ -24,9 +24,10 @@ task from them) and **Backlog Stage** (tasks there form the backlog).
 * Every day a user sees is a day in the viewer's time zone (UTC when none
   is set): today, what is overdue, the dates on the cards, in the Gantt
   chart and in the Excel export, and the day a deadline-only task is drawn
-  on. A member's hours logged *Today* and their estimated completion count
-  from the member's own day, the one Odoo dates their timesheets on: their
-  time zone, else UTC.
+  on. A member's hours logged *Today* count on the member's own day, the
+  one Odoo dates their timesheets on: their time zone, else UTC. Their
+  estimated completion starts from their day in their time zone, else
+  their employee's, else UTC.
 
 **Planned dates and sub-tasks**
 
@@ -70,10 +71,10 @@ and grey while the task is Waiting. Filters *My Tasks*, *Unassigned*,
 Assignee, Start Date, Project and Type. Project users also search it by
 **Module**, a module's technical name or title, as in the task search of
 ``project_ai_driven``. It opens filtered on unassigned tasks and on the
-user's **Default Dashboard Project**, when that project is not archived and
-the user reads it in the selected companies. **Estimate (h)** is the task's
-**Estimate** (``allocated_hours``), and **Size** the size
-``project_ai_driven`` computes from it.
+user's **Default Dashboard Project**, when that project is neither archived
+nor a project template and the user reads it in the selected companies.
+**Estimate (h)** is the task's **Estimate** (``allocated_hours``), and
+**Size** the size ``project_ai_driven`` computes from it.
 
 **Team Dashboard**
 
@@ -113,9 +114,10 @@ its settings and the window it shows, across a switch between cards and
 chart and a return through the breadcrumb.
 
 Users carry a **Default Dashboard Project**, editable from their
-preferences; the dashboard and the Backlog open on it while the user finds
-it among the active projects of the selected companies, the dashboard
-otherwise on the first project found.
+preferences, where project templates are not offered; the dashboard and
+the Backlog open on it while the user finds it among the active projects
+of the selected companies that are not templates, the dashboard otherwise
+on the first project found.
 
 **The Team Dashboard as a record**
 

@@ -145,7 +145,7 @@ class TestServerMessagesTranslated(TeamDashboardCommon):
             ("Diagramme de Gantt des tâches planifiées du projet", "Diagramme de Gantt des tâches p"),
             ("Gantt: [tâches] / jalons *?\\", "Gantt tâches  jalons "),
             ("'Gantt' des jalons'", "Gantt' des jalons"),
-            ("Gantt des tâches de l'équipe d'Ana", "Gantt des tâches de l'équipe d"),
+            ("Gantt des tâches de l'équipe d'achat", "Gantt des tâches de l'équipe d"),
             ("'*'", "Gantt Chart"),
         ):
             with (

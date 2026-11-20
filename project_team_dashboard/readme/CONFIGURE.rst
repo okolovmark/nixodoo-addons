@@ -22,9 +22,10 @@ Users
 * The estimated completion of a member card plans on the working schedule
   of the user's employee in the current company, or of the company: give
   each member an employee with a schedule for an estimate that skips
-  weekends, leaves and public holidays. A member's *Today* and estimated
-  completion start from the member's day, the one Odoo dates their
-  timesheets on: in the time zone of their preferences, else in UTC.
+  weekends, leaves and public holidays. A member's *Today* is the day Odoo
+  dates their timesheets on: in the time zone of their preferences, else in
+  UTC. Their estimated completion starts from their day in the time zone of
+  their preferences, else of their employee, else in UTC.
 
 Access
 ~~~~~~
@@ -81,8 +82,9 @@ of a company they may select but have not selected gets "Department not
 in the selected companies"; one of a company they may not select, or one
 that no longer exists, "Department not found". Any other user reads the
 same of their own department, or one their employee manages, in a company
-they have not selected. Give a team lead an employee with the right
-*Manager* for them to see their team.
+they have not selected, and of a manager below their employee whose active
+employees are all in companies they have not selected. Give a team lead
+an employee with the right *Manager* for them to see their team.
 
 Gantt chart: dependencies can be linked and lags edited by users with write
 access to the dependent task and read access to the other one. Only

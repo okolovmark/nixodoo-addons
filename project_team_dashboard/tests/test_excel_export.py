@@ -208,6 +208,37 @@ class TestExcelExport(TeamDashboardCommon):
             },
         )
 
+    def test_a_task_planned_to_the_microsecond_is_exported_on_its_days(self):
+        project = self.Project.create({"name": "Precise Plan"})
+        self.Task.create(
+            [
+                {
+                    "name": "Both Dates",
+                    "project_id": project.id,
+                    "planned_date_start": datetime(2026, 11, 17, 8, 0, 0, 250000),
+                    "planned_date_end": datetime(2026, 11, 19, 8, 0, 0, 750000),
+                },
+                {
+                    "name": "Start Only",
+                    "project_id": project.id,
+                    "planned_date_start": datetime(2026, 11, 16, 8, 0, 0, 500000),
+                },
+            ]
+        )
+
+        header, rows_by_name = self._export_rows(project)
+
+        self.assertEqual(
+            {
+                name: (row[header.index("Start")].value, row[header.index("End")].value)
+                for name, row in rows_by_name.items()
+            },
+            {
+                "Both Dates": (datetime(2026, 11, 17), datetime(2026, 11, 19)),
+                "Start Only": (datetime(2026, 11, 16), None),
+            },
+        )
+
     def test_a_milestone_with_its_end_date_alone_is_marked_on_that_date(self):
         project = self.Project.create({"name": "Launch Plan"})
         self.Task.create(
