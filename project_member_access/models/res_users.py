@@ -48,9 +48,7 @@ class ResUsers(models.Model):
         if project_path:
             outside |= Domain(project_path, "=", False)
         is_project_manager = self._has_group("project.group_project_manager")
-        if model_name == "project.task":
-            readable = Domain("project_id", "access", "read")
-        elif is_project_manager:
+        if is_project_manager:
             readable = Domain.TRUE
         else:
             readable = Domain(on_project("access_mode"), "=", "public") | held("member_user_ids")
