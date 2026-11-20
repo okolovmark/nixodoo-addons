@@ -1,6 +1,6 @@
 # A filer reads and comments on their own support requests in any company
 
-Status: accepted (2026-11-19), amended (2026-11-20: read alone is taken off and given back, by the operation flags of an access)
+Status: accepted (2026-11-19), amended (2026-11-20: read alone is taken off and given back, by the operation flags of an access; a Public support project of `project_member_access` no longer closes a request to its filer)
 
 The Support item of `project_support_request` files a request as a task of the project flagged *Develops This Odoo*, created with superuser rights in the filer's name. The task belongs to the company of that project. Odoo restricts every operation on a task to the companies ticked in the company switcher (`project.task_comp_rule`), so a filer who has not ticked that company, or is not allowed in it, files a request that the item then neither lists nor opens.
 
@@ -18,10 +18,8 @@ The requests stay in the company of the support project: the task of a project s
 
 **What the request's form reads.** The many2one names on the form (project, stage, company) are read by the web client as superuser. The chatter, its messages, followers and attachments follow the read access of the task, so they open. The project itself is not opened up: from the task, a user outside its company is refused the project, as before.
 
-**No request is filed that its filer cannot open.** The route files a request for an internal user only, as their own UAT request in the flagged project, and they follow it: with the exception its filer reads it. The item opens a new request as it opens a listed one, and its routes answer no company and no *can open* with it. Two cases close a request to its filer all the same:
-
-- The filer unfollows it. Following is what lets a base user read a task of a project they cannot read (`project.task_visibility_rule`), and the exception is a restriction: it lifts the company check and grants nothing.
-- `project_member_access` is installed and the support project is Public, the one of its restricted modes the support project may take (it refuses Private there). That module's read restriction on the tasks of a Public or Private project, `('project_id', 'access', 'read')`, reads the project under the project's own company restriction, so a filer who does not select the company of the project is refused the request.
+**No request is filed that its filer cannot open.** The route files a request for an internal user only, as their own UAT request in the flagged project, and they follow it: with the exception its filer reads it. The item opens a new request as it opens a listed one, and its routes answer no company and no *can open* with it. One case closes a request to its filer all the same: the filer unfollows it. Following is what lets a base user read a task of a project they cannot read (`project.task_visibility_rule`), and the exception is a restriction: it lifts the company check and grants nothing.
+  - 2026-11-20: a Public support project, the one restricted mode of `project_member_access` it may take (it refuses Private), no longer closes a request to its filer. That module's read restriction on the tasks of such a project, `('project_id', 'access', 'read')`, read the project under the project's own company restriction, so a filer who did not select that company was refused the request; it now reads a task by the mode and the members of its project, not by its company (ADR 0013).
 
 **Alternatives.**
 

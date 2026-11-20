@@ -151,6 +151,24 @@ class TestSupportRequestAccess(TransactionCase):
             "the filer follows the request: the company restriction alone refuses it",
         )
 
+    def test_a_filer_reads_their_request_in_a_public_support_project_of_another_company(self):
+        if "project.member" not in self.env.registry:
+            self.skipTest("project_member_access is not installed: a project has no Public mode")
+        project_admin = new_test_user(
+            self.env,
+            login="support_access_project_admin",
+            groups="base.group_user,project.group_project_user",
+            company_id=self.support_company.id,
+            company_ids=[Command.set(self.support_company.ids)],
+        )
+        self.support_project.write(
+            {"access_mode": "public", "member_ids": [Command.create({"user_id": project_admin.id, "role": "admin"})]}
+        )
+
+        self.assertEqual(self._tasks_read_by(self.filer, self.request | self.other_filer_request), self.request)
+        self.assertEqual(self.request.with_user(self.filer).read(["name"])[0]["name"], "Request of the filer")
+        self.assertFalse(self.other_filer_request.with_user(self.filer).has_access("read"))
+
     def test_the_exception_does_not_reach_a_task_of_another_project(self):
         self.assertFalse(self.other_project_task.with_user(self.filer).has_access("read"))
         self.assertEqual(self._failed_accesses(self.filer, self.other_project_task, "read"), self.read_restriction)
