@@ -1,4 +1,5 @@
 from datetime import date
+from unittest.mock import patch
 
 from freezegun import freeze_time
 
@@ -752,6 +753,27 @@ class TestDashboardModeAccessRule(TeamDashboardCommon):
         for manager_user in (self.user_boss, self.user_peer):
             with self.subTest(manager=manager_user.name), self.assertRaisesRegex(AccessError, "by manager"):
                 self._members_by_manager(self.user_internal, manager_user)
+
+    def test_the_screen_walks_the_users_below_a_refused_user_once(self):
+        Project = self.registry["project.project"]
+        with (
+            patch.object(
+                Project, "_get_users_below", autospec=True, side_effect=Project._get_users_below
+            ) as get_users_below,
+            self.assertRaisesRegex(AccessError, "by manager"),
+        ):
+            self._members_by_manager(self.user_internal, self.user_boss)
+        self.assertEqual(get_users_below.call_count, 1)
+
+    def test_a_plain_internal_user_cannot_open_the_manager_mode_for_an_archived_employee_below_them(self):
+        user_archived = self.env["res.users"].create(self._user_vals("Archived Below", ["base.group_user"]))
+        employee_archived = self.env["hr.employee"].create(
+            {"name": "Archived Below", "user_id": user_archived.id, "parent_id": self.employee_internal.id}
+        )
+        employee_archived.active = False
+        Project = self.env["project.project"].with_user(self.user_internal)
+        with self.assertRaisesRegex(AccessError, "by manager"):
+            Project.get_team_dashboard_by_manager(user_archived.id)
 
     def test_a_user_opens_the_department_mode_for_their_own_and_managed_departments(self):
         self.assertEqual(self._members_by_department(self.user_internal, self.department_own), set(self.user_dev2.ids))

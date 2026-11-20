@@ -1,7 +1,7 @@
 {
     "name": "Project Team Dashboard",
     "summary": "A Team Dashboard of workload cards, a multi-project Gantt chart with dependency lags and baselines, a Backlog list, and planned dates that roll up from sub-tasks",
-    "version": "20.0.1.5.3",
+    "version": "20.0.1.5.4",
     "category": "Services/Project",
     "author": "Mark Okolov",
     "website": "https://github.com/okolovmark/nixodoo-addons",

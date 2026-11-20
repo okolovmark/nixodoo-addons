@@ -683,6 +683,40 @@ class TestDashboardDayOfTheUser(TeamDashboardCommon):
                     "Tuesday is over in Tokyo: the 4 hours left fit in Wednesday",
                 )
 
+    @freeze_time("2026-11-23 20:00:00")
+    def test_a_member_in_utc_plans_the_eta_on_the_day_of_their_employee(self):
+        """It is Monday evening in UTC, the member's time zone, and Tuesday morning in Manila, where
+        their employee works from 9 to 17."""
+        calendar = self.env["resource.calendar"].create(
+            {
+                "name": "Manila Office",
+                "attendance_ids": [
+                    Command.create({"dayofweek": str(weekday), "hour_from": 9.0, "hour_to": 17.0})
+                    for weekday in range(5)
+                ],
+            }
+        )
+        self.user_dev1.tz = "UTC"
+        self.employee_dev1.resource_calendar_id = calendar
+        # the resource's: an employee's timezone written through the employee goes to its user too
+        self.employee_dev1.resource_id.tz = "Asia/Manila"
+        self.assertEqual((self.user_dev1.tz, self.employee_dev1.tz), ("UTC", "Asia/Manila"))
+        # 5 hours are logged on it: 8 are left
+        self.ended_last_evening_task.allocated_hours = 13.0
+
+        Project = self.env["project.project"].with_context(tz="UTC")
+        for mode, payload in (
+            ("project", Project.get_team_dashboard_data(self.project.id)),
+            ("manager", Project.get_team_dashboard_by_manager(self.user_dev2.id)),
+        ):
+            with self.subTest(mode=mode):
+                card = next(member for member in payload["members"] if member["user_id"] == self.user_dev1.id)
+                self.assertEqual(
+                    card["estimated_completion"],
+                    "2026-11-24",
+                    "Monday is over in Manila: the 8 hours left fill Tuesday",
+                )
+
     @freeze_time("2026-11-24 10:30:00")
     def test_each_member_is_dated_on_the_day_core_dates_their_timesheet_lines_on(self):
         """It is Monday in Pago Pago, Tuesday in UTC and Wednesday in Kiritimati."""

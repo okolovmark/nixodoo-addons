@@ -26,8 +26,8 @@ task from them) and **Backlog Stage** (tasks there form the backlog).
   chart and in the Excel export, and the day a deadline-only task is drawn
   on. A member's hours logged *Today* count on the member's own day, the
   one Odoo dates their timesheets on: their time zone, else UTC. Their
-  estimated completion starts from their day in their time zone, else
-  their employee's, else UTC.
+  estimated completion starts from their day in their employee's time
+  zone, else their own, else UTC.
 
 **Planned dates and sub-tasks**
 

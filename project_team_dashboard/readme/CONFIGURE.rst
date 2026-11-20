@@ -25,7 +25,8 @@ Users
   weekends, leaves and public holidays. A member's *Today* is the day Odoo
   dates their timesheets on: in the time zone of their preferences, else in
   UTC. Their estimated completion starts from their day in the time zone of
-  their preferences, else of their employee, else in UTC.
+  their employee, where it is planned, else of their preferences, else in
+  UTC.
 
 Access
 ~~~~~~
