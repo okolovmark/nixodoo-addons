@@ -30,12 +30,16 @@ Odoo, as tasks of the project flagged **Develops This Odoo**
   project in an unfolded stage. Its panel splits them into *Bugs* (task type
   Bug) and *Others*, five at a time with *View more* for the rest; a request
   opens on its task form. *View Closed* lists the user's requests in folded
-  stages.
+  stages in one list, not grouped by stage: Odoo's task list without
+  grouping (``project.open_view_all_tasks_list_view``), or the default task
+  list, grouped by stage, where that view is missing.
 * *New Ticket* takes a title and a task type and creates the task in the
   first unfolded stage of the project, with the user as its UAT user, no
   assignee and no estimate. Every internal user files requests, with or
   without Project rights and whether or not they read the project: the task
-  is created with superuser rights, in the user's name.
+  is created with superuser rights, in the user's name. The type picker
+  names the types in the user's language once a translation of them is
+  loaded: ``project_ai_driven``, which defines them, ships none.
 * A request belongs to the company of the project. Its filer reads it and
   comments on it in any company: the item lists it and opens it, and *View
   Closed* lists it, whether or not the user is allowed in that company or has
@@ -123,7 +127,8 @@ Press **Support** in the header, its icon alone on a phone:
   and press one to open its task;
 * *New Ticket*: type a title, pick a type and press *Create*; the new task
   opens;
-* *View Closed* lists your requests in folded stages.
+* *View Closed* lists your requests in folded stages, in one list without
+  grouping.
 
 Bug Tracker
 ===========
