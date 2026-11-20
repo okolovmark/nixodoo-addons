@@ -47,7 +47,7 @@
                         <input type="text"
                                class="form-control form-control-sm mb-2"
                                name="name"
-                               placeholder="Ticket title..."
+                               placeholder="Support request title..."
                                t-att-value="this.state.createName"
                                t-on-input="this.onCreateNameInput"
                                t-att-disabled="this.state.creating" />
@@ -108,7 +108,7 @@
                     </div>
                     <div t-elif="!this.state.showCreateForm" class="p-3 text-center text-muted">
                         <i class="oi oi-2x d-block mb-2" data-icon="check_circle" />
-                        <span class="fw-bold">No open tickets</span>
+                        <span class="fw-bold">No open support requests</span>
                     </div>
                 </t>
 
@@ -117,7 +117,7 @@
                             class="btn btn-link flex-fill fw-bold"
                             name="new_ticket"
                             t-on-click="this.onShowCreateForm">
-                        <i class="oi me-1" data-icon="add" />New Ticket
+                        <i class="oi me-1" data-icon="add" />New Support Request
                     </button>
                     <button class="btn btn-link flex-fill text-muted"
                             name="view_closed"

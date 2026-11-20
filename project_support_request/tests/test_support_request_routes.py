@@ -4,12 +4,10 @@ from lxml import etree
 
 from odoo import Command
 from odoo.tests.common import HttpCase, JsonRpcException, new_test_user, tagged
+from odoo.tools.translate import code_translations
 
 from odoo.addons.project_support_request.controllers import project_support_request as support_request_controller
-from odoo.addons.project_support_request.controllers.project_support_request import (
-    CLOSED_LIST_VIEW_XMLID,
-    INTERNAL_USERS_ONLY_ERROR,
-)
+from odoo.addons.project_support_request.controllers.project_support_request import CLOSED_LIST_VIEW_XMLID
 
 CONFIG_URL = "/project_support_request/config"
 CREATE_URL = "/project_support_request/create"
@@ -82,6 +80,42 @@ class TestSupportRequestRoutes(HttpCase):
             {"error": "Invalid task type: Anomalie"},
         )
 
+    def test_the_errors_of_a_request_come_in_the_users_language(self):
+        self.env["res.lang"]._activate_lang("fr_FR")
+        self.internal_user.lang = "fr_FR"
+        self.portal_user.lang = "fr_FR"
+        french_terms = {
+            "Support request title is required.": "La demande d'assistance n'a pas de titre.",
+            "Invalid task type: %s": "Type de tâche inconnu : %s",
+            "No active project develops this Odoo: a Settings administrator ticks Develops This Odoo"
+            " on the AI-driven project that develops it, or restores the archived one that carries it.": (
+                "Aucun projet actif ne développe cet Odoo."
+            ),
+            "Only internal users file support requests.": "Seuls les utilisateurs internes en déposent.",
+        }
+
+        with patch.dict(code_translations.python_translations, {("project_support_request", "fr_FR"): french_terms}):
+            self.authenticate(self.internal_user.login, self.internal_user.login)
+            errors = [
+                self.make_jsonrpc_request(CREATE_URL, {"name": "  "})["error"],
+                self.make_jsonrpc_request(CREATE_URL, {"name": "Typed", "task_type": "no_such_type"})["error"],
+            ]
+            self.project.develops_this_odoo = False
+            self.env.flush_all()
+            errors.append(self.make_jsonrpc_request(CREATE_URL, {"name": "Filed without a support project"})["error"])
+            self.authenticate(self.portal_user.login, self.portal_user.login)
+            errors.append(self.make_jsonrpc_request(CREATE_URL, {"name": "Filed by a portal user"})["error"])
+
+        self.assertEqual(
+            errors,
+            [
+                "La demande d'assistance n'a pas de titre.",
+                "Type de tâche inconnu : no_such_type",
+                "Aucun projet actif ne développe cet Odoo.",
+                "Seuls les utilisateurs internes en déposent.",
+            ],
+        )
+
     def test_the_closed_requests_open_in_core_task_list_without_grouping(self):
         self.authenticate(self.internal_user.login, self.internal_user.login)
 
@@ -111,6 +145,6 @@ class TestSupportRequestRoutes(HttpCase):
         )
         self.assertEqual(
             self.make_jsonrpc_request(CREATE_URL, {"name": "Filed by a portal user over JSON-RPC"}),
-            {"error": INTERNAL_USERS_ONLY_ERROR},
+            {"error": "Only internal users file support requests."},
         )
         self.assertFalse(self.env["project.task"].search([("name", "=", "Filed by a portal user over JSON-RPC")]))

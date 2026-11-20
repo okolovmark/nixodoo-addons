@@ -189,7 +189,7 @@ export class SupportRequestSystray extends Component {
 
     async onSubmitCreate() {
         if (!this.state.createName.trim()) {
-            this.notification.add(_t("Please enter a ticket title."), { type: "warning" });
+            this.notification.add(_t("Please enter a title for the support request."), { type: "warning" });
             return;
         }
         this.state.creating = true;
@@ -205,7 +205,7 @@ export class SupportRequestSystray extends Component {
             this.state.showCreateForm = false;
             this.openTicket(result.ticket_id);
         } catch {
-            this.notification.add(_t("Error creating ticket"), { type: "danger" });
+            this.notification.add(_t("Error creating the support request"), { type: "danger" });
         } finally {
             this.state.creating = false;
         }
@@ -222,7 +222,7 @@ export class SupportRequestSystray extends Component {
             this.state.total = result.total || 0;
             this.state.showAll = true;
         } catch {
-            this.notification.add(_t("Error loading tickets"), { type: "danger" });
+            this.notification.add(_t("Error loading support requests"), { type: "danger" });
         }
         this.state.loading = false;
     }
@@ -242,7 +242,7 @@ export class SupportRequestSystray extends Component {
             }
             await this.action.doAction({
                 type: "ir.actions.act_window",
-                name: _t("Closed Tickets"),
+                name: _t("Closed Support Requests"),
                 res_model: "project.task",
                 views: [
                     [config.closed_list_view_id, "list"],
@@ -256,7 +256,7 @@ export class SupportRequestSystray extends Component {
                 target: "current",
             });
         } catch {
-            this.notification.add(_t("Error opening closed tickets"), { type: "danger" });
+            this.notification.add(_t("Error opening closed support requests"), { type: "danger" });
         }
     }
 }

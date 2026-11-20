@@ -32,7 +32,7 @@ registry.category("web_tour.tours").add("project_support_request_tour", {
             trigger: ".o_support_request_ticket:contains(Tour open feature)",
         },
         {
-            content: "Open the new ticket form",
+            content: "Open the form of a new request",
             trigger: ".o_support_request_menu button[name=new_ticket]",
             run: "click",
         },
@@ -81,7 +81,7 @@ registry.category("web_tour.tours").add("project_support_request_other_company_t
                 },
             },
             {
-                content: "Open the new ticket form",
+                content: "Open the form of a new request",
                 trigger: ".o_support_request_menu button[name=new_ticket]",
                 run: "click",
             },

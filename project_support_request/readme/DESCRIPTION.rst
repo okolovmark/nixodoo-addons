@@ -9,13 +9,13 @@ Odoo, as tasks of the project flagged **Develops This Odoo**
   stages in one list, not grouped by stage: Odoo's task list without
   grouping (``project.open_view_all_tasks_list_view``), or the default task
   list, grouped by stage, where that view is missing.
-* *New Ticket* takes a title and a task type and creates the task in the
-  first unfolded stage of the project, with the user as its UAT user, no
-  assignee and no estimate. Every internal user files requests, with or
-  without Project rights and whether or not they read the project: the task
-  is created with superuser rights, in the user's name. The type picker
-  names the types in the user's language once a translation of them is
-  loaded: ``project_ai_driven``, which defines them, ships none.
+* *New Support Request* takes a title and a task type and creates the task
+  in the first unfolded stage of the project, with the user as its UAT
+  user, no assignee and no estimate. Every internal user files requests,
+  with or without Project rights and whether or not they read the project:
+  the task is created with superuser rights, in the user's name. The type
+  picker names the types in the user's language once a translation of them
+  is loaded: ``project_ai_driven``, which defines them, ships none.
 * A request belongs to the company of the project. Its filer reads it and
   comments on it in any company: the item lists it and opens it, and *View
   Closed* lists it, whether or not the user is allowed in that company or has
@@ -72,6 +72,11 @@ a new one is created with its key. The dot before it is the colour of its
 from a faint grey for Lowest and grey for Low, the default, up to red for
 Highest; its tooltip names the level, and a level the item does not know is
 shown as Low.
+
+Every text of the item is translatable: its labels and messages, the errors
+the server answers with, the priority levels of the dots and the ages of the
+requests. The module ships no translation: it reads in English until one is
+loaded.
 
 The design record of the read exception is
 ``docs/adr/0017-a-filer-reads-and-comments-on-their-own-support-requests-in-any-company.md``
