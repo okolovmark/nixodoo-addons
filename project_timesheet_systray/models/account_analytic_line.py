@@ -29,12 +29,18 @@ class AccountAnalyticLine(models.Model):
     def _get_own_running_lines(self):
         """The user's running lines, the most recent first, searched in sudo: the rules on time
         lines hide them from a timesheet user who unfollowed their task in a followers-only
-        project. The read access right is checked; callers that end these lines write them in
-        sudo, the user's own lines only.
+        project. Unlike `_running_domain`, also a line whose project had Timesheets turned off
+        after it started: it runs on until ended. The read access right is checked; callers that
+        end these lines write them in sudo, the user's own lines only.
         """
         self.check_access_rights("read")
-        # Not left to `_running_domain`, which an override may widen: the sudo search sees own lines only.
-        own_running_domain = self._running_domain() + [("user_id", "=", self.env.uid)]
+        own_running_domain = [
+            ("user_id", "=", self.env.uid),
+            # A project marks a time line: OCA gives every analytic line a start time.
+            ("project_id", "!=", False),
+            ("unit_amount", "=", 0),
+            ("date_time", "!=", False),
+        ]
         return self.sudo().search(own_running_domain, order="date_time desc")
 
     @api.model

@@ -14,6 +14,24 @@ def _project_label(project):
     return "%s - %s" % (project_key, project_sudo.name) if project_key else project_sudo.name
 
 
+def _web_client_company_ids():
+    """The companies the web client opens a form with: those the request carries, else the `cids`
+    cookie's, read as the 16.0 company service reads it (the user's current company where it names
+    none, or one the user may not use). Timelog RPCs carry none, and an environment without them
+    holds all the user's companies.
+    """
+    if request.env.context.get("allowed_company_ids"):
+        return request.env.companies.ids
+    user = request.env.user
+    try:
+        company_ids = [int(company_id) for company_id in request.httprequest.cookies.get("cids", "").split(",")]
+    except ValueError:
+        company_ids = []
+    if not company_ids or not set(company_ids) <= set(user.company_ids.ids):
+        company_ids = user.company_id.ids
+    return company_ids
+
+
 class TimesheetSystrayController(http.Controller):
     @http.route("/project_timesheet_systray/systray", type="json", auth="user", methods=["POST"])
     def get_systray_timesheet(self, limit=5, **kwargs):
@@ -116,8 +134,11 @@ class TimesheetSystrayController(http.Controller):
         task = request.env["project.task"].browse(task_id)
         if not task.exists():
             return {"error": _("Task not found")}
-
         task_company = task.company_id or task.project_id.company_id
+        # The task list leaves such a task out; one loaded before Timesheets went off still offers it.
+        # After the read above, which refuses a task the user cannot read.
+        if not task.allow_timesheets:
+            return {"error": _("Timesheets are turned off in the project of this task")}
         employee = (
             request.env["hr.employee"]
             .sudo()
@@ -162,7 +183,7 @@ class TimesheetSystrayController(http.Controller):
         # Sudo: the line is the user's own, its task may no longer be readable to them (a timesheet
         # manager taken off a task of a followers-only project while the timer runs).
         task_sudo = line.task_id.sudo()
-        task = line.task_id.sudo(False)
+        task = line.task_id.sudo(False).with_context(allowed_company_ids=_web_client_company_ids())
         is_task_readable = task.check_access_rights("read", raise_exception=False) and bool(
             task._filter_access_rules("read")
         )

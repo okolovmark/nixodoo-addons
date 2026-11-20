@@ -101,7 +101,8 @@ class TimesheetSystrayCase(TransactionCase):
         return task
 
     def _call_route(self, user, route_name, **kwargs):
-        with patch.object(controller, "request", SimpleNamespace(env=self.env(user=user))):
+        user_request = SimpleNamespace(env=self.env(user=user), httprequest=SimpleNamespace(cookies={}))
+        with patch.object(controller, "request", user_request):
             return getattr(controller.TimesheetSystrayController(), route_name)(**kwargs)
 
     def _skip_without_keys(self):

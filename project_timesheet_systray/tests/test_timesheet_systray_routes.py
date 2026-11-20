@@ -48,6 +48,30 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
         line.date_time = datetime.now() - timedelta(minutes=30)
         self.env.flush_all()
 
+    def _create_task_of_a_new_project(self, **project_vals):
+        project = self.env["project.project"].create(
+            {
+                "name": "Project of Its Own",
+                "allow_timesheets": True,
+                "type_ids": [Command.set(self.stage_in_progress.ids)],
+                **project_vals,
+            }
+        )
+        return self.env["project.task"].create(
+            {
+                "name": "Task of a Project of Its Own",
+                "project_id": project.id,
+                "stage_id": self.stage_in_progress.id,
+                "user_ids": [Command.set(self.user_dev1.ids)],
+            }
+        )
+
+    def _turn_timesheets_off(self, project):
+        """Off after the project got its analytic account: the start route can still log time on it."""
+        project.allow_timesheets = False
+        self.assertTrue(project.analytic_account_id)
+        self.env.flush_all()
+
     def test_the_routes_answer_a_signed_in_user_only(self):
         self.authenticate(None, None)
         for url in (START_URL, STOP_URL, SYSTRAY_URL):
@@ -319,6 +343,91 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
         other_line.invalidate_recordset(["unit_amount"])
         self.assertEqual(other_line.unit_amount, 0)
 
+    def test_a_timesheet_approver_or_administrator_neither_sees_nor_stops_a_running_timer_of_another_user(self):
+        other_line = self._create_timesheet(self.task, self.user_dev2, self.employee_dev2)
+        for group in ("hr_timesheet.group_hr_timesheet_approver", "hr_timesheet.group_timesheet_manager"):
+            with self.subTest(group=group):
+                login = "timesheet_systray_%s" % group.split(".")[1]
+                user = new_test_user(
+                    self.env, login, groups="base.group_user,project.group_project_user,%s" % group, password=login
+                )
+                self.assertTrue(
+                    self.env["account.analytic.line"].with_user(user).search([("id", "=", other_line.id)]),
+                    "the rules on time lines let %s read the line" % login,
+                )
+                self.authenticate(login, login)
+
+                self.assertFalse(self._result(SYSTRAY_URL)["running"])
+                self.assertEqual(self._result(STOP_URL, timesheet_id=other_line.id), {"error": "Timer is not running"})
+                other_line.invalidate_recordset(["unit_amount"])
+                self.assertEqual(other_line.unit_amount, 0)
+
+    def test_a_timer_whose_project_turned_timesheets_off_shows_in_the_systray_until_stopped(self):
+        task = self._create_task_of_a_new_project()
+        self.authenticate(self.user_dev1.login, DEV1_PASSWORD)
+        line = self._start_timer_on(task)
+        self._turn_timesheets_off(task.project_id)
+        self._start_half_an_hour_ago(line)
+
+        systray = self._result(SYSTRAY_URL)
+
+        self.assertEqual((systray["running"], (systray["timesheet"] or {}).get("id")), (True, line.id))
+        self.assertFalse(self._result(STOP_URL, timesheet_id=line.id)["running"])
+        line.invalidate_recordset(["unit_amount"])
+        self.assertAlmostEqual(line.unit_amount, 0.5, delta=0.05)
+
+    def test_a_start_ends_a_timer_whose_project_turned_timesheets_off(self):
+        task = self._create_task_of_a_new_project()
+        self.authenticate(self.user_dev1.login, DEV1_PASSWORD)
+        first_line = self._start_timer_on(task)
+        self._turn_timesheets_off(task.project_id)
+        self._start_half_an_hour_ago(first_line)
+
+        self._start_timer_on(self.task)
+
+        first_line.invalidate_recordset(["unit_amount"])
+        self.assertAlmostEqual(first_line.unit_amount, 0.5, delta=0.05)
+
+    def test_a_start_on_a_task_of_a_project_with_timesheets_off_is_refused(self):
+        task = self._create_task_of_a_new_project()
+        self._turn_timesheets_off(task.project_id)
+        self.authenticate(self.user_dev1.login, DEV1_PASSWORD)
+
+        answer = self._result(START_URL, task_id=task.id)
+
+        self.assertEqual(answer, {"error": "Timesheets are turned off in the project of this task"})
+        self.assertFalse(self.env["account.analytic.line"].search([("task_id", "=", task.id)]))
+
+    def test_the_running_timer_links_its_task_where_the_web_client_opens_it_with_the_task_company(self):
+        """The form opens with the companies selected in the web client, which it keeps in the
+        `cids` cookie, defaulting to the user's current company."""
+        company = self.env.company
+        other_company = self.env["res.company"].create({"name": "Timelog Second Company"})
+        self.user_dev1.company_ids = [Command.link(other_company.id)]
+        self.env["hr.employee"].create(
+            {"name": "Dev One", "user_id": self.user_dev1.id, "company_id": other_company.id}
+        )
+        task = self._create_task_of_a_new_project(company_id=other_company.id)
+        tasks_dev1 = self.env["project.task"].with_user(self.user_dev1)
+        self.assertFalse(tasks_dev1.with_context(allowed_company_ids=company.ids).search([("id", "=", task.id)]))
+        self.authenticate(self.user_dev1.login, DEV1_PASSWORD)
+        self._result(START_URL, task_id=task.id)
+
+        for cids, is_task_readable in (
+            (None, False),
+            (str(company.id), False),
+            ("%s,%s" % (company.id, other_company.id), True),
+            (str(other_company.id), True),
+            ("%s,0" % other_company.id, False),
+        ):
+            with self.subTest(cids=cids):
+                if cids:
+                    self.opener.cookies["cids"] = cids
+                timesheet = self._result(SYSTRAY_URL)["timesheet"] or {}
+                self.assertEqual(
+                    (timesheet.get("task_id"), timesheet.get("is_task_readable")), (task.id, is_task_readable)
+                )
+
     def test_the_route_messages_follow_the_user_language(self):
         self.env["res.lang"]._activate_lang("fr_FR")
         new_test_user(
@@ -328,8 +437,11 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
             password="timesheet_systray_fr",
             lang="fr_FR",
         )
+        task_without_timesheets = self._create_task_of_a_new_project()
+        self._turn_timesheets_off(task_without_timesheets.project_id)
         french_messages = {
             "Task not found": "Tâche introuvable",
+            "Timesheets are turned off in the project of this task": "Les feuilles de temps sont désactivées",
             "No employee linked to your user": "Aucun employé lié à votre utilisateur",
             "Timer is not running": "Le minuteur ne tourne pas",
             "No tasks in progress": "Aucune tâche en cours",
@@ -343,6 +455,7 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
         ):
             answers = (
                 self._result(START_URL, task_id=self.task.id + 1000000)["error"],
+                self._result(START_URL, task_id=task_without_timesheets.id)["error"],
                 self._result(START_URL, task_id=self.task.id)["error"],
                 self._result(STOP_URL, timesheet_id=0)["error"],
                 self._result(SYSTRAY_URL)["message"],

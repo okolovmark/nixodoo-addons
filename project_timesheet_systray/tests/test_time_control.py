@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+from odoo.exceptions import UserError
 from odoo.tests.common import Form, tagged
 
 from .common import TimesheetSystrayCase
@@ -76,3 +77,30 @@ class TestTimeControlOnTasksNotFollowed(TimesheetSystrayCase):
         dev1_task.button_end_work()
 
         self.assertAlmostEqual(line.unit_amount, 0.5, delta=0.05)
+
+    def test_the_task_form_shows_and_stops_a_running_timer_the_rules_hid_after_its_task_was_unfollowed(self):
+        task = self._create_unfollowed_task("followers")
+        task.message_subscribe(self.user_dev1.partner_id.ids)
+        line = self._create_timesheet(
+            task, self.user_dev1, self.employee_dev1, date_time=datetime.now() - timedelta(minutes=30)
+        )
+        task.message_unsubscribe(self.user_dev1.partner_id.ids)
+        self.assertFalse(self.env["account.analytic.line"].with_user(self.user_dev1).search([("id", "=", line.id)]))
+        dev1_task = task.with_user(self.user_dev1)
+
+        self.assertEqual(dev1_task.show_time_control, "stop")
+        dev1_task.button_end_work()
+
+        self.assertAlmostEqual(line.unit_amount, 0.5, delta=0.05)
+
+    def test_the_task_form_neither_counts_nor_stops_a_running_timer_of_another_user(self):
+        task = self._create_task("Task of Two", self.stage_in_progress, self.user_dev1 + self.user_dev2)
+        self._create_timesheet(task, self.user_dev2, self.employee_dev2)
+        self.assertEqual(task.with_user(self.user_dev2).show_time_control, "stop")
+        # One cached value serves every user: each user here gets their own computation.
+        task.invalidate_recordset(["show_time_control"])
+        dev1_task = task.with_user(self.user_dev1)
+
+        self.assertEqual(dev1_task.show_time_control, "start")
+        with self.assertRaises(UserError):
+            dev1_task.button_end_work()

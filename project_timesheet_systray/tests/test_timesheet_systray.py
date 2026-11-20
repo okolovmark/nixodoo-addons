@@ -245,7 +245,7 @@ class TestTimesheetSystrayData(TimesheetSystrayCase):
             date_time=datetime.now() - timedelta(minutes=45),
         )
 
-        result = TimesheetSystrayController()._format_running_timesheet(line)
+        result = self._call_route(self.env.user, "_format_running_timesheet", line=line)
 
         self.assertEqual(set(result.keys()), set(RUNNING_TIMER_FIELDS))
         self.assertEqual(result["id"], line.id)
@@ -261,7 +261,7 @@ class TestTimesheetSystrayData(TimesheetSystrayCase):
         self.project.write({"key": "TST"})
 
         line = self._create_timesheet(self.task_in_progress, self.user_dev1, self.employee_dev1)
-        result = TimesheetSystrayController()._format_running_timesheet(line)
+        result = self._call_route(self.env.user, "_format_running_timesheet", line=line)
         self.assertEqual(result["project_name"], "TST - %s" % self.project.name)
 
     def test_format_running_timesheet_project_label_without_key(self):
@@ -269,7 +269,7 @@ class TestTimesheetSystrayData(TimesheetSystrayCase):
             self.project.write({"key": ""})
 
         line = self._create_timesheet(self.task_in_progress, self.user_dev1, self.employee_dev1)
-        result = TimesheetSystrayController()._format_running_timesheet(line)
+        result = self._call_route(self.env.user, "_format_running_timesheet", line=line)
         self.assertEqual(result["project_name"], self.project.name)
 
 
