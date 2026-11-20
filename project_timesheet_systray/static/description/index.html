@@ -375,7 +375,9 @@ of <tt class="docutils literal">project_timesheet_time_control</tt> on the user�
 timesheet line of the user with a start time and no duration yet.</p>
 <ul class="simple">
 <li>With a timer running, the item shows its elapsed time, and its panel the
-task and its project; <em>Stop</em> ends the timesheet line.</li>
+task and its project; <em>Stop</em> ends the timesheet line. The timer shows and
+stops wherever the user reads its timesheet line, also when they cannot
+read its project or no longer read its task.</li>
 <li>With none running, the panel lists the user’s tasks in unfolded stages,
 the most recently logged first, five at a time with <em>Show more</em> for the
 rest. Each shows the name of its project, even a project the user has
@@ -383,6 +385,14 @@ no access to. <em>Start timer</em> on one stops every timer of the user and
 starts a timesheet line on the task, for the user’s employee in the
 task’s company.</li>
 </ul>
+<p>In a project visible to <em>Invited internal users</em>, the rule of <em>Timesheets /
+User: own timesheets only</em> lets a user log time only as a follower of the
+project or of the task. Where a line is refused and the user does not
+follow the task, such as an assignee who unfollowed it, <em>Start timer</em> makes
+them follow the task again and starts the timer: they get the notifications
+of the task again, as any follower does, until they unfollow it. A start
+that fails changes nothing: the stopped timers run on and the follow is
+taken back.</p>
 <p>The task key and the project key (<tt class="docutils literal">key</tt>) are shown where a module of the
 database declares them, such as OCA <tt class="docutils literal">project_key</tt>: the project then reads
 <em>KEY - name</em>.</p>
@@ -411,7 +421,8 @@ rights (<em>Timesheets / User: own timesheets only</em> at least) sees the item.
 <p>Press <strong>Timelog</strong> in the header:</p>
 <ul class="simple">
 <li>with no timer running, press the play button of a task to start one, or
-the task to open it;</li>
+the task to open it; where Odoo logs your time only for a follower and
+you no longer follow the task, the start makes you follow it again;</li>
 <li>with a timer running, press <em>Stop</em> to end its timesheet line, or the task
 to open it.</li>
 </ul>
