@@ -10,6 +10,7 @@ from .common import ProjectAiDrivenCommon
 
 EARLIER = datetime(2026, 3, 2, 9, 0)
 LATER = datetime(2026, 3, 3, 15, 30)
+VERIFICATION_KINDS = ("manual", "automated", "demo", False)
 LINE_FIELDS = {
     "checklist_item_ids": ["name", "state", "user_id", "reviewer_id", "deadline"],
     "testcase_ids": [
@@ -437,3 +438,124 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
         given_copy_cases = task_copy.testcase_ids | task_copy.child_ids.testcase_ids
         self.assertEqual(len(given_copy_cases), 6)
         self.assertFalse(given_copy_cases.filtered("verification_kind"))
+
+
+class TestCopiedCaseKinds(ProjectAiDrivenCommon):
+    """Every Not run case of a copy or a next occurrence, at any level of its
+    sub-tasks, takes the Verification of its own source case.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project.allow_recurring_tasks = True
+
+    def setUp(self):
+        super().setUp()
+        self.created_task_count = 0
+
+    def _create_task(self, name, **values):
+        """A task with a Not run case of each Verification, rotated by one per task created: of up to four
+        tasks, no two give a case of the same rank the same Verification.
+        """
+        task = self.env["project.task"].create({"name": name, "project_id": self.project.id, **values})
+        self.env["project.task.testcase"].create(
+            [
+                {
+                    "name": "%s case %s" % (name, rank),
+                    "task_id": task.id,
+                    "verification_kind": VERIFICATION_KINDS[(self.created_task_count + rank) % len(VERIFICATION_KINDS)],
+                }
+                for rank in range(len(VERIFICATION_KINDS))
+            ]
+        )
+        self.created_task_count += 1
+        return task
+
+    def _create_recurring_task(self, name):
+        return self._create_task(name, recurring_task=True, repeat_type="forever")
+
+    def _create_task_with_archived_subtask(self):
+        recurring_task = self._create_recurring_task("Recurring")
+        subtask = self._create_task("Sub-task", parent_id=recurring_task.id)
+        archived_subtask = self._create_task("Archived sub-task", parent_id=recurring_task.id, active=False)
+        self.assertEqual(
+            recurring_task.with_context(active_test=False).child_ids.ids,
+            [archived_subtask.id, subtask.id],
+            "the archived sub-task sorts first",
+        )
+        return recurring_task, subtask, archived_subtask
+
+    def _close(self, tasks):
+        """Close tasks in one write; return the tasks it creates, archived ones included."""
+        all_tasks = self.env["project.task"].with_context(active_test=False)
+        former_tasks = all_tasks.search([])
+        tasks.write({"state": "1_done"})
+        return all_tasks.search([]) - former_tasks
+
+    def _case_kinds(self, tasks):
+        """{case name: Verification}: a copied case keeps the name, which names its source task."""
+        return {case.name: case.verification_kind for case in tasks.testcase_ids}
+
+    def assertCaseKindsRepeated(self, copied_tasks, source_tasks):
+        self.assertEqual(self._case_kinds(copied_tasks), self._case_kinds(source_tasks))
+
+    def test_a_duplicated_task_and_subtask_each_take_the_kinds_of_their_own_cases(self):
+        task = self._create_task("Task")
+        subtask = self._create_task("Sub-task", parent_id=task.id)
+
+        task_copy = task.copy()
+
+        self.assertCaseKindsRepeated(task_copy | task_copy.child_ids, task | subtask)
+
+    def test_a_task_created_from_a_template_and_its_subtask_each_take_the_kinds_of_their_own_cases(self):
+        template = self._create_task("Template", is_template=True)
+        subtask = self._create_task("Sub-task", parent_id=template.id)
+
+        task = self.env["project.task"].browse(template.action_create_from_template())
+
+        self.assertCaseKindsRepeated(task | task.child_ids, template | subtask)
+
+    def test_subtasks_whose_later_id_sorts_first_each_take_the_kinds_of_their_own_cases(self):
+        recurring_task = self._create_recurring_task("Recurring")
+        first_subtask = self._create_task("First sub-task", parent_id=recurring_task.id)
+        later_subtask = self._create_task("Later sub-task", parent_id=recurring_task.id, priority="1")
+        self.assertEqual(recurring_task.child_ids.ids, [later_subtask.id, first_subtask.id], "the later id sorts first")
+
+        occurrences = self._close(recurring_task)
+
+        self.assertCaseKindsRepeated(occurrences, recurring_task | first_subtask | later_subtask)
+
+    def test_an_archived_subtask_is_neither_repeated_nor_paired(self):
+        recurring_task, subtask, _archived_subtask = self._create_task_with_archived_subtask()
+
+        occurrences = self._close(recurring_task)
+
+        self.assertCaseKindsRepeated(occurrences, recurring_task | subtask)
+
+    def test_an_archived_subtask_closed_without_active_test_is_repeated_with_its_own_kinds(self):
+        recurring_task, subtask, archived_subtask = self._create_task_with_archived_subtask()
+
+        occurrences = self._close(recurring_task.with_context(active_test=False))
+
+        self.assertEqual(occurrences.filtered(lambda task: not task.active).name, archived_subtask.name)
+        self.assertCaseKindsRepeated(occurrences, recurring_task | subtask | archived_subtask)
+
+    def test_a_grandchild_takes_the_kinds_of_its_own_cases(self):
+        recurring_task = self._create_recurring_task("Recurring")
+        subtask = self._create_task("Sub-task", parent_id=recurring_task.id)
+        grandchild = self._create_task("Sub-sub-task", parent_id=subtask.id)
+
+        occurrences = self._close(recurring_task)
+
+        self.assertCaseKindsRepeated(occurrences, recurring_task | subtask | grandchild)
+
+    def test_two_recurring_tasks_closed_in_one_write_each_take_the_kinds_of_their_own_cases(self):
+        source_tasks = self.env["project.task"]
+        for name in ("First recurring", "Second recurring"):
+            recurring_task = self._create_recurring_task(name)
+            source_tasks |= recurring_task | self._create_task("%s sub-task" % name, parent_id=recurring_task.id)
+
+        occurrences = self._close(source_tasks.filtered("recurring_task"))
+
+        self.assertCaseKindsRepeated(occurrences, source_tasks)

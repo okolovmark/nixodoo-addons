@@ -162,3 +162,8 @@ records. From it a task or a project created from a template, a project
 template made from a project, and the next occurrence of a recurring task,
 sub-tasks included, keep the Verification of each test case that was Not
 run with one; the cases copied before stay as they are.
+
+The update to 20.0.2.22.0 has no migration and writes nothing on existing
+records. From it the kanban card of a task names the completion of its test
+cases *Test cases*, no longer *Your Test cases*: the figure counts every
+case of the task, whoever reads it.

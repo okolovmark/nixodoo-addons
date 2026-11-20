@@ -170,9 +170,11 @@ Passed, Failed, Waiting or Not applicable.
 A case follows the access of its task as a checklist item does, through two
 access rights with the same domains. The task carries general comments and
 a completion percentage: its Passed cases over all its cases but the Not
-applicable ones. Its kanban card counts the cases Not run, Failed and
-Waiting. As for the checklist, only users with the **User** access of
-*Project* read the percentage and the counts, the task fields
+applicable ones. Its kanban card shows it as *Test cases: N% Done*, the
+same figure for every reader, as a case has no assignee, and counts the
+cases Not run, Failed and Waiting. As for the checklist, only users with
+the **User** access of *Project* read the percentage and the counts, the
+task fields
 ``testcase_completion``, ``testcase_completion_xml`` and
 ``kanban_testcases``, and see them on the card. The **Test Cases** menu
 opens filtered on the cases Not run; remove the *Not run* filter to see all

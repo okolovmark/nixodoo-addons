@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from odoo import api, fields, models
 
 from .task_line import check_task_line_move
@@ -118,7 +120,7 @@ class ProjectTaskTestcase(models.Model):
         its automated test reference, and with keep_progress its result,
         verification included, and its comments; else it is Not run without
         comments. A Not run case gets its verification back after the copy,
-        see _write_verification_on_copy.
+        see _write_verifications_on_copies.
         """
         return [
             {
@@ -139,18 +141,23 @@ class ProjectTaskTestcase(models.Model):
             "verification_kind": self.verification_kind,
         }
 
-    def _write_verification_on_copy(self, case_copy, keep_progress):
-        """Write the verification of this case, when it is Not run, on its
-        copy case_copy. The copy is created with its state, as a default may
-        be another one, and a Not run given takes the verification back; a
+    @api.model
+    def _write_verifications_on_copies(self, case_pairs, keep_progress):
+        """Write the verification of each Not run case of case_pairs, pairs of
+        a case and its copy, on the copy: one write per set of values, in the
+        environment of self. The copy is created with its state, as a default
+        may be another one, and a Not run given takes the verification back; a
         verification written alone stays. Without keep_progress only the
         Verification is written: how a case is to be verified is part of
         preparing it, as its Automated test reference, while Verified by and
         Verified on stamp a result.
         """
-        self.ensure_one()
-        result_values = self._get_result_values()
         field_names = VERIFICATION_FIELDS if keep_progress else ("verification_kind",)
-        verification_values = {fname: result_values[fname] for fname in field_names}
-        if self.state == "not_run" and any(verification_values.values()):
-            case_copy.write(verification_values)
+        copy_ids_per_values = defaultdict(list)
+        for case, case_copy in case_pairs:
+            result_values = case._get_result_values()
+            verification_values = tuple((fname, result_values[fname]) for fname in field_names)
+            if case.state == "not_run" and any(value for _fname, value in verification_values):
+                copy_ids_per_values[verification_values].append(case_copy.id)
+        for verification_values, copy_ids in copy_ids_per_values.items():
+            self.browse(copy_ids).write(dict(verification_values))
