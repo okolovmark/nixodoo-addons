@@ -66,6 +66,30 @@ class TestSupportRequestRoutes(HttpCase):
         )
         self.assertEqual([ticket["id"] for ticket in systray["tickets"]], [task.id])
 
+    def test_the_task_types_are_labelled_in_the_users_language(self):
+        self.env["res.lang"]._activate_lang("fr_FR")
+        self.env["ir.model.fields"]._get("project.task", "task_type").selection_ids.filtered(
+            lambda selection: selection.value == "bug"
+        ).update_field_translations("name", {"fr_FR": "Anomalie"})
+        # Selection labels are cached per language, and this translation skips the write that clears them.
+        self.env.registry.clear_caches()
+        filer = new_test_user(self.env, login="support_route_french", groups="base.group_user", lang="fr_FR")
+        self.authenticate(filer.login, filer.login)
+
+        task_types = self._result(CONFIG_URL)["task_types"]
+
+        self.assertIn({"value": "bug", "label": "Anomalie"}, task_types)
+
+    def test_a_request_is_filed_with_the_type_picked_and_refused_with_an_unknown_one(self):
+        self.authenticate(self.internal_user.login, self.internal_user.login)
+
+        ticket = self._result(CREATE_URL, name="Filed as an improvement", task_type="improvement")
+        refused = self._result(CREATE_URL, name="Filed with an unknown type", task_type="no_such_type")
+
+        self.assertEqual(self.env["project.task"].browse(ticket["ticket_id"]).task_type, "improvement")
+        self.assertIn("error", refused)
+        self.assertFalse(self.env["project.task"].search([("name", "=", "Filed with an unknown type")]))
+
     def test_a_portal_user_gets_no_support_project_and_files_no_request(self):
         self.authenticate(self.portal_user.login, self.portal_user.login)
 

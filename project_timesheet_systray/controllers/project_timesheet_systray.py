@@ -1,4 +1,5 @@
 from odoo import fields, http
+from odoo.exceptions import AccessError
 from odoo.http import request
 
 
@@ -34,13 +35,9 @@ class TimesheetSystrayController(http.Controller):
                 "message": "",
             }
 
-        running_domain = [
-            ("date_time", "!=", False),
-            ("user_id", "=", user.id),
-            ("project_id.allow_timesheets", "=", True),
-            ("unit_amount", "=", 0),
-            ("task_id", "!=", False),
-        ]
+        running_domain = self._resolve_project_terms_in_sudo(
+            TimesheetLine._running_domain() + [("task_id", "!=", False)]
+        )
         running = TimesheetLine.search(running_domain, limit=1, order="date_time desc")
         if running:
             return {
@@ -111,7 +108,7 @@ class TimesheetSystrayController(http.Controller):
     @http.route("/project_timesheet_systray/start", type="json", auth="user", methods=["POST"])
     def start_timer(self, task_id, **kwargs):
         """Stop the user's running timers and start one on the task, for the user's employee in
-        the task's company.
+        the task's company; the user follows the task again where the time line needs it.
         """
         TimesheetLine = request.env["account.analytic.line"]
         user = request.env.user
@@ -129,12 +126,13 @@ class TimesheetSystrayController(http.Controller):
         if not employee:
             return {"error": "No employee linked to your user"}
 
-        # A failed create puts the stopped timers back.
+        # A failed create puts the stopped timers back and takes the follow back.
         with request.env.cr.savepoint():
-            running = TimesheetLine.search(TimesheetLine._running_domain())
+            running = TimesheetLine.search(self._resolve_project_terms_in_sudo(TimesheetLine._running_domain()))
             if running:
                 running.button_end_work()
-            new_line = TimesheetLine.create(
+            new_line = self._create_time_line(
+                task,
                 {
                     "task_id": task.id,
                     "project_id": task.project_id.id,
@@ -143,7 +141,7 @@ class TimesheetSystrayController(http.Controller):
                     "name": task.name,
                     "date_time": fields.Datetime.now(),
                     "unit_amount": 0,
-                }
+                },
             )
         return {
             "running": True,
@@ -164,19 +162,52 @@ class TimesheetSystrayController(http.Controller):
         line.button_end_work()
         return self.get_systray_timesheet()
 
+    def _create_time_line(self, task, line_vals):
+        """Create the user's time line on the task. Where the rules on time lines refuse it and
+        the user does not follow the task, make them follow it and create once more: in a
+        followers-only project, an assignee who unfollowed still reads the task but logs no time.
+        """
+        TimesheetLine = request.env["account.analytic.line"]
+        partner = request.env.user.partner_id
+        try:
+            with request.env.cr.savepoint():
+                return TimesheetLine.create(line_vals)
+        except AccessError:
+            if partner in task.sudo().message_partner_ids:
+                raise
+        task.message_subscribe(partner.ids)
+        return TimesheetLine.create(line_vals)
+
+    def _resolve_project_terms_in_sudo(self, domain):
+        """`domain` with its conditions on the line's project resolved in sudo: the user's rules
+        on projects hide a followers-only project from a user who follows only the task, whose
+        time lines they still read and write.
+        """
+        projects_sudo = request.env["project.project"].sudo().with_context(active_test=False)
+        resolved_domain = []
+        for term in domain:
+            if isinstance(term, (list, tuple)) and str(term[0]).startswith("project_id."):
+                path, operator, value = term
+                project_query = projects_sudo._search([(path.split(".", 1)[1], operator, value)])
+                term = ("project_id", "in", project_query)
+            resolved_domain.append(term)
+        return resolved_domain
+
     def _format_running_timesheet(self, line):
-        task = line.task_id
+        # Sudo: the line is the user's own, its task may no longer be readable to them (a timesheet
+        # manager taken off a task of a followers-only project while the timer runs).
+        task_sudo = line.task_id.sudo()
         elapsed = 0
         if line.date_time:
             elapsed = (fields.Datetime.now() - line.date_time).total_seconds()
 
         return {
             "id": line.id,
-            "task_id": task.id,
-            "task_name": task.name,
-            "task_key": _record_key(task),
-            "project_id": task.project_id.id,
-            "project_name": _project_label(task.project_id),
+            "task_id": task_sudo.id,
+            "task_name": task_sudo.name,
+            "task_key": _record_key(task_sudo),
+            "project_id": task_sudo.project_id.id,
+            "project_name": _project_label(task_sudo.project_id),
             "date_time": str(line.date_time) if line.date_time else "",
             "unit_amount": line.unit_amount,
             "elapsed_seconds": elapsed,

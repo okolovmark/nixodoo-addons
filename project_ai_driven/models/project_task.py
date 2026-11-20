@@ -100,9 +100,10 @@ class ProjectTask(models.Model):
     checklist_item_ids = fields.One2many(
         "project.task.checklist.item", "task_id", string="Checklist", groups="project.group_project_user"
     )
-    completion = fields.Integer("Completion", compute="_compute_completion")
-    completion_xml = fields.Html(compute="_compute_completion_xml")
-    kanban_checklist = fields.Html(compute="_compute_kanban_checklist")
+    # the groups of the lines they count: a reader of the task outside Project would fail to read them
+    completion = fields.Integer("Completion", compute="_compute_completion", groups="project.group_project_user")
+    completion_xml = fields.Html(compute="_compute_completion_xml", groups="project.group_project_user")
+    kanban_checklist = fields.Html(compute="_compute_kanban_checklist", groups="project.group_project_user")
     testcase_ids = fields.One2many("project.task.testcase", "task_id", groups="project.group_project_user")
     question_ids = fields.One2many(
         "project.task.question", "task_id", string="Questions", groups="project.group_project_user"
@@ -110,9 +111,9 @@ class ProjectTask(models.Model):
     session_ids = fields.One2many(
         "project.task.session", "task_id", string="Sessions", groups="project.group_project_user"
     )
-    testcase_completion = fields.Integer(compute="_compute_testcase_completion")
-    testcase_completion_xml = fields.Html(compute="_compute_testcase_completion")
-    kanban_testcases = fields.Html(compute="_compute_kanban_testcases")
+    testcase_completion = fields.Integer(compute="_compute_testcase_completion", groups="project.group_project_user")
+    testcase_completion_xml = fields.Html(compute="_compute_testcase_completion", groups="project.group_project_user")
+    kanban_testcases = fields.Html(compute="_compute_kanban_testcases", groups="project.group_project_user")
     testcase_general_comments = fields.Html()
     pull_request_ids = fields.Many2many(
         "project.pull.request",
@@ -345,7 +346,7 @@ class ProjectTask(models.Model):
         for item in self.checklist_item_ids:
             item.copy({"task_id": task.id, "state": item.state})
         for testcase in self.testcase_ids:
-            testcase.copy({"task_id": task.id, **testcase._get_result_values()})
+            testcase._copy_to_task(task)
         for question in self.question_ids:
             question.copy({"task_id": task.id, "state": question.state})
         return task

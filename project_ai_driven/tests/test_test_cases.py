@@ -9,12 +9,15 @@ from unittest.mock import patch
 from freezegun import freeze_time
 from lxml import etree
 
+from odoo import Command
 from odoo.exceptions import AccessError
 from odoo.tests.common import Form, tagged
 from odoo.tools.sql import column_exists
 
 from ..hooks import MODULE, convert_test_case_states
+from ..models.project_task_image_mixin import ImageMover, get_image_source
 from .common import ProjectAiDrivenCommon
+from .test_inline_images import RED, data_uri, image_html, image_tag
 
 MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.5.0" / "post-migration.py"
 HOOKS_LOGGER = "odoo.addons.%s.hooks" % MODULE
@@ -226,6 +229,53 @@ class TestTestCases(ProjectAiDrivenCommon):
             ],
         )
 
+    def test_a_pass_or_a_fail_a_create_takes_from_a_default_is_stamped(self):
+        self.env["ir.default"].set("project.task.testcase", "state", "failed", user_id=self.user_dev.id)
+        as_developer = self.Testcase.with_user(self.user_dev)
+        with freeze_time(EARLIER):
+            context_cases = as_developer.with_context(default_state="passed").create(
+                [
+                    {"name": "Context default", "task_id": self.task.id},
+                    {"name": "Given state", "task_id": self.task.id, "state": "waiting"},
+                ],
+            )
+            user_default_case = as_developer.create({"name": "User default", "task_id": self.task.id})
+        self.assertRecordValues(
+            context_cases | user_default_case,
+            [
+                {"state": "passed", "verified_by_id": self.user_dev.id, "verified_on": EARLIER},
+                {"state": "waiting", "verified_by_id": False, "verified_on": False},
+                {"state": "failed", "verified_by_id": self.user_dev.id, "verified_on": EARLIER},
+            ],
+        )
+
+    def test_not_run_takes_back_a_verification_given_with_it(self):
+        given_verification = {"verified_by_id": self.user_lead.id, "verified_on": EARLIER, "verification_kind": "demo"}
+        case = self._new_case(state="passed", test_reference=TEST_REFERENCE)
+        case.write({"state": "not_run", **given_verification})
+        written_case = self._new_case(name="Written verification")
+        written_case.write(given_verification)
+        created_cases = self.Testcase.create(
+            [
+                {"name": "Given Not run", "task_id": self.task.id, "state": "not_run", **given_verification},
+                {
+                    "name": "Default Not run",
+                    "task_id": self.task.id,
+                    "test_reference": TEST_REFERENCE,
+                    **given_verification,
+                },
+            ],
+        )
+        self.assertEqual(
+            self._results(case | written_case | created_cases),
+            [
+                ("Boot test", "not_run", False, False, False, TEST_REFERENCE),
+                ("Default Not run", "not_run", self.user_lead.id, EARLIER, "demo", TEST_REFERENCE),
+                ("Given Not run", "not_run", False, False, False, False),
+                ("Written verification", "not_run", self.user_lead.id, EARLIER, "demo", False),
+            ],
+        )
+
     def test_the_result_buttons_give_a_manual_result_where_no_kind_is_set(self):
         for method_name, state in BUTTON_STATES.items():
             if state == "not_run":
@@ -302,9 +352,11 @@ class TestTestCases(ProjectAiDrivenCommon):
             )
         self._new_case(name="Unstamped pass", state="passed", verified_by_id=False, verified_on=False)
         self._new_case(name="Open case", test_reference=TEST_REFERENCE)
+        self._new_case(name="Prepared case", verification_kind="automated", test_reference=TEST_REFERENCE)
         results = [
             ("Open case", "not_run", False, False, False, TEST_REFERENCE),
             ("Passed case", "passed", self.user_dev.id, EARLIER, "automated", TEST_REFERENCE),
+            ("Prepared case", "not_run", False, False, "automated", TEST_REFERENCE),
             ("Unstamped pass", "passed", False, False, False, False),
         ]
         self.assertEqual(self._results(self.task.testcase_ids), results)
@@ -386,6 +438,17 @@ class TestTestCases(ProjectAiDrivenCommon):
         (verification_line,) = card_template.xpath(".//div[field[@name='verified_on']]")
         self.assertEqual(verification_line.get("t-if"), COMPLETE_VERIFICATION)
 
+    def test_the_state_badge_of_a_card_keeps_a_margin_from_a_long_name(self):
+        task_form_arch = self.env.ref("project.view_task_form2")._get_combined_arch()
+        card_views = {
+            "task form": task_form_arch.xpath("//field[@name='testcase_ids']/kanban")[0],
+            "menu": self.env.ref("%s.project_task_testcase_view_kanban" % MODULE)._get_combined_arch(),
+        }
+        for view_name, card_view in card_views.items():
+            with self.subTest(view=view_name):
+                (state_badge,) = card_view.xpath(".//t[@t-name='kanban-box']//field[@name='state']")
+                self.assertIn("ms-2", state_badge.get("class", "").split())
+
     def test_the_task_form_adds_a_case_not_run_and_leaves_the_stamp_to_the_rule(self):
         given_values = {
             "state": "passed",
@@ -413,6 +476,125 @@ class TestTestCases(ProjectAiDrivenCommon):
         for filter_name, case in (("not_run", not_run_case), ("failed", failed_case)):
             domain = literal_eval(search_arch.xpath("//filter[@name='%s']" % filter_name)[0].get("domain"))
             self.assertEqual(self.Testcase.search(domain + [("task_id", "=", self.task.id)]), case, filter_name)
+
+
+@tagged("post_install", "-at_install")
+class TestTestCaseAccess(ProjectAiDrivenCommon):
+    """A global rule hides one task from everyone, whichever modules' task rules are installed."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.env["ir.rule"].create(
+            {
+                "name": "Hide the hidden task",
+                "model_id": cls.env["ir.model"]._get_id("project.task"),
+                "domain_force": "[('name', '!=', 'Hidden Task')]",
+            },
+        )
+        cls.hidden_task = cls.env["project.task"].create({"name": "Hidden Task", "project_id": cls.project.id})
+        cls.both_tasks = cls.task | cls.hidden_task
+        cls.Testcase = cls.env["project.task.testcase"]
+        cls.hidden_case = cls.Testcase.create({"name": "Hidden case", "task_id": cls.hidden_task.id})
+        cls.visible_case = cls.Testcase.create({"name": "Visible case", "task_id": cls.task.id})
+        cls.as_developer = cls.Testcase.with_user(cls.user_dev)
+
+    def test_cases_of_a_task_the_user_cannot_read_are_not_found_or_read(self):
+        with self.assertRaises(AccessError):
+            self.hidden_task.with_user(self.user_dev).read(["name"])
+        domain = [("task_id", "in", self.both_tasks.ids)]
+        self.assertEqual(self.as_developer.search(domain), self.visible_case)
+        self.assertEqual(self.as_developer.search_count(domain), 1)
+        groups = self.as_developer.read_group(domain, ["task_id"], ["task_id"])
+        self.assertEqual([(group["task_id"][0], group["task_id_count"]) for group in groups], [(self.task.id, 1)])
+        self.assertEqual([name for _case_id, name in self.as_developer.name_search("case", domain)], ["Visible case"])
+        with self.assertRaises(AccessError):
+            self.hidden_case.with_user(self.user_dev).read(["name"])
+
+    def test_a_task_the_user_reads_gives_its_cases_on_a_lazy_read(self):
+        self.env.invalidate_all()
+        self.assertEqual(self.task.with_user(self.user_dev).testcase_ids, self.visible_case)
+
+    def test_cases_of_a_task_in_a_company_the_user_has_not_selected_are_not_found_or_read(self):
+        home_company, other_company = self.env["res.company"].create(
+            [{"name": "Test Case Home Company"}, {"name": "Test Case Other Company"}],
+        )
+        self.user_dev.write(
+            {
+                "company_ids": [Command.link(home_company.id), Command.link(other_company.id)],
+                "company_id": home_company.id,
+            },
+        )
+        other_project = self.env["project.project"].create({"name": "Other Project", "company_id": other_company.id})
+        other_task = self.env["project.task"].create({"name": "Other Task", "project_id": other_project.id})
+        other_case = self.Testcase.create({"name": "Other case", "task_id": other_task.id})
+        domain = [("task_id", "=", other_task.id)]
+        home_only = self.as_developer.with_context(allowed_company_ids=home_company.ids)
+        self.assertFalse(home_only.search(domain))
+        with self.assertRaises(AccessError):
+            home_only.browse(other_case.id).read(["name"])
+        with self.assertRaises(AccessError):
+            home_only.browse(other_case.id).write({"state": "waiting"})
+        both_companies = self.as_developer.with_context(allowed_company_ids=(home_company | other_company).ids)
+        self.assertEqual(both_companies.search(domain), other_case)
+        both_companies.browse(other_case.id).write({"state": "waiting"})
+        self.assertEqual(both_companies.browse(other_case.id).read(["state"])[0]["state"], "waiting")
+
+    def test_a_case_of_a_task_the_user_cannot_read_is_not_written_or_deleted(self):
+        hidden_case = self.hidden_case.with_user(self.user_dev)
+        with self.assertRaises(AccessError):
+            hidden_case.write({"state": "passed"})
+        with self.assertRaises(AccessError):
+            hidden_case.unlink()
+
+    def test_cases_cannot_be_added_to_a_task_the_user_cannot_read(self):
+        with self.assertRaises(AccessError):
+            self.as_developer.create({"name": "Sneaked case", "task_id": self.hidden_task.id})
+
+    def test_a_case_moves_only_onto_a_task_the_user_reads(self):
+        case = self.visible_case.with_user(self.user_dev)
+        with self.assertRaises(AccessError):
+            case.write({"task_id": self.hidden_task.id})
+        other_task = self.env["project.task"].create({"name": "Other Task", "project_id": self.project.id})
+        case.write({"task_id": other_task.id})
+        self.assertEqual(self.as_developer.search([("task_id", "=", other_task.id)]), case)
+
+    def test_a_case_refused_a_task_moves_no_image_onto_it(self):
+        vals = {"name": "Pasted steps", "steps_to_execute": image_html(image_tag(data_uri(RED)))}
+        with patch.object(ImageMover, "move", autospec=True, side_effect=ImageMover.move) as move:
+            with self.assertRaises(AccessError):
+                self.as_developer.create({**vals, "task_id": self.hidden_task.id})
+            self.assertFalse(move.called, "the create is refused before the images are moved")
+            self.as_developer.create({**vals, "task_id": self.task.id})
+        self.assertTrue(move.called, "on a task the user reads the image moves")
+
+    def test_a_case_refused_the_task_it_is_moved_onto_copies_no_image_onto_it(self):
+        steps = image_html(image_tag(data_uri(RED)))
+        case = self.Testcase.create({"name": "Pasted steps", "task_id": self.task.id, "steps_to_execute": steps})
+        case = case.with_user(self.user_dev)
+        other_task = self.env["project.task"].create({"name": "Other Task", "project_id": self.project.id})
+        with patch.object(ImageMover, "move", autospec=True, side_effect=ImageMover.move) as move:
+            with self.assertRaises(AccessError):
+                case.write({"task_id": self.hidden_task.id})
+            self.assertFalse(move.called, "the move is refused before the images are copied")
+            case.write({"task_id": other_task.id})
+        image_copy = self.env["ir.attachment"].search(
+            [("res_model", "=", "project.task"), ("res_id", "=", other_task.id)]
+        )
+        self.assertEqual(image_copy.datas, RED.encode())
+        self.assertEqual(case.steps_to_execute, image_html(image_tag(get_image_source(image_copy))))
+
+    def test_a_reader_of_the_task_archived_or_not_keeps_every_operation_on_its_cases(self):
+        for is_active in (True, False):
+            self.task.active = is_active
+            with self.subTest(active=is_active):
+                case = self.as_developer.create({"name": "Own case", "task_id": self.task.id})
+                self.assertEqual(self.as_developer.search([("task_id", "=", self.task.id)]), self.visible_case | case)
+                self.assertEqual(case.read(["name"]), [{"id": case.id, "name": "Own case"}])
+                case.write({"state": "passed"})
+                self.assertEqual(case.state, "passed")
+                case.unlink()
+                self.assertFalse(case.exists())
 
 
 @tagged("post_install", "-at_install")

@@ -78,16 +78,15 @@ class SupportRequestController(http.Controller):
     @http.route("/project_support_request/config", type="json", auth="user", methods=["POST"])
     def get_config(self, **kwargs):
         """The support project, the user and the task types the widget builds its domains and
-        its type picker from.
+        its type picker from, labelled in the user's language.
         """
         project_id = self._get_support_project_id()
         task_type_field = request.env["project.task"]._fields.get("task_type")
         task_types = []
-        if task_type_field and task_type_field.selection:
-            selection = task_type_field.selection
-            if callable(selection):
-                selection = selection(request.env["project.task"])
-            task_types = [{"value": val, "label": label} for val, label in selection]
+        if task_type_field:
+            task_types = [
+                {"value": value, "label": label} for value, label in task_type_field._description_selection(request.env)
+            ]
         return {
             "project_id": project_id or False,
             "uid": request.env.uid,
@@ -110,11 +109,7 @@ class SupportRequestController(http.Controller):
         if not name:
             return {"error": "Ticket title is required."}
 
-        selection = request.env["project.task"]._fields["task_type"].selection
-        if callable(selection):
-            selection = selection(request.env["project.task"])
-        valid_types = [value for value, _label in selection]
-        if task_type not in valid_types:
+        if task_type not in request.env["project.task"]._fields["task_type"].get_values(request.env):
             return {"error": f"Invalid task type: {task_type}"}
 
         first_stage = (

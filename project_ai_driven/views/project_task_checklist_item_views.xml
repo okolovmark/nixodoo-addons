@@ -78,7 +78,8 @@
                 <field name="completion_xml" invisible="1" />
             </xpath>
             <xpath expr="//div[hasclass('o_kanban_record_bottom')]" position="before">
-                <div>
+                <!-- the group of the fields: an arch without them cannot render this -->
+                <div groups="project.group_project_user">
                     <t t-raw="record.completion_xml.raw_value" />
                     <t t-raw="record.kanban_checklist.raw_value" />
                 </div>
