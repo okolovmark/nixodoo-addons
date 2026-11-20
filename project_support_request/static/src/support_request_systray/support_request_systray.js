@@ -6,9 +6,6 @@ import { priorityDot, ticketAge } from "./support_request_utils";
 
 const { Component, useState, onWillStart, onWillUnmount, onMounted } = owl;
 
-const NO_SUPPORT_PROJECT_MESSAGE =
-    "No active project develops this Odoo: a Settings administrator ticks Develops This Odoo on the AI-driven project that develops it, or restores the archived one that carries it.";
-
 export class SupportRequestSystray extends Component {
     setup() {
         this.rpc = useService("rpc");
@@ -203,7 +200,7 @@ export class SupportRequestSystray extends Component {
             ev.stopPropagation();
         }
         if (!this.state.createName.trim()) {
-            this.notification.add("Please enter a ticket title.", { type: "warning" });
+            this.notification.add(this.env._t("Please enter a ticket title."), { type: "warning" });
             return;
         }
         this.state.creating = true;
@@ -221,7 +218,7 @@ export class SupportRequestSystray extends Component {
             this.state.isOpen = false;
             this._openRequest(result.ticket_id);
         } catch {
-            this.notification.add("Error creating ticket", { type: "danger" });
+            this.notification.add(this.env._t("Error creating ticket"), { type: "danger" });
         }
         this.state.creating = false;
     }
@@ -241,7 +238,7 @@ export class SupportRequestSystray extends Component {
             this.state.total = result.total || 0;
             this.state.showAll = true;
         } catch {
-            this.notification.add("Error loading tickets", { type: "danger" });
+            this.notification.add(this.env._t("Error loading tickets"), { type: "danger" });
         }
         this.state.loading = false;
     }
@@ -255,12 +252,17 @@ export class SupportRequestSystray extends Component {
         try {
             const configResult = await this.rpc("/project_support_request/config", {});
             if (!configResult.project_id) {
-                this.notification.add(NO_SUPPORT_PROJECT_MESSAGE, { type: "warning" });
+                this.notification.add(
+                    this.env._t(
+                        "No active project develops this Odoo: a Settings administrator ticks Develops This Odoo on the AI-driven project that develops it, or restores the archived one that carries it."
+                    ),
+                    { type: "warning" }
+                );
                 return;
             }
             this.actionService.doAction({
                 type: "ir.actions.act_window",
-                name: "Closed Tickets",
+                name: this.env._t("Closed Tickets"),
                 res_model: "project.task",
                 views: [
                     [false, "list"],
@@ -274,7 +276,7 @@ export class SupportRequestSystray extends Component {
                 target: "current",
             });
         } catch {
-            this.notification.add("Error opening closed tickets", { type: "danger" });
+            this.notification.add(this.env._t("Error opening closed tickets"), { type: "danger" });
         }
     }
 }

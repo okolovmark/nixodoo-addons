@@ -32,3 +32,8 @@ Odoo, as tasks of the project flagged **Develops This Odoo**
 
 The task key (``key``) is shown before the title where a module of the
 database declares it, such as OCA ``project_key``.
+
+The task types of *New Ticket* are labelled in the user's language, and the
+item's messages are translatable. Neither this module nor
+``project_ai_driven`` ships a translation: both read in English until one
+is loaded.
