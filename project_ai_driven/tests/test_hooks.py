@@ -33,10 +33,8 @@ from ..hooks import (
     forget_checklist_activities,
     forget_dropped_fields,
     forget_dropped_test_case_buttons,
-    is_installed,
     rename_checklist,
     rename_external_ids,
-    take_over_module,
 )
 from odoo.addons.base.models.ir_model import selection_xmlid
 
@@ -178,7 +176,6 @@ ACTIVITY_STATES = ("overdue", "today", "planned")
 DELEGATING_MODULE = "delegating_module"
 DELEGATING_MODEL = "res.partner"
 REPLACED_MODULE = "replaced_module"
-REPLACING_MODULE = "replacing_module"
 BYSTANDER_MODULE = "bystander_" + REPLACED_MODULE
 DATABASE_STATE_QUERIES = {
     "external ids": "SELECT id, module, name, model, res_id FROM ir_model_data ORDER BY id",
@@ -1229,20 +1226,14 @@ class TestForgetChecklistActivities(PreMigrationCase):
 
 
 @tagged("post_install", "-at_install")
-class TestTakeOverModule(TransactionCase):
-    """take_over_module, rename_external_ids and is_installed between two
-    modules that are not this one, next to a third whose name ends with the
-    replaced module's.
+class TestRenameExternalIds(TransactionCase):
+    """rename_external_ids on a module that is not this one, next to a second
+    one that holds an external id of the same name.
     """
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        modules = cls.env["ir.module.module"].create(
-            [{"name": REPLACED_MODULE}, {"name": REPLACING_MODULE}, {"name": BYSTANDER_MODULE}],
-        )
-        cls.replaced_module, cls.replacing_module, cls.bystander_module = modules
-        cls.task_model_id = cls.env["ir.model"]._get_id("project.task")
         cls.view = cls._create_view(REPLACED_MODULE)
         cls.bystander_view = cls._create_view(BYSTANDER_MODULE)
         cls.menu = cls.env["ir.ui.menu"].create({"name": "Replaced Menu"})
@@ -1266,142 +1257,25 @@ class TestTakeOverModule(TransactionCase):
                 "res_id": cls.bystander_view.id,
             },
         )
-        cls.constraint = cls._create_constraint(cls.replaced_module)
-        cls.bystander_constraint = cls._create_constraint(cls.bystander_module)
-        cls.relation = cls._create_relation(cls.replaced_module)
         cls.env.flush_all()
 
     @classmethod
     def _create_view(cls, module_name):
-        view = cls.env["ir.ui.view"].create(
+        return cls.env["ir.ui.view"].create(
             {"name": "%s.view" % module_name, "model": "project.task", "arch": "<tree><field name='name'/></tree>"},
         )
-        view.arch_fs = "%s/views/project_task_views.xml" % module_name
-        return view
 
-    @classmethod
-    def _create_constraint(cls, module):
-        return cls.env["ir.model.constraint"].create(
-            {"name": "replaced_constraint", "model": cls.task_model_id, "module": module.id, "type": "u"},
-        )
-
-    @classmethod
-    def _create_relation(cls, module):
-        return cls.env["ir.model.relation"].create(
-            {"name": "replaced_rel", "model": cls.task_model_id, "module": module.id},
-        )
-
-    def _rows(self, table, record_ids):
-        columns = "id, module, name, model, res_id, noupdate" if table == "ir_model_data" else "id, module, name"
+    def _rows(self, record_ids):
         self.env.cr.execute(
-            sql.SQL("SELECT {} FROM {} WHERE id IN %s ORDER BY id").format(sql.SQL(columns), sql.Identifier(table)),
-            (tuple(record_ids),),
+            "SELECT id, module, name FROM ir_model_data WHERE id IN %s ORDER BY id", (tuple(record_ids),)
         )
         return self.env.cr.fetchall()
-
-    def test_everything_changes_module_under_its_database_id(self):
-        take_over_module(self.env.cr, REPLACED_MODULE, REPLACING_MODULE)
-
-        self.assertEqual(
-            self._rows("ir_model_data", self.external_ids.ids),
-            [
-                (self.external_ids[0].id, REPLACING_MODULE, "replaced_view", "ir.ui.view", self.view.id, False),
-                (self.external_ids[1].id, REPLACING_MODULE, "replaced_menu", "ir.ui.menu", self.menu.id, True),
-            ],
-        )
-        self.assertEqual(
-            self._rows("ir_model_constraint", self.constraint.ids),
-            [(self.constraint.id, self.replacing_module.id, "replaced_constraint")],
-        )
-        self.assertEqual(
-            self._rows("ir_model_relation", self.relation.ids),
-            [(self.relation.id, self.replacing_module.id, "replaced_rel")],
-        )
-        self.env.invalidate_all()
-        self.assertEqual(self.view.arch_fs, "%s/views/project_task_views.xml" % REPLACING_MODULE)
-
-    def test_a_module_whose_name_ends_the_same_keeps_what_it_owns(self):
-        take_over_module(self.env.cr, REPLACED_MODULE, REPLACING_MODULE)
-
-        self.assertEqual(
-            self._rows("ir_model_data", self.bystander_external_id.ids),
-            [
-                (
-                    self.bystander_external_id.id,
-                    BYSTANDER_MODULE,
-                    "replaced_view",
-                    "ir.ui.view",
-                    self.bystander_view.id,
-                    False,
-                ),
-            ],
-        )
-        self.assertEqual(
-            self._rows("ir_model_constraint", self.bystander_constraint.ids),
-            [(self.bystander_constraint.id, self.bystander_module.id, "replaced_constraint")],
-        )
-        self.env.invalidate_all()
-        self.assertEqual(self.bystander_view.arch_fs, "%s/views/project_task_views.xml" % BYSTANDER_MODULE)
-
-    def test_a_row_the_replacing_module_already_holds_is_dropped(self):
-        held_external_id = self.env["ir.model.data"].create(
-            {"module": REPLACING_MODULE, "name": "replaced_view", "model": "ir.ui.view", "res_id": self.view.id},
-        )
-        held_constraint = self._create_constraint(self.replacing_module)
-        held_relation = self._create_relation(self.replacing_module)
-        self.env.flush_all()
-
-        take_over_module(self.env.cr, REPLACED_MODULE, REPLACING_MODULE)
-
-        self.assertEqual(
-            [row[:3] for row in self._rows("ir_model_data", (self.external_ids | held_external_id).ids)],
-            [
-                (self.external_ids[1].id, REPLACING_MODULE, "replaced_menu"),
-                (held_external_id.id, REPLACING_MODULE, "replaced_view"),
-            ],
-        )
-        self.assertEqual(
-            self._rows("ir_model_constraint", (self.constraint | held_constraint).ids),
-            [(held_constraint.id, self.replacing_module.id, "replaced_constraint")],
-        )
-        self.assertEqual(
-            self._rows("ir_model_relation", (self.relation | held_relation).ids),
-            [(held_relation.id, self.replacing_module.id, "replaced_rel")],
-        )
-        self.env.invalidate_all()
-        self.assertTrue(self.view.exists(), "the record a dropped external id stood for stays")
-
-    def test_second_take_over_changes_nothing(self):
-        take_over_module(self.env.cr, REPLACED_MODULE, REPLACING_MODULE)
-        record_ids = {
-            "ir_model_data": (self.external_ids | self.bystander_external_id).ids,
-            "ir_model_constraint": (self.constraint | self.bystander_constraint).ids,
-            "ir_model_relation": self.relation.ids,
-        }
-        rows_after_first_run = {table: self._rows(table, ids) for table, ids in record_ids.items()}
-
-        take_over_module(self.env.cr, REPLACED_MODULE, REPLACING_MODULE)
-
-        for table, ids in record_ids.items():
-            self.assertEqual(self._rows(table, ids), rows_after_first_run[table], table)
-
-    def test_ownership_is_kept_when_the_replacing_module_is_not_listed(self):
-        take_over_module(self.env.cr, REPLACED_MODULE, "module_not_in_the_list")
-
-        self.assertEqual(
-            self._rows("ir_model_constraint", self.constraint.ids),
-            [(self.constraint.id, self.replaced_module.id, "replaced_constraint")],
-        )
-        self.assertEqual(
-            self._rows("ir_model_relation", self.relation.ids),
-            [(self.relation.id, self.replaced_module.id, "replaced_rel")],
-        )
 
     def test_renames_the_external_ids_of_one_module(self):
         rename_external_ids(self.env.cr, REPLACED_MODULE, {"replaced_view": "renamed_view", "unknown": "renamed"})
 
         self.assertEqual(
-            [row[:3] for row in self._rows("ir_model_data", (self.external_ids | self.bystander_external_id).ids)],
+            self._rows((self.external_ids | self.bystander_external_id).ids),
             [
                 (self.external_ids[0].id, REPLACED_MODULE, "renamed_view"),
                 (self.external_ids[1].id, REPLACED_MODULE, "replaced_menu"),
@@ -1413,23 +1287,9 @@ class TestTakeOverModule(TransactionCase):
         rename_external_ids(self.env.cr, REPLACED_MODULE, {"replaced_view": "replaced_menu"})
 
         self.assertEqual(
-            [row[:3] for row in self._rows("ir_model_data", self.external_ids.ids)],
+            self._rows(self.external_ids.ids),
             [
                 (self.external_ids[0].id, REPLACED_MODULE, "replaced_view"),
                 (self.external_ids[1].id, REPLACED_MODULE, "replaced_menu"),
             ],
         )
-
-    def test_a_module_is_installed_when_installed_or_marked_for_upgrade(self):
-        installed_by_state = {}
-        for state in ("installed", "to upgrade", "to install", "to remove", "uninstalled"):
-            self.env.cr.execute(
-                "UPDATE ir_module_module SET state = %s WHERE id = %s", (state, self.replaced_module.id)
-            )
-            installed_by_state[state] = is_installed(self.env.cr, REPLACED_MODULE)
-
-        self.assertEqual(
-            installed_by_state,
-            {"installed": True, "to upgrade": True, "to install": False, "to remove": False, "uninstalled": False},
-        )
-        self.assertFalse(is_installed(self.env.cr, "module_not_in_the_list"))

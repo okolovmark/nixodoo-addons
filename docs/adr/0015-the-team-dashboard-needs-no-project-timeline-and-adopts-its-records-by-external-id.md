@@ -39,3 +39,5 @@ Rejected: find the holder by the record names alone. A name such as `action_team
 Reversal cost: depend on `project_timeline` again and drop the declarations and the glue module; the adoption hook does nothing once the records are held.
 
 **2026-11-20:** `project_ai_driven` no longer takes over its own former module (16.0.2.18.0); `take_over_module` stays a helper other modules call.
+
+**2026-11-20:** `take_over_module` is gone from `project_ai_driven` (16.0.2.19.0); this module never called it.

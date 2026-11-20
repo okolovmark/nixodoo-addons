@@ -288,18 +288,13 @@ records; it can run with the server up. From it the install no longer takes
 over ``project_software``, the former name of this module, nor the module it
 was cut from.
 
-**Taking over a renamed module**
-
-A module that replaces another under a new name can call three functions of
-``odoo.addons.project_ai_driven.hooks`` from its own ``pre_init_hook``:
-
-* ``is_installed(cr, module_name)``: whether a module is installed or marked
-  for upgrade.
-* ``take_over_module(cr, former, module)``: moves to ``module`` everything
-  ``former`` owns: external ids, constraints, many2many tables and the views
-  loaded from its files. The caller clears the registry caches.
-* ``rename_external_ids(cr, module, renamed_names)``: renames external ids
-  of ``module`` from a ``{former name: new name}`` dict.
+The update to 16.0.2.19.0 has no migration and writes nothing on existing
+records; it can run with the server up. From it
+``odoo.addons.project_ai_driven.hooks`` no longer has ``is_installed`` and
+``take_over_module``, which a module that replaced another under a new name
+called from its own ``pre_init_hook``. Odoo cannot load a module whose code
+still imports them, so the addons path gets a version of that module that
+no longer does before, or together with, this one.
 
 **Coming from project_task_pull_request**
 
