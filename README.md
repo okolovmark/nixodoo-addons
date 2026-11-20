@@ -41,19 +41,6 @@ nixodoo-addons:
 
 Then `nix run .#update-repos`, and install the module.
 
-### A database that has `project_software` installed
-
-`project_software` is the former name of `project_ai_driven`. Such a database is not updated in place. List
-`project_ai_driven` in `addons.yaml` in place of `project_software`, run `nix run .#update-repos`, install
-`project_ai_driven`, then uninstall `project_software`. The tasks keep their field values, checklists and test
-cases. The project flag does not come along: tick **AI-driven Project** again on each project. Between the two
-steps every page the module adds to the task form shows twice, and each start logs that `project_software` cannot
-be loaded.
-
-The record of the rename is
-[`docs/adr/0001-project-software-becomes-project-ai-driven-by-a-plain-rename.md`](docs/adr/0001-project-software-becomes-project-ai-driven-by-a-plain-rename.md);
-the steps are also in the *Installation* section of [`project_ai_driven/README.rst`](project_ai_driven/README.rst).
-
 ## Development
 
 - `ruff check` and `ruff format` (config in `ruff.toml`); `pre-commit install` runs both on commit.
