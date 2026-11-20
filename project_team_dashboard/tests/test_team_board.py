@@ -317,6 +317,52 @@ class TestTeamBoardAccess(TeamBoardCase):
         self.project_private.message_subscribe(partner_ids=self.user_member.partner_id.ids)
         self.assertIn(("project", self.project_private.id), self._found_subjects(self.user_member))
 
+    def test_a_card_names_the_project_of_a_task_whose_project_its_viewer_cannot_read(self):
+        self.assertFalse(self.project_private.with_user(self.user_dev1)._filter_access_rules("read"))
+        # end to end: the board and the screen show the project's name to the viewer
+        self.env.invalidate_all()
+        board = self._board(self.user_dev1, self.department_managed, "department")
+        card_dev1 = next(member for member in board.data["members"] if member["user_id"] == self.user_dev1.id)
+        self.assertIn("Private Project", card_dev1["project_names"])
+        tasks_dev1 = [card_dev1["current_task"], *card_dev1["queue"]]
+        self.assertIn("Private Project", [task["project_name"] for task in tasks_dev1])
+        # above, Odoo's check of the task rules fetched the project as superuser first: a card
+        # built from a task alone shows whether the viewer reads the project's name
+        task_private = self.env["project.task"].search([("project_id", "=", self.project_private.id)])
+        self.env.invalidate_all()
+        card_task = (
+            self.env["project.project"]
+            .with_user(self.user_dev1)
+            ._task_to_dict(task_private.with_user(self.user_dev1), date(2026, 6, 1))
+        )
+        self.assertEqual(card_task["project_name"], "Private Project")
+
+    def test_a_card_keys_the_parent_of_a_sub_task_its_viewer_cannot_read(self):
+        parent_task = self.env["project.task"].create(
+            {
+                "name": "Private parent",
+                "project_id": self.project_private.id,
+                "user_ids": [Command.set(self.user_dev1.ids)],
+            }
+        )
+        parent_task.key = "PRIV-1"
+        self.env["project.task"].create(
+            {
+                "name": "Private sub-task of Member",
+                "project_id": self.project_private.id,
+                "parent_id": parent_task.id,
+                "stage_id": self.stage_in_progress.id,
+                "user_ids": [Command.set(self.user_member.ids)],
+            }
+        )
+        self.assertFalse(parent_task.with_user(self.user_member)._filter_access_rules("read"))
+        self.env.invalidate_all()
+        screen_data = self._screen_data(self.user_member, "department", self.department_own.id, None, None)
+        card_member = next(member for member in screen_data["members"] if member["user_id"] == self.user_member.id)
+        self.assertEqual(card_member["current_task"]["parent_key"], "PRIV-1")
+        rows = self.env["project.team.board"].with_user(self.user_member).search_read(self.fixture_domain, ["data"])
+        self.assertEqual(len(rows), len(PERIODS) * len(self._found_subjects(self.user_member)))
+
     def test_a_row_is_found_exactly_when_the_screen_opens_it(self):
         users = (
             self.user_member

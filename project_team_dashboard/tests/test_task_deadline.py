@@ -238,6 +238,33 @@ class TestTaskDeadline(TeamDashboardCommon):
         self.assertFalse(undated.date_deadline)
         self.assertEqual(dated.date_deadline, date(2026, 4, 1))
 
+    def test_the_next_occurrence_of_a_recurring_task_starts_unplanned(self):
+        """Odoo 16 gives the next occurrence neither the Deadline nor the planned dates of the task
+        it repeats: no stale plan to move; in an AI-driven project its Deadline follows its first plan."""
+        weekly = {"recurring_task": True, "repeat_unit": "week", "repeat_type": "forever", "mon": True}
+        for project in self.project | self.project_plain:
+            project.allow_recurring_tasks = True
+            for planned_dates in (
+                {"planned_date_start": GANTT_START, "planned_date_end": MIDDAY_UTC},
+                {"planned_date_end": MIDDAY_UTC},
+            ):
+                with self.subTest(project=project.name, planned_dates=list(planned_dates)):
+                    task = self._create_task(
+                        "Weekly", project=project, date_deadline=date(2026, 3, 6), **planned_dates, **weekly
+                    )
+
+                    task.recurrence_id._create_next_task()
+
+                    occurrence = task.recurrence_id.task_ids - task
+                    occurrence_plan = (occurrence.planned_date_start, occurrence.planned_date_end)
+                    self.assertEqual(occurrence_plan, (False, False))
+                    self.assertFalse(occurrence.date_deadline)
+
+                    occurrence.planned_date_end = datetime(2026, 3, 9, 12)
+
+                    expected_deadline = date(2026, 3, 9) if project.is_ai_driven else False
+                    self.assertEqual(occurrence.date_deadline, expected_deadline)
+
     def test_a_rolled_up_parent_follows_its_planned_end_at_every_level(self):
         grandparent = self._create_task("Grandparent", date_deadline=date(2026, 6, 30))
         parent = self._create_task("Parent", parent_id=grandparent.id, date_deadline=date(2026, 6, 30))

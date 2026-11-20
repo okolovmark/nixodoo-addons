@@ -324,7 +324,7 @@ class ProjectProject(models.Model):
             return result
 
         is_multi = len(pids) > 1
-        project_name_map = {p.id: ((p.key + " - " + p.name) if p.key else p.name) for p in projects}
+        project_name_map = {project.id: self._get_project_label(project) for project in projects}
 
         Task = self.env["project.task"]
         today = fields.Date.today()
@@ -1030,10 +1030,7 @@ class ProjectProject(models.Model):
             total_remaining = max(sum(user_tasks.mapped("remaining_hours")), 0)
             estimated_completion = self._compute_user_eta(user, total_remaining, today)
 
-            # Collect project names for this user's tasks
-            user_project_names = sorted(
-                set(user_tasks.mapped("project_id").mapped(lambda p: (p.key + " - " + p.name) if p.key else p.name))
-            )
+            user_project_names = sorted(set(user_tasks.project_id.mapped(self._get_project_label)))
 
             members_data.append(
                 {
@@ -1065,11 +1062,15 @@ class ProjectProject(models.Model):
             result.update(extra)
         return result
 
+    @api.model
+    def _get_project_label(self, project):
+        # sudo: who reads a task reads the name of its project, as core reads a many-to-one
+        project = project.sudo()
+        return "%s - %s" % (project.key, project.name) if project.key else project.name
+
     def _task_to_dict(self, task, today):
         """Convert a task record to a dictionary for the dashboard."""
-        parent_key = (task.parent_id.key or "") if task.parent_id else ""
         project = task.project_id
-        project_label = (project.key + " - " + project.name) if project.key else project.name
         return {
             "id": task.id,
             "name": task.name,
@@ -1087,7 +1088,8 @@ class ProjectProject(models.Model):
             "priority": task.priority,
             "sequence": task.sequence,
             "is_subtask": bool(task.parent_id),
-            "parent_key": parent_key,
+            # sudo: who reads a sub-task reads the key of its parent, as core reads a many-to-one
+            "parent_key": task.parent_id.sudo().key or "",
             "project_id": project.id,
-            "project_name": project_label,
+            "project_name": self._get_project_label(project),
         }

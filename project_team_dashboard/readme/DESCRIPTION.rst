@@ -24,11 +24,13 @@ form and list).
 
 A task with active sub-tasks takes its planned start and end from them: the
 earliest and the latest planned date of those sub-tasks, or no dates while
-none of them is dated. Archived sub-tasks are ignored, the deadline is
-never touched, and the roll-up climbs every level (Milestone > Task >
-Sub-task). Such a task is flagged ``is_planned_from_subtasks``: its planned
-dates are read-only on the task form and list, and a write that changes
-them is refused with a message to change the sub-tasks instead.
+none of them is dated. Archived sub-tasks are ignored, and the roll-up
+climbs every level (Milestone > Task > Sub-task). In an AI-driven project
+the Deadline follows a rolled-up planned end as it follows one entered by
+hand (see Usage); elsewhere the roll-up leaves the Deadline alone. Such a
+task is flagged ``is_planned_from_subtasks``: its planned dates are
+read-only on the task form and list, and a write that changes them is
+refused with a message to change the sub-tasks instead.
 
 **Backlog**
 
