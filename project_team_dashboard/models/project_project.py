@@ -1,5 +1,6 @@
 import base64
 import io
+import re
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -8,7 +9,7 @@ import xlsxwriter
 from odoo import Command, api, fields, models
 from odoo.exceptions import AccessError, ValidationError
 from odoo.fields import Domain
-from odoo.tools import get_lang
+from odoo.tools import format_date, get_lang
 
 # Their holders read every timesheet or every employee anyway: they may open any manager or department.
 EVERY_TEAM_GROUPS = ("hr_timesheet.group_hr_timesheet_approver", "hr.group_hr_user")
@@ -90,6 +91,11 @@ class ProjectProject(models.Model):
         date_start and date_end ("YYYY-MM-DD") bound the period whose logged hours a card shows;
         the current week, from the first day of the week of the user's language, by default.
         """
+        # archived projects, tasks, users and employees stay out whatever the caller sends
+        return self.with_context(active_test=True)._get_team_dashboard_data(project_id, date_start, date_end)
+
+    @api.model
+    def _get_team_dashboard_data(self, project_id, date_start, date_end):
         self.check_access("read")
         project = self.search([("id", "=", project_id)], limit=1)
         if not project:
@@ -246,7 +252,6 @@ class ProjectProject(models.Model):
         writable_ids = set()
         if Task.has_access("write"):
             writable_ids = set((all_tasks | unscheduled_tasks)._filtered_access("write").ids)
-        readable_parent_ids = set((all_tasks | unscheduled_tasks).parent_id._filtered_access("read").ids)
 
         lags_by_task = {}
         lags = (
@@ -326,9 +331,7 @@ class ProjectProject(models.Model):
                 ],
                 "task_type": task.task_type or "",
             }
-            task_dict.update(
-                task._gantt_task_attributes(writable_ids, lags_by_task.get(task.id, {}), readable_parent_ids)
-            )
+            task_dict.update(task._gantt_task_attributes(writable_ids, lags_by_task.get(task.id, {})))
             baseline_line = baseline_by_task.get(task.id, self.env["project.baseline.line"])
             baseline_end = Task._gantt_local_date(baseline_line.planned_date_end)
             plan_start = has_planned_dates and Task._gantt_local_date(task.planned_date_start)
@@ -360,7 +363,7 @@ class ProjectProject(models.Model):
                 "planned_hours": task.allocated_hours,
                 "task_type": task.task_type or "",
             }
-            task_dict.update(task._gantt_task_attributes(writable_ids, {}, readable_parent_ids))
+            task_dict.update(task._gantt_task_attributes(writable_ids, {}))
             if is_multi:
                 task_dict["project_name"] = project_name_map.get(task.project_id.id, "")
             unscheduled_data.append(task_dict)
@@ -399,7 +402,7 @@ class ProjectProject(models.Model):
 
         output = io.BytesIO()
         workbook = xlsxwriter.Workbook(output, {"in_memory": True})
-        worksheet = workbook.add_worksheet(self.env._("Gantt Chart"))
+        worksheet = workbook.add_worksheet(self._get_gantt_sheet_title())
 
         header_fmt = workbook.add_format(
             {
@@ -467,7 +470,10 @@ class ProjectProject(models.Model):
             day = min_date + timedelta(days=day_index)
             worksheet.set_column(fixed_count + day_index, fixed_count + day_index, 3)
             worksheet.write(
-                0, fixed_count + day_index, day.strftime("%d %b"), today_header_fmt if day == today else date_header_fmt
+                0,
+                fixed_count + day_index,
+                format_date(self.env, day, date_format="dd MMM"),
+                today_header_fmt if day == today else date_header_fmt,
             )
 
         for row_index, task in enumerate(tasks_with_dates, start=1):
@@ -538,6 +544,13 @@ class ProjectProject(models.Model):
         return {"data": data, "filename": filename}
 
     @api.model
+    def _get_gantt_sheet_title(self):
+        """The translated title as Excel takes it: Odoo's patched add_worksheet drops the characters
+        Excel refuses and cuts it to 31, but leaves the apostrophes Excel refuses at either end."""
+        sheet_title = re.sub(r"[\[\]:*?/\\]", "", self.env._("Gantt Chart"))[:31].strip("'")
+        return sheet_title or "Gantt Chart"
+
+    @api.model
     def _get_gantt_bar_ends(self, task_data):
         """Return the start and end, naive in the user's timezone, of the bar of task_data, a task
         of the Gantt payload: the moments the chart draws it from and to."""
@@ -554,10 +567,12 @@ class ProjectProject(models.Model):
 
         Raises AccessError unless _check_manager_mode_access lets the user see that manager's team.
         """
-        self.check_access("read")
-        manager_user = self.env["res.users"].browse(user_id or self.env.uid)
-        return self._get_manager_dashboard(
-            manager_user, self._get_openable_manager_users(), date_start, date_end, max_depth
+        # the board's active_test, whatever the caller sends: without it, an archived employee opens a team
+        Project = self.with_context(active_test=True)
+        Project.check_access("read")
+        manager_user = Project.env["res.users"].browse(user_id or Project.env.uid)
+        return Project._get_manager_dashboard(
+            manager_user, Project._get_openable_manager_users(), date_start, date_end, max_depth
         )
 
     @api.model
@@ -567,10 +582,12 @@ class ProjectProject(models.Model):
 
         Raises AccessError unless _check_department_mode_access lets the user see that department.
         """
-        self.check_access("read")
+        # the board's active_test, as get_team_dashboard_by_manager pins it
+        Project = self.with_context(active_test=True)
+        Project.check_access("read")
         # sudo: a project user may not read hr.department and hr.employee
-        department = self.env["hr.department"].sudo().browse(department_id).exists()
-        return self._get_department_dashboard(department, self._get_openable_departments(), date_start, date_end)
+        department = Project.env["hr.department"].sudo().browse(department_id).exists()
+        return Project._get_department_dashboard(department, Project._get_openable_departments(), date_start, date_end)
 
     @api.model
     def _get_manager_dashboard(self, manager_user, openable_users, date_start=None, date_end=None, max_depth=0):
@@ -685,8 +702,8 @@ class ProjectProject(models.Model):
     def _get_openable_manager_employee_domain(self):
         """The public employees, in a company of the context, of the users whose team the user opens
         besides their own: those below one of their employees, or any for _sees_every_team. Under
-        active_test, the screen's default, which the board pins, these and the user's own employees
-        are the active ones.
+        active_test, which the screen and the board pin, these and the user's own employees are the
+        active ones.
 
         Odoo lets an employee manage their own manager, or themselves: the walk visits each
         employee once. Odoo 20 gives public employees no company rule: the company is a condition here.

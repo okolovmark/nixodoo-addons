@@ -898,10 +898,10 @@ export class GanttView extends Component {
         const lockWidth = Math.min(this.sidebar.width, maxWidth);
         sidebar.style.width = `${lockWidth}px`;
         if (lockWidth !== this.sidebar.laidOutWidth) {
-            // vis placed the panels around the width before the cap: right to left, the names would
-            // end short of the chart's edge until the next pan
+            // vis placed the panels around the width before the cap (right to left, the names would end
+            // short of the chart's edge): its _change lays them out again, without redraw()'s render of every bar
             this.sidebar.laidOutWidth = lockWidth;
-            this.timeline.redraw();
+            this.timeline.body.emitter.emit("_change", { queue: true });
         }
         const isRtl = this.timeline.options.rtl;
         if (!isRtl) {

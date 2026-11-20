@@ -7,7 +7,7 @@ import {
     toLocaleDateTimeString,
 } from "@web/core/l10n/dates";
 
-const { DateTime } = luxon;
+const { DateTime, Info, Settings } = luxon;
 
 export const DAY_MS = 86400000;
 const SHIFT_BY_SCALE = { day: { days: 7 }, week: { months: 1 }, month: { months: 3 } };
@@ -85,19 +85,31 @@ export function ganttPanBounds(dataStart, dataEnd) {
 
 /**
  * The moment constructor vis-timeline lays its axis out with: its weeks start on weekStart and are
- * numbered as `getLocalYearAndWeek` numbers them, by the ISO week of the nearest Monday.
+ * numbered as `getLocalYearAndWeek` numbers them, by the ISO week of the nearest Monday, and it names
+ * the months and weekdays in locale, as luxon does: vis bundles the moment locales of a few languages only.
  *
  * @param {Function} moment the one vis-timeline bundles
  * @param {number} weekStart the first day of the week, `localization.weekStart`: 1 is Monday, 7 Sunday
+ * @param {string} [locale] the web client's luxon locale by default, the user's language
  */
-export function weekStartMoment(moment, weekStart) {
-    const localeName = `o_gantt_week_start_${weekStart}`;
+export function weekStartMoment(moment, weekStart, locale = Settings.defaultLocale) {
+    const localeName = `o_gantt_week_start_${weekStart}_${locale}`;
     if (!moment.locales().includes(localeName)) {
         const dow = weekStart % 7;
         const daysToMonday = weekStart > 1 && weekStart < 5 ? 1 - weekStart : (8 - weekStart) % 7;
         const globalLocale = moment.locale();
-        // doy is moment's 7 + dow - (the day of January that is always in week 1)
-        moment.defineLocale(localeName, { parentLocale: globalLocale, week: { dow, doy: 3 + dow + daysToMonday } });
+        // luxon lists the weekdays from Monday, moment from Sunday
+        const fromSunday = (weekdays) => [weekdays[6], ...weekdays.slice(0, 6)];
+        moment.defineLocale(localeName, {
+            parentLocale: globalLocale,
+            // doy is moment's 7 + dow - (the day of January that is always in week 1)
+            week: { dow, doy: 3 + dow + daysToMonday },
+            // moment takes the format names next to a day ("D MMMM"), the standalone ones elsewhere
+            months: { format: Info.monthsFormat("long", { locale }), standalone: Info.months("long", { locale }) },
+            monthsShort: { format: Info.monthsFormat("short", { locale }), standalone: Info.months("short", { locale }) },
+            weekdays: fromSunday(Info.weekdays("long", { locale })),
+            weekdaysShort: fromSunday(Info.weekdays("short", { locale })),
+        });
         // defining a locale makes it the global one too
         moment.locale(globalLocale);
     }

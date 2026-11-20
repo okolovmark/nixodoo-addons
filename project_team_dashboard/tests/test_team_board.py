@@ -703,6 +703,22 @@ class TestTeamBoardHierarchy(TeamBoardCase):
                     TopBoard = Board.with_user(self.user_top).with_context(active_test=active_test)
                     self.assertEqual(TopBoard.search_read(domain, ["data"]), [])
 
+    def test_an_archived_employee_of_the_user_opens_no_team_on_the_screen_whatever_the_active_test(self):
+        department = self.env["hr.department"].create({"name": "Department of Top"})
+        self.employee_top.write({"department_id": department.id, "active": False})
+        Project = self.env["project.project"].with_user(self.user_top)
+        screen_calls = {
+            "manager": lambda project: project.get_team_dashboard_by_manager(self.user_lower.id),
+            "department": lambda project: project.get_team_dashboard_by_department(department.id),
+        }
+        for mode, screen_call in screen_calls.items():
+            for active_test in (True, False):
+                with (
+                    self.subTest(mode=mode, active_test=active_test),
+                    self.assertRaisesRegex(AccessError, f"by {mode}"),
+                ):
+                    screen_call(Project.with_context(active_test=active_test))
+
 
 @tagged("post_install", "-at_install")
 class TestTeamBoardCompanies(TeamBoardCase):
