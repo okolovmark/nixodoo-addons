@@ -70,9 +70,10 @@ task, user or status. **Convert to Sub-task**, in the header of an item's
 form, converts it as the icon of its row does, then opens the sub-task in
 place of the breadcrumbs.
 
-**Project > Test Cases** lists the test cases of all tasks, opened on the
-ones Not run: a list, cards on a phone. Filter on Not run or Failed, group
-by project, task, status or verification. The header of a case's form
+**Project > Test Cases** lists the test cases of the tasks you can read in
+the selected companies, opened on the ones Not run: a list, cards on a
+phone. Filter on Not run or Failed, group by project, task, status or
+verification. The header of a case's form
 gives it its result with the same buttons, next to its status bar: Not run,
 Passed and Failed, and the status of the case when it is another.
 
@@ -168,10 +169,13 @@ error. It reads the sessions of a task from ``session_ids``.
 A tool that gives test case results over RPC writes ``state`` on
 ``project.task.testcase``, and reads the result from it: ``not_run``,
 ``passed``, ``failed``, ``waiting`` or ``not_applicable``. A create or write
-of ``passed`` or ``failed`` fills ``verified_by_id`` and ``verified_on``
+of ``passed`` or ``failed``, a create that takes one from ``default_state``
+in the context included, fills ``verified_by_id`` and ``verified_on``
 unless it sends them. It sends ``verification_kind`` (``manual``,
 ``automated`` or ``demo``) and ``test_reference`` with the result: only the
-buttons set ``manual`` by themselves.
+buttons set ``manual`` by themselves. ``not_run`` clears ``verified_by_id``,
+``verified_on`` and ``verification_kind``, also when the call sends them: a
+case prepared with its ``verification_kind`` is created without ``state``.
 
 A tool reads the notes of one category of a task with ``search_read`` on
 ``mail.message``, the domain ``[("task_id", "=", <task id>),

@@ -25,9 +25,13 @@
   estimate, so it is refused only where a task sits in such a stage without
   them.
 * Checklist items, question rows, session rows and test cases are managed
-  by **Project / User**, a checklist item, a question row and a session row
-  only by a user who can read its task. The Checklist, Test Cases, Technical
-  Solution and Sessions tabs are hidden from users without that group.
+  by **Project / User**, each only by a user who can read its task. The
+  Checklist, Test Cases, Technical Solution and Sessions tabs are hidden
+  from users without that group.
+* The completion and the card summaries a task takes from its checklist
+  items and test cases are read by **Project / User** only, as the lines
+  are: the task cards of a user without that group leave them out, and so
+  does a read of the task.
 * Pull requests are read by every internal user and created and edited by
   **Project / User**. No access right allows deleting one.
 * The Modules of a task, on the form and in the task search, are shown to

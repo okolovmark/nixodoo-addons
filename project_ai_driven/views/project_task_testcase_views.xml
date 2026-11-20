@@ -71,6 +71,7 @@
                                             <field
                                                 name="state"
                                                 widget="badge"
+                                                class="ms-2"
                                                 decoration-danger="state == 'failed'"
                                                 decoration-success="state == 'passed'"
                                                 decoration-info="state == 'waiting'"
@@ -173,7 +174,8 @@
                 <field name="testcase_completion_xml" invisible="1" />
             </xpath>
             <xpath expr="//div[hasclass('o_kanban_record_bottom')]" position="before">
-                <div>
+                <!-- the group of the fields: an arch without them cannot render this -->
+                <div groups="project.group_project_user">
                     <t t-raw="record.testcase_completion_xml.raw_value" />
                     <t t-raw="record.kanban_testcases.raw_value" />
                 </div>
@@ -319,6 +321,7 @@
                                 <field
                                     name="state"
                                     widget="badge"
+                                    class="ms-2"
                                     decoration-danger="state == 'failed'"
                                     decoration-success="state == 'passed'"
                                     decoration-info="state == 'waiting'"
