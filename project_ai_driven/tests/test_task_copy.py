@@ -35,7 +35,8 @@ LINE_FIELDS = {
         "answered_on",
     ],
 }
-# What a line of a copy from or into a template holds in place of the values of its source.
+# What a line of the next occurrence of a recurring task holds in place of the values of its source,
+# and of a copy from or into a template, but for the Verification of a Not run case (template_copy_values).
 VALUES_FROM_ZERO = {
     "checklist_item_ids": {"state": "todo", "deadline": False},
     "testcase_ids": {
@@ -47,6 +48,16 @@ VALUES_FROM_ZERO = {
     },
     "question_ids": {"state": "open", "answer": False, "answered_by_id": False, "answered_on": False},
 }
+
+
+def template_copy_values(field_name, line_values):
+    """The values of the copy of a line in a copy from or into a template: a prepared case,
+    Not run, keeps its Verification; a case with a result loses the Verification of that result.
+    """
+    copy_values = {**line_values, **VALUES_FROM_ZERO[field_name]}
+    if field_name == "testcase_ids" and line_values["state"] == "not_run":
+        copy_values["verification_kind"] = line_values["verification_kind"]
+    return copy_values
 
 
 class TestTaskCopyLines(ProjectAiDrivenCommon):
@@ -141,7 +152,7 @@ class TestTaskCopyLines(ProjectAiDrivenCommon):
     def assertLinesCopiedFromZero(self, copied_tasks, source_values, source_tasks):
         values_from_zero = [
             {
-                field_name: [{**line_values, **VALUES_FROM_ZERO[field_name]} for line_values in lines_values]
+                field_name: [template_copy_values(field_name, line_values) for line_values in lines_values]
                 for field_name, lines_values in task_values.items()
             }
             for task_values in source_values

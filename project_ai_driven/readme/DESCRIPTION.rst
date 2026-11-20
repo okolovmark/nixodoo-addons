@@ -248,13 +248,17 @@ give its own. What a line keeps depends on the copy:
   ``ir.default``, and a Not run case keeps its Verification.
 * A task or a project created from a template, and a project template made
   from a project, start the lines from zero: items TODO without deadline,
-  cases Not run without verification and comments, rows Open without
-  answer, Answered by and Answered on. An item keeps its description,
-  assignee and reviewer, a case its steps, expected results and Automated
-  test reference, a row its round, question and addressee.
+  cases Not run without Verified by, Verified on and comments, rows Open
+  without answer, Answered by and Answered on. An item keeps its
+  description, assignee and reviewer, a case its steps, expected results
+  and Automated test reference, a row its round, question and addressee. A
+  case prepared Not run keeps its Verification too, which says how it is
+  to be verified; a case with a result loses the Verification of that
+  result.
 * The next occurrence of a recurring task, and each of its sub-tasks,
   starts the items and the cases from zero, as a task created from a
-  template does, and takes no question row. The task it repeats keeps its
+  template does but without the Verification of a prepared case, and takes
+  no question row. The task it repeats keeps its
   lines. The occurrence is created as a new task, so its items are posted
   to their assignee and reviewer.
 

@@ -149,3 +149,8 @@ the checklist items and test cases of its task from zero, takes no
 Resolution and no pull request of its task in any stage, and enters the
 first stage of its project, or the stage of its task when the project lists
 none, unchecked by the closing and the estimate rules.
+
+The update to 20.0.2.20.0 has no migration and writes nothing on existing
+records. A task or a project created from a template from then on, and a
+project template made from a project, keep the Verification of each test
+case that was Not run with one; the cases copied before stay as they are.

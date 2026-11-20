@@ -515,12 +515,14 @@ class ProjectTask(models.Model):
     def _write_case_verifications_on_copies(self, copied_tasks, default):
         """Give each Not run case of copied_tasks, sub-tasks included, the
         verification of its source case, which its create took back. A copy
-        from or into a template has none to keep.
+        from or into a template takes its Verification alone, see
+        _write_verification_on_copy.
         """
-        if self._is_template_copy() or not self.has_field_access(self._fields["testcase_ids"], "read"):
+        if not self.has_field_access(self._fields["testcase_ids"], "read"):
             return
+        keep_progress = not self._is_template_copy()
         for case, case_copy in self._get_copied_case_pairs(copied_tasks, default, copied_tasks):
-            case._write_verification_on_copy(case_copy)
+            case._write_verification_on_copy(case_copy, keep_progress)
 
     def _get_copied_case_pairs(self, copied_tasks, default, new_tasks):
         """Yield each case of self and of their sub-tasks with its copy, as
