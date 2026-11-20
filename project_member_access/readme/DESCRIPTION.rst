@@ -30,9 +30,11 @@ Inside a Public or Private project:
   reads the project; milestones and updates are changed, and moved into the
   project, by its Admins. Task Analysis is read by Project Administrators
   only, as in Odoo.
-* A pull request is read by whoever reads one of its tasks, and changed,
-  linked or deleted only by whoever edits each of its tasks in such
-  projects. Linking a known link to one's own task stays open.
+* A pull request is read by whoever reads one of its tasks, and a task is
+  read by the mode and the members of its project, not by the company of
+  that project. A pull request is changed, linked or deleted only by
+  whoever edits each of its tasks in such projects. Linking a known link to
+  one's own task stays open.
 * A stage of the project, one shared with other projects included, is
   changed only by a Project Administrator who is an Admin of one of the
   Public or Private projects it belongs to.
@@ -57,12 +59,20 @@ Besides the access rows, a create or a write is refused when:
 * a task leaves the project and carries along sub-tasks the user may not
   edit there;
 * in a Private project, a user who is not a member is set as assignee or
-  UAT user; tasks that carry one when the project turns Private keep them;
+  UAT user; tasks that carry one when the project turns Private, or when the
+  user leaves its members, keep them;
 * the last Admin of the project is removed or given a lower role, or the
   project is made Public or Private without an Admin; an archived user is
   no Admin (archiving the user of the last Admin is not refused: a Settings
   administrator then names a new Admin);
 * the project that develops this Odoo is made Private.
+
+The next occurrence of a recurring task in a Private project, created by
+Odoo when the task it repeats is set Done or Cancelled, takes only the
+assignees who are still members of the project, and so does each of its
+sub-tasks; the others are left out rather than refused, so the task is
+closed. Odoo copies no UAT user; one that another module copies is kept on
+the same terms.
 
 A member row keeps its project and its user. Members are added by an Admin
 of the project, or by a Project Administrator to a Standard project and as
@@ -104,8 +114,10 @@ creating, changing and deleting members are *allow* alone; in a Standard
 project *allow* takes in Project Administrators. Where a
 permission of Odoo could still deny inside (a Team Members only Visibility,
 a missing follower), a permission row of the module grants the same
-``inside AND allow``. A task is read where its project is read
-(``('project_id', 'access', 'read')``). The domains come from
+``inside AND allow``. A task is read by the mode and the members of its
+project, as the project is; its company is left to Odoo's multi-company
+rule of tasks, so a module that lifts that rule for some tasks is not
+overruled by the company of their project. The domains come from
 ``res.users._project_member_access_domain`` and read four stored user sets
 of the project, computed from its members and never written directly:
 ``member_user_ids``, ``contributor_user_ids``, ``editor_user_ids`` and

@@ -144,6 +144,8 @@ class TestAccessTokenRoutes(HttpCase):
         )
         self.task = self.env["project.task"].create({"name": "Token Opened Task", "project_id": self.project.id})
         self.token = self.task._portal_ensure_token()
+        # a public session names the test database: without it, a server holding several finds none
+        self.authenticate(None, None)
 
     def _opens_the_task(self):
         self.env.flush_all()

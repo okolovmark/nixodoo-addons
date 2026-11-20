@@ -157,9 +157,9 @@ class TestEstimateRule(ProjectAiDrivenCommon):
             [{"stage_id": self.stage_backlog.id, "task_type": "support", "allocated_hours": 3, "tshirt_estimate": "s"}],
         )
 
-    def test_recurring_task_set_done_is_refused_when_its_next_task_misses_the_type_or_estimate(self):
-        """The next occurrence starts in the first stage, which is marked, with
-        what the task it repeats has: the rule refuses it, and the task stays open.
+    def test_next_task_of_a_recurrence_enters_a_marked_first_stage_without_the_type_or_estimate(self):
+        """Its creation and that of its sub-task go unchecked; moved out of the
+        stage and back, it needs what the stage requires.
         """
         self.project.write({"allow_recurring_tasks": True, "estimate_required_states": self.stage_backlog.ids})
         for missing_part, values in ((NO_ESTIMATE, {"task_type": "support"}), (NO_TYPE, {"allocated_hours": 3})):
@@ -167,14 +167,29 @@ class TestEstimateRule(ProjectAiDrivenCommon):
                 recurring_task = self._create_task(
                     stage_id=self.stage_progress.id, recurring_task=True, repeat_type="forever", **values
                 )
+                self._create_task(name="Sub-task", parent_id=recurring_task.id, stage_id=self.stage_progress.id)
 
-                with self.assertRefused(missing_part):
-                    recurring_task.state = "1_done"
+                recurring_task.state = "1_done"
 
+                next_task = recurring_task.recurrence_id.task_ids - recurring_task
+                self.assertRecordValues(recurring_task, [{"stage_id": self.stage_progress.id, "state": "1_done"}])
                 self.assertRecordValues(
-                    recurring_task, [{"stage_id": self.stage_progress.id, "state": "01_in_progress"}]
+                    next_task | next_task.child_ids,
+                    [
+                        {"stage_id": self.stage_backlog.id, "task_type": False, "allocated_hours": 0, **values},
+                        {"stage_id": self.stage_backlog.id, "task_type": False, "allocated_hours": 0},
+                    ],
                 )
-                self.assertEqual(recurring_task.recurrence_id.task_ids, recurring_task)
+                next_task.stage_id = self.stage_progress
+                with self.assertRefused(missing_part):
+                    next_task.stage_id = self.stage_backlog
+
+    def test_no_value_a_caller_can_send_exempts_a_task_from_the_rule(self):
+        for value in (True, 1, "1"):
+            with self.subTest(value=value), self.assertRefused(NO_TYPE, NO_ESTIMATE):
+                self.env["project.task"].with_context(project_ai_driven_next_occurrence=value).create(
+                    {"name": "Task", "project_id": self.project.id, "stage_id": self.stage_progress.id}
+                )
 
     def test_project_change_that_lands_in_a_marked_stage(self):
         other_project = self.env["project.project"].create(

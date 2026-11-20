@@ -21,9 +21,9 @@ Odoo, as tasks of the project flagged **Develops This Odoo**
   saves again. Only the internal UAT users of a task of that project read it
   this way; the task of another project, or of another user, does not open.
 * The filer reads the request as its follower: unfollowing it closes it to
-  them. ``project_member_access`` closes it as well while the project is
-  Public, as only the readers of a Public project read its tasks: a filer
-  who has not ticked the company of the project is refused it.
+  them. ``project_member_access`` leaves it open while the project is
+  Public: that module reads a task by the mode and the members of its
+  project, not by the company of the project.
 * Reading a task outside this exception follows Odoo's multi-company rule of
   tasks as it stands: an administrator who changes its domain, on the rule
   or on a copy made with *Customize* in *Accesses*, changes it for reading

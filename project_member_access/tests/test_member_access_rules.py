@@ -343,6 +343,54 @@ class TestMemberAccessRules(MemberAccessCommon):
             self.assertEqual(self._visible("project.task", user, self.public_task), self.public_task, user.login)
             self.assertEqual(self._visible("project.project", user, self.public_project), self.public_project)
 
+    def test_a_task_is_read_by_the_mode_and_members_of_its_project_not_by_the_company_of_its_project(self):
+        other_company = self.env["res.company"].create({"name": "Other Company"})
+        (self.public_project | self.private_project).company_id = other_company
+        tasks = self.public_task | self.private_task
+        tasks.company_id = self.env.company
+        users = self.reader | self.editor | self.outsider | self.manager | self.portal
+        # core opens the task of a project one cannot read to its followers
+        tasks.message_subscribe(users.partner_id.ids)
+        pull_request = self.env["project.pull.request"].create(
+            {"url": "https://example.com/org/repo/pull/1", "task_ids": [Command.set(self.public_task.ids)]}
+        )
+        for user in users:
+            self.assertNotIn(other_company, user.company_ids, user.login)
+            self.assertFalse(self._allowed(self.public_project, user, "read"), user.login)
+
+        self.assertEqual(
+            {task.name: self._allowed_matrix(task, users, operations=("read", "write")) for task in tasks},
+            {
+                "Public task": {
+                    "member_access_reader": (True, False),
+                    "member_access_editor": (True, True),
+                    "member_access_outsider": (True, False),
+                    "member_access_manager": (True, False),
+                    "member_access_portal": (False, False),
+                },
+                "Private task": {
+                    "member_access_reader": (True, False),
+                    "member_access_editor": (True, True),
+                    "member_access_outsider": (False, False),
+                    "member_access_manager": (True, False),
+                    "member_access_portal": (False, False),
+                },
+            },
+        )
+        self.assertEqual(
+            self._allowed_matrix(pull_request, self.reader | self.outsider, operations=("read",)),
+            {"member_access_reader": (True,), "member_access_outsider": (True,)},
+            "a pull request is read through its task",
+        )
+
+    def test_a_task_of_a_public_project_stays_under_its_own_company_restriction(self):
+        other_company = self.env["res.company"].create({"name": "Other Company"})
+        self.public_task.company_id = other_company
+        self.public_task.message_subscribe(self.outsider.partner_id.ids)
+
+        self.assertTrue(self._allowed(self.public_project, self.outsider, "read"))
+        self.assertFalse(self._allowed(self.public_task, self.outsider, "read"))
+
     def test_project_reports_follow_the_project(self):
         self.env["project.milestone"].create({"name": "Go-live", "project_id": self.private_project.id})
         self.env["project.update"].create(
