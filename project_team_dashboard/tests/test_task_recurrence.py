@@ -19,6 +19,12 @@ PLANNED_DATE_SHAPES = {"both dates": (True, True), "end only": (False, True), "s
 INTERVAL_CASES = {
     "every 3 days": ("day", 3, (START, END), (datetime(2026, 3, 5, 9), datetime(2026, 3, 9, 12))),
     "every 2 weeks": ("week", 2, (START, END), (datetime(2026, 3, 16, 9), datetime(2026, 3, 20, 12))),
+    "every month across a month end": (
+        "month",
+        1,
+        (datetime(2026, 1, 20, 9), datetime(2026, 2, 10, 17)),
+        (datetime(2026, 2, 20, 9), datetime(2026, 3, 10, 17)),
+    ),
     "every year from 29 February": (
         "year",
         1,

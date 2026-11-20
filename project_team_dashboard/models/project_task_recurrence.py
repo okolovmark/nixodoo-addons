@@ -24,8 +24,8 @@ class ProjectTaskRecurrence(models.Model):
             return {}
         delta = self._get_recurrence_delta()
         date_start, date_end = (date and date + delta for date in (source_start, source_end))
-        # a month on, 30 Jan 10:00 - 31 Jan 10:00 lands on 28 Feb for both dates: the end, which the
-        # Deadline matches, stays and the start keeps the length the move would shorten
-        if date_start and date_end and date_end - date_start < source_end - source_start:
+        # each date moves as the Deadline does; a month on, 30 Jan 10:00 - 31 Jan 10:00 lands on 28 Feb
+        # 10:00 for both: the end, which the Deadline matches, stays and the start keeps the length
+        if date_start and date_end and date_start >= date_end:
             date_start = date_end - (source_end - source_start)
         return dict(zip(PLANNED_DATE_FIELDS, (date_start, date_end), strict=True))

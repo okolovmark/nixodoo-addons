@@ -8,8 +8,8 @@ Plan a task
 * The next occurrence of a recurring task, and each of its sub-tasks, gets
   the planned dates of the task it repeats moved by the recurrence
   interval, as Odoo moves the Deadline. When a move onto a shorter month
-  would shorten the plan, the end stays and the start moves to keep the
-  length of the task.
+  would leave the start at or after the end, the end stays and the start
+  keeps the length of the task before it.
 * In an AI-driven project the **Deadline** follows the planned end: when a
   task gets a planned end or its planned end really changes, by hand, in
   the Gantt chart or from its sub-tasks, its Deadline becomes that end,
