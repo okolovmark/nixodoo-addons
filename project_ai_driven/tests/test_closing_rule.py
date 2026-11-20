@@ -43,6 +43,18 @@ class TestClosingRule(ProjectAiDrivenCommon):
             repeat_type="forever",
         )
 
+    def _create_project(self, name, **values):
+        """With the stages of self.project: a task moved there keeps its stage."""
+        return self.env["project.project"].create(
+            {"name": name, "type_ids": [Command.set((self.stage_progress | self.stage_done).ids)], **values},
+        )
+
+    def _put_in_the_marked_stage(self, task):
+        """As a task that sat in the stage before the project marked it."""
+        self.project.pr_required_states = False
+        task.stage_id = self.stage_done
+        self.project.pr_required_states = self.stage_done
+
     def _close_last_occurrence(self, task):
         """Set the state of a recurring task to done, on which core creates its
         next occurrence, and return that one.
@@ -134,6 +146,24 @@ class TestClosingRule(ProjectAiDrivenCommon):
         code_task = self._create_task(stage_id=self.stage_done.id, pr_uri=self.pull_request.url)
         self.assertRecordValues(code_task, [{"resolution": "code", "pull_request_ids": self.pull_request.ids}])
 
+    def test_batch_create_with_one_task_refused_names_it_alone(self):
+        names = ["Batch Task in Progress", "Batch Task Done without Resolution", "Batch Task Done with Data"]
+        with self.assertRefused("Choose a Resolution", names[1]) as refusal:
+            self.env["project.task"].create(
+                [
+                    {"name": names[0], "project_id": self.project.id, "stage_id": self.stage_progress.id},
+                    {"name": names[1], "project_id": self.project.id, "stage_id": self.stage_done.id},
+                    {
+                        "name": names[2],
+                        "project_id": self.project.id,
+                        "stage_id": self.stage_done.id,
+                        "resolution": "data",
+                    },
+                ]
+            )
+        for name in (names[0], names[2]):
+            self.assertNotIn(name, refusal.exception.args[0])
+
     def test_several_tasks_in_one_write(self):
         resolved_task = self._create_task(resolution="data")
         linked_task = self._create_task(pull_request_ids=[Command.link(self.pull_request.id)])
@@ -155,6 +185,100 @@ class TestClosingRule(ProjectAiDrivenCommon):
         self.task.project_id = other_project
 
         self.assertEqual(self.task.stage_id, other_project.pr_required_states)
+
+    def test_project_change_into_a_stage_the_new_project_marks(self):
+        plain_project = self._create_project("Plain Project")
+        task = self._create_task(name="Plain Task", project_id=plain_project.id, stage_id=self.stage_done.id)
+
+        with self.assertRefused("Choose a Resolution", "Plain Task"):
+            task.project_id = self.project
+        self.assertEqual(task.project_id, plain_project)
+        task.resolution = "data"
+        task.project_id = self.project
+
+        self.assertRecordValues(task, [{"project_id": self.project.id, "stage_id": self.stage_done.id}])
+
+    def test_project_change_between_flagged_projects_that_keeps_a_marked_stage(self):
+        other_project = self._create_project(
+            "Other AI-driven Project", is_ai_driven=True, pr_required_states=[Command.set(self.stage_done.ids)]
+        )
+        code_task = self._create_closed_task()
+        linked_task = self._create_task(pull_request_ids=[Command.link(self.pull_request.id)])
+        self._put_in_the_marked_stage(linked_task)
+
+        (code_task | linked_task).project_id = other_project
+
+        self.assertRecordValues(
+            code_task | linked_task,
+            [
+                {"project_id": other_project.id, "stage_id": self.stage_done.id, "resolution": "code"},
+                {"project_id": other_project.id, "stage_id": self.stage_done.id, "resolution": "code"},
+            ],
+        )
+
+    def test_project_change_that_recomputes_a_stage_not_marked_is_not_checked(self):
+        plain_project = self._create_project("Plain Project")
+        task = self._create_task(project_id=plain_project.id, stage_id=self.stage_done.id)
+        other_project = self.env["project.project"].create(
+            {"name": "Other AI-driven Project", "is_ai_driven": True, "type_ids": [Command.clear()]},
+        )
+        other_backlog = self._create_stage("Backlog", 1, project=other_project)
+        other_project.pr_required_states = self._create_stage("Delivered", 2, project=other_project)
+
+        task.project_id = other_project
+
+        self.assertRecordValues(
+            task, [{"project_id": other_project.id, "stage_id": other_backlog.id, "resolution": False}]
+        )
+
+    def test_project_change_to_a_project_not_flagged_is_not_checked(self):
+        # marked too: only the flag keeps the task out of the rule
+        plain_project = self._create_project("Plain Project", pr_required_states=[Command.set(self.stage_done.ids)])
+        self._put_in_the_marked_stage(self.task)
+
+        self.task.project_id = plain_project
+
+        self.assertRecordValues(
+            self.task, [{"project_id": plain_project.id, "stage_id": self.stage_done.id, "resolution": False}]
+        )
+
+    def test_project_written_with_the_same_project_is_not_checked(self):
+        self._put_in_the_marked_stage(self.task)
+
+        self.task.write({"project_id": self.project.id})
+        self.task.write({"project_id": self.project.id, "stage_id": self.stage_done.id, "name": "Renamed"})
+
+        self.assertRecordValues(self.task, [{"name": "Renamed", "stage_id": self.stage_done.id, "resolution": False}])
+
+    def test_subtask_given_a_project_of_its_own_is_checked(self):
+        plain_project = self._create_project("Plain Project")
+        parent = self._create_task(name="Parent Task", project_id=plain_project.id)
+        subtask = self._create_task(
+            name="Subtask", parent_id=parent.id, project_id=plain_project.id, stage_id=self.stage_done.id
+        )
+
+        with self.assertRefused("Choose a Resolution", "Subtask"):
+            subtask.project_id = self.project
+        self.assertEqual(subtask.project_id, plain_project)
+        subtask.resolution = "data"
+        subtask.project_id = self.project
+
+        self.assertRecordValues(
+            subtask, [{"project_id": self.project.id, "stage_id": self.stage_done.id, "display_in_project": True}]
+        )
+
+    def test_subtask_that_follows_its_parent_into_a_marked_stage_is_not_checked(self):
+        plain_project = self._create_project("Plain Project")
+        parent = self._create_task(name="Parent Task", project_id=plain_project.id, resolution="data")
+        subtask = self._create_task(
+            name="Subtask", parent_id=parent.id, project_id=plain_project.id, stage_id=self.stage_done.id
+        )
+
+        parent.project_id = self.project
+
+        self.assertRecordValues(
+            subtask, [{"project_id": self.project.id, "stage_id": self.stage_done.id, "resolution": False}]
+        )
 
     def test_task_without_a_project_skips_the_rule(self):
         private_task = self.env["project.task"].create(
@@ -439,6 +563,23 @@ class TestClosingRule(ProjectAiDrivenCommon):
         for task, values in leaving_writes:
             with self.subTest(task=task.name), self.assertRefused("Choose a Resolution"):
                 task.write(values)
+
+    def test_task_of_a_project_template_moved_with_its_marked_stage_meets_the_rule(self):
+        """A task of a project template moved to a flagged project that shares
+        and marks its stage keeps the stage, and is checked: it is no longer a
+        template.
+        """
+        *_task_templates, project_template_task = self._create_template_tasks(
+            self.stage_done, self._create_project_template()
+        )
+        with self.assertRefused("Choose a Resolution", project_template_task.name):
+            project_template_task.project_id = self.project
+
+        project_template_task.write({"project_id": self.project.id, "resolution": "data"})
+        self.assertRecordValues(
+            project_template_task,
+            [{"project_id": self.project.id, "stage_id": self.stage_done.id, "has_project_template": False}],
+        )
 
     def test_template_created_from_a_project_takes_no_resolution_and_no_pull_request(self):
         # in the stage before the project marked it

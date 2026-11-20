@@ -1,3 +1,6 @@
+from contextlib import contextmanager
+from unittest.mock import patch
+
 from lxml import etree
 from psycopg2 import IntegrityError
 
@@ -127,6 +130,28 @@ class TestPullRequest(ProjectAiDrivenCommon):
         cls.pull_request = cls.env["project.pull.request"].create({"url": URL})
         cls.other_task = cls.env["project.task"].create({"name": "Other Task", "project_id": cls.project.id})
 
+    @contextmanager
+    def _record_calls(self, model_name, method_name, read_call):
+        """Yield the list of what read_call returns for the records and the arguments of each call of the method."""
+        model_cls = self.env.registry[model_name]
+        method = getattr(model_cls, method_name)
+        calls = []
+
+        def recorded_method(records, *args, **kwargs):
+            calls.append(read_call(records, *args, **kwargs))
+            return method(records, *args, **kwargs)
+
+        with patch.object(model_cls, method_name, recorded_method):
+            yield calls
+
+    def _count_find_or_create(self):
+        """Yield the urls of the links _find_or_create is called with."""
+        return self._record_calls("project.pull.request", "_find_or_create", lambda _records, link: link.url)
+
+    def _record_task_writes(self):
+        """Yield the tasks of each write of tasks and the names of the fields it writes."""
+        return self._record_calls("project.task", "write", lambda tasks, vals: (tasks, set(vals)))
+
     def test_url_is_stored_in_canonical_form(self):
         pull_request = self.env["project.pull.request"].create({"url": " HTTPS://GitHub.com/owner/repo/pull/13/files "})
         self.assertRecordValues(
@@ -202,10 +227,10 @@ class TestPullRequest(ProjectAiDrivenCommon):
         self.assertFalse(PullRequest.name_search("repo#12", domain=created_here, operator="="))
         self.assertFalse(PullRequest.name_search("owner/repo#1", domain=created_here))
         self.assertFalse(PullRequest.name_search("owner/repo#12", domain=[("id", "=", next_pull_request.id)]))
-        # a negative operator is searched the default way, in the url, which holds no "#"
+        # a negative operator excludes what its positive operator finds
         self.assertEqual(
-            len(PullRequest.name_search("owner/repo#12", domain=created_here, operator="not ilike")),
-            3,
+            PullRequest.name_search("owner/repo#12", domain=created_here, operator="not ilike"),
+            [(same_number_pull_request.id, "owner/other#12"), (next_pull_request.id, "owner/repo#13")],
         )
 
     def test_found_by_several_names_it_shows(self):
@@ -215,17 +240,90 @@ class TestPullRequest(ProjectAiDrivenCommon):
             PullRequest.search([("display_name", "in", ["owner/repo#12", "owner/repo#13"])]),
             self.pull_request | next_pull_request,
         )
-        # one name written as a link: all of them are searched the default way, in the url
-        self.assertEqual(PullRequest.search([("display_name", "in", [URL, "owner/repo#13"])]), self.pull_request)
+        # a name written as a link stays a search of the url
+        self.assertEqual(
+            PullRequest.search([("display_name", "in", [URL, "owner/repo#13"])]), self.pull_request | next_pull_request
+        )
         self.assertIsNone(
             PullRequest._get_shown_name_domain("in", SQL("%s", "owner/repo#12")), "no collection of names"
         )
+
+    def test_negative_operator_excludes_the_name_it_shows(self):
+        PullRequest = self.env["project.pull.request"]
+        same_number_pull_request = PullRequest.create({"url": "https://github.com/owner/other/pull/12"})
+        next_pull_request = PullRequest.create({"url": "https://github.com/owner/repo/pull/13"})
+        created_here = [("id", "in", (self.pull_request | same_number_pull_request | next_pull_request).ids)]
+        shown_name = (self.pull_request.id, "owner/repo#12")
+        other_names = [(same_number_pull_request.id, "owner/other#12"), (next_pull_request.id, "owner/repo#13")]
+
+        for operator in ("not ilike", "not like", "!="):
+            self.assertEqual(
+                PullRequest.name_search("owner/repo#12", domain=created_here, operator=operator), other_names, operator
+            )
+        self.assertEqual(PullRequest.name_search("repo#12", domain=created_here, operator="not ilike"), other_names)
+        self.assertEqual(
+            PullRequest.name_search("repo#12", domain=created_here, operator="!="), [shown_name, *other_names]
+        )
+        self.assertEqual(
+            PullRequest.name_search("owner/repo/pull/1", domain=created_here, operator="not ilike"),
+            [(same_number_pull_request.id, "owner/other#12")],
+            "a name that is not a shown name is searched in the url",
+        )
+
+    def test_list_of_urls_and_shown_names(self):
+        PullRequest = self.env["project.pull.request"]
+        url_pull_request = PullRequest.create({"url": "https://github.com/owner/repo/pull/13"})
+        other_pull_request = PullRequest.create({"url": "https://github.com/owner/other/pull/12"})
+        created_here = [("id", "in", (self.pull_request | url_pull_request | other_pull_request).ids)]
+        names = [url_pull_request.url, "owner/repo#12", "not a link"]
+
+        self.assertEqual(
+            PullRequest.name_search(names, domain=created_here, operator="in"),
+            [(self.pull_request.id, "owner/repo#12"), (url_pull_request.id, "owner/repo#13")],
+        )
+        self.assertEqual(
+            PullRequest.name_search(names, domain=created_here, operator="not in"),
+            [(other_pull_request.id, "owner/other#12")],
+        )
+
+    def test_tuple_one_name_and_empty_list_with_in_and_not_in(self):
+        PullRequest = self.env["project.pull.request"]
+        url_pull_request = PullRequest.create({"url": "https://github.com/owner/repo/pull/13"})
+        other_pull_request = PullRequest.create({"url": "https://github.com/owner/other/pull/12"})
+        created_here = [("id", "in", (self.pull_request | url_pull_request | other_pull_request).ids)]
+        shown_name = (self.pull_request.id, "owner/repo#12")
+        url_name = (url_pull_request.id, "owner/repo#13")
+        other_name = (other_pull_request.id, "owner/other#12")
+        # (names, found with in, found with not in)
+        cases = (
+            (("owner/repo#12", url_pull_request.url), [shown_name, url_name], [other_name]),
+            ("owner/repo#12", [shown_name], [url_name, other_name]),
+            (url_pull_request.url, [url_name], [shown_name, other_name]),
+            ([], [], [shown_name, url_name, other_name]),
+        )
+
+        for names, found_with_in, found_with_not_in in cases:
+            with self.subTest(names=names):
+                self.assertEqual(PullRequest.name_search(names, domain=created_here, operator="in"), found_with_in)
+                self.assertEqual(
+                    PullRequest.name_search(names, domain=created_here, operator="not in"), found_with_not_in
+                )
 
     def test_task_found_by_the_name_its_pull_request_shows(self):
         task_domain = [("id", "=", self.task.id), ("pull_request_ids", "ilike", "owner/repo#12")]
         self.assertFalse(self.env["project.task"].search(task_domain))
         self.task.pull_request_ids = self.pull_request
         self.assertEqual(self.env["project.task"].search(task_domain), self.task)
+
+    def test_task_excluded_by_the_name_its_pull_request_shows(self):
+        self.task.pull_request_ids = self.pull_request
+        tasks_here = [("id", "in", (self.task | self.other_task).ids)]
+        Task = self.env["project.task"]
+        for operator in ("not ilike", "!="):
+            excluding_domain = [*tasks_here, ("pull_request_ids", operator, "owner/repo#12")]
+            self.assertEqual(Task.search(excluding_domain), self.other_task, operator)
+        self.assertEqual(Task.search([*tasks_here, ("pull_request_ids", "in", "owner/repo#12")]), self.task)
+        self.assertEqual(Task.search([*tasks_here, ("pull_request_ids", "not in", "owner/repo#12")]), self.other_task)
 
     def test_pr_uri_reads_the_pull_request_created_first(self):
         self.assertFalse(self.task.pr_uri)
@@ -314,6 +412,67 @@ class TestPullRequest(ProjectAiDrivenCommon):
         )
         self.assertEqual(self.pull_request.task_ids, self.task | self.other_task | created_task)
         self.assertEqual(self.env["project.pull.request"].search_count([("url", "=", URL)]), 1)
+
+    def test_one_link_written_on_many_tasks_is_looked_up_once(self):
+        tasks = self.env["project.task"].create(
+            [{"name": "Task %s" % number, "project_id": self.project.id} for number in range(10)]
+        )
+        with self._count_find_or_create() as looked_up_urls:
+            tasks.write({"pr_uri": "https://github.com/owner/repo/pull/13"})
+        self.assertEqual(looked_up_urls, ["https://github.com/owner/repo/pull/13"])
+        self.assertEqual(len(tasks.pull_request_ids), 1)
+        self.assertEqual(tasks.pull_request_ids.task_ids, tasks)
+
+    def test_two_links_on_two_groups_of_tasks_are_looked_up_once_each(self):
+        new_url = "https://github.com/owner/repo/pull/13"
+        with self._count_find_or_create() as looked_up_urls:
+            tasks = self.env["project.task"].create(
+                [
+                    {"name": "Task %s" % number, "project_id": self.project.id, "pr_uri": url}
+                    for url in (URL, new_url)
+                    for number in range(3)
+                ]
+            )
+        self.assertEqual(looked_up_urls, [URL, new_url])
+        self.assertEqual(self.pull_request.task_ids, tasks[:3])
+        self.assertRecordValues(tasks[3:].pull_request_ids, [{"url": new_url}])
+        self.assertEqual(tasks[3:].pull_request_ids.task_ids, tasks[3:])
+
+    def test_spellings_of_one_link_are_looked_up_once(self):
+        spellings = (URL, URL + "/files", "HTTPS://GitHub.com/owner/repo/pull/12/")
+        with self._count_find_or_create() as looked_up_urls:
+            tasks = self.env["project.task"].create(
+                [
+                    {"name": "Task %s" % number, "project_id": self.project.id, "pr_uri": spelling}
+                    for number, spelling in enumerate(spellings)
+                ]
+            )
+        self.assertEqual(looked_up_urls, [URL])
+        self.assertEqual(self.pull_request.task_ids, tasks)
+
+    def test_batch_with_one_text_that_is_not_a_link_looks_up_nothing(self):
+        vals_list = [
+            {"name": "Linked Task", "project_id": self.project.id, "pr_uri": URL},
+            {"name": "Unlinked Task", "project_id": self.project.id, "pr_uri": "see the ticket"},
+        ]
+        with self._count_find_or_create() as looked_up_urls:
+            with self.assertRefused('"see the ticket" is not a pull request link') as refusal:
+                self.env["project.task"].create(vals_list)
+        self.assertNotIn(URL, refusal.exception.args[0])
+        self.assertEqual(looked_up_urls, [])
+
+    def test_link_is_written_only_on_the_tasks_without_it(self):
+        self.task.pull_request_ids = self.pull_request
+        with self._record_task_writes() as task_writes:
+            self.task.pr_uri = URL + "/files"
+        self.assertEqual([tasks for tasks, field_names in task_writes if "pull_request_ids" in field_names], [])
+
+        with self._record_task_writes() as task_writes:
+            (self.task | self.other_task).write({"pr_uri": URL})
+        self.assertEqual(
+            [tasks for tasks, field_names in task_writes if "pull_request_ids" in field_names], [self.other_task]
+        )
+        self.assertEqual(self.pull_request.task_ids, self.task | self.other_task)
 
     def test_pr_uri_is_stored_and_searchable(self):
         self.task.pr_uri = URL + "/files"

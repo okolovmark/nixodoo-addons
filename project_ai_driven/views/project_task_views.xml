@@ -205,6 +205,26 @@
         </field>
     </record>
 
+    <record id="project_task_view_form_quick_create_inherit_ai_driven" model="ir.ui.view">
+        <field name="name">project.task.view.form.quick_create.inherit.project_ai_driven</field>
+        <field name="model">project.task</field>
+        <field name="inherit_id" ref="project.quick_create_task_form" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='user_ids']" position="after">
+                <!-- is_estimate_required reads the column's stage, which the kanban passes as default_stage_id -->
+                <field name="stage_id" invisible="1" />
+                <field name="task_type" string="Task Type" invisible="not is_ai_driven" required="is_estimate_required" />
+                <field
+                    name="allocated_hours"
+                    string="Estimate"
+                    widget="float_time"
+                    invisible="not is_ai_driven"
+                    required="is_estimate_required"
+                />
+            </xpath>
+        </field>
+    </record>
+
     <record id="project_task_view_search_inherit_ai_driven" model="ir.ui.view">
         <field name="name">project.task.view.search.inherit.project_ai_driven</field>
         <field name="model">project.task</field>

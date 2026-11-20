@@ -1,12 +1,12 @@
 # The size of a task follows its estimate in hours, and a project marks the stages that need a type and an estimate
 
-Status: accepted (2026-11-16), amended (2026-11-20: the creation of the next occurrence of a recurring task is not checked)
+Status: accepted (2026-11-16), amended (2026-11-20: the creation of the next occurrence of a recurring task is not checked; a change of project that keeps the stage is checked, and the kanban quick create asks for the type and the estimate)
 
 The 16.0 branch decided this first. Its record, `docs/adr/0004-the-size-of-a-task-follows-its-estimate-in-hours.md` there, holds the alternatives it weighed; this one states the decision as it stands on 20.0 and what differs.
 
 **The hours are the estimate.** On this branch they are core's `allocated_hours` (Allocated Time), the field Odoo 20 has in place of `planned_hours`. The size (`tshirt_estimate`, labelled Size) is stored and computed from them: up to 2 h XS, up to 6 h S, up to 12 h M, up to 32 h L, up to 60 h XL, above that XXL; hours not above zero, no size. Neither the type nor the size has a default. A size sent in a `create` or a `write` is ignored and the call goes through; from 20.0.2.15.1 a portal user's call is refused instead, as core refuses any field outside the portal's writable fields (core's portal test of project sharing expects it). The hours must be a finite number: a NaN or an infinity is refused in any project.
 
-**A project marks the stages that need a type and an estimate** (`estimate_required_states`, table `project_estimate_required`, the names of 16.0). A task of a flagged project enters such a stage only with a task type and an estimate above zero. The rule runs where the closing rule of ADR 0002 runs, after it: on a create, on a change of stage and on a change of project that moves the stage. An edit of a task that already sits in such a stage is not checked, and templates (a task template, its sub-tasks, the tasks of a project template) are outside the rule, as they are outside the closing rule. So is the creation of the next occurrence of a recurring task, for the reason and by the means ADR 0002 gives.
+**A project marks the stages that need a type and an estimate** (`estimate_required_states`, table `project_estimate_required`, the names of 16.0). A task of a flagged project enters such a stage only with a task type and an estimate above zero. The rule runs where the closing rule of ADR 0002 runs, after it: on a create, and on a change of stage or of project, also one that keeps the stage. An edit of a task that already sits in such a stage is not checked, and templates (a task template, its sub-tasks, the tasks of a project template) are outside the rule, as they are outside the closing rule. So is the creation of the next occurrence of a recurring task, for the reason and by the means ADR 0002 gives.
 
 **The priority star.** Flagged projects rank tasks by Priority Level, so the core star is hidden on their tasks: the form, the kanban card, the list, the lists inside the form and the calendar popover. Its stored value is not touched, and projects that are not flagged keep it, as does the portal.
 
@@ -19,7 +19,8 @@ The 16.0 branch decided this first. Its record, `docs/adr/0004-the-size-of-a-tas
 
 **Consequences.**
 
-- A task created straight into a marked stage needs its type and its hours in the same create: the kanban quick create, a mail alias and a task created from a sales order line are refused there, and so is a copy that keeps the stage of a source sitting there without them.
+- A task created straight into a marked stage needs its type and its hours in the same create: a mail alias and a task created from a sales order line are refused there, and so is a copy that keeps the stage of a source sitting there without them.
+  - 2026-11-20: the kanban quick create of a flagged project shows the type and the estimate, required in the columns of marked stages and optional in the others; where the quick create has a project field (My Tasks) they follow the project picked and its first stage. The required flag is the rule's own answer for the task (`is_estimate_required`), so a template is not asked for them. The web client of Odoo 20 asks for no number field, required or not: an estimate of zero still reaches the rule, which refuses it.
 - A recurring task that has no type or no hours is set Done or Cancelled whatever the first stage of its project requires: its next occurrence enters that stage without them, and meets the rule once it is moved into a marked stage.
 - A stage listed for a Resolution and for a type and an estimate refuses for the Resolution first.
 - The star hidden on a task still orders the lists core sorts by it, and core's priority filters remain.
