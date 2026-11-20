@@ -154,3 +154,8 @@ The update to 20.0.2.20.0 has no migration and writes nothing on existing
 records. A task or a project created from a template from then on, and a
 project template made from a project, keep the Verification of each test
 case that was Not run with one; the cases copied before stay as they are.
+
+The update to 20.0.2.21.0 has no migration and writes nothing on existing
+records. The next occurrence of a recurring task created from then on, and
+each of its sub-tasks, keeps the Verification of each test case that was
+Not run with one; the occurrences created before stay as they are.

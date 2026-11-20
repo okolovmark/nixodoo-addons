@@ -257,10 +257,10 @@ give its own. What a line keeps depends on the copy:
   result.
 * The next occurrence of a recurring task, and each of its sub-tasks,
   starts the items and the cases from zero, as a task created from a
-  template does but without the Verification of a prepared case, and takes
-  no question row. The task it repeats keeps its
-  lines. The occurrence is created as a new task, so its items are posted
-  to their assignee and reviewer.
+  template does, a prepared case keeping its Verification, and takes no
+  question row. The task it repeats keeps its lines. The occurrence is
+  created as a new task, so its items are posted to their assignee and
+  reviewer.
 
 A task converted to a template is no copy: it keeps its lines.
 
