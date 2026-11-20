@@ -67,6 +67,10 @@ registry.category("web_tour.tours").add("project_support_request_other_company_t
     url: "/odoo",
     steps: () => {
         let startSelection;
+        // The form is read-only unless an access gives employees write on tasks, as project_todo's
+        // (auto-installed) does: the project shows as a link then, as an input otherwise.
+        const projectField =
+            ".o_form_view:has(.o_breadcrumb:contains(Request from another company)) .o_field_widget[name=project_id]";
         return [
             {
                 content: "Open the Support item",
@@ -93,8 +97,7 @@ registry.category("web_tour.tours").add("project_support_request_other_company_t
             },
             {
                 content: "The new request opens on its task form, its project named",
-                trigger:
-                    ".o_form_view:has(.o_breadcrumb:contains(Request from another company)) .o_field_widget[name=project_id] input:value(Project That Develops This Odoo)",
+                trigger: `${projectField}:contains(Project That Develops This Odoo), ${projectField} input:value(Project That Develops This Odoo)`,
             },
             {
                 content: "Open the Support item again",
