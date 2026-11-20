@@ -25,6 +25,12 @@ INTERVAL_CASES = {
         (datetime(2026, 1, 20, 9), datetime(2026, 2, 10, 17)),
         (datetime(2026, 2, 20, 9), datetime(2026, 3, 10, 17)),
     ),
+    "every month to a month end": (
+        "month",
+        1,
+        (datetime(2026, 1, 1, 9), datetime(2026, 1, 31, 17)),
+        (datetime(2026, 2, 1, 9), datetime(2026, 2, 28, 17)),
+    ),
     "every year from 29 February": (
         "year",
         1,
