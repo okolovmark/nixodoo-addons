@@ -483,6 +483,10 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
             return sentCalls.map(function (params) { return params.args; });
         }
 
+        function sentCompanies(sentCalls) {
+            return sentCalls.map(function (params) { return (params.kwargs.context || {}).allowed_company_ids; });
+        }
+
         function acceptWrite() {
             return Promise.resolve(true);
         }
@@ -501,6 +505,7 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
                 planned_date_start: "2026-11-14 01:00:00",
                 planned_date_end: "2026-11-19 00:00:00",
             }]]);
+            assert.deepEqual(sentCompanies(sentCalls), [[3]], "the write is sent in the selected companies");
             assert.notStrictEqual(item.start.getTimezoneOffset(), 0, "the browser runs outside UTC");
         });
 
@@ -619,6 +624,43 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
             assert.deepEqual(await savedOnDrag(endOnly, 0, dayMs), [[[31], {
                 planned_date_end: "2026-11-18 00:00:00",
             }]], "the drawn start the user left is not saved");
+        });
+
+        QUnit.module("ganttDependencyWrites");
+
+        /** The method, arguments and companies of each call sent. */
+        function sentWrites(sentCalls) {
+            return sentCalls.map(function (params) {
+                return [params.method, params.args, (params.kwargs.context || {}).allowed_company_ids];
+            });
+        }
+
+        /** A Gantt dashboard of the tasks 11 and 12, whose reload after a write resolves `reloaded`. */
+        function dependencyDashboard() {
+            var dashboard = ganttDashboard();
+            dashboard.setElement($('<div><input class="o_gantt_dep_lag_input" value="2"/></div>'));
+            dashboard.ganttData = {tasks: [ganttTask, _.extend({}, ganttTask, {id: 12, key: "T-12", depend_on_ids: []})]};
+            dashboard.reloaded = new Promise(function (resolve) {
+                dashboard._loadGanttData = resolve;
+            });
+            return dashboard;
+        }
+
+        QUnit.test("a dependency linked on the chart is saved in the selected companies", async function (assert) {
+            var sentCalls = serveCalls(acceptWrite);
+            var dashboard = dependencyDashboard();
+            dashboard._ganttLinkTasks(11, 12);
+            await dashboard.reloaded;
+            assert.deepEqual(sentWrites(sentCalls), [["gantt_add_dependency", [[12], 11], [3]]]);
+        });
+
+        QUnit.test("a dependency lag is saved in the selected companies", async function (assert) {
+            var sentCalls = serveCalls(acceptWrite);
+            var dashboard = dependencyDashboard();
+            dashboard._ganttPopoverEdge = {pred: 11, succ: 12};
+            dashboard._onGanttDependencySaveLag();
+            await dashboard.reloaded;
+            assert.deepEqual(sentWrites(sentCalls), [["gantt_set_dependency_lag", [[12], 11, 2], [3]]]);
         });
 
         QUnit.module("keepOpenTaskOutOfGroupToggle", function () {
@@ -857,6 +899,21 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
                         [3, mode, 1, 1, error],
                         mode
                     );
+                }
+            });
+
+            QUnit.test("the filter bar of every mode fits a phone's width", function (assert) {
+                var phoneScreen = document.createElement("div");
+                phoneScreen.style.width = "360px";
+                document.body.appendChild(phoneScreen);
+                registerCleanup(function () {
+                    phoneScreen.remove();
+                });
+                for (var mode of ["project", "manager", "department"]) {
+                    var dashboard = renderedDashboard(mode);
+                    phoneScreen.replaceChildren(dashboard.el);
+                    var filterBar = dashboard.el.querySelector(".o_dashboard_filter_bar");
+                    assert.ok(filterBar.scrollWidth <= filterBar.clientWidth, mode + ": " + filterBar.scrollWidth + "px");
                 }
             });
 

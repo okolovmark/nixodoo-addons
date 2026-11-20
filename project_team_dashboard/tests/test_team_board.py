@@ -718,8 +718,10 @@ class TestTeamBoardCompanies(TeamBoardCase):
                     ProjectInA.get_team_dashboard_by_manager(user_below.id)
                 with self.assertRaisesRegex(AccessError, "by manager"):
                     ProjectInA.get_team_dashboard_by_manager(self.user_dev1.id)
-                with self.assertRaisesRegex(AccessError, "by department"):
-                    ProjectInA.get_team_dashboard_by_department(self.department_b.id)
+                self.assertEqual(
+                    ProjectInA.get_team_dashboard_by_department(self.department_b.id),
+                    {"error": "Department not in the selected companies"},
+                )
                 self.assertFalse(self.env["project.team.board"].with_env(ProjectInA.env).search(department_mode))
 
     def test_a_plain_user_opens_their_department_of_no_company_whatever_the_company_rules(self):
@@ -746,15 +748,43 @@ class TestTeamBoardCompanies(TeamBoardCase):
             {"name": "Head in B", "user_id": user_head.id, "company_id": self.company_b.id}
         )
         Project = self.env["project.project"].with_user(user_head)
+        department_mode = [("mode", "=", "department"), ("department_id", "=", self.department_b.id)]
         for is_active in (True, False):
             self.company_rules.active = is_active
             with self.subTest(company_rules_active=is_active):
                 ProjectInAAndB = Project.with_context(allowed_company_ids=companies.ids)
                 self.assertNotIn("error", ProjectInAAndB.get_team_dashboard_by_department(self.department_b.id))
+                ProjectInA = Project.with_context(allowed_company_ids=self.env.company.ids)
+                self.assertEqual(
+                    ProjectInA.get_team_dashboard_by_department(self.department_b.id),
+                    {"error": "Department not in the selected companies"},
+                )
+                self.assertFalse(self.env["project.team.board"].with_env(ProjectInA.env).search(department_mode))
+
+    def test_a_plain_user_is_told_their_own_department_of_a_company_they_cannot_select_is_not_found(self):
+        user_member = self.env["res.users"].create(self._user_vals("Member in B, user in A", PROJECT_GROUPS))
+        self.env["hr.employee"].create(
+            {
+                "name": "Member in B",
+                "user_id": user_member.id,
+                "company_id": self.company_b.id,
+                "department_id": self.department_b.id,
+            }
+        )
+        self.assertNotIn(self.company_b, user_member.company_ids)
+        department_other_b = self.env["hr.department"].create(
+            {"name": "Other Department in B", "company_id": self.company_b.id}
+        )
+        Project = self.env["project.project"].with_user(user_member)
+        for is_active in (True, False):
+            self.company_rules.active = is_active
+            with self.subTest(company_rules_active=is_active):
+                self.assertEqual(
+                    Project.get_team_dashboard_by_department(self.department_b.id), {"error": "Department not found"}
+                )
+                self.assertFalse(self._board(user_member, self.department_b, "department"))
                 with self.assertRaisesRegex(AccessError, "by department"):
-                    Project.with_context(allowed_company_ids=self.env.company.ids).get_team_dashboard_by_department(
-                        self.department_b.id
-                    )
+                    Project.get_team_dashboard_by_department(department_other_b.id)
 
     def test_a_user_opens_their_own_team_whatever_the_company_of_their_employees(self):
         companies = self.env.company | self.company_b

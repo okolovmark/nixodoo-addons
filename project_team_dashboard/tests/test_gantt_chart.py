@@ -15,7 +15,7 @@ class TestGanttChartData(TeamDashboardCommon):
         super().setUpClass()
         cls.Project = cls.env["project.project"]
         cls.Task = cls.env["project.task"]
-        cls.today = fields.Date.today()
+        cls.today = fields.Date.context_today(cls.Project)
         cls.now = fields.Datetime.now()
 
     # ------------------------------------------------------------------
