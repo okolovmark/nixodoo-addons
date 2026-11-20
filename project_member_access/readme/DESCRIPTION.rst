@@ -50,10 +50,17 @@ Besides the record rules, a create or a write is refused when:
 * a task leaves the project and carries along sub-tasks the user may not
   edit there;
 * in a Private project, a user who is not a member is set as assignee or
-  UAT user; tasks that carry one when the project turns Private keep them;
+  UAT user; tasks that carry one when the project turns Private, or when the
+  user leaves its members, keep them;
 * the last Admin of the project is removed or given a lower role, or the
   project is made Public or Private without an Admin;
 * the project that develops this Odoo is made Private.
+
+A change saved for the following or for all tasks of a recurrence is
+checked on each task it reaches, and one refusal refuses the whole change.
+The next task of a recurrence in a Private project, created by Odoo's
+recurrence job, takes only the assignees of the task it repeats who are
+still members of the project; the others are left out rather than refused.
 
 A member row keeps its project and its user. Members are added by an Admin
 of the project, or by a Project Administrator to a Standard project and as

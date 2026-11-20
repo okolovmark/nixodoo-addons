@@ -32,29 +32,31 @@ class ProjectTask(models.Model):
         return tasks
 
     def write(self, vals):
+        """Run the role checks, the access check, the checks of a project move and the token
+        revocation on every task the write reaches: self and, by its recurrence_update, the
+        other tasks of their recurrences (_get_tasks_written_with). One refusal refuses the write.
+        """
+        # before the write, which removes the recurrence of a write that unticks Recurrent
+        tasks = self._get_tasks_written_with(vals)
         is_role_checked = not (self.env.su or self.env.user._is_system())
         if is_role_checked and ROLE_CHECKED_FIELDS & vals.keys():
             # before the checks in sudo, whose messages name the task and its project
-            self.check_access_rights("write")
-            self.check_access_rule("write")
-            self._ensure_member_role_allows(vals)
-        former_projects = self._get_former_projects() if PROJECT_MOVING_FIELDS & vals.keys() else {}
+            tasks.check_access_rights("write")
+            tasks.check_access_rule("write")
+            tasks._ensure_member_role_allows(vals)
+        former_projects = tasks._get_former_projects() if PROJECT_MOVING_FIELDS & vals.keys() else {}
         writable_sub_tasks = self.browse()
         if former_projects and is_role_checked:
             # before the write: after it, a sub-task that left is judged by its new project
-            writable_sub_tasks = self._get_restricted_sub_tasks(former_projects)._filter_access_rules_python("write")
-        # core pops the key, then writes the same vals to other tasks of the recurrence
-        is_recurrence_written = vals.get("recurrence_update", "this") != "this"
+            writable_sub_tasks = tasks._get_restricted_sub_tasks(former_projects)._filter_access_rules_python("write")
         result = super().write(vals)
         if former_projects:
-            entered_tasks = self._get_entered_tasks(former_projects)
+            entered_tasks = tasks._get_entered_tasks(former_projects)
             if is_role_checked:
                 entered_tasks._ensure_entering_allowed()
-                self._ensure_carried_sub_tasks_written(former_projects, writable_sub_tasks)
+                tasks._ensure_carried_sub_tasks_written(former_projects, writable_sub_tasks)
             entered_tasks._revoke_access_tokens()
-        self._revoke_access_tokens()
-        if is_recurrence_written:
-            self.sudo().recurrence_id.task_ids._revoke_access_tokens()
+        tasks._revoke_access_tokens()
         return result
 
     def _notify_get_recipients(self, message, msg_vals, **kwargs):

@@ -11,6 +11,7 @@ from . import test_ai_driven_task
 from . import test_pr_uri_conversion
 from . import test_pull_request
 from . import test_questions
+from . import test_recurrence
 from . import test_stage_log
 from . import test_stage_log_past
 from . import test_task_brief

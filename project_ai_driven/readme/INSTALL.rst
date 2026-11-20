@@ -296,6 +296,14 @@ called from its own ``pre_init_hook``. Odoo cannot load a module whose code
 still imports them, so the addons path gets a version of that module that
 no longer does before, or together with, this one.
 
+The update to 16.0.2.20.0 has no migration and writes nothing on existing
+records; it can run with the server up. From it the next task of a
+recurrence takes the checklist items and test cases of its task from zero
+and enters its stage unchecked by the closing and the estimate rules, and a
+change saved for the following or for all tasks of a recurrence reaches the
+tasks of that recurrence only, each one checked and its Assigning Date set
+or cleared as Odoo's write of several tasks sets or clears it.
+
 **Coming from project_task_pull_request**
 
 This module declares ``pr_uri`` on the task and ``pr_required_states`` on

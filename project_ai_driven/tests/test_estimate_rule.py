@@ -1,7 +1,10 @@
-from odoo import Command
+from unittest.mock import patch
+
+from odoo import Command, fields
 from odoo.exceptions import AccessError, ValidationError
 from odoo.tests.common import Form, tagged
 
+from ..models.project_task_recurrence import is_next_occurrence_creation
 from .common import ProjectAiDrivenCommon
 
 NO_TYPE = "Choose a Task Type"
@@ -144,6 +147,84 @@ class TestEstimateRule(ProjectAiDrivenCommon):
             next_task,
             [{"stage_id": self.stage_backlog.id, "task_type": "support", "planned_hours": 3, "tshirt_estimate": "s"}],
         )
+
+    def test_the_next_occurrence_and_its_sub_task_enter_a_marked_first_stage_without_the_type_or_estimate(self):
+        self.project.write({"allow_recurring_tasks": True, "estimate_required_states": self.stage_backlog.ids})
+        for missing_part, values in ((NO_ESTIMATE, {"task_type": "support"}), (NO_TYPE, {"planned_hours": 3})):
+            with self.subTest(missing_part=missing_part):
+                recurring_task = self._create_task(
+                    stage_id=self.stage_progress.id, recurring_task=True, repeat_unit="week", mon=True, **values
+                )
+                self._create_task(name="Sub-task", parent_id=recurring_task.id, stage_id=self.stage_progress.id)
+
+                recurring_task.recurrence_id._create_next_task()
+
+                next_task = recurring_task.recurrence_id.task_ids - recurring_task
+                self.assertRecordValues(
+                    next_task | next_task.child_ids,
+                    [
+                        {"stage_id": self.stage_backlog.id, "task_type": False, "planned_hours": 0, **values},
+                        {"stage_id": self.stage_backlog.id, "task_type": False, "planned_hours": 0},
+                    ],
+                )
+                next_task.stage_id = self.stage_progress
+                with self.assertRefused(missing_part):
+                    next_task.stage_id = self.stage_backlog
+
+    def test_the_cron_creates_each_due_occurrence_and_moves_its_date_outside_the_exemption(self):
+        self.env.user.groups_id += self.env.ref("project.group_project_recurring_tasks")
+        self.project.write({"allow_recurring_tasks": True, "estimate_required_states": self.stage_backlog.ids})
+        recurring_tasks = self._create_task(
+            name="Estimated", task_type="support", planned_hours=3, stage_id=self.stage_progress.id
+        ) | self._create_task(name="Not estimated", stage_id=self.stage_progress.id)
+        recurring_tasks.write({"recurring_task": True, "repeat_unit": "week", "mon": True})
+        recurrences = recurring_tasks.recurrence_id
+        today = fields.Date.today()
+        recurrences.next_recurrence_date = today
+        self.env.flush_all()
+        # the cron runs every due recurrence of the database: these two only
+        self.env.cr.execute(
+            "UPDATE project_task_recurrence SET next_recurrence_date = NULL"
+            " WHERE next_recurrence_date <= %s AND id NOT IN %s",
+            (today, tuple(recurrences.ids)),
+        )
+        recurrence_model = type(self.env["project.task.recurrence"])
+
+        with patch.object(
+            recurrence_model,
+            "_set_next_recurrence_date",
+            autospec=True,
+            side_effect=recurrence_model._set_next_recurrence_date,
+        ) as next_date_setting:
+            self.env["project.task.recurrence"]._cron_create_recurring_tasks()
+
+        self.assertEqual([len(recurrence.task_ids) for recurrence in recurrences], [2, 2])
+        self.assertTrue(all(recurrence.next_recurrence_date > today for recurrence in recurrences))
+        self.assertEqual(
+            [is_next_occurrence_creation(call.args[0].env) for call in next_date_setting.call_args_list], [False]
+        )
+
+    def test_no_value_a_caller_can_send_exempts_a_task_from_the_rule(self):
+        for value in (True, 1, "1"):
+            with self.subTest(value=value), self.assertRefused(NO_TYPE, NO_ESTIMATE):
+                self.env["project.task"].with_context(project_ai_driven_next_occurrence=value).create(
+                    {"name": "Task", "project_id": self.project.id, "stage_id": self.stage_progress.id}
+                )
+
+    def test_a_move_of_all_tasks_of_a_recurrence_checks_each_of_them(self):
+        first_task = self._create_task(name="First occurrence", task_type="support", planned_hours=3)
+        second_task = self._create_task(name="Second occurrence")
+        self.env["project.task.recurrence"].create(
+            {"mon": True, "task_ids": [Command.set((first_task | second_task).ids)]}
+        )
+
+        with self.assertRefused(NO_TYPE, NO_ESTIMATE, "Tasks: %s" % second_task.display_name):
+            first_task.write({"stage_id": self.stage_progress.id, "recurrence_update": "all"})
+        self.assertEqual((first_task | second_task).stage_id, self.stage_backlog)
+
+        second_task.write({"task_type": "bug", "planned_hours": 2})
+        first_task.write({"stage_id": self.stage_progress.id, "recurrence_update": "all"})
+        self.assertEqual((first_task | second_task).stage_id, self.stage_progress)
 
     def test_project_change_that_lands_in_a_marked_stage(self):
         other_project = self.env["project.project"].create(
