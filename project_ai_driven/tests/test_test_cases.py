@@ -13,7 +13,7 @@ from odoo.exceptions import AccessError
 from odoo.tests.common import Form, tagged
 from odoo.tools.sql import column_exists
 
-from ..hooks import MODULE, convert_test_case_states, post_init_hook
+from ..hooks import MODULE, convert_test_case_states
 from .common import ProjectAiDrivenCommon
 
 MIGRATION_SCRIPT = Path(__file__).parents[1] / "migrations" / "16.0.2.5.0" / "post-migration.py"
@@ -481,11 +481,6 @@ class TestTestCaseStateConversion(ProjectAiDrivenCommon):
             "Test case states converted: 0 todo to not_run, 0 done to passed, 0 cancelled to not_applicable",
         )
         self.assertEqual(self._stored_rows(cases), rows)
-
-    def test_post_init_hook_converts(self):
-        case = self._store_cases(["done"])
-        post_init_hook(self.env.cr, self.env.registry)
-        self.assertEqual(case.state, "passed")
 
     def test_migration_script_converts_on_update_only(self):
         spec = importlib.util.spec_from_file_location("post_migration", MIGRATION_SCRIPT)

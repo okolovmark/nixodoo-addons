@@ -32,3 +32,5 @@ SQL inserts the rows as the superuser, in the order of the Html, without Answere
 - Rows have no chatter: a change of status or answer leaves no trace but the stamp.
 
 Reversal cost: declare the two Html fields again and write each task's rows back into them as text. The round, the addressee, the status and the stamps have no place there; a row kept whole goes back as it was.
+
+**2026-11-20:** from 16.0.2.18.0 the post-init hook converts no questions: there is no former module to take over. The migration still does on update.

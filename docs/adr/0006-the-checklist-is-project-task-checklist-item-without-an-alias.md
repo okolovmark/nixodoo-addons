@@ -21,3 +21,5 @@ Rejected: `project.task.checklist` and `checklist_ids`. A record is one item of 
   - 2026-11-16: 16.0.2.6.1 removes the activities (activities could not be scheduled on an item).
 
 Reversal cost: a rename of the same shape back, `rename_checklist` with the names swapped, and every client moved again in one deploy. `default_user` would have to be written again.
+
+**2026-11-20:** from 16.0.2.18.0 no install hook calls `rename_checklist`: there is no former module to take over. The migration still does on update.

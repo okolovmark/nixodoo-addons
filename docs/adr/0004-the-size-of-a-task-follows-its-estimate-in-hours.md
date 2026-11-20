@@ -30,3 +30,5 @@ Rejected: filling the hours of existing tasks from their size. A size says less 
 - The 20.0 branch gets the same change with `allocated_hours` in place of `planned_hours` when this work is forward-ported to it.
 
 Reversal cost: drop the compute and the rule and make the size editable again. The sizes picked by hand before this version are not recoverable from the database.
+
+**2026-11-20:** from 16.0.2.18.0 only the migration runs it; on an install the ORM computes the size when it adds the column.

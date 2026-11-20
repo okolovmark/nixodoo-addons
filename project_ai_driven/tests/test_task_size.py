@@ -254,12 +254,6 @@ class TestRecomputeTaskSizes(ProjectAiDrivenCommon):
         for task, hours in zip(tasks, all_hours):
             self.assertEqual(task.tshirt_estimate, get_size(hours), hours)
 
-    def test_post_init_hook_recomputes(self):
-        task = self._create_task(40)
-        self._store_size(task, "m")
-        post_init_hook(self.env.cr, self.env.registry)
-        self.assertEqual(task.tshirt_estimate, "xl")
-
     def _load_migration(self, path):
         spec = importlib.util.spec_from_file_location("post_migration", path)
         script = importlib.util.module_from_spec(spec)

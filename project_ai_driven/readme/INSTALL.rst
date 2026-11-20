@@ -1,29 +1,24 @@
-A database that has installed neither ``project_software`` nor the
-project-specific module it was cut from needs nothing beyond installing the
-module. What a database that has ``project_task_pull_request`` installed
-needs on top of that is under *Coming from project_task_pull_request*. What
-the install and the update to 16.0.2.2.0 write to the stage log for the
-tasks that exist is under *Filling the stage log*.
+A database needs nothing beyond installing the module. What a database that
+has ``project_task_pull_request`` installed needs on top of that is under
+*Coming from project_task_pull_request*. What the install and the update to
+16.0.2.2.0 write to the stage log for the tasks that exist is under *Filling
+the stage log*.
 
 The update to 16.0.2.3.0 deletes the fields ``difficulty``,
 ``knowledge_area_level`` and ``tester_id`` of ``project.task`` with their
-columns and the values in them; the install that takes over
-``project_software`` or the project-specific module it was cut from deletes
-them too. Beforehand the three fields are taken out of the stored views of
-this module; a view outside this module that names one of them is not
-rewritten: change it by hand.
+columns and the values in them. Beforehand the three fields are taken out
+of the stored views of this module; a view outside this module that names
+one of them is not rewritten: change it by hand.
 
 The update to 16.0.2.4.0 sets the **Size** (``tshirt_estimate``) of every
 task, archived tasks included, to the size of its hours
-(``planned_hours``); the install that takes over ``project_software`` or the
-project-specific module it was cut from does it too. One SQL statement
-stores the sizes and writes nothing else on the tasks: the task type, the
-hours and the last update date stay as they are. A task without hours ends
-with no size, and a size that disagrees with the hours of its task is
-replaced by theirs; the former value is not kept. The server log gets one
-line with the number of tasks changed; a second run changes none. On a
-database that has neither module installed, the install computes the size of
-the tasks that exist through the ORM, which writes those tasks.
+(``planned_hours``). One SQL statement stores the sizes and writes nothing
+else on the tasks: the task type, the hours and the last update date stay
+as they are. A task without hours ends with no size, and a size that
+disagrees with the hours of its task is replaced by theirs; the former value
+is not kept. The server log gets one line with the number of tasks changed;
+a second run changes none. The install computes the size of the tasks that
+exist through the ORM, which writes those tasks.
 
 The update to 16.0.2.4.1 sets to zero the hours (``planned_hours``) of
 every task that holds a NaN or an infinity, archived tasks included, and
@@ -36,20 +31,19 @@ install does the same.
 
 The update to 16.0.2.5.0 converts the **Status** of every test case: TODO
 becomes Not run, Done Passed, Cancelled Not applicable, and Waiting stays.
-The install that takes over ``project_software`` or the project-specific
-module it was cut from does it too. One SQL statement stores the values and
-writes nothing else on the cases: the last update date stays, and **Verified
-by**, **Verified on** and **Verification** stay empty on a converted case.
-The server log gets the number of cases converted per former value; a second
-run changes none. Odoo deletes the former values of the selection at the end
-of the update. A saved filter, a default or a server action that names a
-former value is not rewritten: change it by hand.
+One SQL statement stores the values and writes nothing else on the cases:
+the last update date stays, and **Verified by**, **Verified on** and
+**Verification** stay empty on a converted case. The server log gets the
+number of cases converted per former value; a second run changes none. Odoo
+deletes the former values of the selection at the end of the update. A
+saved filter, a default or a server action that names a former value is not
+rewritten: change it by hand.
 
 Beforehand the buttons of the former states (``change_state_*``) are taken
 out of the test case list of the stored task form of this module, in every
-translation; the update and the install that takes over would otherwise fail
-validating the task form. A view outside this module that names one of them
-is not rewritten: change it by hand.
+translation; the update would otherwise fail validating the task form. A
+view outside this module that names one of them is not rewritten: change it
+by hand.
 
 The update to 16.0.2.6.0 renames the checklist model ``project.task.subtask``
 to ``project.task.checklist.item``, its table to
@@ -57,9 +51,7 @@ to ``project.task.checklist.item``, its table to
 ``kanban_subtasks`` to ``checklist_item_ids`` and ``kanban_checklist``. The
 task field ``default_user`` is deleted. The former names are not kept: a
 client that names the former model gets *Object project.task.subtask doesn't
-exist*. The install that takes over ``project_software`` or the
-project-specific module it was cut from renames too. Before the data files
-are loaded, SQL renames, in every module:
+exist*. Before the data files are loaded, SQL renames, in every module:
 
 * the table with its sequence, constraints and indexes, and the
   registrations of the constraints;
@@ -114,10 +106,8 @@ no longer has activity fields. Before the data files are loaded, SQL
 deletes the activities of checklist items, the external ids ``mail`` holds
 on the selection values of those fields and the external ids other modules
 hold on the fields; at its end the update deletes the fields, which have no
-column. The install that takes over ``project_software`` or the
-project-specific module it was cut from does it too. The server log gets
-one line with the count of activities and of external ids deleted; a second
-run deletes nothing.
+column. The server log gets one line with the count of activities and of
+external ids deleted; a second run deletes nothing.
 
 From 16.0.2.6.1 a checklist item follows the access of its task, the
 companies selected in the company switcher included: the **Checklist** menu
@@ -128,9 +118,8 @@ deploy is one update of the module, with nothing else to run.
 
 The update to 16.0.2.7.0 turns the questions and answers of every task,
 archived tasks included, from the Html fields ``questions`` and ``answers``
-of the task into question rows. The install that takes over
-``project_software`` or the project-specific module it was cut from does it
-too. Html that shows no text, image, video, embedded frame or icon is blank.
+of the task into question rows. Html that shows no text, image, video,
+embedded frame or icon is blank.
 *Lists alone* is Html of top-level numbered or bulleted lists, each after at
 most one block of text, its heading, with nothing else: no other text, no
 image, video, embedded frame, icon or list in a heading, no list inside
@@ -243,9 +232,8 @@ read that names it. It has no migration, adds no column, stores nothing and
 writes nothing on existing records.
 
 The update to 16.0.2.15.0 deletes the test case field **Passed**
-(``passed``) with its column, at its end; the install that takes over
-``project_software`` or the project-specific module it was cut from deletes
-it too. A create or write that sends ``passed``, or a former state value
+(``passed``) with its column, at its end. A create or write that sends
+``passed``, or a former state value
 (``todo``, ``done``, ``cancelled``), fails with Odoo's ``ValueError``. Before
 the data files are loaded, the pre-migration takes ``passed`` out of the
 stored views of this module, in every translation, the test case sub-views
@@ -295,38 +283,14 @@ cleared and renewed. A run with ``test_enable`` changes nothing, since
 keys are off in a test run: run the update without it, or call
 ``_renew_stale_keys`` on ``project.task`` from a shell afterwards.
 
-**Upgrading from project_software**
+The update to 16.0.2.18.0 has no migration and writes nothing on existing
+records; it can run with the server up. From it the install no longer takes
+over ``project_software``, the former name of this module, nor the module it
+was cut from.
 
-``project_software`` is the former name of this module. The release that
-renamed it kept ``project_software`` as an empty module that depended on
-this one, so that updating it installed this module; the release after it
-removed the empty module.
+**Taking over a renamed module**
 
-* A database updated through the rename release has both installed,
-  ``project_software`` owning nothing. Uninstall ``project_software`` once
-  no installed module depends on it, and drop it from ``addons.yaml``. With
-  its code gone and the module still installed, Odoo logs ``Some modules are
-  not loaded, some dependencies or manifest may be missing`` at every start
-  until it is uninstalled.
-* A database from before the rename installs this module (``-i
-  project_ai_driven``) with the server stopped. Before any data file is
-  loaded, the ``pre_init_hook`` takes over everything ``project_software``
-  owns: models, fields, views, access rights, menus and message subtypes
-  keep their database ids, so checklist items, test cases, field values and
-  follower subscriptions stay as they are. It renames the flag where the
-  database stores it: the column, the field on every model that has it, and
-  the view archs, record rule domains, filters and window actions that name
-  it. ``project_software`` is then empty and is uninstalled as above.
-* A module that depends on ``project_software`` switches, in the same
-  deploy, its dependency and its external id references to
-  ``project_ai_driven`` and the flag to ``is_ai_driven``. The hook rewrites
-  its stored views; data files with the former name would write it back.
-  The view ``project_project_view_form_inherit_software`` is now
-  ``project_project_view_form_inherit_ai_driven``.
-* Text naming the flag elsewhere (server action code, automated action
-  domains, export templates) is not rewritten: change it by hand.
-
-A dependent module that is renamed as well can call three functions of
+A module that replaces another under a new name can call three functions of
 ``odoo.addons.project_ai_driven.hooks`` from its own ``pre_init_hook``:
 
 * ``is_installed(cr, module_name)``: whether a module is installed or marked
@@ -336,12 +300,6 @@ A dependent module that is renamed as well can call three functions of
   loaded from its files. The caller clears the registry caches.
 * ``rename_external_ids(cr, module, renamed_names)``: renames external ids
   of ``module`` from a ``{former name: new name}`` dict.
-
-**Upgrading from the module it was cut from**
-
-On a database from before the features were cut from the project-specific
-module, where ``project_software`` was never installed, the hook takes over
-only what moved here and renames the flag the same way.
 
 **Coming from project_task_pull_request**
 

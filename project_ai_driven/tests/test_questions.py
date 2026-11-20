@@ -12,7 +12,7 @@ from odoo.exceptions import AccessError
 from odoo.tests.common import Form, tagged
 from odoo.tools.sql import column_exists, rename_column
 
-from ..hooks import MODULE, QUESTION_CASES, QUESTION_COLUMNS, convert_questions_to_rows, post_init_hook
+from ..hooks import MODULE, QUESTION_CASES, QUESTION_COLUMNS, convert_questions_to_rows
 from ..models.project_task_image_mixin import ImageMover, get_image_source
 from ..models.project_task_question import is_blank_html
 from .common import ProjectAiDrivenCommon
@@ -782,11 +782,6 @@ class TestQuestionConversion(ProjectAiDrivenCommon):
             [record.getMessage() for record in logs.records],
             ["Questions and answers not converted to question rows: project_task has no column questions, answers"],
         )
-
-    def test_post_init_hook_converts(self):
-        task = self._store(FREE_TEXT)
-        post_init_hook(self.env.cr, self.env.registry)
-        self.assertEqual(self._rows(task), [(False, *FREE_TEXT, "answered")])
 
     def test_migration_script_converts_on_update_only(self):
         script = _load_script(MIGRATION_SCRIPT)

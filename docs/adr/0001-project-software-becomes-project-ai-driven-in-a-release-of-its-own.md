@@ -24,3 +24,5 @@ Rejected: a hard cut without the empty module. A database that has `project_soft
 Reversal cost: another rename release of the same shape, a hook and an empty module for one release.
 
 **2026-11-18:** the empty `project_software` was removed in the release after the rename. The take-over in the `pre_init_hook` of `project_ai_driven` stays: it runs only when the module is installed, so a database that already runs `project_ai_driven` is not touched either way, and it remains the tested take-over for installing `project_ai_driven` on a database from before the rename; its tests create the old module rows they need, so they pass without the empty module. Removing it would rewrite the hook and its tests for no runtime gain.
+
+**2026-11-20:** the take-over left the install hooks in 16.0.2.18.0, the owner's decision: `project_software` and the module it was cut from are uninstalled wherever this module runs. A database from before the rename installs 16.0.2.17.3, the last version that takes over, and is then updated. `is_installed`, `take_over_module` and `rename_external_ids` stay as helpers other modules call.
