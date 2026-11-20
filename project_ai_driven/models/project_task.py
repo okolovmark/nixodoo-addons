@@ -102,9 +102,9 @@ class ProjectTask(models.Model):
     checklist_item_ids = fields.One2many(
         "project.task.checklist.item", "task_id", string="Checklist", groups="project.group_project_user"
     )
-    completion = fields.Integer("Completion", compute="_compute_completion")
-    completion_xml = fields.Html(compute="_compute_completion_xml")
-    kanban_checklist = fields.Html(compute="_compute_kanban_checklist")
+    completion = fields.Integer("Completion", compute="_compute_completion", groups="project.group_project_user")
+    completion_xml = fields.Html(compute="_compute_completion_xml", groups="project.group_project_user")
+    kanban_checklist = fields.Html(compute="_compute_kanban_checklist", groups="project.group_project_user")
     testcase_ids = fields.One2many("project.task.testcase", "task_id", groups="project.group_project_user")
     question_ids = fields.One2many(
         "project.task.question", "task_id", string="Questions", groups="project.group_project_user"
@@ -112,9 +112,9 @@ class ProjectTask(models.Model):
     session_ids = fields.One2many(
         "project.task.session", "task_id", string="Sessions", groups="project.group_project_user"
     )
-    testcase_completion = fields.Integer(compute="_compute_testcase_completion")
-    testcase_completion_xml = fields.Html(compute="_compute_testcase_completion")
-    kanban_testcases = fields.Html(compute="_compute_kanban_testcases")
+    testcase_completion = fields.Integer(compute="_compute_testcase_completion", groups="project.group_project_user")
+    testcase_completion_xml = fields.Html(compute="_compute_testcase_completion", groups="project.group_project_user")
+    kanban_testcases = fields.Html(compute="_compute_kanban_testcases", groups="project.group_project_user")
     testcase_general_comments = fields.Html()
     pull_request_ids = fields.Many2many(
         "project.pull.request",
@@ -368,6 +368,11 @@ class ProjectTask(models.Model):
                 task._add_line_values(vals, keep_progress)
         return vals_list
 
+    def copy(self, default=None):
+        copied_tasks = super().copy(default=default)
+        self._write_case_verifications_on_copies(copied_tasks, default or {})
+        return copied_tasks
+
     @api.model
     def _create(self, data_list):
         tasks = super()._create(data_list)
@@ -506,6 +511,33 @@ class ProjectTask(models.Model):
             for field_name in field_names
             if self.has_field_access(self._fields[field_name], "read")
         }
+
+    def _write_case_verifications_on_copies(self, copied_tasks, default):
+        """Give each Not run case of copied_tasks, sub-tasks included, the
+        verification of its source case, which its create took back. A copy
+        from or into a template has none to keep.
+        """
+        if self._is_template_copy() or not self.has_field_access(self._fields["testcase_ids"], "read"):
+            return
+        for case, case_copy in self._get_copied_case_pairs(copied_tasks, default, copied_tasks):
+            case._write_verification_on_copy(case_copy)
+
+    def _get_copied_case_pairs(self, copied_tasks, default, new_tasks):
+        """Yield each case of self and of their sub-tasks with its copy, as
+        copy_data creates them: the cases of a task in order, then its active
+        sub-tasks in order, none of either that default gives. new_tasks are
+        left out of a source's sub-tasks: a sub-task copied along with its
+        parent keeps that parent.
+
+        Not core's _create_task_mapping: it pairs archived sub-tasks and
+        new_tasks too, and its dict drops a sub-task copied with its parent.
+        """
+        for task, copied_task in zip(self, copied_tasks):
+            if "testcase_ids" not in default:
+                yield from zip(task.testcase_ids, copied_task.testcase_ids.sorted("id"))
+            if not default.get("child_ids"):
+                source_subtasks = task.child_ids.filtered("active") - new_tasks
+                yield from source_subtasks._get_copied_case_pairs(copied_task.child_ids.sorted("id"), {}, new_tasks)
 
     @api.model
     def _without_size(self, vals):

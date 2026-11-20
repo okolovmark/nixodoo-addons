@@ -74,8 +74,9 @@
                 <field name="completion_xml" />
                 <field name="kanban_checklist" />
             </templates>
+            <!-- the fields' groups drop their nodes, the template goes with them: an extension view takes no groups -->
             <xpath expr="//footer" position="before">
-                <div>
+                <div groups="project.group_project_user">
                     <t t-out="record.completion_xml.raw_value" />
                     <t t-out="record.kanban_checklist.raw_value" />
                 </div>

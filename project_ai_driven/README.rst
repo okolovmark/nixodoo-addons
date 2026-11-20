@@ -116,11 +116,14 @@ keys of the context, which are the task's.
 
 The task's kanban card shows the current user's completion percentage over
 their non-cancelled items and the number of their TODO and Waiting items.
-These figures, the buttons of an item and the red of one's own TODO items
-are computed for the user who reads them, also where two users read the
-same task in one transaction. The **Checklist** menu opens on your own TODO
-items (the *My* and *TODO* filters are on by default); remove those filters
-to see every item you can read.
+Only users with the **User** access of *Project* read these figures, the
+task fields ``completion``, ``completion_xml`` and ``kanban_checklist``,
+and see them on the card; an internal user without that access reads every
+other field of the task. These figures, the buttons of an item and the red
+of one's own TODO items are computed for the user who reads them, also
+where two users read the same task in one transaction. The **Checklist**
+menu opens on your own TODO items (the *My* and *TODO* filters are on by
+default); remove those filters to see every item you can read.
 
 An item that turns out to be work of its own is converted into a sub-task of
 its task (``action_convert_to_subtask``):
@@ -170,11 +173,15 @@ Passed, Failed, Waiting or Not applicable.
 * **Verified by** and **Verified on**: who gave the last Passed or Failed,
   and when. A create or write that sets Passed or Failed fills them with the
   user who makes it, also under ``sudo()``, and the current time; a value
-  the same call gives is kept. Passed or Failed given again is a new
-  verification. Not run clears them and **Verification**; Waiting and Not
-  applicable leave them.
+  the same call gives is kept. A case created Passed or Failed by a
+  default, of the context or of ``ir.default``, is filled the same way.
+  Passed or Failed given again is a new verification. A create or write
+  that gives Not run clears them and **Verification**, also a value the
+  same call gives; Waiting and Not applicable leave them.
 * **Verification**: Manual, Automated test or Demo. A result button other
-  than Not run sets it to Manual when it is empty.
+  than Not run sets it to Manual when it is empty. A case prepared for its
+  run keeps the Verification it is given: a case created without a Status,
+  or a Not run case given a Verification alone.
 * **Automated test reference**: the automated test that verifies the case,
   such as a test selector. Not run leaves it.
 
@@ -182,8 +189,12 @@ A case follows the access of its task as a checklist item does, through two
 access rights with the same domains. The task carries general comments and
 a completion percentage: its Passed cases over all its cases but the Not
 applicable ones. Its kanban card counts the cases Not run, Failed and
-Waiting. The **Test Cases** menu opens filtered on the cases Not run; remove
-the *Not run* filter to see all those you can read.
+Waiting. As for the checklist, only users with the **User** access of
+*Project* read the percentage and the counts, the task fields
+``testcase_completion``, ``testcase_completion_xml`` and
+``kanban_testcases``, and see them on the card. The **Test Cases** menu
+opens filtered on the cases Not run; remove the *Not run* filter to see all
+those you can read.
 
 **Questions** (``project.task.question``)
 
@@ -256,7 +267,9 @@ give its own. What a line keeps depends on the copy:
 * A plain duplicate of a task, a project or a template of either keeps every
   line as it is: an item with its state and deadline, a case with its
   result, Verified by, Verified on, Verification and Comments, a row with
-  its answer, status, Answered by and Answered on.
+  its answer, status, Answered by and Answered on. A case keeps them under
+  any default Status the copy is made with, of the context or of
+  ``ir.default``, and a Not run case keeps its Verification.
 * A task or a project created from a template, and a project template made
   from a project, start the lines from zero: items TODO without deadline,
   cases Not run without verification and comments, rows Open without
@@ -745,11 +758,11 @@ The module's models, fields and selection values carry the names of the
 * Checklist items, question rows, session rows and test cases follow the
   access of their task through the domains of their access rights, with the
   ``access`` operator of Odoo 20: reading follows the read access of the
-  task, a change its write access. On 16.0 items, question rows and session
-  rows follow the read access of their task for every operation, through
-  two ORM overrides in ``project.task.access.mixin``, which this branch does
-  not have, and test cases follow none: every project user reaches every
-  case. On 16.0 an item deleted meanwhile passes the access check.
+  task, a change its write access. On 16.0 items, question rows, session
+  rows and test cases follow the read access of their task for every
+  operation, through two ORM overrides in ``project.task.access.mixin``,
+  which this branch does not have. On 16.0 an item deleted meanwhile passes
+  the access check.
 * This branch has neither ``is_task_readable`` nor the grouped read of
   messages that 16.0 opens to project users on a domain naming it: Odoo 20
   groups messages for any user. A client that names ``is_task_readable``
@@ -990,8 +1003,9 @@ Configuration
   they can read and creates, changes and deletes those of the tasks they can
   change: core lets a project user read every task template without
   project, and so its lines, but change them only where the template may be
-  changed. The Checklist, Test Cases, Technical Solution and Sessions tabs
-  are hidden from users without that access.
+  changed. The Checklist, Test Cases, Technical Solution and Sessions tabs,
+  and the checklist and test case figures of the task's kanban card, are
+  hidden from users without that access.
 * **Project > Task Notes** and the **Notes** button of the task form are
   shown to users with the **User** access of *Project*. They list the notes
   of the tasks the user can read; the menu leaves out those of templates.
@@ -1191,7 +1205,12 @@ A tool that gives test case results over RPC writes ``state`` on
 of ``passed`` or ``failed`` fills ``verified_by_id`` and ``verified_on``
 unless it sends them. It sends ``verification_kind`` (``manual``,
 ``automated`` or ``demo``) and ``test_reference`` with the result: only the
-buttons set ``manual`` by themselves.
+buttons set ``manual`` by themselves. A create or write that sends
+``not_run`` clears ``verified_by_id``, ``verified_on`` and
+``verification_kind``, also the values it sends for them, and leaves
+``test_reference``. To prepare a case with its kind before its run, create
+it without ``state``, or write ``verification_kind`` alone on a case Not
+run: the case keeps it.
 
 A tool reads the notes of one category of a task with ``search_read`` on
 ``mail.message``, the domain ``[("task_id", "=", <task id>),
