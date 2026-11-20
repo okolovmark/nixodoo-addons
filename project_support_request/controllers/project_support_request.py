@@ -72,12 +72,15 @@ class SupportRequestController(http.Controller):
     @http.route("/project_support_request/config", type="jsonrpc", auth="user", methods=["POST"])
     def get_config(self, **kwargs):
         """The support project, the user and the task types the widget builds its domains and
-        its type picker from.
+        its type picker from, and the labels of the priority levels its dots are titled with.
         """
         return {
             "project_id": self._get_support_project_id() or False,
             "uid": request.env.uid,
             "task_types": [{"value": value, "label": label} for value, label in self._get_task_types()],
+            "priority_levels": dict(
+                request.env["project.task"]._fields["priority_level"]._description_selection(request.env)
+            ),
         }
 
     @http.route("/project_support_request/create", type="jsonrpc", auth="user", methods=["POST"])

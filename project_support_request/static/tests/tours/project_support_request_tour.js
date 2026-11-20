@@ -1,4 +1,6 @@
+import { cookie } from "@web/core/browser/cookie";
 import { registry } from "@web/core/registry";
+import { user } from "@web/core/user";
 
 registry.category("web_tour.tours").add("project_support_request_tour", {
     url: "/odoo",
@@ -54,4 +56,98 @@ registry.category("web_tour.tours").add("project_support_request_tour", {
             trigger: "body:has(.o_form_view) .o_breadcrumb:contains(Tour new request)",
         },
     ],
+});
+
+function companySelection() {
+    return `${user.activeCompanies.map((company) => company.id)} (cookie ${cookie.get("cids")})`;
+}
+
+// Filed in a company the user has not selected, or is not allowed in.
+registry.category("web_tour.tours").add("project_support_request_other_company_tour", {
+    url: "/odoo",
+    steps: () => {
+        let startSelection;
+        // The form is read-only unless an access gives employees write on tasks, as project_todo's
+        // (auto-installed) does: the project shows as a link then, as an input otherwise.
+        const projectField =
+            ".o_form_view:has(.o_breadcrumb:contains(Request from another company)) .o_field_widget[name=project_id]";
+        return [
+            {
+                content: "Open the Support item",
+                trigger: ".o_support_request_systray",
+                run(helpers) {
+                    startSelection = companySelection();
+                    return helpers.click();
+                },
+            },
+            {
+                content: "Open the new ticket form",
+                trigger: ".o_support_request_menu button[name=new_ticket]",
+                run: "click",
+            },
+            {
+                content: "Give the request a title",
+                trigger: ".o_support_request_form input[name=name]",
+                run: "edit Request from another company",
+            },
+            {
+                content: "Create it",
+                trigger: ".o_support_request_form button[name=create]",
+                run: "click",
+            },
+            {
+                content: "The new request opens on its task form, its project named",
+                trigger: `${projectField}:contains(Project That Develops This Odoo), ${projectField} input:value(Project That Develops This Odoo)`,
+            },
+            {
+                content: "Open the Support item again",
+                trigger: ".o_support_request_systray",
+                run: "click",
+            },
+            {
+                content: "Open the request from the list",
+                trigger: ".o_support_request_ticket:contains(Request from another company)",
+                run: "click",
+            },
+            {
+                content: "It opens on its task form too",
+                trigger: ".o_form_view .o_breadcrumb .active:contains(Request from another company)",
+            },
+            {
+                content: "Open the Support item for the closed requests",
+                trigger: ".o_support_request_systray",
+                run: "click",
+            },
+            {
+                content: "View the closed requests",
+                trigger: ".o_support_request_menu button[name=view_closed]",
+                run: "click",
+            },
+            {
+                content: "Unfold the folded stage of the closed requests",
+                trigger: ".o_list_view .o_group_header:contains(Done)",
+                run: "click",
+            },
+            {
+                content: "The closed request is listed",
+                trigger: ".o_list_view .o_data_row .o_data_cell:contains(Closed request from another company)",
+                run: "click",
+            },
+            {
+                content: "It opens with its chatter, its message and the message's attachment",
+                trigger:
+                    ".o_form_view .o-mail-Message:contains(Screenshot of the error) .o-mail-AttachmentContainer:contains(error_screenshot.txt)",
+            },
+            {
+                content: "The company selection is the one the user started with",
+                trigger: ".o_form_view",
+                run() {
+                    const endSelection = companySelection();
+                    if (endSelection !== startSelection) {
+                        throw new Error(`The company selection changed from ${startSelection} to ${endSelection}`);
+                    }
+                },
+            },
+        ];
+    },
 });

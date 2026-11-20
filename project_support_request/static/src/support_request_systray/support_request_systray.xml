@@ -81,8 +81,12 @@
                         <button t-foreach="this.visibleTickets" t-as="ticket" t-key="ticket.id"
                                 class="o_support_request_ticket list-group-item list-group-item-action d-flex align-items-center gap-2"
                                 t-on-click="() => this.openTicket(ticket.id)">
+                            <t t-set="dotTitle" t-value="this.priorityTitle(ticket.priority_level)" />
                             <i class="oi oi-filled small"
                                t-att-class="this.priorityClass(ticket.priority_level)"
+                               t-att-title="dotTitle"
+                               t-att-aria-label="dotTitle"
+                               t-att-role="dotTitle and 'img'"
                                data-icon="circle" />
                             <div class="flex-grow-1 overflow-hidden">
                                 <div class="text-truncate">

@@ -168,6 +168,23 @@ class TestSupportRequest(TransactionCase):
             self._call_route(self.user_dev1, "create_request", name="  "), {"error": "Ticket title is required."}
         )
 
+    def test_the_config_names_each_priority_level(self):
+        self.assertEqual(
+            self._call_route(self.user_dev1, "get_config")["priority_levels"],
+            {"4": "Highest", "3": "High", "2": "Medium", "1": "Low", "0": "Lowest"},
+        )
+
+    def test_the_config_names_the_priority_levels_in_the_language_of_the_user(self):
+        self.env["res.lang"]._activate_lang("fr_FR")
+        priority_level_field = self.env["ir.model.fields"]._get("project.task", "priority_level")
+        priority_level_field.selection_ids.filtered(lambda option: option.value == "4").with_context(
+            lang="fr_FR"
+        ).name = "La plus haute"
+
+        priority_levels = self._call_route(self.user_dev1, "get_config", context={"lang": "fr_FR"})["priority_levels"]
+
+        self.assertEqual(priority_levels["4"], "La plus haute")
+
     def test_a_new_request_and_the_systray_carry_the_task_key(self):
         keys_on = {"test_project_key": True}
         self.project.with_context(**keys_on).key = "ZQS"
@@ -197,6 +214,42 @@ class TestSupportRequest(TransactionCase):
         self.assertEqual(
             [ticket["id"] for ticket in systray["tickets"]], task.ids, "the filer reads back the request filed for them"
         )
+
+    def test_a_filer_lists_their_requests_in_the_company_of_the_project_without_selecting_it(self):
+        current_company = self.env.ref("base.main_company")
+        support_company = self.env["res.company"].create({"name": "Support Company"})
+        self.project.develops_this_odoo = False
+        support_project = self.env["project.project"].create(
+            {"name": "Support Company Project", "is_ai_driven": True, "company_id": support_company.id}
+        )
+        support_project.develops_this_odoo = True
+        filer_in_both, filer_outside = self.env["res.users"].create(
+            [
+                {
+                    "name": name,
+                    "login": login,
+                    "group_ids": [Command.set([self.env.ref("base.group_user").id])],
+                    "company_id": current_company.id,
+                    "company_ids": [Command.set(companies.ids)],
+                }
+                for name, login, companies in (
+                    ("Filer In Both", "support_filer_in_both", current_company | support_company),
+                    ("Filer Outside", "support_filer_outside", current_company),
+                )
+            ]
+        )
+
+        current_only = {"allowed_company_ids": current_company.ids}
+
+        for filer in (filer_in_both, filer_outside):
+            with self.subTest(filer=filer.name):
+                ticket = self._call_route(filer, "create_request", context=current_only, name=f"Filed by {filer.name}")
+                systray = self._call_route(filer, "get_systray_requests", context=current_only, tab="bugs", limit=0)
+
+                request = self.env["project.task"].browse(ticket["ticket_id"])
+                self.assertEqual(request.company_id, support_company)
+                self.assertEqual([ticket_data["id"] for ticket_data in systray["tickets"]], request.ids)
+                self.assertTrue(request.with_user(filer).with_context(current_only).has_access("read"))
 
     def test_a_portal_user_gets_no_support_project_and_files_no_request(self):
         portal_user = self._portal_user()
