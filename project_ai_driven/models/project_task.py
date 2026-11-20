@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 from markupsafe import escape
 
 from odoo import Command, api, fields, models
-from odoo.exceptions import ValidationError
+from odoo.exceptions import AccessError, ValidationError
 from odoo.tools.misc import clean_context
 
 from .project_pull_request import parse_single_pull_request_link
@@ -20,6 +20,8 @@ OCCURRENCE_LINE_FIELDS = tuple(field_name for field_name in LINE_FIELDS if field
 NEXT_OCCURRENCE_CREATION = object()
 # Marked for an upgrade or a removal, a module is still installed.
 INSTALLED_MODULE_STATES = ("installed", "to upgrade", "to remove")
+# What the estimate rule asks for, which a portal user writes on the tasks of an AI-driven project only
+ESTIMATE_RULE_FIELDS = ("task_type", "allocated_hours")
 
 # The largest estimate in hours of each size.
 SIZE_BANDS = ((2, "xs"), (6, "s"), (12, "m"), (32, "l"), (60, "xl"), (float("inf"), "xxl"))
@@ -138,6 +140,11 @@ class ProjectTask(models.Model):
     # Nothing writes it on this branch: it holds what a database upgraded from 16.0 kept there.
     pr_legacy = fields.Char(string="PR (old value)", readonly=True, copy=False)
     pr_required_states = fields.Many2many(related="project_id.pr_required_states")
+    is_estimate_required = fields.Boolean(
+        compute="_compute_is_estimate_required",
+        compute_sudo=True,
+        help="The task sits in a stage its AI-driven project lists in Stages Requiring a Type and an Estimate.",
+    )
     resolution = fields.Selection(
         [
             ("code", "Code"),
@@ -167,6 +174,16 @@ class ProjectTask(models.Model):
         groups="project.group_project_user",
         help="The technical names of the modules, sorted, separated by commas.",
     )
+
+    @property
+    def TASK_PORTAL_READABLE_FIELDS(self):
+        # what the quick create of project sharing shows the type and estimate rule with
+        return super().TASK_PORTAL_READABLE_FIELDS | {"is_ai_driven", "is_estimate_required"}
+
+    @property
+    def TASK_PORTAL_WRITABLE_FIELDS(self):
+        # on the tasks of an AI-driven project only: _check_portal_estimate_rule_fields
+        return super().TASK_PORTAL_WRITABLE_FIELDS | set(ESTIMATE_RULE_FIELDS)
 
     @api.depends("allocated_hours")
     def _compute_tshirt_estimate(self):
@@ -267,9 +284,9 @@ class ProjectTask(models.Model):
             record.pr_uri = record.pull_request_ids._origin.sorted("id")[:1].url
 
     def _inverse_pr_uri(self):
-        for record in self:
-            if not record.pr_uri:
-                continue
+        links_per_url = {}
+        tasks_per_url = defaultdict(self.browse)
+        for record in self.filtered("pr_uri"):
             link = parse_single_pull_request_link(record.pr_uri)
             if not link:
                 raise ValidationError(
@@ -279,12 +296,28 @@ class ProjectTask(models.Model):
                         record.pr_uri,
                     )
                 )
-            pull_request = self.env["project.pull.request"]._find_or_create(link)
-            if pull_request not in record.pull_request_ids:
-                record.pull_request_ids = [Command.link(pull_request.id)]
+            links_per_url.setdefault(link.url, link)
+            tasks_per_url[link.url] |= record
+        for url, tasks in tasks_per_url.items():
+            pull_request = self.env["project.pull.request"]._find_or_create(links_per_url[url])
+            tasks_without_pull_request = tasks.filtered(lambda task: pull_request not in task.pull_request_ids)
+            if tasks_without_pull_request:
+                tasks_without_pull_request.write({"pull_request_ids": [Command.link(pull_request.id)]})
         # The value written names a pull request to add; the field goes on reading the first one.
         with self.env.protecting([self._fields["pr_uri"]], self):
             self._compute_pr_uri()
+
+    @api.depends(
+        "stage_id",
+        "project_id.is_ai_driven",
+        "project_id.estimate_required_states",
+        "has_template_ancestor",
+        "has_project_template",
+    )
+    def _compute_is_estimate_required(self):
+        required_tasks = self._filter_estimate_rule_tasks()
+        for record in self:
+            record.is_estimate_required = record in required_tasks
 
     # message_ids clears only the count cached within a transaction: an open form shows a new note on reload
     @api.depends("message_ids")
@@ -320,6 +353,9 @@ class ProjectTask(models.Model):
     def create(self, vals_list):
         vals_list, new_items_per_task = self._split_checklist_item_creations(vals_list)
         tasks = super().create(vals_list)
+        # The caller's env: core may return a portal user's tasks in sudo, which the check would skip.
+        tasks.with_env(self.env)._check_portal_estimate_rule_fields(vals_list, defaults=True)
+        tasks._restore_given_estimates(vals_list)
         # Sudo: a default of the context may set modules too, and a read checks the field's groups.
         tasks._check_modules_installed(tasks.sudo().module_ids)
         if not is_next_occurrence_creation(self.env):
@@ -331,11 +367,13 @@ class ProjectTask(models.Model):
 
     def write(self, vals):
         vals = self._without_size(vals)
-        former_stages = self._get_former_stages(vals)
+        former_projects_and_stages = self._get_former_projects_and_stages(vals)
         former_modules = self._get_former_modules(vals)
         result = super().write(vals)
+        self._check_portal_estimate_rule_fields([vals] * len(self))
+        self._restore_given_estimates([vals] * len(self))
         self._check_modules_installed(self._get_added_modules(former_modules))
-        moved_tasks = self._filter_moved_from(former_stages)
+        moved_tasks = self._filter_moved_from(former_projects_and_stages)
         moved_tasks._apply_closing_rule()
         moved_tasks._apply_estimate_rule()
         return result
@@ -386,6 +424,20 @@ class ProjectTask(models.Model):
         """
         self._log_stage_moves(vals_list)
         return super()._write_multi(vals_list)
+
+    @api.model
+    def _get_view(self, view_id=None, view_type="form", **options):
+        """A portal user's views keep the fields of the estimate rule read-only
+        on a task outside an AI-driven project: a new task, a sub-task added in
+        a list included, would send them, and the save would be refused. Core
+        caches the views of the portal apart (_get_view_cache_key).
+        """
+        arch, view = super()._get_view(view_id, view_type, **options)
+        if self.env.user._is_portal() and view_type != "search":
+            for node in self._get_estimate_rule_field_nodes(arch):
+                readonly = node.get("readonly")
+                node.set("readonly", "(%s) or not is_ai_driven" % readonly if readonly else "not is_ai_driven")
+        return arch, view
 
     def action_open_notes(self):
         self.ensure_one()
@@ -576,16 +628,96 @@ class ProjectTask(models.Model):
             return vals
         return {field_name: value for field_name, value in vals.items() if field_name != "tshirt_estimate"}
 
-    def _get_former_stages(self, vals):
-        """Return {task id: stage} when vals may move the tasks to another stage:
-        a project change recomputes the stage.
+    def _check_portal_estimate_rule_fields(self, vals_list, defaults=False):
+        """Refuse a portal user the fields of the estimate rule on a task whose
+        project, once saved, is not AI-driven: core lets the portal write
+        neither, this module both for the quick create of AI-driven projects.
+        vals_list holds the values of each task; with defaults, the default_
+        keys of the context count as given, as core checks them on create.
         """
-        if "stage_id" not in vals and "project_id" not in vals:
-            return {}
-        return {record.id: record.stage_id for record in self}
+        if self.env.su or not self.env.user._is_portal():
+            return
+        default_fields = set()
+        if defaults:
+            default_fields = {key.removeprefix("default_") for key in self.env.context if key.startswith("default_")}
+        refused_tasks = self.browse(
+            task.id
+            for task, vals in zip(self.sudo(), vals_list)
+            if (vals.keys() | default_fields) & set(ESTIMATE_RULE_FIELDS) and not task.project_id.is_ai_driven
+        )
+        if refused_tasks:
+            raise AccessError(
+                self.env._(
+                    "Only the tasks of an AI-driven project take a Task Type and an Estimate from you.\nTasks: %s",
+                    ", ".join(refused_tasks.mapped("display_name")),
+                )
+            )
 
-    def _filter_moved_from(self, former_stages):
-        return self.filtered(lambda record: record.id in former_stages and record.stage_id != former_stages[record.id])
+    @api.model
+    def _get_estimate_rule_field_nodes(self, arch):
+        """The nodes of the fields of the estimate rule in arch, those of a task:
+        in the view, or in a list of tasks inside it.
+        """
+        return [
+            node
+            for node in arch.iter("field")
+            if node.get("name") in ESTIMATE_RULE_FIELDS
+            and all(
+                getattr(self._fields.get(container.get("name")), "comodel_name", None) == self._name
+                for container in node.iterancestors("field")
+            )
+        ]
+
+    def _restore_given_estimates(self, vals_list):
+        """Give each task back the Estimate its values set where the inverse of
+        display_name, run after the stored fields, changed it: hr_timesheet reads
+        one from a title such as "Fix 2h". An Estimate of zero is none given.
+        """
+        for task, vals in zip(self, vals_list):
+            given_hours = vals.get("allocated_hours")
+            if "display_name" in vals and given_hours and task.allocated_hours != given_hours:
+                task.allocated_hours = given_hours
+
+    def _get_former_projects_and_stages(self, vals):
+        """Return {task id: (project, stage)} for the tasks vals may move to
+        another project or stage: a project change recomputes the stage. In
+        Odoo 20 project_id alone moves a task, a sub-task included, as
+        display_in_project only shows it. A new parent_id stays out: ADR 0002
+        leaves that move unchecked, and so does a project and a stage that only
+        follow it, sent along by a client other than the form (which sends the
+        parent alone).
+        """
+        if not vals.keys() & {"stage_id", "project_id"}:
+            return {}
+        return {
+            record.id: (record.project_id, record.stage_id) for record in self if not record._follows_new_parent(vals)
+        }
+
+    def _follows_new_parent(self, vals):
+        """Whether vals give this task a parent, its project, and no stage but
+        the one core gives the task there: the values core computes from a new
+        parent for a sub-task that does not show in a project of its own.
+        """
+        self.ensure_one()
+        if not vals.get("parent_id") or "project_id" not in vals or self.display_in_project:
+            return False
+        parent_project = self.browse(vals["parent_id"]).sudo().project_id
+        if (vals["project_id"] or False) != parent_project.id:
+            return False
+        stage = self.sudo().stage_id
+        if parent_project not in stage.project_ids:
+            stage = parent_project._get_default_task_stage() if parent_project else stage.browse()
+        return "stage_id" not in vals or (vals["stage_id"] or False) == stage.id
+
+    def _filter_moved_from(self, former_projects_and_stages):
+        """Return the tasks whose project or stage changed. A task enters a
+        stage also when it keeps it in another project: core keeps the stage
+        when the new project has it too.
+        """
+        return self.filtered(
+            lambda record: record.id in former_projects_and_stages
+            and (record.project_id, record.stage_id) != former_projects_and_stages[record.id]
+        )
 
     def _get_former_modules(self, vals):
         if "module_ids" not in vals:

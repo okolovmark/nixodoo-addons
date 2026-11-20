@@ -25,7 +25,8 @@ task from them) and **Backlog Stage** (tasks there form the backlog).
   is set): today, what is overdue, the dates on the cards, in the Gantt
   chart and in the Excel export, and the day a deadline-only task is drawn
   on. A member's hours logged *Today* and their estimated completion count
-  from the member's own day: their time zone, else their employee's.
+  from the member's own day, the one Odoo dates their timesheets on: their
+  time zone, else UTC.
 
 **Planned dates and sub-tasks**
 
@@ -68,8 +69,9 @@ and grey while the task is Waiting. Filters *My Tasks*, *Unassigned*,
 *Blocked* (Waiting) and *Overdue* (planned end before today), groupings by
 Assignee, Start Date, Project and Type. Project users also search it by
 **Module**, a module's technical name or title, as in the task search of
-``project_ai_driven``. It opens filtered on the user's **Default Dashboard
-Project** and on unassigned tasks. **Estimate (h)** is the task's
+``project_ai_driven``. It opens filtered on unassigned tasks and on the
+user's **Default Dashboard Project**, when that project is not archived and
+the user reads it in the selected companies. **Estimate (h)** is the task's
 **Estimate** (``allocated_hours``), and **Size** the size
 ``project_ai_driven`` computes from it.
 
@@ -111,7 +113,9 @@ its settings and the window it shows, across a switch between cards and
 chart and a return through the breadcrumb.
 
 Users carry a **Default Dashboard Project**, editable from their
-preferences; the dashboard and the Backlog open on it.
+preferences; the dashboard and the Backlog open on it while the user finds
+it among the active projects of the selected companies, the dashboard
+otherwise on the first project found.
 
 **The Team Dashboard as a record**
 
@@ -225,8 +229,9 @@ first chart shown; the library injects its own styles.
 * **Sub-tasks**: grouped by task, user or stage, a sub-task row is nested
   under its parent's row when both fall in the same group. Otherwise the
   sub-task is a top-level row labelled "sub-task of <parent key>" (its name
-  when it has no key), also when the user cannot read the parent: the label
-  is all the chart shows of it.
+  when it has no key), also when the user cannot read the parent, or reads
+  it as a follower in a project they cannot read: the label is all the
+  chart shows of it.
 * **Unscheduled (N)**: open tasks with no planned dates and no deadline are
   listed in a collapsed group at the end of the chart, where a click on a
   name opens the task, and counted in a *tasks without dates* button that

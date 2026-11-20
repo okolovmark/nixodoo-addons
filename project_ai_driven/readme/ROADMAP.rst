@@ -8,8 +8,10 @@
 * Deleting a module from the module list, which Odoo refuses for a module
   installed or about to be, takes it off every task that held it.
 * The closing rule and the estimate rule are checked on the tasks of a write
-  that names their stage or their project. A stage recomputed for another
-  reason is not checked, as for a subtask whose parent changes project.
+  that names their stage or their project, but for a sub-task given a parent
+  with the project and the stage that follow from it. A stage recomputed
+  for another reason is not checked, as for a sub-task whose parent changes
+  project or that gets another parent.
 * A module that writes a task's new project on its own, before the other
   values of the same write, runs both rules before the Resolution, the task
   type and the estimate of that write arrive. Setting them in an earlier
@@ -40,8 +42,8 @@
   other projects included. The same task opened from another list passes
   nothing.
 * Leaving template status is not a change of stage: a task template undone,
-  a project template turned back into a project or a template task moved to
-  another project keeps its stage unchecked by either rule.
+  and the tasks of a project template turned back into a project, keep
+  their stage unchecked by either rule.
 * A sub-task that sits in a marked stage without what the stage requires
   stops a project template being made from its project, as it stops the
   duplication of the project: core creates its copy in that project first.
@@ -81,16 +83,23 @@
   request, also under ``sudo()``.
 * The stage name of a row is the source-language name (``en_US``) of the
   stage when the row was written.
-* An image is attached once per save: the same image pasted again in a later
-  save becomes another attachment of the record.
-* Only the ``src`` of an ``<img>`` is read. An image in a ``srcset``, a
-  ``<picture>`` source or a CSS background stays as it is, inline or linked,
-  and so does an absolute link to another record's image
-  (``https://<host>/web/image/<id>``): a copy of the text still links the
-  source record's attachment.
-* A file of another record linked as ``/web/content/<id>`` keeps pointing at
-  that record's attachment in a copied text, and the link breaks when that
-  record is deleted.
+* A link to another record's image or file on a host or port other than
+  that of the task's base url stays as it is: a copy of the text still links
+  the source record's attachment, and the link breaks when that record is
+  deleted.
+* An image in another attribute (a ``poster``, a ``data-*`` other than the
+  original of an edited image) or in an HTML comment is not read and stays
+  as it is, inline or linked. Neither is a ``<style>`` element,
+  which the sanitizer drops.
+* A file link is copied only where a new record, or a row moved to another
+  task, copies images: a write that pastes one leaves it pointing at the
+  other record.
+* A link is copied in the forms ``/web/image/<id>`` and ``/web/content/<id>``
+  only: the other forms the brief reads, such as
+  ``/web/content/ir.attachment/<id>/datas`` or ``/web/content?id=<id>``,
+  stay as they are.
+* A large image that a copied text both shows and links as a file gives
+  the new record two attachments: the image resized, the file as uploaded.
 * An image taken out of a text stays an attachment of its record.
 * The brief removes tokens from a url that stands as a word of a text or of
   code on a best-effort basis: a url split by markup (bold, a line break),

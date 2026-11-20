@@ -647,14 +647,14 @@ class TestDashboardDayOfTheUser(TeamDashboardCommon):
                 )
 
     @freeze_time("2026-11-24 10:30:00")
-    def test_a_viewer_without_hr_rights_dates_each_member_on_the_day_of_their_timesheets(self):
-        """It is Monday in Pago Pago, Tuesday in Brussels and Wednesday in Kiritimati."""
+    def test_each_member_is_dated_on_the_day_core_dates_their_timesheet_lines_on(self):
+        """It is Monday in Pago Pago, Tuesday in UTC and Wednesday in Kiritimati."""
         viewer = self.env["res.users"].create(
             dict(
                 self._user_vals(
                     "Viewer", ["base.group_user", "project.group_project_user", "hr_timesheet.group_hr_timesheet_user"]
                 ),
-                tz="Europe/Brussels",
+                tz="Pacific/Kiritimati",
             )
         )
         user_without_employee = self.env["res.users"].create(self._user_vals("No Employee", ["base.group_user"]))
@@ -664,8 +664,6 @@ class TestDashboardDayOfTheUser(TeamDashboardCommon):
         (self.user_dev2 | user_without_employee).partner_id.tz = False
         self.employee_dev2.version_id.tz = "Pacific/Pago_Pago"
         members = (self.user_dev1 | self.user_dev2 | user_without_employee).with_user(viewer)
-        # employee_id is cached as the superuser computed it: the viewer computes it afresh
-        self.env.invalidate_all()
 
         member_today_by_user = (
             self.env["project.project"]
@@ -678,8 +676,15 @@ class TestDashboardDayOfTheUser(TeamDashboardCommon):
             member_today_by_user,
             {
                 self.user_dev1.id: date(2026, 11, 23),
-                self.user_dev2.id: date(2026, 11, 23),
-                user_without_employee.id: date(2026, 11, 25),
+                self.user_dev2.id: date(2026, 11, 24),
+                user_without_employee.id: date(2026, 11, 24),
             },
-            "the member's own timezone, else their employee's, else the one the viewer's client sends",
+            "the member's own timezone, else UTC, whatever their employee's or the viewer's",
         )
+        for member in members:
+            # the context the web client sends: the stored timezone only
+            AnalyticLine = self.env["account.analytic.line"].with_user(member).with_context(tz=member.tz)
+            with self.subTest(member=member.name):
+                self.assertEqual(
+                    fields.Date.to_date(AnalyticLine.default_get(["date"])["date"]), member_today_by_user[member.id]
+                )

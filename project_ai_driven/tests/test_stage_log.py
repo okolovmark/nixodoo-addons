@@ -98,6 +98,53 @@ class TestStageLog(ProjectAiDrivenCommon):
             ],
         )
 
+    def test_move_is_logged_with_its_date_and_its_user(self):
+        task = self._create_task()
+        with freeze_time("2030-01-06 11:30:00"):
+            task.with_user(self.user_lead).stage_id = self.stage_progress
+            rows = self._rows(task)
+        self.assertEqual(len(rows), 2, "the create and the move")
+        self.assertRecordValues(
+            rows[-1],
+            [
+                {
+                    "task_id": task.id,
+                    "previous_stage_id": self.stage_new.id,
+                    "stage_id": self.stage_progress.id,
+                    "stage_name": "In Progress",
+                    "date": datetime(2030, 1, 6, 11, 30),
+                    "user_id": self.user_lead.id,
+                    "source": "live",
+                }
+            ],
+        )
+
+    def test_deleted_user_leaves_the_rows_without_a_user(self):
+        leaving_user = self._create_project_user(
+            "Leaving Developer", "project_ai_driven_leaving", "leaving@example.com"
+        )
+        # an assignee: a module may let only the assignees and the project manager move a task
+        task = self._create_task(user_ids=[Command.link(leaving_user.id)])
+        task.with_user(leaving_user).stage_id = self.stage_progress
+        rows = self._rows(task)
+        self.assertRecordValues(
+            rows,
+            [
+                {"stage_id": self.stage_new.id, "user_id": self.env.uid},
+                {"stage_id": self.stage_progress.id, "user_id": leaving_user.id},
+            ],
+        )
+
+        leaving_user.unlink()
+
+        self.assertRecordValues(
+            rows,
+            [
+                {"stage_id": self.stage_new.id, "user_id": self.env.uid},
+                {"stage_id": self.stage_progress.id, "user_id": False},
+            ],
+        )
+
     def test_create_with_an_explicit_stage(self):
         task = self._create_task(stage_id=self.stage_progress.id)
         self.assertMoves(task, (self.no_stage, self.stage_progress))

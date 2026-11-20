@@ -25,9 +25,15 @@ and open them by link.
   is dropped and one sent at creation is recomputed from the hours; neither
   call is refused, but for a portal user, whose create or write sending a
   size core refuses, as for any field outside the portal's writable fields.
-  With Task Logs (``hr_timesheet``) installed, timesheet
-  users also see the same field as *Allocated Time* on the tasks of a
-  project that uses timesheets.
+  The type and the estimate are among those fields on the tasks of an
+  AI-driven project: a collaborator of the shared project with Edit or
+  Advanced Edit writes them there, one who may only read does not. On the
+  tasks of any other project the portal writes neither, as in core, and
+  its views show both read-only. With Task Logs (``hr_timesheet``)
+  installed, timesheet users also see the same field as *Allocated Time*
+  on the tasks of a project that uses timesheets, and an estimate given in
+  the same save wins over the hours Task Logs reads from a title such as
+  ``Fix 2h``.
 * **UAT users** (``uat_user_ids``): the users who run the acceptance tests
   of the task, after the Assignees on the form of every task, picked as the
   Assignees are among the active internal users of the task's company; an
@@ -274,7 +280,9 @@ A pull request is a record of its own, shared by every task it belongs to:
   dropped.
 * **Repository** and **Number**, read from the URL. The record is named
   ``<repository>#<number>``, for example ``owner/repo#12``, and is found by
-  that name or by a part of its URL.
+  that name or by a part of its URL. A search by that name takes negative
+  operators too, and an ``in`` or ``not in`` list may mix such names with
+  URLs.
 * **State**: Open, Merged or Closed. A new record is Open.
 * **Merge Date**, **Deploy Date** and the **Tasks** it is linked to.
 
@@ -340,17 +348,26 @@ Data, Configuration, No change  none          let through
 Data, Configuration, No change  present       let through, pull request kept
 ==============================  ============  ===============================
 
-The rule is checked when the stage of the task changes: on creation, on a
-write of the stage and on a change of project that moves the task to another
-stage. The Resolution and the pull request may come in the same write as the
-stage. Any other stage, a project that is not flagged AI-driven and a write
-that leaves the stage as it is let everything through, so a task already
-sitting in a marked stage stays editable. The ``state`` of a task (Done,
-Cancelled) is not part of the rule: a task set Done outside the marked
-stages needs no Resolution. No context key a caller sends skips the rule.
+The rule is checked when the task enters a stage: on creation, and on a
+write of its stage or its project (``stage_id`` or ``project_id``, also the
+project of a sub-task) that leaves it in another stage or another project.
+A move to another project counts also when the task keeps its stage, as
+Odoo keeps it when the new project has it too. A sub-task whose project and
+stage follow its parent, because the parent moves to another project or the
+sub-task gets another parent, is not checked, also when the save sends the
+new parent's project, and the stage Odoo gives the sub-task there, with
+it. The Resolution and the pull request may come in the same write as the
+stage. Any other stage, a project that is not flagged AI-driven and a
+write that leaves the stage and the project as they are let everything
+through, so a task already sitting in a marked stage stays editable. The
+``state`` of a task (Done, Cancelled) is not part of the rule: a task set
+Done outside the marked stages needs no Resolution. No context key a caller
+sends skips the rule.
 
 Templates are outside the rule: a task template, its sub-tasks and the
-tasks of a project template enter a marked stage without a Resolution.
+tasks of a project template enter a marked stage without a Resolution. A
+task of a project template moved to an AI-driven project is no template
+any more and meets the rule, also where it keeps its stage.
 
 The next occurrence of a recurring task, created by Odoo when the task it
 repeats is set Done or Cancelled, enters the first stage of its project, or
@@ -367,16 +384,29 @@ marked stage only with a **Task Type** and an **Estimate** above zero hours.
 The refusal names what is missing, the type, the estimate or both, each with
 the tasks that lack it.
 
-The rule is checked where the closing rule is: on creation, on a write of
-the stage and on a change of project that moves the task to another stage.
-The type and the estimate may come in the same write as the stage, and a
-task created straight into a marked stage needs both in the values of its
-creation. Any other stage, a project that is not flagged AI-driven and a
-write that leaves the stage as it is let everything through, so a task
-already sitting in a marked stage stays editable. No context key a caller
-sends skips the rule. A stage marked for both rules refuses for the
-Resolution first. Templates are outside this rule too, and so is the
-creation of the next occurrence of a recurring task (above).
+The rule is checked where the closing rule is: on creation, and on a write
+of the stage or the project that leaves the task in another stage or
+another project, also one that keeps its stage. The type and the estimate
+may come in the same write as the stage, and a task created straight into a
+marked stage needs both in the values of its creation. Any other stage, a
+project that is not flagged AI-driven and a write that leaves the stage and
+the project as they are let everything through, so a task already sitting
+in a marked stage stays editable. No context key a caller sends skips the
+rule. A stage marked for both rules refuses for the Resolution first.
+Templates are outside this rule too, and so is the creation of the next
+occurrence of a recurring task (above).
+
+The kanban quick create of an AI-driven project shows **Task Type** and
+**Estimate** after the assignees: required in the column of a marked stage,
+optional in the others and on templates. The quick create of *My Tasks*,
+which asks for the project, shows them once an AI-driven project is picked,
+required where its first stage is marked. It shows neither on another
+project or without a project. The web client of Odoo 20 does not hold back
+an Estimate left at zero, so the rule refuses it, and the kanban then opens
+the form of a new task with the title typed. A column whose stage also
+requires a Resolution still refuses the quick create, which has no
+Resolution. The quick create of a shared project's kanban, which Odoo
+offers to a collaborator with Advanced Edit, asks for them the same way.
 
 The next occurrence of a recurring task is a copy of the task, so it
 carries its task type and its estimate.
@@ -521,17 +551,29 @@ properties left as they are. The editor of the form already uploads an
 image added in an Html field when the record is saved; the module does the
 same for every other save.
 
-* A create or a write that saves a text turns each ``<img>`` whose ``src``
-  is a base64 inline image (``data:image/...;base64,...``), in any letter
-  case and with an entity-encoded scheme too, into an attachment of the
-  record, and its ``src`` into ``/web/image/<id>?access_token=<token>``, as
-  the editor and core mail do. The module changes only the ``src``; the
-  field sanitizes the new text as on any save. The image of a question row
+* A create or a write that saves a text turns each base64 inline image
+  (``data:image/...;base64,...``), in any letter case and with an
+  entity-encoded scheme too, into an attachment of the record, and its url
+  into ``/web/image/<id>?access_token=<token>``, as the editor and core mail
+  do. An image is read in the ``src`` of an ``<img>``, in each url of a
+  ``srcset`` on ``<img>`` and ``<source>`` (its descriptors, such as ``1x``
+  or ``480w``, stay), and in each CSS ``url(...)``, quoted or not, of the
+  ``style`` of any tag. Only the url changes: the rest of the text stays as
+  stored, and the field sanitizes the new text as on any save. An image or a
+  link inside an HTML comment stays as it is. The image of a question row
   or a test case is an attachment of the row.
 * The attachment takes the name in the image's ``data-filename``,
   ``data-file-name`` or ``alt``, the first that is not blank, or else
-  ``image-<n>.<type>``, numbered per record within the save. The same image
-  twice in one save is one attachment.
+  ``image-<n>.<type>``, numbered per record within the save.
+* An image the record already has is not attached again: pasted in any text
+  of the record, in the same save or a later one, it links the attachment
+  of the record with the same contents and type, as core stores them (a
+  large image compares resized), and gives it an access token when it has
+  none. It never links one posted with a message, which deleting the
+  message deletes, nor one whose file is missing from the filestore, nor
+  one the saving user may not read by their own rights, also in a save
+  that runs under ``sudo()``: a new attachment then holds the image.
+  Another record never shares an attachment, a row and its task included.
 * The attachment is created under ``sudo()``, with the user who saves as its
   creator, once the save has passed its own access checks: a save the user
   may not make creates none. The new text is stored without a second write:
@@ -549,18 +591,40 @@ same for every other save.
 
 A task, a question row or a test case created with a text that shows an
 image of an attachment of another task, row or test case
-(``/web/image/<id>``), as a duplicated task and its copied lines, a task
-created from a template, the next task of a recurrence or a create from
-another record's text do, gets its own copy of that attachment, with its own
-access token, and its text links the copy. A question row or a test case
-moved to another task copies the images of other records in its texts the
-same way; its own images stay its own. A copy outlives the record it was
-made from. Only an image the user saving may see is copied: one they can
-read, or one whose link carries the attachment's access token. Under
-``sudo()``, the superuser included, only a link with the attachment's own
-access token is copied. Any other link stays as it is, and so does a link
-to another record's image that a write pastes, or to an image core fails to
-read or whose file is missing from the filestore.
+(``/web/image/<id>``) or links one of its files (an ``<a href>`` to
+``/web/content/<id>``, as the editor links an uploaded file), as a
+duplicated task and its copied lines, a task created from a template, the
+next task of a recurrence or a create from another record's text do, gets
+its own copy of that attachment, with its own access token, or the
+attachment it has with the same contents, and its text links it. A file
+link keeps its path, query and fragment, with the new id and access token;
+the file is copied as uploaded, without core's resize. The editor's file
+box around such a link (``o_file_box``) names the new attachment in its
+``data-attachment-id`` too. A question row or a test case moved to another
+task copies the images and files of other records in its texts the same
+way; its own stay its own. A copy outlives the record it was made from.
+An image the editor has cropped or converted names the attachment its next
+edit starts from in ``data-original-id`` and ``data-original-src``: when
+that original is an attachment of the same record as the image and may be
+copied, the new record copies it too and the two attributes name the copy;
+otherwise they are dropped, with ``data-mimetype-before-conversion``.
+
+* A link is one of this database when it is relative, or names the host of
+  the base url the brief reads the task with (``get_base_url()``, a
+  website's domain where it applies), in any letter case, by either scheme
+  or none (``//<host>/...``), on the same port, the default port of a
+  scheme counting as none. A link to another host or port stays as it is.
+* The id is read as the editor writes it, at most ten ASCII digits; a link
+  written otherwise stays as it is.
+* Only an attachment the user saving may see is copied: one they can read,
+  or one whose link carries the attachment's access token, the first
+  parameter whose name decodes to ``access_token``, as the server reads it.
+  Under ``sudo()``, the superuser included, only a link with the
+  attachment's own access token is copied. A token that is not ASCII
+  matches nothing.
+* Any other link stays as it is, and so does a link to another record's
+  image or file that a write pastes, or to an image core fails to read or
+  whose file is missing from the filestore.
 
 Texts saved before 20.0.2.13.0 keep their inline images until the text is
 saved again or ``_move_inline_images_to_attachments`` runs on its task (see
@@ -613,12 +677,20 @@ editor's checklist is a task list item, ``- [x]`` when ticked and ``- [ ]``
 when not, a nested checklist nested items; the box stands on a line of its
 own when the item opens with a heading, a list, a table, a rule, a code
 block or a quote. Another list item that starts like one has its bracket
-escaped.
+escaped. A list right after a list of its kind takes the other marker
+(``+`` after ``-``, ``)`` after ``.``), so that Markdown keeps the two
+apart: the marker of the list before is that of its own items, not of a
+list nested in its first one. A table cell spans at most 100 columns, and
+rows to the end of its ``thead``, ``tbody`` or ``tfoot`` at most, to that
+end with ``rowspan="0"``. A list number has at most nine digits, however
+long the number the text gives, as in Markdown, where a line numbered
+with ten or more is no list item.
 
 * An image or a link that names an attachment, of the task, of a row or of
   any other record, by a relative url or a url on the host of this database
   (``get_base_url()``, a website's domain where it applies), in any url
-  form, becomes a pointer: ``![image: <name>](attachment <id>)`` for an
+  form, its id written as the editor writes it (at most ten ASCII digits),
+  becomes a pointer: ``![image: <name>](attachment <id>)`` for an
   image, ``[file: <name>](attachment <id>)`` for a bare link and
   ``[<link text>](attachment <id>)`` for a link with a text of its own;
   ``![image](attachment <id>)`` and ``[file](attachment <id>)`` without a
@@ -776,9 +848,15 @@ The module's models, fields and selection values carry the names of the
   without the key such an account's writes go through and the notification
   is queued without a sender address.
 * The image of a question row or a test case is an attachment of the row,
-  as the Odoo 20 editor attaches it, and a link to an image of any task,
-  row or test case is copied. On 16.0 every image is an attachment of the
-  task, and only a link to another task's image is copied.
+  as the Odoo 20 editor attaches it, and a link to an image or a file of
+  any task, row or test case is copied. An image is used again by the
+  record that has it. On 16.0 every image is an attachment of the task,
+  used again by the task and its rows together, and only a link to another
+  task's image or file is copied.
+* The rules run on a write of ``stage_id`` or ``project_id``: in Odoo 20
+  ``project_id`` is also the project of a sub-task, and
+  ``display_in_project`` only shows the sub-task in it. On 16.0 a write of
+  ``display_project_id`` counts too.
 * Odoo 20 stores markup given as an image and a truncated TIFF as they come,
   so they become attachments; on 16.0 they stay inline.
 * The brief's header shows the task's status (``state``), which Odoo 16 does
