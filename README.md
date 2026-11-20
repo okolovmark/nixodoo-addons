@@ -15,6 +15,7 @@ One branch per Odoo version (`16.0`, `20.0`), modules at the repository root.
 | `project_team_dashboard` | A Team Dashboard of workload cards by project, manager or department, a multi-project Gantt chart with dependency lags, baselines and the stage history of tasks, a Backlog list, stage flags for work in progress and backlog, and planned dates of a task that roll up from its sub-tasks; needs no `project_timeline` | - |
 | `project_team_dashboard_timeline` | Installs itself beside `project_team_dashboard` and `project_timeline`: the planned dates of `project_timeline` once on the task form and list, read-only on tasks planned from their sub-tasks | - |
 | `project_timesheet_systray` | A Timelog item in the header of the web client that starts and stops the timesheet timer of `project_timesheet_time_control` on the user's open tasks | - |
+| `web_bundle_refresh_notice` | Odoo's own *The page appears to be out of date.* notice in open backend tabs whose code a module update has made out of date, which Odoo shows only after a version upgrade | - |
 
 ## Using a module
 
