@@ -2,6 +2,7 @@
 
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
+import { priorityDot, ticketAge } from "./support_request_utils";
 
 const { Component, useState, onWillStart, onWillUnmount, onMounted } = owl;
 
@@ -115,26 +116,21 @@ export class SupportRequestSystray extends Component {
     }
 
     get ticketAge() {
-        return (dateStr) => {
-            if (!dateStr) return "";
-            const now = new Date();
-            const then = new Date(dateStr);
-            const diffMs = now - then;
-            const diffMin = Math.floor(diffMs / 60000);
-            if (diffMin < 60) return `${diffMin}m ago`;
-            const diffH = Math.floor(diffMin / 60);
-            if (diffH < 24) return `${diffH}h ago`;
-            const diffD = Math.floor(diffH / 24);
-            return `${diffD}d ago`;
-        };
+        return ticketAge;
     }
 
-    get priorityColor() {
-        return (level) => {
-            if (level === "2") return "#dc3545";
-            if (level === "1") return "#fd7e14";
-            return "#6c757d";
-        };
+    get priorityDot() {
+        return priorityDot;
+    }
+
+    _openRequest(requestId) {
+        this.actionService.doAction({
+            type: "ir.actions.act_window",
+            res_model: "project.task",
+            res_id: requestId,
+            views: [[false, "form"]],
+            target: "current",
+        });
     }
 
     toggleDropdown(ev) {
@@ -167,13 +163,7 @@ export class SupportRequestSystray extends Component {
             ev.stopPropagation();
         }
         this.state.isOpen = false;
-        this.actionService.doAction({
-            type: "ir.actions.act_window",
-            res_model: "project.task",
-            res_id: ticketId,
-            views: [[false, "form"]],
-            target: "current",
-        });
+        this._openRequest(ticketId);
     }
 
     onShowCreateForm(ev) {
@@ -229,13 +219,7 @@ export class SupportRequestSystray extends Component {
             }
             this.state.showCreateForm = false;
             this.state.isOpen = false;
-            this.actionService.doAction({
-                type: "ir.actions.act_window",
-                res_model: "project.task",
-                res_id: result.ticket_id,
-                views: [[false, "form"]],
-                target: "current",
-            });
+            this._openRequest(result.ticket_id);
         } catch {
             this.notification.add("Error creating ticket", { type: "danger" });
         }

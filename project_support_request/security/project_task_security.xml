@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Core's company rule keeps write, create and unlink; reading follows this rule: core's rule as
+         it stands, or the user's own support requests in any company (ADR 0017). -->
+    <record id="project_task_rule_company_read" model="ir.rule">
+        <field name="name">Project/Task: multi-company, read; own support requests in any company</field>
+        <field name="model_id" ref="project.model_project_task"/>
+        <field name="domain_force">user._support_request_task_read_domain()</field>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+    </record>
+
+    <function model="ir.rule" name="_support_request_split_task_company_rule"/>
+</odoo>

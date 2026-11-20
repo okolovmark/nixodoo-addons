@@ -8,8 +8,10 @@ def _record_key(record):
 
 
 def _project_label(project):
-    project_key = _record_key(project)
-    return "%s - %s" % (project_key, project.name) if project_key else project.name
+    # Sudo: the user reads the task, not always its project (one they do not follow, say).
+    project_sudo = project.sudo()
+    project_key = _record_key(project_sudo)
+    return "%s - %s" % (project_key, project_sudo.name) if project_key else project_sudo.name
 
 
 class TimesheetSystrayController(http.Controller):

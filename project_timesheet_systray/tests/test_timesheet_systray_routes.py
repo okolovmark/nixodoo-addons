@@ -79,3 +79,37 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
         self.assertFalse(stopped["running"])
         line.invalidate_recordset(["unit_amount"])
         self.assertAlmostEqual(line.unit_amount, 0.5, delta=0.05)
+
+    def test_a_task_of_a_project_the_user_cannot_read_is_listed_with_its_project(self):
+        private_project = self.env["project.project"].create(
+            {
+                "name": "Followers Only Project",
+                "key": "TSFOLLOW",
+                "privacy_visibility": "followers",
+                "allow_timesheets": True,
+                "type_ids": [Command.set(self.stage_in_progress.ids)],
+            }
+        )
+        task = self.env["project.task"].create(
+            {
+                "name": "Task Followed in a Project Not Followed",
+                "project_id": private_project.id,
+                "stage_id": self.stage_in_progress.id,
+                "user_ids": [Command.set(self.user_dev1.ids)],
+            }
+        )
+        self.assertFalse(
+            self.env["project.project"].with_user(self.user_dev1).search([("id", "=", private_project.id)])
+        )
+        self.assertTrue(self.env["project.task"].with_user(self.user_dev1).search([("id", "=", task.id)]))
+        self.authenticate(self.user_dev1.login, DEV1_PASSWORD)
+
+        task_list = self._result(SYSTRAY_URL, limit=0)
+
+        self.assertIn(
+            (task.id, private_project.id, "TSFOLLOW - Followers Only Project"),
+            [
+                (task_data["task_id"], task_data["project_id"], task_data["project_name"])
+                for task_data in task_list["tasks"]
+            ],
+        )
