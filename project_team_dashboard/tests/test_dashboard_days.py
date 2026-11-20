@@ -14,13 +14,15 @@ from .common import TeamDashboardCommon
 NOW = "2026-05-31 23:30:00"
 # Monday 1 June in UTC, already Tuesday in Manila: a working day in both.
 WEEKDAY_NOW = "2026-06-01 20:00:00"
+LATE_WEEKDAY_NOW = "2026-06-01 23:30:00"
 TODAY_HEADER_COLOR = "FFFDEBD0"
 
 
 @tagged("post_install", "-at_install")
 class TestDashboardDays(TeamDashboardCommon):
     """The period, today and the overdue tasks are the reader's day; a member's hours of today
-    and estimated completion count from the member's own day, UTC without a time zone."""
+    count from the member's own day, UTC without a time zone, and their estimated completion
+    from that day in the time zone of their employee when they have none."""
 
     @classmethod
     def setUpClass(cls):
@@ -188,12 +190,13 @@ class TestDashboardDays(TeamDashboardCommon):
 
     @freeze_time(WEEKDAY_NOW)
     def test_the_estimated_completion_starts_on_the_member_s_own_day(self):
-        # 8 hours left each: a working day from the member's midnight, on their employee's schedule;
+        # 8 hours left each: a working day from the member's midnight, on their employee's schedule,
+        # in the employee's time zone for Dev Three, who has none;
         # 5.7 hours left without an employee: a day of 5.7 hours after the member's own day
         own_day_completions = {
             self.user_dev1.id: "2026-06-02",
             self.user_dev2.id: "2026-06-01",
-            self.user_dev3.id: "2026-06-01",
+            self.user_dev3.id: "2026-06-02",
             self.user_without_employee.id: "2026-06-02",
         }
         for reader in self.reader_manila | self.reader_utc:
@@ -203,3 +206,12 @@ class TestDashboardDays(TeamDashboardCommon):
                     {user_id: cards[user_id]["estimated_completion"] for user_id in own_day_completions},
                     own_day_completions,
                 )
+
+    @freeze_time(LATE_WEEKDAY_NOW)
+    def test_a_member_without_a_time_zone_logs_today_on_the_utc_day_and_completes_from_their_employee_s(self):
+        # Dev Three: 2 hours logged on Monday 1 June, the UTC day; 8 hours left from Tuesday 2 June in Manila
+        for reader in self.reader_manila | self.reader_utc:
+            for mode, data in self._team_data(self._project_model(reader)).items():
+                with self.subTest(reader=reader.name, mode=mode):
+                    card = self._cards(data)[self.user_dev3.id]
+                    self.assertEqual((card["hours_logged_today"], card["estimated_completion"]), (2.0, "2026-06-02"))

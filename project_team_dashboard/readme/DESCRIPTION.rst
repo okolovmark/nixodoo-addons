@@ -73,9 +73,11 @@ schedule exists. Links open the member's kanban, backlog or closed tasks.
 The days are the reader's, in their time zone (UTC when none is set): the
 dates of the tasks, in the Gantt chart's Excel export too, which of them
 are overdue, and *Today* in the Gantt chart and its export. A member's
-hours logged today and the day their estimated completion starts from are
-the member's own, the day Odoo dates their timesheets on: in the time zone
-of their preferences, UTC when they have none.
+hours logged today are those of the member's own day, the day Odoo dates
+their timesheets on: in the time zone of their preferences, UTC when they
+have none. Their estimated completion starts from the member's own day
+too, in the time zone of their preferences, else of their employee, else
+UTC.
 
 Logged hours are timesheet lines: in View by Project the lines of the
 project, as far as the user may read them; in the other two modes the

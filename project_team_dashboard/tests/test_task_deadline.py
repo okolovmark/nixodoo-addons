@@ -115,6 +115,20 @@ class TestTaskDeadline(TeamDashboardCommon):
 
                 self.assertEqual(task.date_deadline, deadline)
 
+    def test_the_deadline_is_the_day_of_the_planned_end_in_the_time_zone_of_the_save_over_the_user_s(self):
+        for planner, save_tz, deadline in (
+            (self.planner_utc, "Australia/Perth", date(2026, 3, 3)),
+            (self.planner_utc_plus_8, "UTC", date(2026, 3, 2)),
+            (self.planner_without_tz, "Australia/Perth", date(2026, 3, 3)),
+        ):
+            with self.subTest(planner=planner.name, save_tz=save_tz):
+                task = self._create_task("Planned by %s in %s" % (planner.name, save_tz))
+                task = task.with_user(planner).with_context(tz=save_tz)
+
+                task.planned_date_end = EVENING_UTC
+
+                self.assertEqual(task.date_deadline, deadline)
+
     def test_create_with_a_planned_end_sets_the_deadline(self):
         task = self.Task.with_user(self.planner_utc_plus_8).create(
             {"name": "Planned", "project_id": self.project.id, "planned_date_end": EVENING_UTC}

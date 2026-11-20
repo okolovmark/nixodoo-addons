@@ -16,6 +16,7 @@ FRENCH = {
     "Unassigned": "Non assigné",
     "No projects selected": "Aucun projet sélectionné",
     "No tasks with planned dates": "Aucune tâche planifiée",
+    "Gantt Chart": "Diagramme de Gantt",
     "Key": "Clé",
     "Task": "Tâche",
     "Type": "Type de tâche",
@@ -109,12 +110,34 @@ class TestServerMessagesTranslated(TeamDashboardCommon):
             "Département hors des sociétés choisies",
         )
 
-    def test_export_errors_and_column_titles(self):
+    def test_export_errors_sheet_and_column_titles(self):
         self.assertEqual(self.Project.export_gantt_excel([])["error"], "Aucun projet sélectionné")
         self.assertEqual(self.Project.export_gantt_excel([self.project_plain.id])["error"], "Aucune tâche planifiée")
         result = self.Project.export_gantt_excel([self.project.id])
         sheet = openpyxl.load_workbook(io.BytesIO(base64.b64decode(result["data"]))).active
+        self.assertEqual(sheet.title, "Diagramme de Gantt")
         self.assertEqual(
             [cell.value for cell in sheet[1]][:8],
             ["Clé", "Tâche", "Type de tâche", "Responsable", "Début", "Fin", "Avancement", "Étape"],
         )
+
+    def test_a_sheet_title_too_long_or_with_characters_excel_refuses_is_cut_to_one_it_takes(self):
+        """Odoo's patched `add_worksheet` (odoo/tools/misc.py) makes the translated title fit, but for
+        an apostrophe at either end."""
+        for translation, sheet_title in (
+            ("Diagramme de Gantt des tâches planifiées du projet", "Diagramme de Gantt des tâches p"),
+            ("Gantt: [tâches] / jalons *?\\", "Gantt tâches  jalons "),
+            ("'Gantt' des jalons'", "Gantt' des jalons"),
+            ("Gantt des tâches de l'équipe d'achat", "Gantt des tâches de l'équipe d"),
+            ("'*'", "Gantt Chart"),
+        ):
+            with (
+                self.subTest(translation=translation),
+                patch.dict(
+                    code_translations.python_translations,
+                    {("project_team_dashboard", "fr_FR"): {**FRENCH, "Gantt Chart": translation}},
+                ),
+            ):
+                result = self.Project.export_gantt_excel([self.project.id])
+                sheet = openpyxl.load_workbook(io.BytesIO(base64.b64decode(result["data"]))).active
+                self.assertEqual(sheet.title, sheet_title)

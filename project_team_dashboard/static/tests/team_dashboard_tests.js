@@ -902,7 +902,7 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
                 }
             });
 
-            QUnit.test("the filter bar of every mode fits a phone's width", function (assert) {
+            QUnit.test("the filter bar of every mode and the Gantt toolbar fit a phone's width", function (assert) {
                 var phoneScreen = document.createElement("div");
                 phoneScreen.style.width = "360px";
                 document.body.appendChild(phoneScreen);
@@ -915,6 +915,15 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
                     var filterBar = dashboard.el.querySelector(".o_dashboard_filter_bar");
                     assert.ok(filterBar.scrollWidth <= filterBar.clientWidth, mode + ": " + filterBar.scrollWidth + "px");
                 }
+                var ganttDashboard = renderedDashboard("project");
+                // a tag shrinks no narrower than its longest word: this one leaves the search too little room uncapped
+                ganttDashboard.projects = [{id: 1, name: "Manufacturing", key: false}];
+                ganttDashboard._loadGanttData = function () {};
+                phoneScreen.replaceChildren(ganttDashboard.el);
+                ganttDashboard._onViewGantt();
+                var ganttToolbar = ganttDashboard.el.querySelector(".o_gantt_toolbar");
+                assert.strictEqual(ganttDashboard.$(".o_gantt_multiproject_tags .o_project_tag").text().trim(), "Manufacturing");
+                assert.ok(ganttToolbar.scrollWidth <= ganttToolbar.clientWidth, "gantt: " + ganttToolbar.scrollWidth + "px");
             });
 
             QUnit.test("a manager or department not found leaves the header without a team", async function (assert) {
