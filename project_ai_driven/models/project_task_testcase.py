@@ -97,6 +97,16 @@ class ProjectTaskTestcase(models.Model):
             return dict.fromkeys(VERIFICATION_FIELDS, False)
         return {}
 
+    def _get_copy_values_from_zero(self):
+        """The values of a copy of each case that starts it over: Not run,
+        without verification and comments. It keeps the Automated test
+        reference, which names a test, not a run.
+        """
+        return [
+            record.copy_data({"state": "not_run", "comments": False, "test_reference": record.test_reference})[0]
+            for record in self
+        ]
+
     def _get_result_values(self):
         """The result of this case as values for a copy of it, verification included."""
         self.ensure_one()

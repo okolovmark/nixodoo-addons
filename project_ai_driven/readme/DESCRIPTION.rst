@@ -131,6 +131,14 @@ Copying a task also copies its checklist items, keeping their states, and
 its test cases, keeping their status, Verified by, Verified on,
 Verification and Automated test reference.
 
+The next task of a recurrence, and each of its sub-tasks, starts the
+checklist items and the test cases of the task it repeats from zero: an item
+TODO without deadline, keeping its description, assignee and reviewer; a
+case Not run without Verified by, Verified on, Verification and comments,
+keeping its steps, expected results and Automated test reference. The task
+it repeats keeps its lines. The next task is created as a new task, so its
+items are posted to their assignee and reviewer.
+
 **Questions** (``project.task.question``)
 
 The clarifying questions of a task, its **Questions** (``question_ids``),
@@ -155,7 +163,8 @@ A row is named by the text of its question, cut at 80 characters, or of its
 answer when the question is blank, or else by its task. A row is found,
 read, changed, deleted and created by the users who can read its task, as a
 checklist item is. Copying a task copies its rows with all their values,
-the status, Answered by and Answered on included.
+the status, Answered by and Answered on included. The next task of a
+recurrence takes no row.
 
 **Sessions** (``project.task.session``)
 
@@ -263,7 +272,27 @@ write of the stage and on a change of project that moves the task to another
 stage. The Resolution and the pull request may come in the same write as the
 stage. Any other stage, a project that is not flagged AI-driven and a write
 that leaves the stage as it is let everything through, so a task already
-sitting in a marked stage stays editable. No context key skips the rule.
+sitting in a marked stage stays editable. No context key a caller sends
+skips the rule.
+
+A change saved for the following or for all tasks of a recurrence is
+checked on each task it moves, and one refusal refuses the whole change.
+The tasks it reaches are those of the recurrence as it is before the save,
+also when the same save turns Recurrent off: the following ones are those
+created at or after the task saved, and a task without a recurrence is
+saved alone. Odoo itself looked for them after removing the recurrence,
+and saved the change to the later tasks of every project, or to none. New
+assignees are notified on the task saved only, as in Odoo; **Assigning Date**
+of each task reached is set or cleared as Odoo's write of several tasks
+sets or clears it, where Odoo did so on the task saved only.
+
+The next task of a recurrence, created by Odoo's recurrence job, enters the
+first stage of its project, or the stage of the task it repeats when the
+project lists none, unchecked by either rule in either stage, its sub-tasks
+included: one refusal would undo the run of the job for every due
+recurrence. It takes no Resolution and no pull request of the task it
+repeats, and it is checked as any task when it is moved into a marked stage
+later.
 
 **The estimate rule**
 
@@ -279,8 +308,11 @@ The type and the estimate may come in the same write as the stage, and a
 task created straight into a marked stage needs both in the values of its
 creation. Any other stage, a project that is not flagged AI-driven and a
 write that leaves the stage as it is let everything through, so a task
-already sitting in a marked stage stays editable. No context key skips the
-rule. A stage marked for both rules refuses for the Resolution first.
+already sitting in a marked stage stays editable. No context key a caller
+sends skips the rule. A stage marked for both rules refuses for the
+Resolution first. A change saved for the following or for all tasks of a
+recurrence, and the creation of the next task of a recurrence, are handled
+as by the closing rule (above).
 
 The next task of a recurrence takes the task type of the last one, as it
 takes its estimate.
