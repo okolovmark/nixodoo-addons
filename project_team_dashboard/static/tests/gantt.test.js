@@ -1082,13 +1082,13 @@ describe("GanttView", () => {
             await resize({ width: 1024 });
             await animationFrame();
             expect(gantt.sidebar.laidOutWidth).not.toBe(capWidth);
-            const namesRect = queryOne(
-                `.o_gantt_timeline .vis-panel.${isRtl ? "vis-right" : "vis-left"}`
+            // laid out again, the panel at the chart's far edge (the names right to left, the bars left
+            // to right) ends on it; vis places its panels by its root's outer width, both 1px borders included
+            const rootRect = queryOne(".o_gantt_timeline .vis-timeline").getBoundingClientRect();
+            const farRect = queryOne(
+                `.o_gantt_timeline .vis-panel.${isRtl ? "vis-right" : "vis-center"}`
             ).getBoundingClientRect();
-            const centerRect = queryOne(".o_gantt_timeline .vis-panel.vis-center").getBoundingClientRect();
-            expect(isRtl ? namesRect.left - centerRect.right : centerRect.left - namesRect.right).toBeCloseTo(0, {
-                margin: 1,
-            });
+            expect(rootRect.right - farRect.right).toBeCloseTo(0, { margin: 3 });
             expect(refreshes).toEqual([]);
         });
     }

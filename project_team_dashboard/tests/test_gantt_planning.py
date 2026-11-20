@@ -564,7 +564,7 @@ class TestGanttPlanningPayload(GanttPlanningCommon):
         )
         self.assertEqual(visible_child.project_id, self.project)
         self.assertFalse(hidden_parent.with_user(self.user_dev1).has_access("read"))
-        # the superuser wrote the parent: a cold cache makes the viewer's read of its label reach the access check
+        # a cold cache, as a request starts with
         self.env.invalidate_all()
         payload = self._payload(self.user_dev1)
         task_ids = [task_data["id"] for task_data in payload["tasks"]]
