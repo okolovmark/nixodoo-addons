@@ -168,6 +168,25 @@ class TestHtmlToMarkdown(TransactionCase):
             {3, 4, 5, 6},
         )
 
+    def test_ids_of_more_than_ten_digits_name_no_attachment(self):
+        long_id = "9" * 5000
+        self.assertEqual(
+            get_linked_attachment_ids(
+                '<img src="/web/image/%s"><a href="/web/content/%s?download=true">x</a>'
+                '<img src="/web/image?model=ir.attachment&amp;id=%s"><img src="/web/image/12">' % ((long_id,) * 3)
+            ),
+            {12},
+        )
+        self.assertEqual(
+            get_linked_attachment_ids(
+                '<img src="/web/image/%s"><img src="/web/image/%s">'
+                '<img src="/web/image?model=ir.attachment&amp;id=%s"><img src="/web/image?model=ir.attachment&amp;id=%s">'
+                % ("9" * 10, "8" * 11, "7" * 10, "6" * 11)
+            ),
+            {9999999999, 7777777777},
+            "ten digits are read, eleven are not",
+        )
+
     def test_attachment_urls_become_pointers_in_every_form_without_their_token(self):
         cases = {
             '<a href="/web/content/12?unique=ab&amp;download=true&amp;access_token=SECRET" title="spec.pdf"></a>': (
@@ -438,6 +457,21 @@ class TestHtmlToMarkdown(TransactionCase):
         self.assertTrue(rows[0].startswith("| x |  | "), rows[0][:20])
         self.assertTrue(rows[0].endswith(" | %s |" % " ".join(["x"] * 19)), rows[0][-60:])
 
+    def test_numbers_of_thousands_of_digits_are_bounded(self):
+        many = "9" * 5000
+        markdown = html_to_markdown(
+            '<table><tr><td colspan="%s" rowspan="%s">x</td></tr></table>'
+            '<ol start="%s"><li>a</li></ol><ol start="999999999"><li>b</li><li>c</li></ol>'
+            '<table><tr><td colspan="0000000002">y</td></tr></table><ol start="0000000003"><li>d</li></ol>'
+            % (many, many, many)
+        )
+        rows = markdown.split("\n\n")[0].split("\n")
+        self.assertEqual(len(rows), 2, "a header and its rule: a span adds no row of its own")
+        self.assertEqual(rows[0].count(" | "), 99, "the cell spans the most columns a span gives")
+        self.assertIn("\n\n1. a\n\n999999999. b\n999999999. c", markdown, "a list number has nine digits at most")
+        self.assertIn("\n\n| y |  |\n| --- | --- |\n\n", markdown, "leading zeros aside, the span is read")
+        self.assertIn("\n\n3. d", markdown)
+
 
 @tagged("post_install", "-at_install")
 class TestTaskBrief(ProjectAiDrivenCommon):
@@ -674,6 +708,11 @@ class TestTaskBrief(ProjectAiDrivenCommon):
         )
         self.assertNotIn("access_token", brief)
         self.assertNotIn(plan.access_token, brief)
+
+    def test_brief_of_a_text_linking_an_id_of_thousands_of_digits(self):
+        long_id = "9" * 5000
+        self.brief_task.description = '<p><img src="/web/image/%s"></p>' % long_id
+        self.assertEqual(get_sections(self._brief())["Description"], "![](/web/image/%s)" % long_id)
 
     def test_attachment_urls_point_at_this_database_only_on_its_host(self):
         plan = self.env["ir.attachment"].create(
