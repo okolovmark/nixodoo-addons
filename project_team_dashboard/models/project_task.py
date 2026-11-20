@@ -304,11 +304,12 @@ class Task(models.Model):
                     )
                 )
 
-    def _gantt_task_attributes(self, writable_ids, lags, readable_parent_ids):
+    def _gantt_task_attributes(self, writable_ids, lags):
         self.ensure_one()
-        parent = self.parent_id
+        # sudo: who reads a sub-task reads the label of its parent, as core reads a many-to-one
+        parent = self.parent_id.sudo()
         return {
-            "parent_label": (parent.key or parent.name) if parent.id in readable_parent_ids else "",
+            "parent_label": parent.key or parent.name or "",
             "project_id": self.project_id.id,
             "date_deadline": fields.Date.to_string(self.date_deadline),
             "effective_hours": self.effective_hours,

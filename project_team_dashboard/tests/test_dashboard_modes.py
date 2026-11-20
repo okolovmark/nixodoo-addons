@@ -697,6 +697,82 @@ class TestDashboardModeAccessRule(TeamDashboardCommon):
                 self.assertEqual(self._members_by_department(user, self.department_managed), set(self.user_dev1.ids))
                 self.assertEqual(self._members_by_department(user, self.department_other), set())
 
+    def test_an_archived_employee_of_the_user_opens_no_team_whatever_the_active_test_of_the_call(self):
+        self.employee_internal.active = False
+        for active_test in (True, False):
+            Project = self.env["project.project"].with_user(self.user_internal).with_context(active_test=active_test)
+            with self.subTest(active_test=active_test):
+                own_data = Project.get_team_dashboard_by_manager(self.user_internal.id)
+                self.assertEqual(own_data.get("error"), "No employee record found for this user")
+                with self.assertRaisesRegex(AccessError, "by manager"):
+                    Project.get_team_dashboard_by_manager(self.user_dev1.id)
+                for department in self.department_own | self.department_managed:
+                    with self.assertRaisesRegex(AccessError, "by department"):
+                        Project.get_team_dashboard_by_department(department.id)
+
+    def test_the_teams_leave_out_archived_employees_and_tasks_whatever_the_active_test_of_the_call(self):
+        user_archived = self.env["res.users"].create(self._user_vals("Archived Report", ["base.group_user"]))
+        self.env["hr.employee"].create(
+            {
+                "name": "Archived Report",
+                "user_id": user_archived.id,
+                "parent_id": self.employee_internal.id,
+                "department_id": self.department_own.id,
+                "active": False,
+            }
+        )
+        task_vals = {"project_id": self.project.id, "stage_id": self.stage_in_progress.id}
+        _task_of_archived_report, archived_task = self.env["project.task"].create(
+            [
+                dict(task_vals, name="Task of Archived Report", user_ids=[Command.set(user_archived.ids)]),
+                dict(
+                    task_vals, name="Archived task of Dev Two", user_ids=[Command.set(self.user_dev2.ids)], active=False
+                ),
+            ]
+        )
+        for active_test in (True, False):
+            Project = self.env["project.project"].with_user(self.user_internal).with_context(active_test=active_test)
+            for mode, data, members in (
+                (
+                    "manager",
+                    Project.get_team_dashboard_by_manager(self.user_internal.id),
+                    self.user_dev1 | self.user_dev2,
+                ),
+                ("department", Project.get_team_dashboard_by_department(self.department_own.id), self.user_dev2),
+            ):
+                with self.subTest(active_test=active_test, mode=mode):
+                    self.assertEqual({member["user_id"] for member in data["members"]}, set(members.ids))
+                    card_task_ids = {
+                        task["id"]
+                        for member in data["members"]
+                        for task in (member["current_task"], *member["queue"], *member["backlog"], *member["other"])
+                        if task
+                    }
+                    self.assertNotIn(archived_task.id, card_task_ids)
+
+    def test_the_project_team_leaves_out_archived_tasks_whatever_the_active_test_of_the_call(self):
+        archived_task = self.env["project.task"].create(
+            {
+                "name": "Archived task of Dev Two",
+                "project_id": self.project.id,
+                "stage_id": self.stage_in_progress.id,
+                "user_ids": [Command.set(self.user_dev2.ids)],
+                "active": False,
+            }
+        )
+        for active_test in (True, False):
+            with self.subTest(active_test=active_test):
+                Project = self.env["project.project"].with_context(active_test=active_test)
+                data = Project.get_team_dashboard_data(self.project.id)
+                card_task_ids = {
+                    task["id"]
+                    for member in data["members"]
+                    for task in (member["current_task"], *member["queue"], *member["backlog"], *member["other"])
+                    if task
+                }
+                self.assertTrue(card_task_ids)
+                self.assertNotIn(archived_task.id, card_task_ids)
+
 
 class ManagerModeCase(TeamDashboardCommon):
     @classmethod

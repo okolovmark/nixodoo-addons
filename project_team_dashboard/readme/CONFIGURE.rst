@@ -53,6 +53,9 @@ Who opens which team in those two modes follows the user's employee:
 * In every case a department opens only in a company the user may enter,
   and a manager other than the user only with an active employee the user
   finds there; the manager's team itself may reach into other companies.
+* The user's archived employees open no team, and the cards of every mode
+  leave out archived projects, employees and tasks, also for a call that
+  asks for archived records.
 
 A manager's team is everyone below their employees, the manager left out,
 also where the hierarchy loops back: Odoo lets an employee manage their own

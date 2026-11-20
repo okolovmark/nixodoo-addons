@@ -160,10 +160,11 @@ the module ships (``static/lib/vis-timeline``, MIT License).
   pointing to *Save Baseline*.
 * **Sub-tasks**: grouped by task, user or stage, a sub-task row is nested
   under its parent's row when both fall in the same group. Otherwise the
-  sub-task is a top-level row labelled "sub-task of <parent key>" (no label
-  when the user cannot read the parent). A parent's bar is read-only when its
-  dates come from its sub-tasks; other bars move and resize by whole days. In
-  Group by User a task and its own sub-tasks never count as conflicting.
+  sub-task is a top-level row labelled "sub-task of <parent key>" (its name
+  when it has no key), also when the user cannot read the parent. A
+  parent's bar is read-only when its dates come from its sub-tasks; other
+  bars move and resize by whole days. In Group by User a task and its own
+  sub-tasks never count as conflicting.
 * **Unscheduled (N)**: tasks with no planned dates and no deadline are
   listed in their own group at the end of the chart; a click opens the
   task.

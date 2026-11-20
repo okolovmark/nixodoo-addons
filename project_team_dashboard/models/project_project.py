@@ -86,6 +86,11 @@ class ProjectProject(models.Model):
         Returns:
             dict with project info and list of team member data dicts.
         """
+        # archived projects, tasks, users and employees stay out whatever the caller sends
+        return self.with_context(active_test=True)._get_team_dashboard_data(project_id, date_start, date_end)
+
+    @api.model
+    def _get_team_dashboard_data(self, project_id, date_start, date_end):
         self.check_access_rights("read")
         project = self.env["project.project"].search([("id", "=", project_id)], limit=1)
         if not project:
@@ -387,7 +392,6 @@ class ProjectProject(models.Model):
         writable_ids = set()
         if Task.check_access_rights("write", raise_exception=False):
             writable_ids = set((all_tasks | unscheduled_tasks)._filter_access_rules("write").ids)
-        readable_parent_ids = set((all_tasks | unscheduled_tasks).parent_id._filter_access_rules("read").ids)
 
         lags_by_task = {}
         lags = (
@@ -479,9 +483,7 @@ class ProjectProject(models.Model):
                 "depend_on_ids": [d.id for d in task.depend_on_ids if d.id in task_ids_set],
                 "task_type": task.task_type or "",
             }
-            task_dict.update(
-                task._gantt_task_attributes(writable_ids, lags_by_task.get(task.id, {}), readable_parent_ids)
-            )
+            task_dict.update(task._gantt_task_attributes(writable_ids, lags_by_task.get(task.id, {})))
             baseline_line = baseline_by_task.get(task.id, self.env["project.baseline.line"])
             baseline_end = _local_date(baseline_line.planned_date_end)
             plan_start = has_planned_dates and _local_date(task.planned_date_start)
@@ -514,7 +516,7 @@ class ProjectProject(models.Model):
                 "planned_hours": task.planned_hours,
                 "task_type": task.task_type or "",
             }
-            task_dict.update(task._gantt_task_attributes(writable_ids, {}, readable_parent_ids))
+            task_dict.update(task._gantt_task_attributes(writable_ids, {}))
             if is_multi:
                 task_dict["project_name"] = project_name_map.get(task.project_id.id, "")
             unscheduled_data.append(task_dict)
@@ -766,7 +768,14 @@ class ProjectProject(models.Model):
             dict with manager info and list of team member data dicts.
 
         Raises AccessError unless _check_manager_mode_access lets the user see that manager's team.
+        Archived employees and tasks stay out whatever the caller's active_test.
         """
+        return self.with_context(active_test=True)._get_team_dashboard_by_manager(
+            user_id, date_start, date_end, max_depth
+        )
+
+    @api.model
+    def _get_team_dashboard_by_manager(self, user_id, date_start, date_end, max_depth):
         self.check_access_rights("read")
 
         if not user_id:
@@ -823,7 +832,14 @@ class ProjectProject(models.Model):
             dict with department info and list of team member data dicts.
 
         Raises AccessError unless _check_department_mode_access lets the user see that department.
+        Archived employees and tasks stay out whatever the caller's active_test.
         """
+        return self.with_context(active_test=True)._get_team_dashboard_by_department(
+            department_id, date_start, date_end
+        )
+
+    @api.model
+    def _get_team_dashboard_by_department(self, department_id, date_start, date_end):
         self.check_access_rights("read")
 
         # Use sudo() for HR reads: project users may lack hr.group_hr_user
@@ -886,7 +902,8 @@ class ProjectProject(models.Model):
     def _get_openable_manager_users(self):
         """The managers whose team the user opens, on the screen and on the board: themselves, and
         the users with an employee below one of theirs, or any user for _sees_every_team, when the
-        user finds one of their active employees (the employees' company rules).
+        user finds one of their active employees (the employees' company rules), whatever the
+        caller's active_test.
 
         Odoo lets an employee manage their own manager, or themselves: the walk visits each
         employee once.
@@ -897,13 +914,14 @@ class ProjectProject(models.Model):
             own_employees = self._own_employees().with_context(active_test=False)
             users_below = self._get_subordinate_employees(own_employees).filtered("active").user_id
             employee_domain = [("user_id", "in", users_below.ids)]
-        return self.env.user | self.env["hr.employee"].search(employee_domain).sudo().user_id
+        manager_users = self.env["hr.employee"].with_context(active_test=True).search(employee_domain).sudo().user_id
+        return self.env.user | manager_users
 
     @api.model
     def _get_openable_departments(self):
         """The departments the user opens, on the screen and on the board, among those they find
         (the departments' company rules): every one for _sees_every_team, else those of their
-        employees and those one of them manages."""
+        active employees and those one of them manages."""
         Department = self.env["hr.department"].with_context(active_test=False)
         if self._sees_every_team():
             return Department.search([])
@@ -918,8 +936,9 @@ class ProjectProject(models.Model):
 
     @api.model
     def _own_employees(self):
+        """The user's active employees, whatever the caller's active_test: an archived one opens no team."""
         # sudo: a project user may not read hr.employee, and these are the user's own employees
-        return self.env["hr.employee"].sudo().search([("user_id", "=", self.env.uid)])
+        return self.env["hr.employee"].sudo().with_context(active_test=True).search([("user_id", "=", self.env.uid)])
 
     def _get_subordinate_employees(self, manager_employees, max_depth=0):
         """Return the employees below the managers, down to `max_depth` levels (0: all levels).
