@@ -9,6 +9,7 @@ class ResUsers(models.Model):
     dashboard_default_project_id = fields.Many2one(
         "project.project",
         string="Default Dashboard Project",
+        domain=[("is_template", "=", False)],
         user_writeable=True,
         help="Project selected by default when opening the Team Dashboard.",
     )

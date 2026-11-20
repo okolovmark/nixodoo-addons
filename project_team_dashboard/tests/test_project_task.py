@@ -48,6 +48,14 @@ class TestProjectTask(TeamDashboardCommon):
                 action = Task.with_context(allowed_company_ids=companies.ids).action_open_backlog()
                 self.assertEqual(action["context"]["search_default_project_id"], preselected_project_id)
 
+    def test_the_backlog_ignores_a_project_template_stored_as_the_default_project(self):
+        project_template = self.env["project.project"].create({"name": "Project Template", "is_template": True})
+        self.user_dev1.dashboard_default_project_id = project_template
+
+        action = self.env["project.task"].with_user(self.user_dev1).action_open_backlog()
+
+        self.assertIs(action["context"]["search_default_project_id"], False)
+
     def test_the_backlog_leaves_done_and_cancelled_tasks_out(self):
         open_task, done_task, cancelled_task = self.env["project.task"].create(
             [
@@ -136,6 +144,18 @@ class TestResUsers(TeamDashboardCommon):
         for field_name, value in (("dashboard_default_project_id", self.project.id), ("gantt_columns", "stage")):
             with self.assertRaises(AccessError):
                 self.user_dev2.with_user(self.user_dev1).write({field_name: value})
+
+    def test_a_project_template_is_not_offered_as_the_default_dashboard_project(self):
+        project_template = self.env["project.project"].create({"name": "Project Template", "is_template": True})
+        Users = self.env["res.users"].with_user(self.user_dev1)
+        field_domain = Users.fields_get(["dashboard_default_project_id"], ["domain"])["dashboard_default_project_id"][
+            "domain"
+        ]
+
+        offered_projects = self.env["project.project"].with_user(self.user_dev1).search(field_domain)
+
+        self.assertIn(self.project, offered_projects)
+        self.assertNotIn(project_template, offered_projects)
 
     def test_the_preferences_show_the_default_dashboard_project(self):
         preferences = self.env.ref("base.view_users_form_simple_modif")

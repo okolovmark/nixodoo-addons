@@ -116,12 +116,12 @@ class ProjectTask(models.Model):
     @api.model
     def action_open_backlog(self):
         """Open backlog with the user's default project pre-selected, when they read it in the selected
-        companies."""
+        companies and it is not a project template."""
         action = self.env["ir.actions.act_window"]._for_xml_id(
             "project_team_dashboard.action_project_task_backlog",
         )
         default_project = self.env["project.project"].search(
-            [("id", "=", self.env.user.dashboard_default_project_id.id)]
+            [("id", "=", self.env.user.dashboard_default_project_id.id), ("is_template", "=", False)]
         )
         action["context"] = {
             "search_default_project_id": default_project.id,

@@ -520,8 +520,8 @@ class TestTeamBoardAccess(TeamBoardCase):
             card_dev1 = next(member for member in board.data["members"] if member["user_id"] == self.user_dev1.id)
         self.assertEqual(
             card_dev1["estimated_completion"],
-            "2026-06-01",
-            "the 8 hours left fit in the member's Monday on the employee's schedule",
+            "2026-06-02",
+            "the 8 hours left fit in the employee's Tuesday on the employee's schedule",
         )
 
     def test_a_user_who_opens_no_mode_is_refused_the_board(self):
@@ -951,6 +951,66 @@ class TestTeamBoardCompanies(TeamBoardCase):
                     with self.assertRaisesRegex(AccessError, "by department"):
                         Project.get_team_dashboard_by_department(department_other_b.id)
                     self.assertEqual(Board.sudo().search(board_domain).department_id, own_departments)
+                    self.assertFalse(Board.search(board_domain))
+
+    def test_a_plain_user_learns_that_a_manager_below_them_is_outside_the_selected_companies(self):
+        company_a = self.env.company
+        lead_selecting_b, lead_not_selecting_b = self.env["res.users"].create(
+            [
+                dict(self._user_vals(name, PROJECT_GROUPS), company_ids=[Command.set(companies.ids)])
+                for name, companies in (
+                    ("Lead selecting B", company_a | self.company_b),
+                    ("Lead not selecting B", company_a),
+                )
+            ]
+        )
+        leads = lead_selecting_b | lead_not_selecting_b
+        managers_b = self.env["res.users"].create(
+            [
+                dict(
+                    self._user_vals("Manager below %s" % lead.name, PROJECT_GROUPS),
+                    company_id=self.company_b.id,
+                    company_ids=[Command.set(self.company_b.ids)],
+                )
+                for lead in leads
+            ]
+        )
+        Employee = self.env["hr.employee"]
+        for lead, manager in zip(leads, managers_b, strict=True):
+            employee_lead = Employee.create({"name": lead.name, "user_id": lead.id})
+            employee_manager = Employee.create(
+                {
+                    "name": manager.name,
+                    "user_id": manager.id,
+                    "company_id": self.company_b.id,
+                    "parent_id": employee_lead.id,
+                }
+            )
+            Employee.create(
+                {
+                    "name": "Report of %s" % manager.name,
+                    "company_id": self.company_b.id,
+                    "parent_id": employee_manager.id,
+                }
+            )
+        expected_errors = {
+            lead_selecting_b: "No employee record found for this user in the selected companies",
+            lead_not_selecting_b: "No employee record found for this user",
+        }
+        for is_active in (True, False):
+            self.company_rules.active = is_active
+            for lead, manager in zip(leads, managers_b, strict=True):
+                board_domain = [("mode", "=", "manager"), ("manager_user_id", "=", manager.id)]
+                Project = self.env["project.project"].with_user(lead).with_context(allowed_company_ids=company_a.ids)
+                Board = self.env["project.team.board"].with_user(lead).with_context(allowed_company_ids=company_a.ids)
+                with self.subTest(user=lead.name, company_rules_active=is_active):
+                    self.assertEqual(
+                        Project.get_team_dashboard_by_manager(manager.id),
+                        {"error": expected_errors[lead], "manager_name": manager.name},
+                    )
+                    with self.assertRaisesRegex(AccessError, "by manager"):
+                        Project.get_team_dashboard_by_manager(self.user_manager_b.id)
+                    self.assertEqual(Board.sudo().search(board_domain).manager_user_id, manager)
                     self.assertFalse(Board.search(board_domain))
 
 

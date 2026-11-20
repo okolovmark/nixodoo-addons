@@ -122,7 +122,6 @@ class ProjectProject(models.Model):
                 period_hours_by_user.get(user.id, 0.0),
                 today_hours_by_user.get(user.id, 0.0),
                 today,
-                member_today_by_user[user.id],
             )
             for user in open_tasks.user_ids.sorted(key=lambda user: user.name)
         ]
@@ -195,7 +194,6 @@ class ProjectProject(models.Model):
             return result
 
         is_multi = len(pids) > 1
-        project_name_map = {project.id: self._get_project_label(project) for project in projects}
 
         Task = self.env["project.task"]
 
@@ -313,8 +311,9 @@ class ProjectProject(models.Model):
                 "key": task.key or "",
                 "parent_id": parent_id,
                 "child_ids": children_map[task.id],
-                "planned_date_start": str(date_start),
-                "planned_date_end": str(date_end),
+                # the format of read(): a str() of a stored value keeps its microseconds
+                "planned_date_start": fields.Datetime.to_string(date_start),
+                "planned_date_end": fields.Datetime.to_string(date_end),
                 # the bar's dates pad a missing one: a move writes only the dates the task has
                 "has_planned_date_start": bool(task.planned_date_start),
                 "has_planned_date_end": bool(task.planned_date_end),
@@ -352,7 +351,8 @@ class ProjectProject(models.Model):
                 }
             )
             if is_multi:
-                task_dict["project_name"] = project_name_map.get(task.project_id.id, "")
+                # a parent kept from a project not selected is labelled by its own
+                task_dict["project_name"] = self._get_project_label(task.project_id)
             tasks_data.append(task_dict)
 
         unscheduled_data = []
@@ -369,7 +369,7 @@ class ProjectProject(models.Model):
             }
             task_dict.update(task._gantt_task_attributes(writable_ids, {}))
             if is_multi:
-                task_dict["project_name"] = project_name_map.get(task.project_id.id, "")
+                task_dict["project_name"] = self._get_project_label(task.project_id)
             unscheduled_data.append(task_dict)
 
         result.update(
@@ -670,11 +670,11 @@ class ProjectProject(models.Model):
     @api.model
     def _check_manager_mode_access(self, manager_user, openable_users):
         """The Manager mode reads the logged hours of a whole team with elevated rights: a user
-        opens it for openable_users only. Return whether they do: a user who sees every team is
-        not refused, but told the manager has no employee, in the selected companies when the
-        manager has one in a company the user may select."""
+        opens it for openable_users only. Return whether they do: a user who sees every team, or
+        to whom the manager reports, is not refused, but told the manager has no employee, in the
+        selected companies when the manager has one in a company the user may select."""
         is_openable = self.env.su or manager_user in openable_users
-        if not is_openable and not self._sees_every_team():
+        if not (is_openable or self._sees_every_team() or manager_user in self._get_users_below()):
             raise AccessError(
                 self.env._(
                     "You can open the Team Dashboard by manager only for yourself and the managers who report to you."
@@ -717,10 +717,14 @@ class ProjectProject(models.Model):
         domain = Domain("user_id", "!=", False) & Domain("company_id", "in", self.env.companies.ids)
         if self._sees_every_team():
             return domain
+        return domain & Domain("user_id", "in", self._get_users_below().ids)
+
+    @api.model
+    def _get_users_below(self):
+        """The users of the active employees below one of the user's employees, in any company."""
         # archived employees too: the managers below an archived one still report to the user
         own_employees = self._own_employees().with_context(active_test=False)
-        users_below = self._get_subordinate_employees(own_employees).filtered("active").user_id
-        return domain & Domain("user_id", "in", users_below.ids)
+        return self._get_subordinate_employees(own_employees).filtered("active").user_id
 
     @api.model
     def _get_openable_departments(self):
@@ -818,7 +822,6 @@ class ProjectProject(models.Model):
                 period_hours_by_user.get(user.id, 0.0),
                 today_hours_by_user.get(user.id, 0.0),
                 today,
-                member_today_by_user[user.id],
             )
             member_data["project_names"] = sorted(set(user_tasks.project_id.mapped(self._get_project_label)))
             members_data.append(member_data)
@@ -869,11 +872,21 @@ class ProjectProject(models.Model):
             )
         return hours_by_user
 
-    def _get_member_data(self, user, user_tasks, hours_logged_period, hours_logged_today, today, member_today):
+    @api.model
+    def _get_member_planning_day(self, user):
+        """Return the day the estimated completion of user is planned from: their today in the
+        timezone of their preferences, else in their employee's, else in UTC. Not the UTC day their
+        Hours today count on without a timezone: the plan runs in their employee's timezone, where
+        that day can be over."""
+        # sudo: the viewer may not read employees
+        planning_tz = user.tz or user.sudo().employee_id.tz or "UTC"
+        return fields.Date.context_today(self.with_context(tz=planning_tz))
+
+    def _get_member_data(self, user, user_tasks, hours_logged_period, hours_logged_today, today):
         """Return the card of user, whose open tasks are user_tasks: the current task is the
         in-progress one written last, the others queue in sequence before the backlog.
 
-        Overdue follows the viewer's today, the ETA the user's own member_today."""
+        Overdue follows the viewer's today, the ETA the user's own _get_member_planning_day."""
         in_progress_tasks = user_tasks.filtered(lambda task: task.stage_id.is_in_progress)
         backlog_tasks = user_tasks.filtered(lambda task: task.stage_id.is_backlog)
         other_tasks = user_tasks - in_progress_tasks - backlog_tasks
@@ -896,12 +909,13 @@ class ProjectProject(models.Model):
             "total_remaining_hours": sum(user_tasks.mapped("remaining_hours")),
             "hours_logged_period": hours_logged_period,
             "hours_logged_today": hours_logged_today,
-            "estimated_completion": self._compute_user_eta(user, total_remaining, member_today),
+            "estimated_completion": self._compute_user_eta(user, total_remaining, self._get_member_planning_day(user)),
         }
 
     def _compute_user_eta(self, user, remaining_hours, today):
-        """Return the date ("YYYY-MM-DD") the user's remaining hours are worked off from today, on
-        the working time and leaves of their employee, or False when there is nothing left to work.
+        """Return the date ("YYYY-MM-DD") the user's remaining hours are worked off from midnight of
+        today in their employee's timezone, on the working time and leaves of their employee, or
+        False when there is nothing left to work.
 
         Without an employee or a calendar the user works 5.7 hours a day, every day.
         """
@@ -924,7 +938,7 @@ class ProjectProject(models.Model):
     def _get_project_label(self, project):
         # sudo: who reads a task reads the name of its project, as core reads a many-to-one
         project = project.sudo()
-        return "%s - %s" % (project.key, project.name) if project.key else project.name
+        return "%s - %s" % (project.key, project.name) if project.key else project.name or ""
 
     @api.model
     def _get_progress_percentage(self, task):

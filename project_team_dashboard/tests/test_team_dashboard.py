@@ -615,8 +615,9 @@ class TestDashboardDayOfTheUser(TeamDashboardCommon):
         self.assertTrue(task_data["is_overdue"], "a task that ended yesterday is overdue")
 
     @freeze_time("2026-11-24 22:00:00")
-    def test_a_card_counts_today_and_plans_its_eta_on_the_day_of_its_employee(self):
-        """It is Wednesday morning in Tokyo, the viewer's day, and Tuesday afternoon in New York."""
+    def test_a_card_counts_today_and_plans_its_eta_on_the_day_of_its_member(self):
+        """It is Wednesday morning in Tokyo, the viewer's day, and Tuesday afternoon in New York, the
+        member's: core copies the timezone written on their employee to them."""
         self.employee_dev1.tz = "America/New_York"
         self.env["account.analytic.line"].create(
             [
@@ -644,6 +645,42 @@ class TestDashboardDayOfTheUser(TeamDashboardCommon):
                 self.assertEqual(card["hours_logged_today"], 1.0, "it is still Tuesday in New York")
                 self.assertEqual(
                     card["estimated_completion"], "2026-11-24", "the 4 hours left fit in Tuesday in New York"
+                )
+
+    @freeze_time("2026-11-24 22:00:00")
+    def test_a_member_without_a_timezone_counts_today_in_utc_and_plans_the_eta_on_the_day_of_their_employee(self):
+        """It is Tuesday evening in UTC and Wednesday morning in Tokyo, where the member's employee works."""
+        self.user_dev1.partner_id.tz = False
+        self.assertFalse(self.user_dev1.tz)
+        self.assertEqual(self.employee_dev1.tz, "Asia/Tokyo")
+        self.env["account.analytic.line"].create(
+            [
+                {
+                    "name": "Logged on %s" % day,
+                    "project_id": self.project.id,
+                    "task_id": self.ended_last_evening_task.id,
+                    "user_id": self.user_dev1.id,
+                    "unit_amount": hours,
+                    "date": day,
+                }
+                for day, hours in ((date(2026, 11, 24), 1.0), (date(2026, 11, 25), 4.0))
+            ]
+        )
+        # 10 hours are logged on it: 4 are left
+        self.ended_last_evening_task.allocated_hours = 14.0
+
+        Project = self.env["project.project"].with_context(tz="America/New_York")
+        for mode, payload in (
+            ("project", Project.get_team_dashboard_data(self.project.id)),
+            ("manager", Project.get_team_dashboard_by_manager(self.user_dev2.id)),
+        ):
+            with self.subTest(mode=mode):
+                card = next(member for member in payload["members"] if member["user_id"] == self.user_dev1.id)
+                self.assertEqual(card["hours_logged_today"], 1.0, "it is still Tuesday in UTC")
+                self.assertEqual(
+                    card["estimated_completion"],
+                    "2026-11-25",
+                    "Tuesday is over in Tokyo: the 4 hours left fit in Wednesday",
                 )
 
     @freeze_time("2026-11-24 10:30:00")
