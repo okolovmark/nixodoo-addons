@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from unittest.mock import patch
 
 from freezegun import freeze_time
 
@@ -781,6 +782,46 @@ class TestDashboardModeAccessRule(TeamDashboardCommon):
         for manager_user in (self.user_boss, self.user_peer):
             with self.subTest(manager=manager_user.name), self.assertRaisesRegex(AccessError, "by manager"):
                 self._members_by_manager(self.user_internal, manager_user)
+
+    def test_a_plain_user_is_refused_the_user_of_an_archived_employee_below_them(self):
+        user_archived = self.env["res.users"].create(self._user_vals("Archived Report", ["base.group_user"]))
+        self.env["hr.employee"].create(
+            {
+                "name": "Archived Report",
+                "user_id": user_archived.id,
+                "parent_id": self.employee_internal.id,
+                "active": False,
+            }
+        )
+        with self.assertRaisesRegex(AccessError, "by manager"):
+            self.env["project.project"].with_user(self.user_internal).get_team_dashboard_by_manager(user_archived.id)
+
+    def test_the_manager_mode_walks_the_users_below_once_to_refuse_or_answer(self):
+        company_other = self.env["res.company"].create({"name": "Other Company"})
+        user_report_other = self.env["res.users"].create(self._user_vals("Report Elsewhere", ["base.group_user"]))
+        self.env["hr.employee"].create(
+            {
+                "name": "Report Elsewhere",
+                "user_id": user_report_other.id,
+                "company_id": company_other.id,
+                "parent_id": self.employee_internal.id,
+            }
+        )
+        ProjectModel = self.registry["project.project"]
+        Project = self.env["project.project"].with_user(self.user_internal)
+        with patch.object(
+            ProjectModel, "_get_users_below", autospec=True, side_effect=ProjectModel._get_users_below
+        ) as get_users_below:
+            with self.assertRaisesRegex(AccessError, "by manager"):
+                Project.get_team_dashboard_by_manager(self.user_boss.id)
+            self.assertEqual(get_users_below.call_count, 1, "refused")
+            get_users_below.reset_mock()
+            answer = Project.get_team_dashboard_by_manager(user_report_other.id)
+            self.assertEqual(
+                (answer.get("error"), get_users_below.call_count),
+                ("No employee record found for this user", 1),
+                "answered: a manager below the user without an employee in their companies",
+            )
 
     def test_a_user_opens_the_department_mode_for_their_own_and_managed_departments(self):
         self.assertEqual(self._members_by_department(self.user_internal, self.department_own), set(self.user_dev2.ids))

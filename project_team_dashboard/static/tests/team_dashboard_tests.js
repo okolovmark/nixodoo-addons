@@ -902,7 +902,7 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
                 }
             });
 
-            QUnit.test("the filter bar of every mode and the Gantt toolbar fit a phone's width", function (assert) {
+            QUnit.test("the filter bar of every mode, the Gantt toolbar and its legend fit a phone's width", async function (assert) {
                 var phoneScreen = document.createElement("div");
                 phoneScreen.style.width = "360px";
                 document.body.appendChild(phoneScreen);
@@ -915,15 +915,46 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
                     var filterBar = dashboard.el.querySelector(".o_dashboard_filter_bar");
                     assert.ok(filterBar.scrollWidth <= filterBar.clientWidth, mode + ": " + filterBar.scrollWidth + "px");
                 }
+                // one word each: a label of several words breaks over two lines rather than overflow
+                var stageNames = ["Specifications", "Implementation", "Documentation", "Verification"];
+                serveCalls(function () {
+                    return Promise.resolve({
+                        tasks: stageNames.map(function (stageName, index) {
+                            return {
+                                id: index + 1, key: "T-" + (index + 1), name: "Task in " + stageName, parent_id: false,
+                                stage_id: 40 + index, stage_name: stageName, stage_sequence: index, is_closed: false,
+                                planned_date_start: "2026-11-0" + (index + 1) + " 01:00:00",
+                                planned_date_end: "2026-11-1" + index + " 00:00:00",
+                                has_planned_date_start: true, has_planned_date_end: true,
+                                user_list: [], user_names: "", depend_on_ids: [], can_write: false,
+                                planned_hours: 0, remaining_hours: 0, progress: 0,
+                            };
+                        }),
+                        tasks_without_dates: 12,
+                        unscheduled: [],
+                        columns: [],
+                        today: "2026-11-05",
+                    });
+                });
                 var ganttDashboard = renderedDashboard("project");
                 // a tag shrinks no narrower than its longest word: this one leaves the search too little room uncapped
                 ganttDashboard.projects = [{id: 1, name: "Manufacturing", key: false}];
-                ganttDashboard._loadGanttData = function () {};
                 phoneScreen.replaceChildren(ganttDashboard.el);
                 ganttDashboard._onViewGantt();
-                var ganttToolbar = ganttDashboard.el.querySelector(".o_gantt_toolbar");
+                await ganttDashboard._loadGanttData();
                 assert.strictEqual(ganttDashboard.$(".o_gantt_multiproject_tags .o_project_tag").text().trim(), "Manufacturing");
-                assert.ok(ganttToolbar.scrollWidth <= ganttToolbar.clientWidth, "gantt: " + ganttToolbar.scrollWidth + "px");
+                assert.deepEqual(
+                    ganttDashboard.$(".o_gantt_legend_stages > span").toArray().map(function (stage) { return stage.textContent; }),
+                    stageNames
+                );
+                assert.strictEqual(ganttDashboard.$(".o_gantt_no_dates_count:not(.d-none)").text(), "12 tasks without dates");
+                for (var selector of [".o_gantt_toolbar", ".o_gantt_legend"]) {
+                    var element = ganttDashboard.el.querySelector(selector);
+                    assert.ok(
+                        element.clientWidth > 0 && element.scrollWidth <= element.clientWidth,
+                        selector + ": " + element.scrollWidth + "px in " + element.clientWidth + "px"
+                    );
+                }
             });
 
             QUnit.test("a manager or department not found leaves the header without a team", async function (assert) {

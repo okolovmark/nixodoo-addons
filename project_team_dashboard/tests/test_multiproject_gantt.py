@@ -299,6 +299,29 @@ class TestMultiProjectGantt(TeamDashboardCommon):
             ("PARP - Parent Project", self.Project._get_project_label(self.project)),
         )
 
+    def test_a_parent_without_a_project_is_labelled_with_an_empty_string(self):
+        parent = self.Task.create({"name": "Parent without a project", "user_ids": [Command.set(self.user_dev1.ids)]})
+        child = self.Task.create(
+            {
+                "name": "Child in a selected project",
+                "project_id": self.project.id,
+                "display_project_id": self.project.id,
+                "parent_id": parent.id,
+                "stage_id": self.stage_in_progress.id,
+                "planned_date_start": self.now,
+                "planned_date_end": self.now + timedelta(days=2),
+            }
+        )
+
+        result = self.Project.with_user(self.user_dev1).get_gantt_chart_data(
+            project_ids=[self.project.id, self.project2.id]
+        )
+
+        project_names = {task_data["id"]: task_data["project_name"] for task_data in result["tasks"]}
+        self.assertFalse(parent.project_id)
+        self.assertEqual(project_names[child.id], self.Project._get_project_label(self.project))
+        self.assertEqual(project_names[parent.id], "", "a label like any other, not False")
+
     def test_multi_project_tasks_without_dates_count(self):
         """tasks_without_dates counts across all requested projects."""
         # Create dateless tasks in both projects
