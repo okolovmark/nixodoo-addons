@@ -515,9 +515,10 @@ class TestGanttPlanningPayload(GanttPlanningCommon):
         self.assertIs(unscheduled_by_id[own_undated.id]["can_write"], True)
         self.assertIs(unscheduled_by_id[other_undated.id]["can_write"], False)
 
-    def test_unreadable_parent_is_left_out(self):
+    def test_unreadable_parent_is_left_out_but_labels_its_sub_task(self):
         followers_project = self._create_followers_project("Hidden Parent Project")
         hidden_parent = self._create_task("Hidden Parent", project_id=followers_project.id)
+        hidden_parent.key = "HID-1"
         visible_child = self._create_task(
             "Visible Child",
             datetime(2026, 3, 2, 9),
@@ -527,9 +528,12 @@ class TestGanttPlanningPayload(GanttPlanningCommon):
             display_project_id=self.project.id,
         )
         self.assertEqual(visible_child.project_id, self.project)
+        self.assertFalse(hidden_parent.with_user(self.user_dev1)._filter_access_rules("read"))
+        self.env.invalidate_all()
         payload = self._payload(self.user_dev1)
         task_ids = [task_data["id"] for task_data in payload["tasks"]]
         self.assertIn(visible_child.id, task_ids)
         self.assertNotIn(hidden_parent.id, task_ids)
         child_data = next(task_data for task_data in payload["tasks"] if task_data["id"] == visible_child.id)
-        self.assertEqual(child_data["parent_label"], "")
+        self.assertIs(child_data["parent_id"], False, "The sub-task row links no parent the user cannot open")
+        self.assertEqual(child_data["parent_label"], "HID-1")

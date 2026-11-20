@@ -465,7 +465,7 @@ class TestTeamBoardHierarchy(TeamBoardCase):
                 for user in cls.user_chief | cls.user_solo | cls.user_left | cls.user_right | cls.user_top
             ]
         )
-        cls.employee_solo = employee_solo
+        cls.employee_solo, cls.employee_top = employee_solo, employee_top
         employee_chief.parent_id = employee_chief
         employee_solo.parent_id = employee_solo
         cls.employee_dev1.parent_id = employee_chief
@@ -534,6 +534,17 @@ class TestTeamBoardHierarchy(TeamBoardCase):
                 rows = self.env["project.team.board"].with_user(user).search_read(self.manager_domain, ["data"])
                 self.assertEqual(len(rows), 6)
                 self.assertTrue(all(row["data"]["members"] for row in rows))
+
+    def test_an_archived_employee_of_the_user_opens_no_row_whatever_the_active_test_of_the_search(self):
+        department = self.env["hr.department"].create({"name": "Department of Top"})
+        self.employee_top.write({"department_id": department.id, "active": False})
+        Board = self.env["project.team.board"]
+        for domain in ([("manager_user_id", "=", self.user_lower.id)], [("department_id", "=", department.id)]):
+            self.assertEqual(len(Board.search(domain)), len(PERIODS))
+            for active_test in (True, False):
+                with self.subTest(domain=domain, active_test=active_test):
+                    TopBoard = Board.with_user(self.user_top).with_context(active_test=active_test)
+                    self.assertEqual(TopBoard.search_read(domain, ["data"]), [])
 
 
 @tagged("post_install", "-at_install")
@@ -611,6 +622,19 @@ class TestTeamBoardCompanies(TeamBoardCase):
                     Project.get_team_dashboard_by_manager(self.user_manager_b.id)
                 with self.assertRaisesRegex(AccessError, "by department"):
                     Project.get_team_dashboard_by_department(self.department_b.id)
+
+    def test_an_archived_employee_opens_no_team_of_another_company_whatever_the_active_test(self):
+        self.env["hr.employee"].create(
+            {"name": "Manager in B, archived in A", "user_id": self.user_manager_b.id, "active": False}
+        )
+        for user in self.user_approver | self.user_hr_officer:
+            for active_test in (True, False):
+                with self.subTest(user=user.name, active_test=active_test):
+                    Board = self.env["project.team.board"].with_user(user).with_context(active_test=active_test)
+                    self.assertEqual(self._subjects(Board.search(self.team_domain)), self.teams_a)
+                    Project = self.env["project.project"].with_user(user).with_context(active_test=active_test)
+                    with self.assertRaisesRegex(AccessError, "by manager"):
+                        Project.get_team_dashboard_by_manager(self.user_manager_b.id)
 
     def test_a_row_is_found_exactly_when_the_screen_opens_it(self):
         users = self.user_approver | self.user_hr_officer | self.user_approver_both | self.user_manager_b
