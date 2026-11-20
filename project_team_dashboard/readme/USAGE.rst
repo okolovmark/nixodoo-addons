@@ -14,11 +14,16 @@ Plan a task
   moved alone in the Gantt chart, not a change to a sub-task that leaves
   its parent's planned end where it was, not the same planned end saved
   again. A Deadline you set by hand, alone or together with the planned
-  end, stays until the planned end changes again. On the task form the
-  Deadline changes as you edit the planned end; a Deadline you type after
-  it is the one saved. Changing the Deadline alone leaves the plan where
-  it is, and clearing the planned end leaves the Deadline. In other
-  projects the planned end does not change the Deadline.
+  end, stays until the planned end changes again, on every task of a
+  recurrence the save reaches (*This and following tasks*, *All tasks*).
+  On the task form the Deadline changes as you edit the planned end, and
+  so does a sub-task's in its row where the sub-task list shows a planned
+  end, which the stock list does not. Changing the planned end back sets
+  the Deadline to the day of that end again, not to a Deadline you had
+  set by hand; a Deadline you type after the planned end is the one saved.
+  Changing the Deadline alone leaves the plan where it is, and clearing
+  the planned end leaves the Deadline. In other projects the planned end
+  does not change the Deadline.
 
 Work the backlog
 ~~~~~~~~~~~~~~~~

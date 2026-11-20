@@ -67,6 +67,25 @@ class TestTaskDeadline(TeamDashboardCommon):
                 """,
             }
         )
+        # The installed task form, its sub-task rows editable by Form and showing their planned end.
+        cls.subtask_planned_end_form_view = cls.env["ir.ui.view"].create(
+            {
+                "name": "project.task.form.subtask.planned.end",
+                "model": "project.task",
+                "inherit_id": cls.env.ref("project.view_task_form2").id,
+                "mode": "primary",
+                "arch": """
+                    <data>
+                        <xpath expr="//field[@name='child_ids']" position="attributes">
+                            <attribute name="widget"/>
+                        </xpath>
+                        <xpath expr="//field[@name='child_ids']/tree/field[@name='date_deadline']" position="before">
+                            <field name="planned_date_end"/>
+                        </xpath>
+                    </data>
+                """,
+            }
+        )
 
     def _create_task(self, name, project=None, **vals):
         task_vals = {
@@ -184,6 +203,46 @@ class TestTaskDeadline(TeamDashboardCommon):
         self.assertEqual((task.planned_date_end, task.date_deadline), (planned_end, date(2026, 3, 6)))
         self._move_the_start_alone(task)
         self.assertEqual(task.date_deadline, date(2026, 3, 6))
+
+    def test_a_subtask_planned_end_changed_and_changed_back_on_the_parent_form_brings_its_deadline_back(self):
+        planned_end = datetime(2026, 3, 6, 12)
+        parent = self._create_task("Parent")
+        subtask = self._create_task(
+            "Sub-task", parent_id=parent.id, planned_date_start=datetime(2026, 3, 2, 9), planned_date_end=planned_end
+        )
+
+        with Form(parent, view=self.subtask_planned_end_form_view) as parent_form:
+            with parent_form.child_ids.edit(0) as subtask_line:
+                subtask_line.planned_date_end = datetime(2026, 3, 16, 12)
+                self.assertEqual(subtask_line.date_deadline, date(2026, 3, 16))
+                subtask_line.planned_date_end = planned_end
+                self.assertEqual(subtask_line.date_deadline, date(2026, 3, 6))
+
+        self.assertEqual((subtask.planned_date_end, subtask.date_deadline), (planned_end, date(2026, 3, 6)))
+        self._move_the_start_alone(subtask)
+        self.assertEqual(subtask.date_deadline, date(2026, 3, 6))
+
+    def test_an_occurrence_given_a_deadline_with_its_plan_keeps_it_until_its_plan_changes(self):
+        for recurrence_update in ("subsequent", "all"):
+            with self.subTest(recurrence_update=recurrence_update):
+                recurrence = self.env["project.task.recurrence"].create({"repeat_unit": "week", "mon": True})
+                occurrences = self._create_task("First", planned_date_end=MIDDAY_UTC, recurrence_id=recurrence.id)
+                occurrences |= self._create_task("Second", planned_date_end=MIDDAY_UTC, recurrence_id=recurrence.id)
+
+                occurrences[0].write(
+                    {
+                        "planned_date_end": datetime(2026, 3, 9, 12),
+                        "date_deadline": date(2026, 4, 1),
+                        "recurrence_update": recurrence_update,
+                    }
+                )
+                self._move_the_start_alone(occurrences)
+
+                self.assertEqual(occurrences.mapped("date_deadline"), [date(2026, 4, 1)] * 2)
+
+                occurrences.planned_date_end = datetime(2026, 3, 16, 12)
+
+                self.assertEqual(occurrences.mapped("date_deadline"), [date(2026, 3, 16)] * 2)
 
     def test_a_deadline_typed_after_a_move_on_the_form_stays_while_a_subtask_is_edited(self):
         other_project = self.env["project.project"].create(
