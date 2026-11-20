@@ -199,8 +199,9 @@ class ProjectProject(models.Model):
 
         Task = self.env["project.task"]
 
+        # not the requested ids: a follower of a task reads it in a project they cannot read
         domain = [
-            ("project_id", "in", pids),
+            ("project_id", "in", projects.ids),
             ("has_template_ancestor", "=", False),
             "|",
             "|",
@@ -238,7 +239,7 @@ class ProjectProject(models.Model):
         }
 
         unscheduled_domain = [
-            ("project_id", "in", pids),
+            ("project_id", "in", projects.ids),
             ("has_template_ancestor", "=", False),
             ("id", "not in", list(task_ids_set)),
             ("planned_date_start", "=", False),
@@ -539,7 +540,8 @@ class ProjectProject(models.Model):
         output.seek(0)
         data = base64.b64encode(output.read()).decode("utf-8")
 
-        project_name = self.browse(project_ids)[:1].name or "Gantt"
+        first_readable_project = (self.browse(project_ids) & self.search([("id", "in", project_ids)]))[:1]
+        project_name = first_readable_project.name or "Gantt"
         filename = "Gantt_%s.xlsx" % project_name.replace(" ", "_")[:30]
         return {"data": data, "filename": filename}
 
@@ -723,12 +725,16 @@ class ProjectProject(models.Model):
 
     @api.model
     def _get_openable_department_domain(self):
-        """The departments the user opens among those they find (the departments' company rule):
-        every one for _sees_every_team, else those of their employees and those one of them manages."""
+        """The departments, of a company of the context or of none, the user opens: every one for
+        _sees_every_team, else those of their employees and those one of them manages. A database
+        may switch the departments' company rule off: the company is a condition here."""
+        domain = Domain("company_id", "in", [*self.env.companies.ids, False])
         if self._sees_every_team():
-            return Domain.TRUE
+            return domain
         own_employees = self._own_employees()
-        return Domain("id", "in", own_employees.department_id.ids) | Domain("manager_id", "in", own_employees.ids)
+        return domain & (
+            Domain("id", "in", own_employees.department_id.ids) | Domain("manager_id", "in", own_employees.ids)
+        )
 
     @api.model
     def _sees_every_team(self):
@@ -763,7 +769,8 @@ class ProjectProject(models.Model):
 
     def _build_multiproject_dashboard(self, users, date_start, date_end, label, label_value, extra=None):
         """Return the cards of the users with open tasks, across all their projects, under the key
-        label holding label_value, with the keys of extra."""
+        label holding label_value, with the keys of extra. Their hours are those of their timesheets
+        in the companies of the context."""
         # sudo: the manager and department modes read the hours of other users
         Timesheet = self.env["account.analytic.line"].sudo()
         today = fields.Date.context_today(self)
@@ -779,11 +786,14 @@ class ProjectProject(models.Model):
                 ("is_closed", "=", False),
             ]
         )
+        # the lines of invoices and bills are analytic lines too, with a quantity for hours and no project
+        timesheet_domain = [("project_id", "!=", False), ("company_id", "in", self.env.companies.ids)]
         period_hours_by_user = self._get_logged_hours_by_user(
-            Timesheet, [("user_id", "in", users.ids), ("date", ">=", period_start), ("date", "<=", period_end)]
+            Timesheet,
+            timesheet_domain + [("user_id", "in", users.ids), ("date", ">=", period_start), ("date", "<=", period_end)],
         )
         member_today_by_user = self._get_member_today_by_user(users)
-        today_hours_by_user = self._get_today_hours_by_user(Timesheet, [], member_today_by_user)
+        today_hours_by_user = self._get_today_hours_by_user(Timesheet, timesheet_domain, member_today_by_user)
 
         members_data = []
         for user in users.sorted(key=lambda user: user.name):

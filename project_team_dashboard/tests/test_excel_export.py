@@ -75,6 +75,30 @@ class TestExcelExport(TeamDashboardCommon):
         self.assertIn("Test_AI-driven_Project", result["filename"])
         self.assertTrue(result["filename"].endswith(".xlsx"))
 
+    def test_the_file_is_named_after_the_first_project_the_user_can_read(self):
+        project_hidden = self.Project.create({"name": "Hidden Plan", "privacy_visibility": "followers"})
+        followed_task = self.Task.create(
+            {
+                "name": "Followed Task",
+                "project_id": project_hidden.id,
+                "planned_date_start": self.now,
+                "planned_date_end": self.now + timedelta(days=2),
+            }
+        )
+        followed_task.message_subscribe(partner_ids=self.user_dev1.partner_id.ids)
+        project_first_in_order = self.Project.create({"name": "Alpha Plan"})
+        Project = self.Project.with_user(self.user_dev1)
+        self.assertFalse(project_hidden.with_user(self.user_dev1).has_access("read"))
+        self.assertEqual(
+            Project.search([("id", "in", (self.project | project_first_in_order).ids)])[:1], project_first_in_order
+        )
+
+        result = Project.export_gantt_excel([project_hidden.id, self.project.id, project_first_in_order.id])
+        self.assertEqual(result["filename"], "Gantt_Test_AI-driven_Project.xlsx")
+
+        result = Project.export_gantt_excel([project_hidden.id])
+        self.assertEqual(result, {"error": "No tasks with planned dates"})
+
     def test_export_data_is_valid_base64(self):
         """Returned data is valid base64 that decodes without error."""
         result = self.Project.export_gantt_excel([self.project.id])
