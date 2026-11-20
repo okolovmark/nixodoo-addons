@@ -1,6 +1,6 @@
 import base64
 import io
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import openpyxl
@@ -123,11 +123,32 @@ class TestServerMessagesTranslated(TeamDashboardCommon):
             ["Clé", "Tâche", "Type de tâche", "Responsable", "Début", "Fin", "Avancement", "Étape"],
         )
 
+    def test_the_day_headers_name_the_months_in_the_user_language(self):
+        project = self.env["project.project"].create({"name": "Month Turn"})
+        self.env["project.task"].create(
+            {
+                "name": "Across the month end",
+                "project_id": project.id,
+                "planned_date_start": datetime(2026, 1, 30, 12),
+                "planned_date_end": datetime(2026, 2, 2, 12),
+            }
+        )
+        result = self.Project.export_gantt_excel([project.id])
+        sheet = openpyxl.load_workbook(io.BytesIO(base64.b64decode(result["data"]))).active
+        self.assertEqual(
+            [cell.value for cell in sheet[1]][8:],
+            ["29 janv.", "30 janv.", "31 janv.", "01 févr.", "02 févr.", "03 févr."],
+        )
+
     def test_a_sheet_title_too_long_or_with_characters_excel_refuses_is_cut_to_one_it_takes(self):
-        """Odoo's patched `add_worksheet` (odoo/_monkeypatches/xlsxwriter.py) makes the translated title fit."""
+        """Odoo's patched `add_worksheet` (odoo/_monkeypatches/xlsxwriter.py) makes the translated title fit,
+        but for an apostrophe at either end."""
         for translation, sheet_title in (
             ("Diagramme de Gantt des tâches planifiées du projet", "Diagramme de Gantt des tâches p"),
             ("Gantt: [tâches] / jalons *?\\", "Gantt tâches  jalons "),
+            ("'Gantt' des jalons'", "Gantt' des jalons"),
+            ("Gantt des tâches de l'équipe d'Ana", "Gantt des tâches de l'équipe d"),
+            ("'*'", "Gantt Chart"),
         ):
             with (
                 self.subTest(translation=translation),

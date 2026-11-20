@@ -860,6 +860,29 @@ describe("GanttView", () => {
         expect(moment.locale()).toBe(globalLocale);
     });
 
+    test("the axis names the months and weekdays in the user's language, on the week start of theirs", async () => {
+        const { moment } = await visTimeline.load();
+        const formats = ["MMMM YYYY", "D MMMM", "MMM", "ddd D"];
+        for (const [locale, labels] of [
+            ["fr-FR", ["novembre 2026", "19 novembre", "nov.", "jeu. 19"]],
+            ["ar-001", ["نوفمبر 2026", "19 نوفمبر", "نوفمبر", "الخميس 19"]],
+            ["en-US", ["November 2026", "19 November", "Nov", "Thu 19"]],
+        ]) {
+            const axisMoment = weekStartMoment(moment, 1, locale);
+            expect(formats.map((format) => axisMoment(localDate(2026, 10, 19)).format(format))).toEqual(labels);
+            expect(axisMoment(localDate(2026, 10, 19)).startOf("week").day()).toBe(1);
+        }
+    });
+
+    test("the axis of the chart names the months in the user's language", async () => {
+        serverState.lang = "fr_FR";
+        serveGanttData([]);
+        await mountGantt();
+        const monthLabels = queryAllTexts(".o_gantt_timeline .vis-time-axis .vis-text.vis-major:not(.vis-measure)");
+        expect(monthLabels).toInclude("novembre 2026");
+        expect(monthLabels.filter((label) => label.includes("November"))).toEqual([]);
+    });
+
     test("the stylesheets of the chart and the dashboard name no fixed colour, only the web client's", async () => {
         const fixedColour = /#[\da-f]{3,8}\b|rgba?\(\s*[\d.]|(?<![-\w])(white|black)(?![-\w])/i;
         const styleRules = await styleRulesOf([GANTT_STYLESHEET, DASHBOARD_STYLESHEET]);
@@ -1012,6 +1035,61 @@ describe("GanttView", () => {
             await resize({ width: 1024 });
             await animationFrame();
             expectNamesLayout();
+        });
+
+        test(`a name too long for the names' panel is cut and leaves the key whole, ${direction}`, async () => {
+            defineParams({ lang_parameters: { direction } });
+            serveGanttData([], () => {
+                const payload = makePayload();
+                payload.tasks[0].name = "Design every screen of the onboarding flow for each market the mobile app sells in";
+                payload.tasks[0].parent_label = "PROJ-9";
+                return payload;
+            });
+            await mountGantt();
+            const label = queryAll(".o_gantt_timeline .vis-labelset .o_gantt_label_name").find((name) =>
+                name.textContent.includes("onboarding")
+            );
+            expect(getComputedStyle(label).direction).toBe(direction);
+            expect(label.scrollWidth).toBeGreaterThan(label.clientWidth);
+            const labelRect = label.getBoundingClientRect();
+            const keyRect = queryOne(".gantt-task-key", { root: label }).getBoundingClientRect();
+            expect(keyRect.left).toBeGreaterThan(labelRect.left - 1);
+            expect(keyRect.right).toBeLessThan(labelRect.right + 1);
+            const iconRect = queryOne(".o_gantt_open_task", { root: label }).getBoundingClientRect();
+            expect(isRtl ? iconRect.left >= keyRect.right : iconRect.right <= keyRect.left).toBe(true);
+        });
+
+        test(`a new cap of the names lays the panels out again without rendering the bars again, ${direction}`, async () => {
+            defineParams({ lang_parameters: { direction } });
+            serveGanttData([], () => {
+                const payload = makePayload();
+                payload.tasks[0].name = "Design every screen of the onboarding flow for each market the mobile app sells in";
+                return payload;
+            });
+            const gantt = await mountGantt();
+            const { itemSet } = gantt.timeline;
+            const markDirty = itemSet.markDirty.bind(itemSet);
+            const refreshes = [];
+            patchWithCleanup(itemSet, {
+                markDirty: (options) => {
+                    if (options?.refreshItems) {
+                        refreshes.push(options);
+                    }
+                    return markDirty(options);
+                },
+            });
+            const capWidth = gantt.sidebar.laidOutWidth;
+            await resize({ width: 1024 });
+            await animationFrame();
+            expect(gantt.sidebar.laidOutWidth).not.toBe(capWidth);
+            const namesRect = queryOne(
+                `.o_gantt_timeline .vis-panel.${isRtl ? "vis-right" : "vis-left"}`
+            ).getBoundingClientRect();
+            const centerRect = queryOne(".o_gantt_timeline .vis-panel.vis-center").getBoundingClientRect();
+            expect(isRtl ? namesRect.left - centerRect.right : centerRect.left - namesRect.right).toBeCloseTo(0, {
+                margin: 1,
+            });
+            expect(refreshes).toEqual([]);
         });
     }
 

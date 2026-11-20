@@ -254,6 +254,29 @@ class TestTeamDashboard(TeamDashboardCommon):
         self.assertAlmostEqual(dev1_data["hours_logged_today"], 3.5)
         self.assertGreaterEqual(dev1_data["hours_logged_period"], 3.5)
 
+    def test_the_project_team_leaves_out_archived_tasks_whatever_the_active_test_of_the_call(self):
+        archived_task = self.env["project.task"].create(
+            {
+                "name": "Archived task of Dev Two",
+                "project_id": self.project.id,
+                "stage_id": self.stage_in_progress.id,
+                "user_ids": [Command.set(self.user_dev2.ids)],
+                "active": False,
+            }
+        )
+        for active_test in (True, False):
+            with self.subTest(active_test=active_test):
+                Project = self.env["project.project"].with_context(active_test=active_test)
+                data = Project.get_team_dashboard_data(self.project.id)
+                card_task_ids = {
+                    task["id"]
+                    for member in data["members"]
+                    for task in (member["current_task"], *member["queue"], *member["backlog"], *member["other"])
+                    if task
+                }
+                self.assertTrue(card_task_ids)
+                self.assertNotIn(archived_task.id, card_task_ids)
+
 
 @tagged("post_install", "-at_install")
 class TestTaskToDict(TeamDashboardCommon):

@@ -550,9 +550,11 @@ class TestGanttPlanningPayload(GanttPlanningCommon):
         self.assertIs(unscheduled_by_id[own_undated.id]["can_write"], True)
         self.assertIs(unscheduled_by_id[other_undated.id]["can_write"], False)
 
-    def test_unreadable_parent_is_left_out(self):
+    def test_unreadable_parent_is_left_out_but_labelled(self):
         followers_project = self._create_followers_project("Hidden Parent Project")
         hidden_parent = self._create_task("Hidden Parent", project_id=followers_project.id)
+        # task keys are off while tests run
+        hidden_parent.key = "HID-1"
         visible_child = self._create_task(
             "Visible Child",
             datetime(2026, 3, 2, 9),
@@ -561,9 +563,24 @@ class TestGanttPlanningPayload(GanttPlanningCommon):
             project_id=self.project.id,
         )
         self.assertEqual(visible_child.project_id, self.project)
+        self.assertFalse(hidden_parent.with_user(self.user_dev1).has_access("read"))
+        # the superuser wrote the parent: a cold cache makes the viewer's read of its label reach the access check
+        self.env.invalidate_all()
         payload = self._payload(self.user_dev1)
         task_ids = [task_data["id"] for task_data in payload["tasks"]]
         self.assertIn(visible_child.id, task_ids)
         self.assertNotIn(hidden_parent.id, task_ids)
         child_data = next(task_data for task_data in payload["tasks"] if task_data["id"] == visible_child.id)
-        self.assertEqual(child_data["parent_label"], "")
+        self.assertEqual(child_data["parent_label"], "HID-1")
+        self.assertIs(child_data["parent_id"], False)
+        hidden_parent.key = False
+        self.env.invalidate_all()
+        unkeyed_child_data = next(
+            task_data for task_data in self._payload(self.user_dev1)["tasks"] if task_data["id"] == visible_child.id
+        )
+        self.assertEqual(unkeyed_child_data["parent_label"], "Hidden Parent")
+        # the payload reads the parent's label before this helper does: the helper alone, with a cold
+        # cache, shows it needs no right on the parent
+        self.env.invalidate_all()
+        attributes = visible_child.with_user(self.user_dev1)._gantt_task_attributes(set(), {})
+        self.assertEqual(attributes["parent_label"], "Hidden Parent")

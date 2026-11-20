@@ -298,6 +298,13 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+/* Each part is its own bidi run: right to left, a left-to-right key would otherwise join the name's
+   run and be the first text the ellipsis cuts */
+.o_gantt_view .o_gantt_label_name > *,
+.o_gantt_view .o_gantt_task_name > *,
+.o_gantt_view .o_gantt_unscheduled_name > * {
+    unicode-bidi: isolate;
+}
 .o_gantt_view .gantt-task-key {
     margin-inline-end: 4px;
     font-weight: 600;

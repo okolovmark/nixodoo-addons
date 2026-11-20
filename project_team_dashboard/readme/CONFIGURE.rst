@@ -55,6 +55,9 @@ Who opens which team in those two modes follows the user's employee:
   user has selected, and a manager other than the user only with an
   active employee in a company the user has selected; the manager's team
   itself may reach into other companies.
+* The user's archived employees open no team, and the cards of every mode
+  leave out archived projects, employees and tasks, also for a call that
+  asks for archived records.
 
 The Team Dashboard board (``project.team.board``) follows the same rules:
 every internal user reads it, and finds the rows of the teams and

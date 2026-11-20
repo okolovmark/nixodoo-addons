@@ -175,7 +175,8 @@ excepted. Dependencies are drawn as orange elbow connectors from the
 predecessor's end into the successor's start. **Export Excel** downloads
 the open tasks of the selected projects that have planned dates or a
 deadline as an .xlsx Gantt chart, sorted by start, with today's column
-marked; a planned date the task does not have leaves its Start or End cell
+marked and the day headers in the user's language ("05 mars" in French);
+a planned date the task does not have leaves its Start or End cell
 empty. The search facets and grouping are not applied. The chart is drawn
 with vis-timeline 7.7.0, which the module ships
 (``static/lib/vis-timeline``, MIT License) and loads on the first chart
@@ -220,8 +221,9 @@ shown; the library injects its own styles.
   baseline raises a warning pointing to *Save Baseline*.
 * **Sub-tasks**: grouped by task, user or stage, a sub-task row is nested
   under its parent's row when both fall in the same group. Otherwise the
-  sub-task is a top-level row labelled "sub-task of <parent key>" (no label
-  when the user cannot read the parent).
+  sub-task is a top-level row labelled "sub-task of <parent key>" (its name
+  when it has no key), also when the user cannot read the parent: the label
+  is all the chart shows of it.
 * **Unscheduled (N)**: open tasks with no planned dates and no deadline are
   listed in a collapsed group at the end of the chart, where a click on a
   name opens the task, and counted in a *tasks without dates* button that
@@ -235,10 +237,12 @@ shown; the library injects its own styles.
   names under *Unscheduled (N)* are buttons reached with Tab and pressed
   with Enter or Space; toolbar icons are hidden from screen readers, which
   read the buttons' names. The Week scale starts each week on the first
-  day of the week of the viewer's language. In a right-to-left language
-  the chart is mirrored: row labels, columns and their header on the
-  right, time running leftwards, progress filling from the right, arrows
-  from a bar's left end. Outlines, highlights, the link handle and the
+  day of the week of the viewer's language, and the time axis names the
+  months and weekdays in it. In a right-to-left language the chart is
+  mirrored: row labels, columns and their header on the right, time
+  running leftwards, progress filling from the right, arrows from a bar's
+  left end; a row label too long for the sidebar is cut in its name, the
+  task key kept whole. Outlines, highlights, the link handle and the
   chart's text and lines take the web client's colour variables.
 * **Stage History** (off by default, in every grouping): each task row
   expands into one row per stage visit, in the stage's colour and chained
