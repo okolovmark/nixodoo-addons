@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from odoo import Command
 from odoo.tests.common import TransactionCase
 
@@ -114,6 +116,17 @@ class TeamDashboardCommon(TransactionCase):
                 "company_id": cls.env.company.id,
             },
         )
+
+    def _stagger_create_dates(self, tasks):
+        """Back-date the creation of the tasks a day apart, in their order: a transaction creates them
+        all at its own time."""
+        self.env.flush_all()
+        for day_offset, task in enumerate(tasks):
+            self.env.cr.execute(
+                "UPDATE project_task SET create_date = %s WHERE id = %s",
+                (datetime(2020, 1, 1) + timedelta(days=day_offset), task.id),
+            )
+        tasks.invalidate_recordset(["create_date"])
 
     @classmethod
     def _user_vals(cls, name, group_xmlids):

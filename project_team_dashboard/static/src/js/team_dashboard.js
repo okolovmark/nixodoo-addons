@@ -4,8 +4,10 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
     var AbstractAction = require("web.AbstractAction");
     var core = require("web.core");
     var Dialog = require("web.Dialog");
-    var rpc = require("web.rpc");
     var QWeb = core.qweb;
+
+    // Every server call goes through this._rpc, which sends the user's context and with it the companies
+    // selected in the switcher; web.rpc sends none.
 
     // vis-timeline lazy loader - loads the library once on demand,
     // bypassing AMD so it assigns to window.vis.
@@ -470,7 +472,7 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
                         self.managerName = me.name;
                     }
                     // Set default department from current user's employee
-                    return rpc.query({
+                    return self._rpc({
                         model: "hr.employee",
                         method: "search_read",
                         domain: [["user_id", "=", self.getSession().uid]],
@@ -534,7 +536,7 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
 
         _loadProjects: function () {
             var self = this;
-            return rpc.query({
+            return this._rpc({
                 model: "project.project",
                 method: "search_read",
                 domain: [],
@@ -547,7 +549,7 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
 
         _loadManagerUsers: function () {
             var self = this;
-            return rpc.query({
+            return this._rpc({
                 model: "res.users",
                 method: "search_read",
                 domain: [["share", "=", false]],
@@ -560,7 +562,7 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
 
         _loadDepartments: function () {
             var self = this;
-            return rpc.query({
+            return this._rpc({
                 model: "hr.department",
                 method: "search_read",
                 domain: [],
@@ -573,14 +575,15 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
 
         _loadUserDefaultProject: function () {
             var self = this;
-            return rpc.query({
+            return this._rpc({
                 model: "res.users",
                 method: "read",
                 args: [[self.getSession().uid], ["dashboard_default_project_id"]],
             }).then(function (result) {
-                var user = result && result[0];
-                if (user && user.dashboard_default_project_id) {
-                    self.projectId = user.dashboard_default_project_id[0];
+                var defaultProject = result && result[0] && result[0].dashboard_default_project_id;
+                // a default project of a company not selected is not among the projects found
+                if (defaultProject && _.findWhere(self.projects, {id: defaultProject[0]})) {
+                    self.projectId = defaultProject[0];
                 } else if (self.projects.length > 0) {
                     self.projectId = self.projects[0].id;
                 }
@@ -662,7 +665,7 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
 
             if (this.dashboardMode === "manager") {
                 if (!this.managerId) { return; }
-                return rpc.query({
+                return this._rpc({
                     model: "project.project",
                     method: "get_team_dashboard_by_manager",
                     args: [this.managerId, dates.date_start, dates.date_end, this.maxDepth],
@@ -672,7 +675,7 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
                 });
             } else if (this.dashboardMode === "department") {
                 if (!this.departmentId) { return; }
-                return rpc.query({
+                return this._rpc({
                     model: "project.project",
                     method: "get_team_dashboard_by_department",
                     args: [this.departmentId, dates.date_start, dates.date_end],
@@ -683,7 +686,7 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
             } else {
                 // project mode (default)
                 if (!this.projectId) { return; }
-                return rpc.query({
+                return this._rpc({
                     model: "project.project",
                     method: "get_team_dashboard_data",
                     args: [this.projectId, dates.date_start, dates.date_end],
@@ -713,55 +716,48 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
                 project_count: 0,
             };
 
-            if (!data.error) {
-                var html = QWeb.render("project_team_dashboard.TeamDashboardContent", {
-                    data: data,
-                    projects: this.projects,
-                    selectedProjectId: this.projectId,
-                    selectedProjectName: this._getSelectedProjectName(),
-                    period: this.period,
-                    dateStart: this.dateStart,
-                    dateEnd: this.dateEnd,
-                    // Mode state
-                    dashboardMode: this.dashboardMode,
-                    // Manager mode
-                    managerUsers: this.managerUsers,
-                    managerId: this.managerId,
-                    managerName: this.managerName,
-                    maxDepth: this.maxDepth,
-                    // Department mode
-                    departments: this.departments,
-                    departmentId: this.departmentId,
-                    departmentName: this.departmentName,
-                });
-                $content.html(html);
-                // Restore view mode after re-render
-                if (this.viewMode === "gantt" && this.dashboardMode === "project") {
-                    this.$(".o_team_dashboard_grid").addClass("d-none");
-                    this.$(".o_gantt_container").removeClass("d-none");
-                    this.$(".o_view_gantt").addClass("active");
-                    this.$(".o_view_cards").removeClass("active");
-                    this.$(".o_dashboard_filter_bar").addClass("d-none");
-                    // Restore scale button state
-                    this.$(".o_gantt_scale").removeClass("active");
-                    this.$('.o_gantt_scale[data-scale="' + this.ganttScale + '"]').addClass("active");
-                    // Restore group-by button state
-                    this.$(".o_gantt_group_by").removeClass("active");
-                    this.$('.o_gantt_group_by[data-group="' + this.ganttGroupBy + '"]').addClass("active");
-                    // Restore show completed button state
-                    this.$(".o_gantt_show_completed").toggleClass("active", this.ganttShowCompleted);
-                    // Restore facet chips
-                    this._ganttRenderFacets();
-                    this._ganttUpdatePlaceholder();
-                    // Render multi-project tags
-                    this._ganttRenderProjectTags();
-                    this._loadGanttData();
-                }
-            } else {
-                var msg = data.error || "No data available.";
-                $content.html(
-                    '<div class="alert alert-warning">' + _.escape(msg) + '</div>'
-                );
+            var html = QWeb.render("project_team_dashboard.TeamDashboardContent", {
+                data: data,
+                projects: this.projects,
+                selectedProjectId: this.projectId,
+                selectedProjectName: this._getSelectedProjectName(),
+                period: this.period,
+                dateStart: this.dateStart,
+                dateEnd: this.dateEnd,
+                // Mode state
+                dashboardMode: this.dashboardMode,
+                // Manager mode
+                managerUsers: this.managerUsers,
+                managerId: this.managerId,
+                managerName: this.managerName,
+                maxDepth: this.maxDepth,
+                // Department mode
+                departments: this.departments,
+                departmentId: this.departmentId,
+                departmentName: this.departmentName,
+            });
+            $content.html(html);
+            // Restore view mode after re-render
+            if (this.viewMode === "gantt" && this.dashboardMode === "project") {
+                this.$(".o_team_dashboard_grid").addClass("d-none");
+                this.$(".o_gantt_container").removeClass("d-none");
+                this.$(".o_view_gantt").addClass("active");
+                this.$(".o_view_cards").removeClass("active");
+                this.$(".o_dashboard_filter_bar").addClass("d-none");
+                // Restore scale button state
+                this.$(".o_gantt_scale").removeClass("active");
+                this.$('.o_gantt_scale[data-scale="' + this.ganttScale + '"]').addClass("active");
+                // Restore group-by button state
+                this.$(".o_gantt_group_by").removeClass("active");
+                this.$('.o_gantt_group_by[data-group="' + this.ganttGroupBy + '"]').addClass("active");
+                // Restore show completed button state
+                this.$(".o_gantt_show_completed").toggleClass("active", this.ganttShowCompleted);
+                // Restore facet chips
+                this._ganttRenderFacets();
+                this._ganttUpdatePlaceholder();
+                // Render multi-project tags
+                this._ganttRenderProjectTags();
+                this._loadGanttData();
             }
         },
 
@@ -983,6 +979,7 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
         // ---- Dashboard mode switching ----
 
         _onDashboardModeChange: function (ev) {
+            var self = this;
             var mode = $(ev.currentTarget).data("mode");
             if (mode === this.dashboardMode) {
                 return;
@@ -991,25 +988,15 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
             this.dashboardData = null;
             this.viewMode = "cards";
 
-            if (mode === "project") {
-                if (this.projectId) {
-                    this._loadDashboard();
-                } else {
-                    this._renderDashboard();
-                }
-            } else if (mode === "manager") {
-                if (this.managerId) {
-                    this._loadDashboard();
-                } else {
-                    this._renderDashboard();
-                }
-            } else if (mode === "department") {
-                if (this.departmentId) {
-                    this._loadDashboard();
-                } else {
-                    this._renderDashboard();
-                }
+            var loading = this._loadDashboard();
+            if (!loading) {
+                this._renderDashboard();
+                return;
             }
+            // A refused team still gets the toolbar of its mode, whose picker opens another team.
+            return loading.guardedCatch(function () {
+                self._renderDashboard();
+            });
         },
 
         // ---- Manager mode: user search ----
@@ -1296,7 +1283,7 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
             $wrapper.html('<div class="text-center p-5"><i class="fa fa-spinner fa-spin fa-2x" /></div>');
 
             return _ensureVisTimeline().then(function () {
-                return rpc.query({
+                return self._rpc({
                     model: "project.project",
                     method: "get_gantt_chart_data",
                     kwargs: {
@@ -1898,7 +1885,7 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
                 vals.planned_date_end = formatUtcDateTime(movedEnd.getTime());
             }
 
-            rpc.query({
+            this._rpc({
                 model: "project.task",
                 method: "write",
                 args: [[taskId], vals],
@@ -2712,7 +2699,7 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
             });
             var chosenColumns = this._GANTT_COLUMNS.map(function (col) { return col.key; })
                 .filter(function (key) { return checkedKeys.indexOf(key) !== -1; });
-            return rpc.query({
+            return this._rpc({
                 model: "res.users",
                 method: "write",
                 args: [[this.getSession().uid], {gantt_columns: chosenColumns.join(",")}],
@@ -2857,7 +2844,7 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
                 : "Save the current plan as the project baseline? It replaces the current baseline.";
             Dialog.confirm(this, message, {
                 confirm_callback: function () {
-                    return rpc.query({
+                    return self._rpc({
                         model: "project.project",
                         method: "save_gantt_baselines",
                         args: [pids],
@@ -2953,7 +2940,7 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
             if ((successor.depend_on_ids || []).indexOf(predecessorId) !== -1) {
                 return;
             }
-            rpc.query({
+            this._rpc({
                 model: "project.task",
                 method: "gantt_add_dependency",
                 args: [[successorId], predecessorId],
@@ -3022,7 +3009,7 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
                 });
                 return;
             }
-            rpc.query({
+            this._rpc({
                 model: "project.task",
                 method: "gantt_set_dependency_lag",
                 args: [[edge.succ], edge.pred, lagDays],
@@ -3036,7 +3023,7 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
             var self = this;
             var edge = this._ganttPopoverEdge;
             if (!edge) { return; }
-            rpc.query({
+            this._rpc({
                 model: "project.task",
                 method: "gantt_remove_dependency",
                 args: [[edge.succ], edge.pred],

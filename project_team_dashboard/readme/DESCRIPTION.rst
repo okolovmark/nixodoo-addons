@@ -30,7 +30,12 @@ the Deadline follows a rolled-up planned end as it follows one entered by
 hand (see Usage); elsewhere the roll-up leaves the Deadline alone. Such a
 task is flagged ``is_planned_from_subtasks``: its planned dates are
 read-only on the task form and list, and a write that changes them is
-refused with a message to change the sub-tasks instead.
+refused with a message to change the sub-tasks instead. A save of a
+recurring task for *This and following tasks* or *All tasks* does the same
+on every task of the recurrence it writes: it is refused when it changes
+the planned dates of one planned from its sub-tasks, and the message names
+that task; a save that changes sub-tasks rolls up the planned dates of
+each of them again.
 
 **Backlog**
 
@@ -62,6 +67,17 @@ Month or a custom range), and an estimated completion date. The estimate
 plans the remaining hours on the employee's working schedule with leaves
 taken into account, and falls back to 5.7 hours a day when no employee or
 schedule exists. Links open the member's kanban, backlog or closed tasks.
+
+Logged hours are timesheet lines: in View by Project the lines of the
+project, as far as the user may read them; in the other two modes the
+member's lines on any project of the companies selected in the company
+switcher. Analytic lines without a project, such as those of invoices and
+bills, never count.
+
+The screen works in the companies selected in the company switcher: every
+call it makes carries them, the Gantt chart and its edits included. An
+error answer, such as a team not found, shows under the toolbar, which
+stays for another pick.
 
 Users carry a **Default Dashboard Project**, editable from their
 preferences.
@@ -103,9 +119,10 @@ installed); a manager row is the user's own or that of a manager below
 one of their employees; a department row is that of the user's department
 or one they manage. Timesheet approvers, every project manager among them,
 and HR officers find every manager and department. Either way a manager or
-a department of a company the user may not enter stays hidden, the user's
-own team aside, and the screen refuses it too. A user who may not read
-timesheets finds no project row, as the screen refuses them a project too.
+a department of a company the user has not selected stays hidden, the
+user's own manager row aside, and the screen does not open it either. A
+user who may not read timesheets finds no project row, as the screen
+refuses them a project too.
 Reading every field of a project computes no dashboard, as the board is a
 model of its own, and a read of the board naming no fields lists its rows
 without ``data``. The design record
@@ -114,19 +131,21 @@ in this repository.
 
 **Gantt Chart**
 
-The **Gantt Chart** view plots the planned dates of the selected projects'
-tasks on a timeline: Day, Week or Month scale paged a month at a time (a
-week on Day, a quarter on Month), grouped by user (the default), by task
-or by stage, optional completed tasks, a counter of tasks without dates,
-faceted search with a jump to any shown task by key or name,
-several projects at once. Bars take the colour of their stage (closed
-stages grey, legend built from the stages shown); an open task past its
-planned end gets a red outline. Dependencies are drawn as orange elbow
-connectors from the predecessor's end into the successor's start.
+The **Gantt Chart** view plots the planned dates of the tasks of the
+selected projects the user reads (a task they follow in a project they
+cannot read stays out) on a timeline: Day, Week or Month scale paged a
+month at a time (a week on Day, a quarter on Month), grouped by user (the
+default), by task or by stage, optional completed tasks, a counter of
+tasks without dates, faceted search with a jump to any shown task by key
+or name, several projects at once. Bars take the colour of their stage
+(closed stages grey, legend built from the stages shown); an open task
+past its planned end gets a red outline. Dependencies are drawn as orange
+elbow connectors from the predecessor's end into the successor's start.
 **Export Excel** downloads the open tasks of the selected projects that
-have planned dates or a deadline as an .xlsx Gantt chart, sorted by start
-date; closed tasks are always left out, and the search facets and grouping
-are not applied. The chart is drawn with the vis-timeline library, which
+have planned dates or a deadline as an .xlsx Gantt chart named after the
+first of those projects the user reads, sorted by start date; closed
+tasks are always left out, and the search facets and grouping are not
+applied. The chart is drawn with the vis-timeline library, which
 the module ships (``static/lib/vis-timeline``, MIT License).
 
 * **Attribute columns**: the left pane can show Assignees, Deadline, Estimate,
@@ -148,7 +167,8 @@ the module ships (``static/lib/vis-timeline``, MIT License).
   link whose successor starts before the predecessor's end plus the lag is
   drawn red with a warning. No date moves automatically. Copying a task
   keeps the lags of the dependencies that are copied with it; removing a
-  dependency removes its lag.
+  dependency removes its lag, on every task of a recurrence the save
+  reaches.
 * **Baseline** (``project.baseline`` / ``project.baseline.line``): *Save
   Baseline* (Project Managers) stores the planned start, planned end and
   deadline of every open task with at least one of these dates, one

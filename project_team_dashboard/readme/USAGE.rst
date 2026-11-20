@@ -17,10 +17,11 @@ Plan a task
   end, stays until the planned end changes again, on every task of a
   recurrence the save reaches (*This and following tasks*, *All tasks*).
   On the task form the Deadline changes as you edit the planned end, and
-  so does a sub-task's in its row where the sub-task list shows a planned
-  end, which the stock list does not. Changing the planned end back sets
-  the Deadline to the day of that end again, not to a Deadline you had
-  set by hand; a Deadline you type after the planned end is the one saved.
+  so does that of a task in its row of the *Sub-tasks* or *Blocked By*
+  list where the list shows a planned end, which the stock lists do not.
+  Changing the planned end back sets the Deadline to the day of that end
+  again, not to a Deadline you had set by hand; a Deadline you type after
+  the planned end is the one saved.
   Changing the Deadline alone leaves the plan where it is, and clearing
   the planned end leaves the Deadline. In other projects the planned end
   does not change the Deadline.
@@ -37,7 +38,8 @@ task, open it.
 Team Dashboard
 ~~~~~~~~~~~~~~
 
-**Project > Team Dashboard**:
+**Project > Team Dashboard** shows the companies selected in the company
+switcher; select others there to see their projects, teams and hours.
 
 #. Pick the mode: **View by Project** (type a project name), **View by
    Manager** (pick the manager and the **Depth**) or **View by Department**.
@@ -72,9 +74,12 @@ DEPARTMENT_ID)``; the periods are ``this_week``, ``last_week`` and
 ``this_month``. ``data`` holds the dict the screen draws: ``members``, one
 card each (current task, queue, backlog, other tasks, hours,
 ``hours_logged_today``, ``hours_logged_period``,
-``estimated_completion``), and ``period_start`` and ``period_end``. Each
-row read with ``data`` costs one dashboard calculation, so read the rows
-you need. A read without a field list leaves ``data`` out: it lists the
+``estimated_completion``), and ``period_start`` and ``period_end``. The
+selected companies are those of the call's ``allowed_company_ids``, every
+company the reader may select when it names none: they decide the manager
+and department rows the reader finds and the hours of those rows. Each row
+read with ``data`` costs one dashboard calculation, so read the rows you
+need. A read without a field list leaves ``data`` out: it lists the
 rows you may open, and ``data`` comes only when you name it.
 
 Plan in the Gantt chart

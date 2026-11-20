@@ -244,6 +244,16 @@ class TestTaskDeadline(TeamDashboardCommon):
 
                 self.assertEqual(occurrences.mapped("date_deadline"), [date(2026, 3, 16)] * 2)
 
+    def test_the_task_lines_of_the_task_form_carry_the_plan_their_deadline_follows(self):
+        # read from the arch: Form cannot edit the Blocked By lines, a many2many
+        task_form_arch = self.env.ref("project.view_task_form2")._get_combined_arch()
+        for lines_field_name in ("child_ids", "depend_on_ids"):
+            with self.subTest(lines=lines_field_name):
+                hidden_columns = task_form_arch.xpath(
+                    "//field[@name='%s']/tree/field[@invisible='1']/@name" % lines_field_name
+                )
+                self.assertLessEqual(set(DEADLINE_PLAN_FIELDS), set(hidden_columns))
+
     def test_a_deadline_typed_after_a_move_on_the_form_stays_while_a_subtask_is_edited(self):
         other_project = self.env["project.project"].create(
             {"name": "Other AI-driven Project", "is_ai_driven": True, "allow_subtasks": True}
