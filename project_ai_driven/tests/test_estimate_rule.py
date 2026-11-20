@@ -2,7 +2,7 @@ from lxml import etree
 
 from odoo import Command
 from odoo.exceptions import ValidationError
-from odoo.tests import Form
+from odoo.tests import Form, tagged
 
 from .common import NO_ESTIMATE, NO_TYPE, ProjectAiDrivenCommon
 
@@ -10,6 +10,7 @@ NOT_A_NUMBER = "The Estimate is a finite number of hours"
 NO_RESOLUTION = "Choose a Resolution"
 
 
+@tagged("post_install", "-at_install")
 class TestEstimateRule(ProjectAiDrivenCommon):
     @classmethod
     def setUpClass(cls):
@@ -133,6 +134,78 @@ class TestEstimateRule(ProjectAiDrivenCommon):
             {"name": "Task", "project_id": self.project.id, "task_type": "bug", "allocated_hours": 3},
         )
         self.assertEqual(task.stage_id, self.stage_backlog)
+
+    def _create_subtask_and_new_parent(self):
+        """A sub-task that follows its parent in a project without the flag, and a parent in the flagged project,
+        whose stage a task enters it in is marked.
+        """
+        self.project.estimate_required_states = self.stage_backlog | self.stage_progress
+        other_project = self.env["project.project"].create(
+            {"name": "Other Project", "type_ids": [Command.create({"name": "Elsewhere"})]}
+        )
+        old_parent = self.env["project.task"].create({"name": "Old Parent", "project_id": other_project.id})
+        subtask = self.env["project.task"].create({"name": "Sub-task", "parent_id": old_parent.id})
+        self.assertRecordValues(subtask, [{"project_id": other_project.id, "display_in_project": False}])
+        return subtask, self._create_task(name="New Parent", task_type="bug", allocated_hours=1)
+
+    def assertFollows(self, subtask, parent):
+        self.assertRecordValues(
+            subtask,
+            [
+                {
+                    "parent_id": parent.id,
+                    "project_id": self.project.id,
+                    "stage_id": self.stage_backlog.id,
+                    "task_type": False,
+                }
+            ],
+        )
+
+    def test_subtask_given_another_parent_in_the_form_is_not_checked(self):
+        """The form sends the new parent alone: the project and the stage follow it on save (ADR 0002)."""
+        user_debug = self._create_user(
+            "Debug Manager",
+            "project_ai_driven_debug",
+            "debug@example.com",
+            extra_group="project.group_project_manager,base.group_no_one",
+        )
+        subtask, new_parent = self._create_subtask_and_new_parent()
+
+        # the form shows the parent in debug mode only (base.group_no_one)
+        with self.debug_mode(), Form(subtask.with_user(user_debug)) as task_form:
+            task_form.parent_id = new_parent
+            self.assertEqual((task_form.project_id, task_form.stage_id), (subtask.project_id, subtask.stage_id))
+
+        self.assertFollows(subtask, new_parent)
+
+    def test_subtask_given_another_parent_by_the_orm_is_not_checked(self):
+        """A client that sends the project and the stage the new parent brings along is answered as the form is."""
+        for vals_name in ("the parent", "the parent with what it brings"):
+            with self.subTest(vals=vals_name):
+                subtask, new_parent = self._create_subtask_and_new_parent()
+                vals = {"parent_id": new_parent.id}
+                if vals_name == "the parent with what it brings":
+                    vals.update(project_id=self.project.id, stage_id=self.stage_backlog.id)
+
+                subtask.write(vals)
+
+                self.assertFollows(subtask, new_parent)
+
+    def test_subtask_given_another_parent_and_a_project_or_a_stage_of_its_own_is_checked(self):
+        subtask, new_parent = self._create_subtask_and_new_parent()
+        plain_project = self.env["project.project"].create({"name": "Plain Project"})
+        plain_parent = self.env["project.task"].create({"name": "Plain Parent", "project_id": plain_project.id})
+        for vals in (
+            {"parent_id": new_parent.id, "project_id": self.project.id, "stage_id": self.stage_progress.id},
+            {"parent_id": plain_parent.id, "project_id": self.project.id},
+        ):
+            with self.subTest(vals=vals), self.assertRefused(NO_TYPE, NO_ESTIMATE, "Sub-task"):
+                subtask.write(vals)
+
+        # a task shown in a project of its own does not follow a parent: the project is its own move
+        task_of_its_own = self.env["project.task"].create({"name": "Task of its own", "project_id": plain_project.id})
+        with self.assertRefused(NO_TYPE, NO_ESTIMATE, "Task of its own"):
+            task_of_its_own.write({"parent_id": new_parent.id, "project_id": self.project.id})
 
     def test_next_task_of_a_recurrence_takes_the_type_into_a_marked_first_stage(self):
         """The next occurrence is built from a copy of the task it repeats,

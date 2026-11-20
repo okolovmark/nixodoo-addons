@@ -102,7 +102,47 @@ class TestHtmlToMarkdown(TransactionCase):
             '<ul><li class="o_checked">Plain<ul class="list-unstyled o_checklist"><li class="o_checked">Ticked</li>'
             "</ul></li></ul>"
             '<ul class="o_checklist"><li>Box<ol><li>one</li></ol></li></ul>',
-            "- Plain\n  - [x] Ticked\n\n- [ ] Box\n  1. one",
+            "- Plain\n  - [x] Ticked\n\n+ [ ] Box\n  1. one",
+        )
+
+    def test_a_list_right_after_a_list_of_its_marker_takes_the_other_one(self):
+        self.assertMarkdown(
+            "<ul><li>a</li></ul><p><br></p><ul><li>b</li></ul><div><ul><li>c</li></ul></div>"
+            '<ol><li>one</li></ol><ol start="5"><li>five</li></ol><ol><li>again</li></ol>'
+            "<p>Then</p><ul><li>d</li></ul><ol><li>first</li></ol>",
+            "- a\n\n+ b\n\n- c\n\n1. one\n\n5) five\n\n1. again\n\nThen\n\n- d\n\n1. first",
+        )
+        # with * the item "**" would be a rule
+        self.assertMarkdown("<ul><li>a</li></ul><ul><li>**</li></ul>", "- a\n\n+ **")
+
+    def test_nested_lists_right_after_one_of_their_marker_take_the_other_one(self):
+        self.assertMarkdown(
+            "<ul><li>a<ul><li>a1</li></ul></li><ul><li>a2</li></ul>"
+            '<li class="oe-nested"><ul><li>a3</li></ul></li><li>b<ol><li>b1</li></ol><ol><li>b2</li></ol></li></ul>',
+            "- a\n  - a1\n  + a2\n  - a3\n- b\n  1. b1\n  1) b2",
+        )
+        self.assertMarkdown(
+            '<ul class="o_checklist"><li>x</li></ul><ul class="o_checklist"><li class="o_checked">y</li></ul>',
+            "- [ ] x\n\n+ [x] y",
+        )
+
+    def test_a_list_after_one_opening_with_a_nested_list_reads_its_marker_from_its_own_items(self):
+        """A list whose first item is a nested list of the other kind ends in its own marker, not in that of
+        its first line: the list after it takes the other one, as a list or as lines of a list it is in.
+        """
+        opening_with_nested = '<ul><li class="oe-nested"><ol><li>x</li></ol></li><li>y</li></ul>'
+        self.assertMarkdown(opening_with_nested + "<ul><li>z</li></ul>", "  1. x\n- y\n\n+ z")
+        self.assertMarkdown(
+            "<ol><li>a</li>%s<ul><li>z</li></ul></ol>" % opening_with_nested, "1. a\n     1. x\n   - y\n   + z"
+        )
+        self.assertMarkdown(
+            '<ol><li>a</li><li class="oe-nested">%s</li><li class="oe-nested"><ul><li>z</li></ul></li></ol>'
+            % opening_with_nested,
+            "1. a\n     1. x\n   - y\n   + z",
+        )
+        # a list of nested items only ends in their marker
+        self.assertMarkdown(
+            '<ul><li class="oe-nested"><ol><li>x</li></ol></li></ul><ol><li>y</li></ol>', "  1. x\n\n1) y"
         )
 
     def test_a_checklist_item_opening_with_a_code_block_or_a_quote_has_its_box_alone(self):
@@ -452,25 +492,66 @@ class TestHtmlToMarkdown(TransactionCase):
             "<table><tr>%s</tr>%s</table>" % ("<td colspan='1000' rowspan='1000'>x</td>" * 20, "<tr></tr>" * 200)
         )
         rows = markdown.split("\n")
-        self.assertEqual(len(rows), 101, "a header, its rule and the 99 rows the cells span")
+        self.assertEqual(len(rows), 202, "a header, its rule and the 200 rows the table has")
         self.assertEqual({row.count(" | ") for row in rows}, {99})
         self.assertTrue(rows[0].startswith("| x |  | "), rows[0][:20])
         self.assertTrue(rows[0].endswith(" | %s |" % " ".join(["x"] * 19)), rows[0][-60:])
 
+    def test_a_rowspan_fills_the_rows_the_table_has(self):
+        rows_html = "".join("<tr><td>%d</td></tr>" % number for number in range(2, 106))
+        for rowspan in ("105", "1000", "1" + "0" * 10):
+            with self.subTest(rowspan=rowspan):
+                markdown = html_to_markdown(
+                    "<table><tr><td rowspan='%s'>tall</td><td>1</td></tr>%s</table>" % (rowspan, rows_html)
+                )
+                rows = markdown.split("\n")
+                self.assertEqual(len(rows), 106, "a header, its rule and the 104 rows the table has")
+                self.assertEqual(rows[0], "| tall | 1 |")
+                self.assertEqual(rows[1:3], ["| --- | --- |", "|  | 2 |"])
+                self.assertEqual(rows[-1], "|  | 105 |", "the cell spans the rows past a hundred too")
+
+    def test_a_rowspan_ends_with_its_row_group(self):
+        self.assertMarkdown(
+            "<table><thead><tr><th rowspan='3'>A</th><th>B</th></tr></thead>"
+            "<tbody><tr><td rowspan='0'>1</td><td>2</td></tr><tr><td>3</td></tr><tr><td>4</td></tr></tbody>"
+            "<tfoot><tr><td>5</td><td>6</td></tr></tfoot></table>",
+            "| A | B |\n| --- | --- |\n| 1 | 2 |\n|  | 3 |\n|  | 4 |\n| 5 | 6 |",
+        )
+
+    def test_numbers_of_ten_digits_or_more_open_no_list(self):
+        """CommonMark numbers a list item with nine digits at most: a paragraph so numbered is no list to join or
+        to switch the marker of the list after it.
+        """
+        self.assertMarkdown(
+            "<ol><li>a</li></ol><p>1234567890. Released</p><ol><li>b</li></ol>",
+            "1. a\n\n1234567890. Released\n\n1. b",
+        )
+        self.assertMarkdown(
+            "<ol><li>a</li></ol><ol><li>b</li></ol><p>1234567890) x</p><ol><li>c</li></ol>",
+            "1. a\n\n1) b\n\n1234567890) x\n\n1. c",
+        )
+        self.assertMarkdown(
+            "<ul><li><p>a</p><p>1234567890. Released</p></li></ul>"
+            '<ul class="o_checklist"><li>1234567890. Due</li></ul>',
+            "- a\n\n  1234567890. Released\n\n+ [ ] 1234567890. Due",
+        )
+
     def test_numbers_of_thousands_of_digits_are_bounded(self):
         many = "9" * 5000
+        zeros = "0" * 5000
         markdown = html_to_markdown(
             '<table><tr><td colspan="%s" rowspan="%s">x</td></tr></table>'
             '<ol start="%s"><li>a</li></ol><ol start="999999999"><li>b</li><li>c</li></ol>'
             '<table><tr><td colspan="0000000002">y</td></tr></table><ol start="0000000003"><li>d</li></ol>'
-            % (many, many, many)
+            '<table><tr><td colspan="%s2">z</td></tr></table><ol start="%s3"><li>e</li></ol>'
+            % (many, many, many, zeros, zeros)
         )
         rows = markdown.split("\n\n")[0].split("\n")
         self.assertEqual(len(rows), 2, "a header and its rule: a span adds no row of its own")
         self.assertEqual(rows[0].count(" | "), 99, "the cell spans the most columns a span gives")
-        self.assertIn("\n\n1. a\n\n999999999. b\n999999999. c", markdown, "a list number has nine digits at most")
-        self.assertIn("\n\n| y |  |\n| --- | --- |\n\n", markdown, "leading zeros aside, the span is read")
-        self.assertIn("\n\n3. d", markdown)
+        self.assertIn("\n\n1. a\n\n999999999) b\n999999999) c", markdown, "a list number has nine digits at most")
+        self.assertIn("\n\n| y |  |\n| --- | --- |\n\n3. d", markdown, "leading zeros aside, the span is read")
+        self.assertIn("\n\n| z |  |\n| --- | --- |\n\n3. e", markdown, "however many leading zeros")
 
 
 @tagged("post_install", "-at_install")

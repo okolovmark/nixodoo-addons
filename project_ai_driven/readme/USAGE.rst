@@ -66,7 +66,9 @@ shows **Task Type** and **Estimate** after the assignees. In a column whose
 stage requires them, fill both, the Estimate above zero, before adding the
 task; elsewhere they may stay empty. In *My Tasks*, pick the project first:
 the two fields show once it is an AI-driven one. When the quick create is
-refused, the form of a new task opens with the title typed.
+refused, the form of a new task opens with the title typed. A collaborator
+of a shared AI-driven project with Advanced Edit sees the same two fields
+in its quick create, which Odoo offers to no other collaborator.
 
 An image pasted or dropped into a text of a task, of a question row or of a
 test case, or into an html property of a task, becomes an attachment of

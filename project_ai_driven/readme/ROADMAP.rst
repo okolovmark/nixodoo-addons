@@ -8,9 +8,10 @@
 * Deleting a module from the module list, which Odoo refuses for a module
   installed or about to be, takes it off every task that held it.
 * The closing rule and the estimate rule are checked on the tasks of a write
-  that names their stage or their project. A stage recomputed for another
-  reason is not checked, as for a sub-task whose parent changes project or
-  that gets another parent.
+  that names their stage or their project, but for a sub-task given a parent
+  with the project and the stage that follow from it. A stage recomputed
+  for another reason is not checked, as for a sub-task whose parent changes
+  project or that gets another parent.
 * A module that writes a task's new project on its own, before the other
   values of the same write, runs both rules before the Resolution, the task
   type and the estimate of that write arrive. Setting them in an earlier
@@ -83,11 +84,12 @@
 * The stage name of a row is the source-language name (``en_US``) of the
   stage when the row was written.
 * A link to another record's image or file on a host or port other than
-  that of ``web.base.url`` stays as it is: a copy of the text still links
+  that of the task's base url stays as it is: a copy of the text still links
   the source record's attachment, and the link breaks when that record is
   deleted.
-* An image in another attribute (a ``poster``, a ``data-*``) is not read
-  and stays as it is, inline or linked. Neither is a ``<style>`` element,
+* An image in another attribute (a ``poster``, a ``data-*`` other than the
+  original of an edited image) or in an HTML comment is not read and stays
+  as it is, inline or linked. Neither is a ``<style>`` element,
   which the sanitizer drops.
 * A file link is copied only where a new record, or a row moved to another
   task, copies images: a write that pastes one leaves it pointing at the

@@ -1,3 +1,4 @@
+import math
 import re
 from urllib.parse import parse_qsl, unquote, urlsplit
 
@@ -16,6 +17,9 @@ SKIPPED_TAGS = ("head", "noscript", "script", "style", "template", "title")
 EMPHASIS_MARKS = {"b": "**", "strong": "**", "i": "*", "em": "*", "del": "~~", "s": "~~", "strike": "~~"}
 HEADING_LEVELS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
 LIST_TAGS = ("ol", "ul")
+# CommonMark joins a list to a list right before it with the same marker: such a list takes the other one.
+# The other bullet is not *, with which an item "**" would make a rule.
+LIST_MARKERS = {"ul": ("-", "+"), "ol": (".", ")")}
 CHECKLIST_CLASS = "o_checklist"
 CHECKED_ITEM_CLASS = "o_checked"
 CELL_TAGS = ("td", "th")
@@ -23,7 +27,8 @@ TABLE_PART_TAGS = ("thead", "tbody", "tfoot", "tr")
 LINK_SCHEMES = ("", "http", "https", "mailto")
 IMAGE_SCHEMES = ("", "http", "https")
 DEFAULT_PORTS = {"http": 80, "https": 443}
-# merged cells pad a table with empty ones: capped, so that a few bytes of HTML cannot make megabytes
+# merged cells pad a table with empty ones: a colspan is capped, so that a few bytes of HTML cannot make megabytes;
+# a rowspan fills only the rows its row group has
 MAX_SPAN = 100
 MAX_TABLE_COLUMNS = 100
 NOT_MOVED_IMAGE = "[image not yet moved to an attachment]"
@@ -38,10 +43,11 @@ ATTACHMENT_ID = re.compile(r"[0-9]{1,10}")
 BOUNDED_NUMBER = re.compile(r"0*([0-9]{1,9})")
 # a CommonMark list number has nine digits at most
 MAX_LIST_NUMBER = 999999999
-LIST_BLOCK = re.compile(r"(?:-|[0-9]+\.) ")
+# a line starting so is a list item, its number of nine digits at most: every other block escapes a line that would
+LIST_START = re.compile(r" {0,3}(?:([-+*])|[0-9]{1,9}([.)])) ")
 # After a task list box on its line, a block that is no paragraph would be its text. BLOCK_MARKUP finds most;
 # this one finds an ordered list and a code block, whose fence BLOCK_MARKUP sees only as a line of its own.
-BOX_ALONE_BLOCK = re.compile(r"[0-9]+\. |`{3,}\n")
+BOX_ALONE_BLOCK = re.compile(r"[0-9]{1,9}[.)] |`{3,}\n")
 TASK_LIST_BOX = re.compile(r"\[[ xX]\](?:\s|$)")
 # A heading, quote, list item, code fence of three or more, rule, setext underline, table row, table
 # delimiter row or HTML block (a tag, comment or declaration) when a line starts with it. A backtick run with a
@@ -333,17 +339,38 @@ def _join_item_blocks(blocks):
     """The blocks of a list item: a nested list right under the line above it, any other block a paragraph apart."""
     parts = blocks[:1]
     for block in blocks[1:]:
-        parts.extend(("\n" if LIST_BLOCK.match(block) else "\n\n", block))
+        parts.extend(("\n" if LIST_START.match(block) else "\n\n", block))
     return "".join(parts)
 
 
-def _get_span(cell, attribute):
+def _get_list_marker(tag, previous_block):
+    """The marker character of a list of tag after previous_block, the block before it in the same container."""
+    default_marker, other_marker = LIST_MARKERS[tag]
+    return other_marker if _get_last_list_marker(previous_block) == default_marker else default_marker
+
+
+def _get_last_list_marker(block):
+    """The marker character of the list block ends in, else None: that of its
+    last line at its least indentation, where its outermost lists stand. A list
+    may open with the lines of an item nested in one of its own (oe-nested).
+    """
+    lines = [line for line in (block or "").split("\n") if line.strip()]
+    if not lines:
+        return None
+    least_indent = min(len(line) - len(line.lstrip(" ")) for line in lines)
+    last_line = next(line for line in reversed(lines) if len(line) - len(line.lstrip(" ")) == least_indent)
+    list_start = LIST_START.match(last_line)
+    return list_start and (list_start.group(1) or list_start.group(2))
+
+
+def _get_span(cell, attribute, max_span, zero_span=1):
+    """The span attribute of cell gives, at most max_span; zero_span for a span of zero."""
     span = (cell.get(attribute) or "").strip()
     bounded_span = BOUNDED_NUMBER.fullmatch(span)
     if not bounded_span:
-        # ten digits or more are past any span
-        return MAX_SPAN if ASCII_DIGITS.fullmatch(span) else 1
-    return min(int(bounded_span.group(1)), MAX_SPAN) or 1
+        # ten digits or more past the leading zeros
+        return max_span if ASCII_DIGITS.fullmatch(span) else 1
+    return min(int(bounded_span.group(1)), max_span) or zero_span
 
 
 def _get_table_row(cells):
@@ -358,10 +385,11 @@ class _MarkdownWriter:
         self.link_depth = 0
         self.cell_depth = 0
 
-    def get_blocks(self, element, get_child_blocks=None):
+    def get_blocks(self, element, get_child_blocks=None, previous_block=None):
         """The Markdown blocks of what element holds: a paragraph for each run
         of text and inline elements, the blocks of each block element as
-        get_child_blocks gives them.
+        get_child_blocks(child, the block before it) gives them. previous_block
+        is the block before the first, in the container the blocks go to.
         """
         blocks = []
         inline_parts = [self._get_text(element.text)]
@@ -369,7 +397,8 @@ class _MarkdownWriter:
             if _is_block(child):
                 blocks.extend(self._get_paragraph(inline_parts))
                 inline_parts = []
-                blocks.extend((get_child_blocks or self._get_element_blocks)(child))
+                child_blocks = (get_child_blocks or self._get_element_blocks)(child, (blocks or [previous_block])[-1])
+                blocks.extend(child_blocks)
             else:
                 inline_parts.append(self._get_inline(child))
             inline_parts.append(self._get_text(child.tail))
@@ -392,16 +421,16 @@ class _MarkdownWriter:
     def _get_line(self, element):
         return " ".join(" ".join(self.get_blocks(element)).split())
 
-    def _get_element_blocks(self, element):
+    def _get_element_blocks(self, element, previous_block=None):
         tag = element.tag
         if tag in HEADING_LEVELS:
             heading_text = " ".join(self._get_inline_content(element).split())
             level = min(HEADING_LEVELS[tag] + self.heading_level - 1, 6)
             return ["#" * level + " " + heading_text] if heading_text else []
         if tag in LIST_TAGS:
-            return self._get_list(element)
+            return self._get_list(element, previous_block)
         if tag == "table":
-            return self._get_table(element)
+            return self._get_table(element, previous_block)
         if tag == "pre":
             return self._get_code_block(element)
         if tag == "blockquote":
@@ -409,7 +438,7 @@ class _MarkdownWriter:
             return ["\n".join(("> " + line).rstrip() for line in quoted_text.split("\n"))] if quoted_text else []
         if tag == "hr":
             return ["---"]
-        return self.get_blocks(element)
+        return self.get_blocks(element, previous_block=previous_block)
 
     def _get_inline(self, element):
         tag = element.tag
@@ -481,21 +510,26 @@ class _MarkdownWriter:
             return _get_link_target(clean_url)
         return "[%s](%s)" % (link_text, _get_link_target(clean_url))
 
-    def _get_list(self, element):
+    def _get_list(self, element, previous_block=None):
         """The list as Markdown; text and inline elements right inside it, which
         a browser shows between its items, are paragraphs between its parts. An
         item of an editor's checklist is a task list item, - [x] when ticked, the
         box on a line of its own above a first block that is no paragraph;
-        another item that starts like one has its bracket escaped.
+        another item that starts like one has its bracket escaped. A list right
+        after a list of its marker, previous_block or a nested list under the
+        same item, takes the other marker of LIST_MARKERS.
         """
         is_ordered = element.tag == "ol"
         is_checklist = _has_class(element, CHECKLIST_CLASS)
+        marker_character = _get_list_marker(element.tag, previous_block)
         start = (element.get("start") or "").strip()
         bounded_start = BOUNDED_NUMBER.fullmatch(start)
         number = int(bounded_start.group(1)) if bounded_start else 1
         indent = "  "
         blocks = []
         lines = []
+        # the last block under the last item, which a nested list follows in the same container
+        item_last_block = None
         inline_parts = [self._get_text(element.text)]
         for child in element:
             if not _is_block(child):
@@ -505,16 +539,25 @@ class _MarkdownWriter:
             if loose_paragraph:
                 blocks.extend(_join_lines(lines) + loose_paragraph)
                 lines = []
+                item_last_block = None
             inline_parts = [self._get_text(child.tail)]
             if child.tag in LIST_TAGS or _is_list_only(child):
-                nested_blocks = self._get_list(child) if child.tag in LIST_TAGS else self.get_blocks(child)
+                if child.tag in LIST_TAGS:
+                    nested_blocks = self._get_list(child, item_last_block)
+                else:
+                    nested_blocks = self.get_blocks(child, previous_block=item_last_block)
                 if nested_blocks:
                     lines.extend(_indent_lines(_join_item_blocks(nested_blocks).split("\n"), indent))
+                    item_last_block = nested_blocks[-1]
                 continue
             item_blocks = self.get_blocks(child) if child.tag == "li" else self._get_element_blocks(child)
             if not item_blocks:
                 continue
-            marker = "%d. " % min(number, MAX_LIST_NUMBER) if is_ordered else "- "
+            item_last_block = item_blocks[-1]
+            if is_ordered:
+                marker = "%d%s " % (min(number, MAX_LIST_NUMBER), marker_character)
+            else:
+                marker = marker_character + " "
             indent = " " * len(marker)
             item_lines = _join_item_blocks(item_blocks).split("\n")
             # the box is part of the item's text: its nested lists stay under the list marker
@@ -532,9 +575,9 @@ class _MarkdownWriter:
             number += 1
         return blocks + _join_lines(lines) + self._get_paragraph(inline_parts)
 
-    def _get_table(self, element):
+    def _get_table(self, element, previous_block=None):
         """What the table holds outside its cells, its caption, then the table."""
-        blocks = self.get_blocks(element, self._get_loose_table_blocks)
+        blocks = self.get_blocks(element, self._get_loose_table_blocks, previous_block)
         caption = next((child for child in element if child.tag == "caption"), None)
         caption_line = self._get_line(caption) if caption is not None else ""
         if caption_line:
@@ -548,25 +591,31 @@ class _MarkdownWriter:
             blocks.append("\n".join(lines))
         return blocks
 
-    def _get_loose_table_blocks(self, element):
+    def _get_loose_table_blocks(self, element, previous_block=None):
         """The blocks of what a table holds outside its caption and cells, which a browser shows before it."""
         if element.tag in TABLE_PART_TAGS:
-            return self.get_blocks(element, self._get_loose_table_blocks)
+            return self.get_blocks(element, self._get_loose_table_blocks, previous_block)
         if element.tag in CELL_TAGS or element.tag == "caption":
             return []
-        return self._get_element_blocks(element)
+        return self._get_element_blocks(element, previous_block)
 
     def _get_table_rows(self, element):
         """The cells of each row of the table, a cell that spans columns or rows
         followed or underlaid by empty ones, so that every row keeps its columns.
+        A cell spans rows to the end of its row group at most (its thead, tbody
+        or tfoot), to that end with a rowspan of zero, as a browser shows it.
         The table is at most MAX_TABLE_COLUMNS wide: the text of a cell beyond
         joins the last column.
         """
         rows = []
         spanned_rows = {}
+        row_group = None
         for row in element.iter("tr"):
             if next(row.iterancestors("table"), None) is not element:
                 continue
+            if row.getparent() is not row_group:
+                row_group = row.getparent()
+                spanned_rows = {}
             covered_columns = set(spanned_rows)
             new_spans = {}
             cells = []
@@ -575,12 +624,12 @@ class _MarkdownWriter:
                     continue
                 while len(cells) in covered_columns:
                     cells.append("")
-                rowspan = _get_span(cell, "rowspan")
+                rowspan = _get_span(cell, "rowspan", math.inf, zero_span=math.inf)
                 cell_text = self._get_cell(cell)
                 if len(cells) >= MAX_TABLE_COLUMNS:
                     cells[-1] = " ".join(filter(None, (cells[-1], cell_text)))
                     continue
-                for offset in range(min(_get_span(cell, "colspan"), MAX_TABLE_COLUMNS - len(cells))):
+                for offset in range(min(_get_span(cell, "colspan", MAX_SPAN), MAX_TABLE_COLUMNS - len(cells))):
                     if rowspan > 1:
                         new_spans[len(cells)] = rowspan - 1
                     cells.append("" if offset else cell_text)

@@ -5,7 +5,7 @@ import hashlib
 import html
 import logging
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from functools import partial
 from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
@@ -19,9 +19,12 @@ _logger = logging.getLogger(__name__)
 
 INLINE_IMAGE_MARKER = re.compile(r"data:image", re.IGNORECASE)
 INLINE_IMAGE_OR_LINK_MARKER = re.compile(r"data:image|/web/image/|/web/content/", re.IGNORECASE)
-# The name holds no quote and ends where an attribute may start, and no unquoted part runs over a "<"
-# (lxml quotes every value): otherwise a comment of "<a<a<a..." or of '<a" "<a" "...' backtracks.
-START_TAG = re.compile(r"""<([A-Za-z][^\s/<>"']*)(?=[\s/>])(?:[^<>"']|"[^"]*"|'[^']*')*>""")
+# A comment is matched first and left whole, an unclosed one to the end. A tag's name holds no quote and ends
+# where an attribute may start, and no unquoted part runs over a "<" (lxml quotes every value): otherwise a
+# text of "<a<a<a..." or of '<a" "<a" "...' backtracks.
+START_TAG_OR_COMMENT = re.compile(
+    r"""<!--.*?(?:-->|\Z)|<([A-Za-z][^\s/<>"']*)(?=[\s/>])(?:[^<>"']|"[^"]*"|'[^']*')*>""", re.DOTALL
+)
 TAG_ATTRIBUTE = re.compile(r"""\s([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?""")
 # the pattern of html.unescape: references unescaped one by one give the value it gives
 CHARACTER_REFERENCE = re.compile(r"&(?:#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?)")
@@ -39,6 +42,7 @@ INLINE_IMAGE = re.compile(r"\s*data:(image/([\w.+-]+))(?:;[^;,]*)*;base64,([A-Za
 IMAGE_LINK = re.compile(r"/web/image/([0-9]{1,10})(?:[-/?#].*)?", re.DOTALL)
 FILE_LINK = re.compile(r"/web/content/([0-9]{1,10})(?:[/?#].*)?", re.DOTALL)
 FILE_LINK_ID = re.compile(r"(?<=^/web/content/)[0-9]+")
+ATTACHMENT_ID = re.compile(r"[0-9]{1,10}")
 # werkzeug's request.args decode a query so: invalid UTF-8 stays percent-encoded
 QUERY_DECODING_ERRORS = "werkzeug.url_quote"
 # The editor names a pasted file data-file-name, core mail data-filename.
@@ -96,6 +100,9 @@ URL_ATTRIBUTES = {
 }
 # the box the editor of Odoo 20 puts around a file link (renderStaticFileBox)
 FILE_BOX_CLASS = "o_file_box"
+# The editor of Odoo 20 names there the attachment an image was cropped or converted from: its crop starts
+# from it and saves through /html_editor/modify_image/<data-original-id>.
+ORIGINAL_ATTRIBUTES = ("data-original-id", "data-original-src", "data-mimetype-before-conversion")
 FILE_BOX_ATTRIBUTES = {(None, "data-attachment-id"): (read_attribute_url, FILE)}
 
 
@@ -166,42 +173,70 @@ def replace_value_urls(raw_value, read_urls, get_new_url, unescaped_value=None):
     return "".join(new_parts) + raw_value[raw_position:]
 
 
-def replace_urls(html_text, get_new_url, url_attributes=URL_ATTRIBUTES):
+def replace_urls(html_text, get_new_url, url_attributes=URL_ATTRIBUTES, get_attribute_edits=None):
     """html_text with the urls of url_attributes replaced where
     get_new_url(url, kind=kind, attributes=attributes) gives a new one, kind
-    IMAGE or FILE, the url and the attributes html-unescaped. Every other
-    character stays as it is: a parser would serialise the whole text again.
+    IMAGE or FILE, the url and the attributes html-unescaped. In a tag whose
+    urls change, get_attribute_edits(tag_name, attributes, new_urls), new_urls
+    {(attribute name, url): new url}, gives its other attributes to change,
+    {name: new value, or None to drop it}; one the tag lacks stays absent.
+    Every other character stays as it is, comments whole: a parser would
+    serialise the whole text again.
     """
 
     def replace_tag(tag_match):
         tag = tag_match.group(0)
+        if tag_match.group(1) is None:
+            return tag
         tag_name = tag_match.group(1).lower()
         attributes = {}
         url_values = []
+        # (start, end of the name, end) of each attribute without urls, by name, duplicates included
+        other_spans = defaultdict(list)
         for attribute in TAG_ATTRIBUTE.finditer(tag, tag_match.end(1) - tag_match.start()):
             name = attribute.group(1).lower()
             value_group = next((group for group in (2, 3, 4) if attribute.group(group) is not None), None)
+            url_reader = url_attributes.get((tag_name, name)) or url_attributes.get((None, name))
+            if not url_reader:
+                other_spans[name].append((attribute.start(), attribute.end(1), attribute.end()))
             # a browser reads the first of two attributes of a name
             if value_group is None or name in attributes:
                 continue
             raw_value = attribute.group(value_group)
-            url_reader = url_attributes.get((tag_name, name)) or url_attributes.get((None, name))
             if url_reader:
                 unescaped_value = unescape_with_spans(raw_value)
-                url_values.append((attribute.span(value_group), unescaped_value, *url_reader))
+                url_values.append((name, attribute.span(value_group), unescaped_value, *url_reader))
                 attributes[name] = unescaped_value[0]
             else:
                 attributes[name] = unescape_value(raw_value)
+        new_urls = {}
+        replacements = []
+        for name, (start, end), unescaped_value, read_urls, kind in url_values:
+
+            def get_value_url(url, name=name, kind=kind):
+                new_url = get_new_url(url, kind=kind, attributes=attributes)
+                if new_url:
+                    new_urls[(name, url)] = new_url
+                return new_url
+
+            replacements.append(
+                (start, end, replace_value_urls(tag[start:end], read_urls, get_value_url, unescaped_value))
+            )
+        if new_urls and get_attribute_edits:
+            for name, new_value in get_attribute_edits(tag_name, attributes, new_urls).items():
+                for index, (start, name_end, end) in enumerate(other_spans.get(name, ())):
+                    is_kept = new_value is not None and not index
+                    replacements.append(
+                        (start, end, tag[start:name_end] + '="%s"' % html.escape(new_value) if is_kept else "")
+                    )
         new_parts = []
         tag_position = 0
-        for (start, end), unescaped_value, read_urls, kind in url_values:
-            get_value_url = partial(get_new_url, kind=kind, attributes=attributes)
-            new_value = replace_value_urls(tag[start:end], read_urls, get_value_url, unescaped_value)
-            new_parts += [tag[tag_position:start], new_value]
+        for start, end, new_text in sorted(replacements):
+            new_parts += [tag[tag_position:start], new_text]
             tag_position = end
         return "".join(new_parts) + tag[tag_position:]
 
-    return START_TAG.sub(replace_tag, html_text)
+    return START_TAG_OR_COMMENT.sub(replace_tag, html_text)
 
 
 def replace_image_sources(html_text, get_new_source):
@@ -276,8 +311,8 @@ class ImageMover:
     attachments, as the html editor and mail do: an inline image becomes an
     attachment and, with copy_links, an image or a file link of another
     record of the image mixin a copy of its attachment. An attachment the
-    record has with the same contents, not one of a message, serves instead
-    of a new one; another record never shares it.
+    record has with the same contents, not one of a message nor one whose file
+    is gone, serves instead of a new one; another record never shares it.
 
     The attachments are created in sudo: callers run it after the save that
     brought the images passed its own access checks.
@@ -295,17 +330,20 @@ class ImageMover:
         self._attachment_copies = {}
         self._record_attachments = {}
         self._fallback_name_counts = Counter()
-        self._base_host = None
+        self._base_hosts = {}
 
     def move(self, text, record):
         """text with its images, and with copy_links its file links, changed to attachments of record, the text
-        as it is without any. A file box of the editor names the attachment its link opens then.
+        as it is without any. A file box of the editor names the attachment its link opens then, and a copied
+        image the copy of its original (ORIGINAL_ATTRIBUTES).
         """
         if not self.marker.search(text):
             return text
         file_copies = {}
         new_text = replace_urls(
-            text, lambda url, kind, attributes: self._get_new_url(url, kind, attributes, record, file_copies)
+            text,
+            lambda url, kind, attributes: self._get_new_url(url, kind, attributes, record, file_copies),
+            get_attribute_edits=partial(self._get_original_edits, record=record),
         )
         return rename_file_boxes(new_text, file_copies) if file_copies else new_text
 
@@ -316,9 +354,11 @@ class ImageMover:
         if inline_image:
             attachment = self._get_inline_image_attachment(inline_image, attributes, record)
         else:
-            link = self.copy_links and self._get_local_link(url)
+            link = self.copy_links and self._get_local_link(url, record)
             link_match = link and LINK_PATTERNS[kind].fullmatch(link)
-            attachment = link_match and self._get_attachment_copy(int(link_match.group(1)), link, kind, record)
+            attachment = link_match and self._get_attachment_copy(
+                self.attachments.browse(int(link_match.group(1))).exists(), get_access_token(link), kind, record
+            )
         if not attachment:
             return None
         if self.dry_run:
@@ -328,16 +368,43 @@ class ImageMover:
         file_copies[str(int(link_match.group(1)))] = str(attachment.id)
         return get_file_link(link, attachment)
 
-    def _get_local_link(self, url):
+    def _get_local_link(self, url, record):
         """url from its path on, None for a link to another host: an absolute
-        link is local on the host of web.base.url, as the brief reads it.
+        link is local on the host the brief reads the texts of record with.
         """
         # not at the top: html_markdown imports project_task_question, whose model must load after this mixin
         from .html_markdown import get_base_host, get_local_url, normalise_url  # noqa: PLC0415
 
-        if self._base_host is None:
-            self._base_host = get_base_host(self.env["ir.config_parameter"].sudo().get_str("web.base.url"))
-        return get_local_url(normalise_url(url), self._base_host)
+        key = (record._name, record.id)
+        if key not in self._base_hosts:
+            self._base_hosts[key] = get_base_host(record._get_image_base_url())
+        return get_local_url(normalise_url(url), self._base_hosts[key])
+
+    def _get_original_edits(self, tag_name, attributes, new_urls, record):
+        """The ORIGINAL_ATTRIBUTES of an <img> whose src is copied from another
+        record: renamed to the copy of the original, where it is an attachment
+        of that record the saver may read too, else dropped, so that the crop
+        starts from the copy. The original is read as the image is, by its own
+        token in data-original-src, or by the token of the src when it is the
+        image itself.
+        """
+        source = attributes.get("src")
+        if tag_name != "img" or ("src", source) not in new_urls or not self.copy_links or self.dry_run:
+            return {}
+        link = self._get_local_link(source, record)
+        image_link = link and IMAGE_LINK.fullmatch(link)
+        if not image_link:
+            return {}
+        image = self.attachments.browse(int(image_link.group(1)))
+        original_id = ATTACHMENT_ID.fullmatch(attributes.get("data-original-id", ""))
+        original = self.attachments.browse(int(original_id.group()) if original_id else ()).exists()
+        original_copy = None
+        if original and (original.res_model, original.res_id) == (image.res_model, image.res_id):
+            access_token = get_access_token(link if original == image else attributes.get("data-original-src", ""))
+            original_copy = self._get_attachment_copy(original, access_token, IMAGE, record)
+        if not original_copy:
+            return dict.fromkeys(ORIGINAL_ATTRIBUTES)
+        return {"data-original-id": str(original_copy.id), "data-original-src": get_image_source(original_copy)}
 
     def _get_inline_image_attachment(self, inline_image, attributes, record):
         mimetype, subtype, data = inline_image.groups()
@@ -379,11 +446,9 @@ class ImageMover:
             )
         )
 
-    def _get_attachment_copy(self, attachment_id, link, kind, record):
-        attachment = self.attachments.browse(attachment_id).exists()
+    def _get_attachment_copy(self, attachment, access_token, kind, record):
         if not (
-            self._is_attachment_of_other_record(attachment, record)
-            and self._is_readable(attachment, get_access_token(link))
+            self._is_attachment_of_other_record(attachment, record) and self._is_readable(attachment, access_token)
         ):
             return None
         key = (record._name, record.id, attachment.id, kind)
@@ -392,15 +457,14 @@ class ImageMover:
         return self._attachment_copies[key]
 
     def _copy_attachment(self, attachment, kind, record):
-        raw = attachment.raw
         # a file missing from the filestore reads empty: the link stays, as an empty inline image does
-        if not raw.size:
+        if not self._has_contents(attachment):
             return None
         # a file link downloads the file as uploaded: core would resize an image
         attachments = self._get_unprocessed_attachments() if kind == FILE else self.attachments
         values = self._get_checked_contents(
             attachments,
-            {"raw": raw, "mimetype": attachment.mimetype},
+            {"raw": attachment.raw, "mimetype": attachment.mimetype},
             record,
             "A link to attachment %s stays as it is" % attachment.id,
         )
@@ -409,6 +473,9 @@ class ImageMover:
         return self._get_record_attachment(values, record, partial(self._create_copy, attachment, values, record))
 
     def _create_copy(self, attachment, values, record):
+        """A copy of attachment for record, without the original core keeps of an image cropped: deleting the
+        record of that original would delete the copy with it.
+        """
         if self.dry_run:
             return True
         return attachment.with_context(image_no_postprocess=True).copy(
@@ -417,6 +484,7 @@ class ImageMover:
                 res_model=record._name,
                 res_id=record.id,
                 access_token=self.attachments._generate_access_token(),
+                original_id=False,
             )
         )
 
@@ -433,9 +501,10 @@ class ImageMover:
 
     def _find_record_attachment(self, record, mimetype, checksum):
         """The first attachment of record with these contents that may serve:
-        not one of a message, which deleting the message deletes, and one the
-        saving user may read, also under sudo (core saves a portal user's task
-        in sudo), or the text would hand them the token and name of an
+        not one of a message, which deleting the message deletes, nor one
+        whose file is gone from the filestore, which reads as empty, and one
+        the saving user may read, also under sudo (core saves a portal user's
+        task in sudo), or the text would hand them the token and name of an
         attachment they cannot see.
         """
         candidates = self.attachments.search(
@@ -448,12 +517,19 @@ class ImageMover:
             ],
             order="id",
         )
-        attachment = (candidates - self._get_message_attachments(candidates))[:1]
-        if attachment and not self._can_read(attachment):
-            return self.attachments
-        if attachment and not self.dry_run:
-            attachment.generate_access_token()
-        return attachment
+        for candidate in candidates - self._get_message_attachments(candidates):
+            if self._can_read(candidate) and self._has_contents(candidate):
+                if not self.dry_run:
+                    candidate.generate_access_token()
+                return candidate
+        return self.attachments
+
+    def _has_contents(self, attachment):
+        """Whether attachment reads as more than nothing, through its storage
+        (raw) and for itself alone: raw computed for a recordset reads every
+        file of it.
+        """
+        return bool(attachment.with_prefetch().raw.size)
 
     def _get_message_attachments(self, attachments):
         if not attachments:
@@ -562,6 +638,15 @@ class ProjectTaskImageMixin(models.AbstractModel):
     def _get_task_fname(self):
         """The field whose write gives this record another task, if any."""
         return "task_id"
+
+    def _get_image_base_url(self):
+        """The base url the brief reads the texts of this record with: its task's (website gives a task the
+        domain of its company's website), or its own. In sudo: the mover may run on a record its saver cannot read.
+        """
+        self.ensure_one()
+        task_fname = self._get_task_fname()
+        record = self.sudo()
+        return (record[task_fname] if task_fname else record).get_base_url()
 
     @api.model
     def _get_image_fields(self):

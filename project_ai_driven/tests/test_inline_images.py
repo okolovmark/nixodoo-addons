@@ -19,6 +19,7 @@ from PIL import Image
 from odoo import SUPERUSER_ID, Command
 from odoo.exceptions import AccessError, UserError
 from odoo.tests import BaseCase, new_test_user, tagged
+from odoo.tools.binary import BinaryBytes
 
 from ..models.html_markdown import get_base_host, get_local_url
 from ..models.project_task_image_mixin import (
@@ -181,6 +182,19 @@ class InlineImagesCase(ProjectAiDrivenCommon):
     def _sanitized(self, model, fname, html):
         """html as the field stores it: the shapes its sanitizer keeps."""
         return str(self.env[model]._fields[fname].convert_to_cache(html, self.env[model]))
+
+    def _set_base_url(self, base_url):
+        """The base url of every task, as a website would give one, which need not be web.base.url."""
+        self.patch(type(self.env["project.task"]), "get_base_url", lambda task: base_url)
+
+    def _store_missing_file(self, attachment):
+        """Point attachment at a file the filestore does not hold."""
+        self.env.flush_all()
+        self.env.cr.execute(
+            "UPDATE ir_attachment SET store_fname = %s, db_datas = NULL WHERE id = %s",
+            ["missing/project_ai_driven_%d" % attachment.id, attachment.id],
+        )
+        attachment.invalidate_recordset()
 
 
 @tagged("post_install", "-at_install")
@@ -383,6 +397,25 @@ class TestInlineImages(InlineImagesCase):
         self.assertEqual(self.task.description, description)
         self.assertFalse(self._attachments(self.task))
 
+    def test_a_commented_out_image_stays_inline_and_counts_nothing(self):
+        description = "<p>Kept</p><!-- %s -->" % image_tag(data_uri(RED))
+        self.assertEqual(self._sanitized("project.task", "description", description), description)
+
+        self.task.description = description
+        self._store_as_before(self.task, "solution", description)
+        dry_run = self.task._move_inline_images_to_attachments(dry_run=True)
+
+        self.assertEqual(self.task.description, description)
+        self.assertFalse(self._attachments(self.task))
+        self.assertEqual(dry_run, {"records": 0, "images": 0, "bytes": 0, "texts": {}})
+
+    def test_an_unbalanced_quote_in_a_comment_hides_no_image_after_it(self):
+        # read as tags, the two quotes would pair across the image and make one tag of all three; the sanitizer
+        # drops a comment that opens the text, so a paragraph comes first
+        description = '<p>Kept</p><!-- <a title=" -->%s<!-- " -->' % image_html(image_tag(data_uri(RED)))
+        self.task.description = description
+        self.assertMovedTo(self.task.description, description, [(RED, "image-1.png")], self.task)
+
     def test_task_of_a_project_not_ai_driven(self):
         description = image_html(image_tag(data_uri(RED)))
         task = self.env["project.task"].create(
@@ -484,15 +517,6 @@ class TestInlineImages(InlineImagesCase):
         self.task.unlink()
         self.assertEqual(copied_attachments.exists(), copied_attachments)
         self.assertEqual({attachment.raw.to_base64() for attachment in copied_attachments}, {RED, BLUE, GREEN})
-
-    def _store_missing_file(self, attachment):
-        """Point attachment at a file the filestore does not hold."""
-        self.env.flush_all()
-        self.env.cr.execute(
-            "UPDATE ir_attachment SET store_fname = %s, db_datas = NULL WHERE id = %s",
-            ["missing/project_ai_driven_%d" % attachment.id, attachment.id],
-        )
-        attachment.invalidate_recordset()
 
     def test_a_copy_keeps_the_link_of_an_image_whose_file_is_missing(self):
         self.task.description = image_html(image_tag(data_uri(RED)))
@@ -722,6 +746,17 @@ class TestInlineImages(InlineImagesCase):
         self.assertEqual(testcase_attachment, self._attachments(testcase))
         self.task.unlink()
         self.assertEqual(testcase_attachment.exists().raw.to_base64(), RED)
+
+    def test_a_link_inside_a_comment_is_not_copied(self):
+        self.task.description = image_html(image_tag(data_uri(RED)))
+        source = self._get_sources(self.task.description)[0][0]
+        comment = "<!-- %s %s -->" % (image_tag(source), links_html(file_link(self._attachments(self.task))))
+
+        # the sanitizer drops a comment that opens the text
+        task = self._new_task(name="Copied", description=image_html(image_tag(source)) + comment)
+
+        [image_copy] = self._attachments(task)
+        self.assertEqual(task.description, image_html(image_tag(get_image_source(image_copy))) + comment)
 
     def test_write_of_a_link_to_another_task_keeps_it(self):
         self.task.description = image_html(image_tag(data_uri(RED)))
@@ -1170,6 +1205,38 @@ class TestImageReuse(InlineImagesCase):
         self.assertFalse(upload.exists())
         self.assertEqual(image.exists().raw.to_base64(), RED, "the description keeps its image")
 
+    def test_attachment_whose_file_is_gone_is_not_used(self):
+        lost = self._attach(self.task, RED, "red.png")
+        self._store_missing_file(lost)
+        self.assertFalse(lost.raw)
+
+        self.task.description = image_html(image_tag(data_uri(RED)))
+
+        [(_source, image)] = self._get_sources(self.task.description)
+        self.assertNotEqual(image, lost, "a file missing from the filestore would show nothing")
+        self.assertEqual(image.raw.to_base64(), RED)
+
+    def test_attachments_are_read_one_at_a_time_through_their_storage_up_to_the_first_that_serves(self):
+        lost, remote, spare = (self._attach(self.task, RED, name) for name in ("lost.png", "remote.png", "spare.png"))
+        self._store_missing_file(lost)
+        self._store_missing_file(remote)
+        model_cls = type(self.env["ir.attachment"])
+        file_read = model_cls._file_read
+        reads = []
+
+        def read_from_storage(attachment):
+            """A storage of its own, which holds the file of remote the filestore lacks."""
+            if attachment in lost | remote | spare:
+                reads.append(attachment)
+            return BinaryBytes(base64.b64decode(RED)) if attachment == remote else file_read(attachment)
+
+        with patch.object(model_cls, "_file_read", read_from_storage):
+            self.task.description = image_html(image_tag(data_uri(RED)))
+
+        [(_source, image)] = self._get_sources(self.task.description)
+        self.assertEqual(image, remote)
+        self.assertEqual(reads, [lost, remote], "no file read past the first that serves, nor two at once")
+
     def test_value_of_a_binary_field_is_not_used(self):
         field_value = self._attach(self.task, RED, "photo", res_field="photo")
         self.task.description = image_html(image_tag(data_uri(RED)))
@@ -1260,7 +1327,7 @@ class TestImageReuse(InlineImagesCase):
 @tagged("post_install", "-at_install")
 class TestAbsoluteImageLinks(InlineImagesCase):
     def test_link_by_the_host_of_this_database_is_copied(self):
-        self.env["ir.config_parameter"].set_str("web.base.url", "https://odoo.example.com")
+        self._set_base_url("https://odoo.example.com")
         other_task = self._new_task(name="Other", description=image_html(image_tag(data_uri(RED))))
         [(source, _attachment)] = self._get_sources(other_task.description)
         local_links = (
@@ -1294,8 +1361,45 @@ class TestAbsoluteImageLinks(InlineImagesCase):
             ),
         )
 
-    def test_without_web_base_url_only_relative_links_are_copied(self):
-        self.env["ir.config_parameter"].set_str("web.base.url", "")
+    def test_a_link_is_local_on_the_host_the_brief_reads_the_record_with(self):
+        """A website gives a task the domain of its company's website, which the
+        brief reads: so does the mover, for a task and for its rows, once for each.
+        """
+        other_task = self._new_task(name="Other", description=image_html(image_tag(data_uri(RED))))
+        [(source, _attachment)] = self._get_sources(other_task.description)
+        links = {host: "https://%s.example%s" % (host, source) for host in ("alpha", "beta", "odoo")}
+        html = image_html(*(image_tag(link) for link in links.values()))
+        alpha, beta = self.env["project.task"].create(
+            [{"name": name, "project_id": self.project.id} for name in ("Alpha", "Beta")]
+        )
+        question = self.env["project.task.question"].create({"task_id": alpha.id})
+        base_url_calls = []
+
+        def get_base_url(task):
+            base_url_calls.append(task)
+            return "https://%s.example" % task.name.lower()
+
+        mover = ImageMover(self.env, copy_links=True)
+        with patch.object(type(self.env["project.task"]), "get_base_url", get_base_url):
+            moved_texts = {
+                record: [mover.move(html, record) for _run in range(2)] for record in (alpha, beta, question)
+            }
+
+        self.assertEqual(base_url_calls, [alpha, beta, alpha], "once for each record, a row by its task")
+        for record, texts in moved_texts.items():
+            with self.subTest(record=record):
+                [image_copy] = self._attachments(record)
+                local_host = "beta" if record == beta else "alpha"
+                expected_html = image_html(
+                    *(
+                        image_tag(get_image_source(image_copy) if host == local_host else link)
+                        for host, link in links.items()
+                    )
+                )
+                self.assertEqual(texts, [expected_html, expected_html])
+
+    def test_without_a_base_url_only_relative_links_are_copied(self):
+        self._set_base_url("")
         other_task = self._new_task(name="Other", description=image_html(image_tag(data_uri(RED))))
         [(source, _attachment)] = self._get_sources(other_task.description)
         absolute_links = ("https://odoo.example.com" + source, "//odoo.example.com" + source)
@@ -1310,6 +1414,123 @@ class TestAbsoluteImageLinks(InlineImagesCase):
             task.description,
             image_html(*(image_tag(link) for link in absolute_links), image_tag(get_image_source(image_copy))),
         )
+
+
+@tagged("post_install", "-at_install")
+class TestImageOriginals(InlineImagesCase):
+    """The editor of Odoo 20 names on a cropped image the attachment it was cropped from: its crop starts there."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.other_task = cls.env["project.task"].create({"name": "Other", "project_id": cls.project.id})
+        cls.original = cls._attach_image(cls.other_task, BLUE)
+        cls.cropped = cls._attach_image(cls.other_task, RED, original_id=cls.original.id)
+
+    @classmethod
+    def _attach_image(cls, record, data, **values):
+        return cls.env["ir.attachment"].create(
+            {
+                "name": "shot.png",
+                "raw": base64.b64decode(data),
+                "res_model": record._name,
+                "res_id": record.id,
+                "access_token": cls.env["ir.attachment"]._generate_access_token(),
+                **values,
+            }
+        )
+
+    def _edited_image(self, source, original_attributes):
+        return image_tag(source, original_attributes + ' data-mimetype="image/png"')
+
+    def _original_attributes(self, original_id, original_source):
+        """As the editor writes them on an image it crops (loadImageInfo)."""
+        return ' data-original-id="%s" data-original-src="%s" data-mimetype-before-conversion="image/png"' % (
+            original_id,
+            original_source,
+        )
+
+    def _cropped_image(self, original_id, original_source):
+        source = "%s?access_token=%s" % (self.cropped.image_src, self.cropped.access_token)
+        return self._edited_image(source, self._original_attributes(original_id, original_source))
+
+    def test_a_copied_image_names_the_copy_of_its_original(self):
+        task = (
+            self.env["project.task"]
+            .with_user(self.user_dev)
+            .create(
+                {
+                    "name": "Copied",
+                    "project_id": self.project.id,
+                    "description": image_html(self._cropped_image(self.original.id, self.original.image_src)),
+                }
+            )
+        )
+
+        copies = self._attachments(task)
+        image_copy = copies.filtered(lambda attachment: attachment.raw.to_base64() == RED)
+        original_copy = copies - image_copy
+        self.assertEqual(original_copy.raw.to_base64(), BLUE)
+        self.assertFalse(image_copy.original_id, "the copy keeps no original of the other task")
+        expected_image = self._edited_image(
+            get_image_source(image_copy), self._original_attributes(original_copy.id, get_image_source(original_copy))
+        )
+        self.assertEqual(task.description, image_html(expected_image))
+        self.other_task.unlink()
+        self.assertEqual(copies.exists(), copies, "the copies outlive the task they come from")
+
+    def test_an_image_its_own_original_names_its_copy_by_the_token_of_its_src(self):
+        # in sudo only a token counts, and the original's own src carries none
+        task = (
+            self.env["project.task"]
+            .with_user(self.user_dev)
+            .sudo()
+            .create(
+                {
+                    "name": "Copied",
+                    "project_id": self.project.id,
+                    "description": image_html(self._cropped_image(self.cropped.id, self.cropped.image_src)),
+                }
+            )
+        )
+
+        [image_copy] = self._attachments(task)
+        image_source = get_image_source(image_copy)
+        expected_image = self._edited_image(image_source, self._original_attributes(image_copy.id, image_source))
+        self.assertEqual(task.description, image_html(expected_image))
+
+    def test_an_original_the_copy_cannot_take_is_dropped(self):
+        third_task = self.env["project.task"].create({"name": "Third", "project_id": self.project.id})
+        foreign_original = self._attach_image(third_task, GREEN)
+        removed_original = self._attach_image(self.other_task, GREEN)
+        removed_original_attributes = (removed_original.id, removed_original.image_src)
+        removed_original.unlink()
+        lost_original = self._attach_image(self.other_task, GREEN)
+        self._store_missing_file(lost_original)
+        cases = {
+            "an attachment of another record": (False, foreign_original.id, foreign_original.image_src),
+            "no attachment": (False, *removed_original_attributes),
+            "a file missing from the filestore": (False, lost_original.id, lost_original.image_src),
+            "not an id": (False, "1e3", self.original.image_src),
+            "unreadable in sudo without its token": (True, self.original.id, self.original.image_src),
+        }
+        for case, (is_sudo, original_id, original_source) in cases.items():
+            with self.subTest(case=case):
+                task_model = self.env["project.task"].with_user(self.user_dev).sudo(is_sudo)
+                task = task_model.create(
+                    {
+                        "name": "Copied",
+                        "project_id": self.project.id,
+                        "description": image_html(self._cropped_image(original_id, original_source)),
+                    }
+                )
+
+                [image_copy] = self._attachments(task)
+                self.assertEqual(image_copy.raw.to_base64(), RED)
+                self.assertFalse(image_copy.original_id)
+                self.assertEqual(
+                    task.description, image_html(self._edited_image(get_image_source(image_copy), "")), case
+                )
 
 
 @tagged("post_install", "-at_install")
@@ -1352,7 +1573,7 @@ class TestSrcsetAndStyleImages(InlineImagesCase):
         self.assertMovedTo(self.task.task_properties["notes_html"], answer, [(RED, "image-1.png")], self.task)
 
     def test_new_task_copies_srcset_and_style_images_of_another_task(self):
-        self.env["ir.config_parameter"].set_str("web.base.url", "https://odoo.example.com")
+        self._set_base_url("https://odoo.example.com")
         other_task = self._new_task(
             name="Other", description=image_html(image_tag(data_uri(RED)), image_tag(data_uri(BLUE)))
         )
@@ -1388,7 +1609,7 @@ class TestFileLinks(InlineImagesCase):
         )
 
     def test_copy_of_a_task_links_its_own_copy_of_a_file(self):
-        self.env["ir.config_parameter"].set_str("web.base.url", "https://odoo.example.com")
+        self._set_base_url("https://odoo.example.com")
         spec = self._attach_file(self.task, b"%PDF-1.4 spec", "spec.pdf")
         absolute_link = "https://odoo.example.com/web/content/%s/spec.pdf?download=true&amp;access_token=%s"
         self.task.description = links_html(file_link(spec), absolute_link % (spec.id, spec.access_token))
@@ -1497,6 +1718,16 @@ class TestFileLinks(InlineImagesCase):
         self.assertFalse(self._attachments(task), "no attachment of another record: nothing copied")
         self.assertEqual(task.description, links_html(*links) + image)
 
+    def test_link_to_a_file_missing_from_the_filestore_stays(self):
+        spec = self._attach_file(self.task, b"%PDF-1.4 spec", "spec.pdf")
+        self._store_missing_file(spec)
+        description = links_html(file_link(spec))
+
+        task = self._new_task(name="Linked", description=description)
+
+        self.assertEqual(task.description, description)
+        self.assertFalse(self._attachments(task), "no empty copy for the link to open")
+
     def test_file_of_a_task_its_user_cannot_read_is_not_copied(self):
         hidden_project = self.env["project.project"].create({"name": "Hidden", "privacy_visibility": "followers"})
         hidden_task = self.env["project.task"].create({"name": "Hidden", "project_id": hidden_project.id})
@@ -1541,7 +1772,7 @@ class TestFileLinks(InlineImagesCase):
 
         self.assertEqual(task.description, description)
         self.assertFalse(self._attachments(task))
-        self.env["ir.config_parameter"].set_str("web.base.url", "https://odoo.example.com")
+        self._set_base_url("https://odoo.example.com")
         question = self.env["project.task.question"].create({"task_id": self.task.id})
         own_file = self._attach_file(question, b"%PDF-1.4 spec", "spec.pdf")
         own_link = links_html("https://odoo.example.com" + file_link(own_file))
@@ -1711,16 +1942,57 @@ class TestUrlReaders(BaseCase):
         )
         self.assertEqual(calls, [("a.png", {"src": "a.png", "srcset": "a.png 2x", "alt": "A & B"})])
 
-    def test_tags_of_a_hostile_comment_are_read_in_linear_time(self):
+    def test_a_hostile_text_is_read_in_linear_time(self):
         # unclosed tags: names running into the next tag, and quotes that pair in many ways
-        for comment in ("<a" * 800 + ' "', '<a" "' * 16000, "<a' '" * 16000, '<a" "<' * 16000):
-            with self.subTest(comment=comment[:12]):
-                text = '<p><img src="%s"></p><!-- %s -->' % (data_uri(RED), comment)
-                urls = []
-                started = time.perf_counter()
-                replace_urls(text, lambda url, kind, attributes, urls=urls: urls.append(url))
-                self.assertLess(time.perf_counter() - started, 1)
-                self.assertEqual(urls, [data_uri(RED)])
+        hostile_texts = ("<a" * 800 + ' "', '<a" "' * 16000, "<a' '" * 16000, '<a" "<' * 16000, "<!--" * 16000)
+        for hostile_text in hostile_texts:
+            for place in ("%s", "<!-- %s -->", "<!-- %s"):
+                with self.subTest(text=hostile_text[:12], place=place):
+                    text = '<p><img src="%s"></p>' % data_uri(RED) + place % hostile_text
+                    urls = []
+                    started = time.perf_counter()
+                    replace_urls(text, lambda url, kind, attributes, urls=urls: urls.append(url))
+                    self.assertLess(time.perf_counter() - started, 1)
+                    self.assertEqual(urls, [data_uri(RED)])
+
+    def test_comments_are_left_whole(self):
+        text = '<!-- <img src="a.png"> --><img src="a.png"><!----><!-- <a href="/web/content/5"> <img src="a.png">'
+        self.assertEqual(
+            replace_urls(text, lambda url, kind, attributes: "/b.png"),
+            text.replace('--><img src="a.png">', '--><img src="/b.png">'),
+            "an unclosed comment runs to the end",
+        )
+
+    def test_attribute_edits_of_a_tag_whose_urls_change(self):
+        text = (
+            '<img data-x="1" src="a.png" DATA-Y=\'2\' data-z data-y="3" alt="A &amp; B">'
+            '<img src="kept.png" data-x="1"><p style="background: url(a.png)" data-x="1"></p>'
+        )
+        calls = []
+
+        def get_attribute_edits(tag_name, attributes, new_urls):
+            calls.append((tag_name, attributes, new_urls))
+            return {"data-x": 'say "hi"', "data-y": None, "data-z": None, "src": None, "absent": "x"}
+
+        new_text = replace_urls(
+            text,
+            lambda url, kind, attributes: "/b.png" if url == "a.png" else None,
+            get_attribute_edits=get_attribute_edits,
+        )
+
+        self.assertEqual(
+            new_text,
+            '<img data-x="say &quot;hi&quot;" src="/b.png" alt="A &amp; B">'
+            '<img src="kept.png" data-x="1"><p style="background: url(/b.png)" data-x="say &quot;hi&quot;"></p>',
+            "renamed where it is, dropped with its duplicates; no url attribute, nor one the tag lacks",
+        )
+        self.assertEqual(
+            calls,
+            [
+                ("img", {"data-x": "1", "src": "a.png", "data-y": "2", "alt": "A & B"}, {("src", "a.png"): "/b.png"}),
+                ("p", {"style": "background: url(a.png)", "data-x": "1"}, {("style", "a.png"): "/b.png"}),
+            ],
+        )
 
     def test_style_url_without_its_end_is_read_in_linear_time(self):
         value = "background: url(" + " " * 50000

@@ -1,6 +1,6 @@
 # Pull requests are records, under the field names of the 16.0 branch
 
-Status: accepted (2026-11-13), amended (2026-11-20: the creation of the next occurrence of a recurring task is not checked, and the occurrence takes no Resolution and no pull request in any stage; a change of project that keeps the stage is checked)
+Status: accepted (2026-11-13), amended (2026-11-20: the creation of the next occurrence of a recurring task is not checked, and the occurrence takes no Resolution and no pull request in any stage; a change of project that keeps the stage is checked; a new parent sent with the project and the stage it brings is not)
 
 A task of an AI-driven project carries its pull requests as records of `project.pull.request` (the link, the repository and number read from it, a state, a merge date and a deploy date), linked many-to-many to tasks, and it closes with a Resolution: Code, Data, Configuration or No change. The 16.0 branch decided this first. Its record, `docs/adr/0002-pull-requests-are-records-under-the-field-names-of-project-task-pull-request.md` there, holds the alternatives it weighed; this one states the decision as it stands on 20.0 and what differs.
 
@@ -26,6 +26,7 @@ A task created from a template (`copy_from_template`: a task template, the tasks
   - 2026-11-20: a change of project that keeps the stage is checked too. Before, a task moved from a project without the flag into a stage that the flagged project shares and marks arrived there with neither a Resolution nor a pull request.
 - A task set Done by its state, outside the marked stages, needs no Resolution.
 - A sub-task whose project and stage are recomputed from its parent, because the parent changed project or the sub-task got another parent, is not checked.
+  - 2026-11-20: nor is one given another parent together with the project of that parent and the stage core gives it there. The task form of Odoo 20 sends the new parent alone, but a client that sends what follows from it along was checked where the form was not. A task shown in a project of its own (`display_in_project`) given a parent and that parent's project is checked, and so is a sub-task given another project or stage with its new parent.
 - A recurring task is set Done or Cancelled whatever the first stage of its project requires: its next occurrence enters that stage without a Resolution.
 - A project template with a task in a marked stage cannot be used until that task is moved.
 

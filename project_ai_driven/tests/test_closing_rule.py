@@ -1,13 +1,14 @@
 from lxml import etree
 
 from odoo import Command
-from odoo.tests import Form
+from odoo.tests import Form, tagged
 
 from .common import ProjectAiDrivenCommon
 
 RESOLUTIONS_WITHOUT_CODE = ("data", "configuration", "no_change")
 
 
+@tagged("post_install", "-at_install")
 class TestClosingRule(ProjectAiDrivenCommon):
     @classmethod
     def setUpClass(cls):

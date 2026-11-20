@@ -123,6 +123,7 @@ class TestPullRequestLinkParser(ProjectAiDrivenCommon):
             self.assertIsNone(parse_single_pull_request_link(text), text)
 
 
+@tagged("post_install", "-at_install")
 class TestPullRequest(ProjectAiDrivenCommon):
     @classmethod
     def setUpClass(cls):
