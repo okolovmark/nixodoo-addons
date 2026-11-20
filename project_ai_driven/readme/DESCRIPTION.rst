@@ -140,10 +140,12 @@ Verification and Automated test reference.
 The next task of a recurrence, and each of its sub-tasks, starts the
 checklist items and the test cases of the task it repeats from zero: an item
 TODO without deadline, keeping its description, assignee and reviewer; a
-case Not run without Verified by, Verified on, Verification and comments,
-keeping its steps, expected results and Automated test reference. The task
-it repeats keeps its lines. The next task is created as a new task, so its
-items are posted to their assignee and reviewer.
+case Not run without Verified by, Verified on and comments, keeping its
+steps, expected results and Automated test reference. A case prepared Not
+run keeps its Verification too, which says how it is to be verified; a case
+with a result loses the Verification of that result. The task it repeats
+keeps its lines. The next task is created as a new task, so its items are
+posted to their assignee and reviewer.
 
 A case is found, read, changed, deleted and created by the users who can
 read its task, as a checklist item is, and moves only onto a task they can

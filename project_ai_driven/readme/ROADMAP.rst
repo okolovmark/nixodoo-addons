@@ -46,7 +46,9 @@
   a task stops the duplication of its project until it gets it.
 * The creation of the next task of a recurrence is told by a marker in the
   context of that creation: a task that an automated action creates inside
-  it, on the creation of the next task, enters its stage unchecked too.
+  it, on the creation of the next task, enters its stage unchecked too, and
+  a test case it creates there Not run keeps the Verification given with
+  it.
 * A stage saved for *All tasks* or *This and following tasks* of a
   recurrence is refused when one of the tasks it reaches has no project:
   Odoo's check of a personal stage runs on every task reached.
