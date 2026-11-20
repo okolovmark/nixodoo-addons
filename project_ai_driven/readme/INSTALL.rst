@@ -315,6 +315,12 @@ gives a case Not run drops the Verified by, Verified on and Verification it
 sends, and a create that takes Passed or Failed from a default is stamped.
 The deploy is one update of the module, with nothing else to run.
 
+The update to 16.0.2.22.0 has no migration and writes nothing on existing
+records; it loads the view that adds Task Type and Estimate to the kanban
+quick create. From it the closing and the estimate rules check a task moved
+to another project also when it keeps its stage, and a save links an image
+the task already has instead of attaching it again.
+
 **Coming from project_task_pull_request**
 
 This module declares ``pr_uri`` on the task and ``pr_required_states`` on

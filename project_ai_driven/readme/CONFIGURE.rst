@@ -18,12 +18,13 @@
   stages of the project can be picked. Leave it empty to switch the estimate
   rule off.
 * What creates a task straight into a stage of that second list without
-  both values is refused there: the kanban quick create, which takes a title
-  and assignees; an email to the alias of the project, which gives neither
-  value; a sales order line that creates a task, which gives no task type.
-  The duplicate of a project copies each task with its type and its
-  estimate, so it is refused only where a task sits in such a stage without
-  them.
+  both values is refused there: an email to the alias of the project, which
+  gives neither value; a sales order line that creates a task, which gives
+  no task type. The kanban quick create asks for both in such a column, and
+  refuses an Estimate left at zero; a column whose stage also requires a
+  Resolution refuses it, as it asks for none. The duplicate of a project
+  copies each task with its type and its estimate, so it is refused only
+  where a task sits in such a stage without them.
 * Checklist items, question rows, session rows and test cases are managed
   by **Project / User**, each only by a user who can read its task. The
   Checklist, Test Cases, Technical Solution and Sessions tabs are hidden
