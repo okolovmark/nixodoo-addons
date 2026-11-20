@@ -10,10 +10,6 @@ class ProjectMemberAccessLineMixin(models.AbstractModel):
         result = super().write(vals)
         if "project_id" in vals:
             self._check_project_is_task_project()
-        if "task_id" in vals and not isinstance(self, self.pool["project.task.access.mixin"]):
-            # again for the task a line moves to: core checked the task it leaves only
-            # (project.task.access.mixin checks the lines it carries itself)
-            self.check_access_rule("write")
         return result
 
     def _filter_access_rules_python(self, operation):

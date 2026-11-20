@@ -78,8 +78,31 @@ class TimesheetSystrayCase(TransactionCase):
             }
         )
 
+    def _create_unfollowed_task(self, privacy_visibility):
+        """A task of Dev One in a project of that visibility, which Dev One follows no longer."""
+        project = self.env["project.project"].create(
+            {
+                "name": "Project Visible to %s" % privacy_visibility,
+                "privacy_visibility": privacy_visibility,
+                "allow_timesheets": True,
+                "type_ids": [Command.set(self.stage_in_progress.ids)],
+            }
+        )
+        task = self.env["project.task"].create(
+            {
+                "name": "Task Unfollowed by Its Assignee",
+                "project_id": project.id,
+                "stage_id": self.stage_in_progress.id,
+                "user_ids": [Command.set(self.user_dev1.ids)],
+            }
+        )
+        task.message_unsubscribe(self.user_dev1.partner_id.ids)
+        self.assertNotIn(self.user_dev1.partner_id, task.message_partner_ids)
+        return task
+
     def _call_route(self, user, route_name, **kwargs):
-        with patch.object(controller, "request", SimpleNamespace(env=self.env(user=user))):
+        user_request = SimpleNamespace(env=self.env(user=user), httprequest=SimpleNamespace(cookies={}))
+        with patch.object(controller, "request", user_request):
             return getattr(controller.TimesheetSystrayController(), route_name)(**kwargs)
 
     def _skip_without_keys(self):

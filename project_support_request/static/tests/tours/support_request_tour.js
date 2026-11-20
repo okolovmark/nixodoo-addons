@@ -12,12 +12,12 @@ function openSupportItem() {
 tour.register("project_support_request_tour", { test: true, url: "/web" }, [
     openSupportItem(),
     {
-        content: "Open the new ticket form",
-        trigger: ".o_odoo_requests_dropdown button:contains(New Ticket)",
+        content: "Open the form of a new request",
+        trigger: ".o_odoo_requests_dropdown button:contains(New Support Request)",
     },
     {
         content: "Give the request a title",
-        trigger: ".o_odoo_requests_dropdown input[placeholder='Ticket title...']",
+        trigger: ".o_odoo_requests_dropdown input[placeholder='Support request title...']",
         run: `text ${REQUEST_TITLE}`,
     },
     {

@@ -175,11 +175,13 @@ class ProjectTask(models.Model):
             record.tshirt_estimate = get_size(record.planned_hours)
 
     @api.depends("checklist_item_ids.state", "checklist_item_ids.user_id")
+    @api.depends_context("uid")
     def _compute_completion(self):
         for record in self:
             record.completion = record.task_completion()
 
     @api.depends("checklist_item_ids.state", "checklist_item_ids.user_id")
+    @api.depends_context("uid")
     def _compute_completion_xml(self):
         for record in self:
             active_items = record.checklist_item_ids.filtered(
@@ -203,6 +205,7 @@ class ProjectTask(models.Model):
             """
 
     @api.depends("checklist_item_ids.state", "checklist_item_ids.user_id")
+    @api.depends_context("uid")
     def _compute_kanban_checklist(self):
         for record in self:
             result_string_td = ""

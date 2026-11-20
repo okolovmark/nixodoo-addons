@@ -321,6 +321,14 @@ quick create. From it the closing and the estimate rules check a task moved
 to another project also when it keeps its stage, and a save links an image
 the task already has instead of attaching it again.
 
+The update to 16.0.2.23.0 has no migration and writes nothing on existing
+records; it can run with the server up. From it the completion and the card
+summary of the checklist, the buttons of an item and the red of one's own
+TODO items are computed for each user who reads them, also where two users
+read the same task in one transaction; and the next task of a
+recurrence, and each of its sub-tasks, keeps the Verification of each test
+case that was Not run with one; the tasks created before stay as they are.
+
 **Coming from project_task_pull_request**
 
 This module declares ``pr_uri`` on the task and ``pr_required_states`` on

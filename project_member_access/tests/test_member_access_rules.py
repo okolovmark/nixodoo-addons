@@ -184,14 +184,13 @@ class TestMemberAccessRules(MemberAccessCommon):
             line.with_user(self.outsider).write({"task_id": other_standard_task.id})
             self._assert_found_on_task(line, self.outsider, other_standard_task)
 
-    def test_a_checklist_item_or_question_moves_only_to_a_task_one_may_read(self):
+    def test_a_line_moves_only_to_a_task_one_may_read(self):
         """ADR 0007: whoever can read its task writes it, in a Standard project too."""
         hidden_project = self.env["project.project"].create(
             {"name": "Standard, followers-only", "privacy_visibility": "followers"}
         )
         hidden_task = self._create_task(hidden_project)
-        checklist_item_and_question = self._create_lines(self.standard_task)[:2]
-        for line in checklist_item_and_question:
+        for line in self._create_lines(self.standard_task):
             with self.assertRaises(AccessError, msg=line._name):
                 line.with_user(self.outsider).write({"task_id": hidden_task.id})
 

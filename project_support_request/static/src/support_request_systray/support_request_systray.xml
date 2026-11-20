@@ -7,7 +7,7 @@
             <div class="o_odoo_requests_icon d-flex align-items-center px-1"
                  role="button"
                  t-on-click="toggleDropdown"
-                 title="Odoo Requests">
+                 title="Support requests">
                 <i class="fa fa-life-ring o_requests_icon_idle"/>
                 <span class="o_requests_icon_label ms-1">Support</span>
                 <span t-if="hasBadge"
@@ -63,7 +63,7 @@
                         <div class="mb-2">
                             <input type="text"
                                    class="form-control form-control-sm"
-                                   placeholder="Ticket title..."
+                                   placeholder="Support request title..."
                                    t-att-value="state.createName"
                                    t-on-input="onCreateNameInput"
                                    t-att-disabled="state.creating"/>
@@ -104,8 +104,8 @@
                                 <span class="o_requests_priority_dot me-2"
                                       role="img"
                                       t-att-class="dot.className"
-                                      t-att-title="'Priority: ' + dot.label"
-                                      t-att-aria-label="'Priority: ' + dot.label"/>
+                                      t-att-title="priorityTitle(dot.label)"
+                                      t-att-aria-label="priorityTitle(dot.label)"/>
                                 <div class="flex-grow-1 overflow-hidden">
                                     <div class="text-truncate small">
                                         <span t-if="ticket.key"
@@ -142,7 +142,7 @@
                             <i class="fa fa-check-circle fa-2x"/>
                         </div>
                         <div class="text-muted small fw-bold">
-                            No open tickets
+                            No open support requests
                         </div>
                     </div>
 
@@ -150,7 +150,7 @@
                         <button t-if="!state.showCreateForm"
                                 class="btn btn-sm flex-fill rounded-0 text-primary fw-bold"
                                 t-on-click="onShowCreateForm">
-                            <i class="fa fa-plus me-1"/>New Ticket
+                            <i class="fa fa-plus me-1"/>New Support Request
                         </button>
                         <button class="btn btn-sm flex-fill rounded-0 text-muted"
                                 t-on-click="onViewClosedClick">
