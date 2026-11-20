@@ -243,7 +243,7 @@ class ProjectTask(models.Model):
                 record.testcase_completion_xml = f"""
                 <div class="task_progress">
                     <div class="progress_info">
-                        Your Test cases:
+                        Test cases:
                     </div>
                     <div> {round(completion, 2)}% Done</div>
                 </div>
