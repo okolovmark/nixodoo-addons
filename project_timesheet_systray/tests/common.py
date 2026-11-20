@@ -1,8 +1,7 @@
-from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from odoo import Command
+from odoo import Command, fields
 from odoo.tests.common import TransactionCase
 
 from odoo.addons.project_timesheet_systray.controllers import project_timesheet_systray as controller
@@ -64,16 +63,19 @@ class TimesheetSystrayCase(TransactionCase):
             )
         )
 
-    def _create_timesheet(self, task, user, employee, unit_amount=0, date_time=None):
-        """A line with unit_amount 0 and a date_time is a running timer."""
-        return self.env["account.analytic.line"].create(
+    def _create_timesheet(self, task, user, employee, unit_amount=0, date_time=None, logged_by=None):
+        """A line with unit_amount 0 and a date_time is a running timer; `logged_by` creates it."""
+        time_lines = self.env["account.analytic.line"]
+        if logged_by:
+            time_lines = time_lines.with_user(logged_by)
+        return time_lines.create(
             {
                 "task_id": task.id,
                 "project_id": task.project_id.id,
                 "employee_id": employee.id,
                 "user_id": user.id,
                 "name": task.name,
-                "date_time": date_time or datetime.now(),
+                "date_time": date_time or fields.Datetime.now(),
                 "unit_amount": unit_amount,
             }
         )

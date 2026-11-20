@@ -8,6 +8,7 @@ const { Component, useState, onWillStart, onWillUnmount, onMounted } = owl;
 export class TimesheetSystray extends Component {
     setup() {
         this.rpc = useService("rpc");
+        this.company = useService("company");
         this.actionService = useService("action");
         this.notification = useService("notification");
 
@@ -60,10 +61,15 @@ export class TimesheetSystray extends Component {
         });
     }
 
+    _callRoute(route, params = {}) {
+        // The tab's companies (its URL first), not the cookie's: they decide whether the task opens.
+        return this.rpc(route, { ...params, company_ids: this.company.allowedCompanyIds });
+    }
+
     async _fetchData() {
         this.state.loading = true;
         try {
-            const result = await this.rpc("/project_timesheet_systray/systray", {});
+            const result = await this._callRoute("/project_timesheet_systray/systray");
             this._applyResult(result);
         } catch (e) {
             this.state.running = false;
@@ -154,7 +160,7 @@ export class TimesheetSystray extends Component {
         if (!this.state.timesheet) return;
         this.state.loading = true;
         try {
-            const result = await this.rpc("/project_timesheet_systray/stop", {
+            const result = await this._callRoute("/project_timesheet_systray/stop", {
                 timesheet_id: this.state.timesheet.id,
             });
             if (result.error) {
@@ -185,7 +191,7 @@ export class TimesheetSystray extends Component {
     async _startTimerForTask(taskId) {
         this.state.loading = true;
         try {
-            const result = await this.rpc("/project_timesheet_systray/start", {
+            const result = await this._callRoute("/project_timesheet_systray/start", {
                 task_id: taskId,
             });
             if (result.error) {
@@ -231,7 +237,7 @@ export class TimesheetSystray extends Component {
         ev.stopPropagation();
         this.state.loading = true;
         try {
-            const result = await this.rpc("/project_timesheet_systray/systray", { limit: 0 });
+            const result = await this._callRoute("/project_timesheet_systray/systray", { limit: 0 });
             this.state.tasks = result.tasks || [];
             this.state.totalTasks = result.total_tasks || 0;
             this.state.showAll = true;

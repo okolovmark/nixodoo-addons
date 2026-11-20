@@ -388,6 +388,32 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
         first_line.invalidate_recordset(["unit_amount"])
         self.assertAlmostEqual(first_line.unit_amount, 0.5, delta=0.05)
 
+    def test_a_zero_hour_line_left_in_a_project_with_timesheets_off_is_neither_shown_nor_ended(self):
+        task = self._create_task_of_a_new_project()
+        forgotten_line = self._create_timesheet(
+            task,
+            self.user_dev1,
+            self.employee_dev1,
+            date_time=datetime.now() - timedelta(days=3),
+            logged_by=self.user_dev1,
+        )
+        self._create_timesheet(
+            self.task,
+            self.user_dev1,
+            self.employee_dev1,
+            unit_amount=2,
+            date_time=datetime.now() - timedelta(days=1),
+            logged_by=self.user_dev1,
+        )
+        self._turn_timesheets_off(task.project_id)
+        self.authenticate(self.user_dev1.login, DEV1_PASSWORD)
+
+        self.assertFalse(self._result(SYSTRAY_URL)["running"])
+        self._start_timer_on(self.task)
+
+        forgotten_line.invalidate_recordset(["unit_amount"])
+        self.assertEqual(forgotten_line.unit_amount, 0)
+
     def test_a_start_on_a_task_of_a_project_with_timesheets_off_is_refused(self):
         task = self._create_task_of_a_new_project()
         self._turn_timesheets_off(task.project_id)
@@ -398,10 +424,9 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
         self.assertEqual(answer, {"error": "Timesheets are turned off in the project of this task"})
         self.assertFalse(self.env["account.analytic.line"].search([("task_id", "=", task.id)]))
 
-    def test_the_running_timer_links_its_task_where_the_web_client_opens_it_with_the_task_company(self):
-        """The form opens with the companies selected in the web client, which it keeps in the
-        `cids` cookie, defaulting to the user's current company."""
-        company = self.env.company
+    def _create_task_of_a_second_company(self):
+        """A task of Dev One, who has an employee in its company, which they read only with that
+        company selected. Returns the company and the task."""
         other_company = self.env["res.company"].create({"name": "Timelog Second Company"})
         self.user_dev1.company_ids = [Command.link(other_company.id)]
         self.env["hr.employee"].create(
@@ -409,7 +434,16 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
         )
         task = self._create_task_of_a_new_project(company_id=other_company.id)
         tasks_dev1 = self.env["project.task"].with_user(self.user_dev1)
-        self.assertFalse(tasks_dev1.with_context(allowed_company_ids=company.ids).search([("id", "=", task.id)]))
+        self.assertFalse(
+            tasks_dev1.with_context(allowed_company_ids=self.env.company.ids).search([("id", "=", task.id)])
+        )
+        return other_company, task
+
+    def test_the_running_timer_links_its_task_where_the_web_client_opens_it_with_the_task_company(self):
+        """The form opens with the companies selected in the web client, which it keeps in the
+        `cids` cookie, defaulting to the user's current company."""
+        company = self.env.company
+        other_company, task = self._create_task_of_a_second_company()
         self.authenticate(self.user_dev1.login, DEV1_PASSWORD)
         self._result(START_URL, task_id=task.id)
 
@@ -427,6 +461,48 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
                 self.assertEqual(
                     (timesheet.get("task_id"), timesheet.get("is_task_readable")), (task.id, is_task_readable)
                 )
+
+    def test_the_running_timer_links_its_task_where_the_tab_opens_it_whatever_the_cookie_holds(self):
+        """Each tab keeps its companies in its URL; the cookie holds those of the tab that last
+        loaded or switched them."""
+        company = self.env.company
+        other_company, task = self._create_task_of_a_second_company()
+        self.authenticate(self.user_dev1.login, DEV1_PASSWORD)
+        self._result(START_URL, task_id=task.id)
+
+        for tab_company_ids, cids, is_task_readable in (
+            ([other_company.id], str(company.id), True),
+            ([company.id, other_company.id], str(company.id), True),
+            ([company.id], str(other_company.id), False),
+            ([other_company.id, 0], str(company.id), False),
+            ("not a company", str(other_company.id), True),
+        ):
+            with self.subTest(tab_company_ids=tab_company_ids, cids=cids):
+                self.opener.cookies["cids"] = cids
+                timesheet = self._result(SYSTRAY_URL, company_ids=tab_company_ids)["timesheet"] or {}
+                self.assertEqual(
+                    (timesheet.get("task_id"), timesheet.get("is_task_readable")), (task.id, is_task_readable)
+                )
+
+    def test_the_start_and_stop_answers_link_the_running_task_where_the_tab_opens_it(self):
+        other_company, task = self._create_task_of_a_second_company()
+        self.authenticate(self.user_dev1.login, DEV1_PASSWORD)
+        self.opener.cookies["cids"] = str(self.env.company.id)
+
+        started = self._result(START_URL, task_id=task.id, company_ids=[other_company.id])
+        older_line = self._create_timesheet(
+            self.task, self.user_dev1, self.employee_dev1, date_time=datetime.now() - timedelta(hours=1)
+        )
+        self.env.flush_all()
+        stopped = self._result(STOP_URL, timesheet_id=older_line.id, company_ids=[other_company.id])
+
+        self.assertEqual(
+            [
+                (answer["timesheet"]["task_id"], answer["timesheet"]["is_task_readable"])
+                for answer in (started, stopped)
+            ],
+            [(task.id, True), (task.id, True)],
+        )
 
     def test_the_route_messages_follow_the_user_language(self):
         self.env["res.lang"]._activate_lang("fr_FR")
