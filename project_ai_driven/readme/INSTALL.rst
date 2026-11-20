@@ -315,6 +315,12 @@ gives a case Not run drops the Verified by, Verified on and Verification it
 sends, and a create that takes Passed or Failed from a default is stamped.
 The deploy is one update of the module, with nothing else to run.
 
+The update to 16.0.2.22.0 has no migration and writes nothing on existing
+records; it can run with the server up. From it the completion and the card
+summary of the checklist, the buttons of an item and the red of one's own
+TODO items are computed for each user who reads them, also where two users
+read the same task in one transaction.
+
 **Coming from project_task_pull_request**
 
 This module declares ``pr_uri`` on the task and ``pr_required_states`` on

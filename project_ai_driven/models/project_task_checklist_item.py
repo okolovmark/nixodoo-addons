@@ -34,6 +34,7 @@ class ProjectTaskChecklistItem(models.Model):
     deadline = fields.Datetime()
 
     @api.depends("reviewer_id", "user_id")
+    @api.depends_context("uid")
     def _compute_hide_button(self):
         for record in self:
             if self.env.user not in [record.reviewer_id, record.user_id]:
@@ -54,6 +55,7 @@ class ProjectTaskChecklistItem(models.Model):
             record.can_convert = record not in refused_items
 
     @api.depends("user_id", "state")
+    @api.depends_context("uid")
     def _compute_recolor(self):
         for record in self:
             if self.env.user == record.user_id and record.state == "todo":

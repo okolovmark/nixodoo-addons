@@ -102,8 +102,10 @@ sub-task, which has no Resolution, type or estimate. Any refusal leaves the
 item and the task as they were, with no sub-task.
 
 The task's kanban card shows the current user's completion percentage over
-their non-cancelled items and the number of their TODO and Waiting items. The
-**Checklist** menu opens on your own TODO items (the *My* and *TODO* filters
+their non-cancelled items and the number of their TODO and Waiting items.
+These figures, the buttons of an item and the red of one's own TODO items
+are computed for the user who reads them, also where two users read the
+same task in one transaction. The **Checklist** menu opens on your own TODO items (the *My* and *TODO* filters
 are on by default); remove those filters to see every item you can read.
 
 **Test cases** (``project.task.testcase``)
