@@ -20,9 +20,12 @@ _logger = logging.getLogger(__name__)
 
 INLINE_IMAGE_MARKER = re.compile(r"data:image", re.IGNORECASE)
 INLINE_IMAGE_OR_LINK_MARKER = re.compile(r"data:image|/web/image/|/web/content/", re.IGNORECASE)
+# A comment is text: matched first and whole, so that no tag or quote in it is read; unclosed, it runs to the end.
+COMMENT = r"<!--(?s:.*?)(?:-->|\Z)"
 # The name holds no quote and ends where an attribute may start, and no unquoted part runs over a "<"
-# (lxml quotes every value): otherwise a comment of "<a<a<a..." or of '<a" "<a" "...' backtracks.
-START_TAG = re.compile(r"""<([A-Za-z][^\s/<>"']*)(?=[\s/>])(?:[^<>"']|"[^"]*"|'[^']*')*>""")
+# (lxml quotes every value): otherwise a text of "<a<a<a..." or of '<a" "<a" "...' backtracks.
+START_TAG = r"""<([A-Za-z][^\s/<>"']*)(?=[\s/>])(?:[^<>"']|"[^"]*"|'[^']*')*>"""
+COMMENT_OR_START_TAG = re.compile(COMMENT + "|" + START_TAG)
 TAG_ATTRIBUTE = re.compile(r"""\s([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?""")
 # the pattern of html.unescape: references unescaped one by one give the value it gives
 CHARACTER_REFERENCE = re.compile(r"&(?:#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?)")
@@ -154,10 +157,13 @@ def replace_urls(html_text, get_new_url, url_attributes=URL_ATTRIBUTES):
     get_new_url(url, kind=kind, attributes=attributes) gives a new one, kind
     IMAGE or FILE, the url and the attributes html-unescaped. Every other
     character stays as it is: a parser would serialise the whole text again.
+    A comment is not read.
     """
 
     def replace_tag(tag_match):
         tag = tag_match.group(0)
+        if tag_match.group(1) is None:
+            return tag
         tag_name = tag_match.group(1).lower()
         attributes = {}
         url_values = []
@@ -184,7 +190,7 @@ def replace_urls(html_text, get_new_url, url_attributes=URL_ATTRIBUTES):
             tag_position = end
         return "".join(new_parts) + tag[tag_position:]
 
-    return START_TAG.sub(replace_tag, html_text)
+    return COMMENT_OR_START_TAG.sub(replace_tag, html_text)
 
 
 def replace_image_sources(html_text, get_new_source):
@@ -259,7 +265,7 @@ class ImageMover:
         self._attachment_copies = {}
         self._task_attachments = {}
         self._fallback_name_counts = Counter()
-        self._base_host = None
+        self._base_hosts = {}
 
     def move(self, text, task):
         if not self.marker.search(text):
@@ -272,7 +278,7 @@ class ImageMover:
         if inline_image:
             attachment = self._get_inline_image_attachment(inline_image, attributes, task)
         else:
-            link = self.copy_links and self._get_local_link(url)
+            link = self.copy_links and self._get_local_link(url, task)
             link_match = link and LINK_PATTERNS[kind].fullmatch(link)
             attachment = link_match and self._get_attachment_copy(int(link_match.group(1)), link, kind, task)
         if not attachment:
@@ -281,16 +287,17 @@ class ImageMover:
             return DRY_RUN_SOURCE
         return get_file_link(link, attachment) if kind == FILE else get_image_source(attachment)
 
-    def _get_local_link(self, url):
+    def _get_local_link(self, url, task):
         """url from its path on, None for a link to another host: an absolute
-        link is local on the host of web.base.url, as the brief reads it.
+        link is local on the host of task.get_base_url(), as the brief reads
+        it (website gives a task its company's website domain).
         """
         # not at the top: html_markdown imports project_task_question, whose model must load after this mixin
         from .html_markdown import get_base_host, get_local_url, normalise_url
 
-        if self._base_host is None:
-            self._base_host = get_base_host(self.env["ir.config_parameter"].sudo().get_param("web.base.url"))
-        return get_local_url(normalise_url(url), self._base_host)
+        if task.id not in self._base_hosts:
+            self._base_hosts[task.id] = get_base_host(task.get_base_url())
+        return get_local_url(normalise_url(url), self._base_hosts[task.id])
 
     def _get_inline_image_attachment(self, inline_image, attributes, task):
         mimetype, subtype, data = inline_image.groups()
@@ -344,9 +351,11 @@ class ImageMover:
             if kind == FILE:
                 # a file link downloads the file as uploaded: core would resize an image
                 attachment = attachment.with_context(image_no_postprocess=True)
-            values = self._get_checked_contents(
+            raw = attachment.raw
+            # a file gone reads as empty through the storage, as in _has_contents: no empty copy for the text to link
+            values = raw and self._get_checked_contents(
                 attachment,
-                {"raw": attachment.raw, "mimetype": attachment.mimetype},
+                {"raw": raw, "mimetype": attachment.mimetype},
                 task,
                 "A link to attachment %s stays as it is" % attachment.id,
             )
@@ -373,10 +382,10 @@ class ImageMover:
 
     def _find_task_attachment(self, task, mimetype, checksum):
         """The first attachment of task with these contents that may serve:
-        not one of a message, which deleting the message deletes, and one the
-        saving user may read, also under sudo (core saves a portal user's task
-        in sudo), or the text would hand them the token and name of an
-        attachment they cannot see.
+        not one of a message, which deleting the message deletes, nor one
+        whose file is gone, and one the saving user may read, also under sudo
+        (core saves a portal user's task in sudo), or the text would hand them
+        the token and name of an attachment they cannot see.
         """
         candidates = self.attachments.search(
             [
@@ -389,12 +398,29 @@ class ImageMover:
             order="id",
         )
         message_attachment_ids = self._get_message_attachment_ids(candidates)
-        attachment = candidates.filtered(lambda candidate: candidate.id not in message_attachment_ids)[:1]
+        attachment = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate.id not in message_attachment_ids and self._has_contents(candidate)
+            ),
+            self.attachments,
+        )
         if attachment and not self._can_read(attachment):
             return self.attachments
         if attachment and not attachment.access_token and not self.dry_run:
             attachment.access_token = self.attachments._generate_access_token()
         return attachment
+
+    @staticmethod
+    def _has_contents(attachment):
+        """Whether the contents of attachment read as more than nothing,
+        through the storage of attachments, which a module may keep elsewhere
+        than the filestore: a file gone reads as empty.
+        """
+        if attachment.store_fname:
+            return bool(attachment._file_read(attachment.store_fname))
+        return bool(attachment.db_datas)
 
     def _get_message_attachment_ids(self, attachments):
         if not attachments:

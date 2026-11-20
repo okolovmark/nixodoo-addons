@@ -85,8 +85,9 @@
 * The eight categories and their spelling are fixed in the module:
   ``Bugfix`` or ``Deployment`` in bold is no category.
 * A link to another task's image or file on a host or port other than that
-  of ``web.base.url`` stays as it is: a copy of the text still links the
-  source task's attachment, and the link breaks when that task is deleted.
+  of the task's ``get_base_url()`` stays as it is: a copy of the text still
+  links the source task's attachment, and the link breaks when that task is
+  deleted.
 * An image in another attribute (a ``poster``, a ``data-*``) is not read
   and stays as it is, inline or linked. Neither is a ``<style>`` element,
   which the sanitizer drops.
