@@ -1,11 +1,6 @@
 from odoo import Command, fields, http
 from odoo.http import request
 
-NO_SUPPORT_PROJECT_ERROR = (
-    "No active project develops this Odoo: a Settings administrator ticks Develops This Odoo"
-    " on the AI-driven project that develops it, or restores the archived one that carries it."
-)
-INTERNAL_USERS_ONLY_ERROR = "Only internal users file support requests."
 TICKET_FIELDS = ("key", "name", "task_type", "stage_id", "priority_level", "create_date", "sequence")
 CLOSED_LIST_VIEW_XMLID = "project.open_view_all_tasks_list_view"
 
@@ -99,17 +94,22 @@ class SupportRequestController(http.Controller):
         project rights or not.
         """
         if not request.env.user._is_internal():
-            return {"error": INTERNAL_USERS_ONLY_ERROR}
+            return {"error": request.env._("Only internal users file support requests.")}
         project_id = self._get_support_project_id()
         if not project_id:
-            return {"error": NO_SUPPORT_PROJECT_ERROR}
+            return {
+                "error": request.env._(
+                    "No active project develops this Odoo: a Settings administrator ticks Develops This Odoo"
+                    " on the AI-driven project that develops it, or restores the archived one that carries it."
+                )
+            }
 
         name = (name or "").strip()
         if not name:
-            return {"error": "Ticket title is required."}
+            return {"error": request.env._("Support request title is required.")}
 
         if task_type not in [value for value, _label in self._get_task_types()]:
-            return {"error": f"Invalid task type: {task_type}"}
+            return {"error": request.env._("Invalid task type: %s", task_type)}
 
         first_stage = (
             request.env["project.task.type"]

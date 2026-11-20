@@ -139,14 +139,18 @@ class ProjectTaskTestcase(models.Model):
             "verification_kind": self.verification_kind,
         }
 
-    def _write_verification_on_copy(self, case_copy):
+    def _write_verification_on_copy(self, case_copy, keep_progress):
         """Write the verification of this case, when it is Not run, on its
         copy case_copy. The copy is created with its state, as a default may
         be another one, and a Not run given takes the verification back; a
-        verification written alone stays.
+        verification written alone stays. Without keep_progress only the
+        Verification is written: how a case is to be verified is part of
+        preparing it, as its Automated test reference, while Verified by and
+        Verified on stamp a result.
         """
         self.ensure_one()
         result_values = self._get_result_values()
-        verification_values = {fname: result_values[fname] for fname in VERIFICATION_FIELDS}
+        field_names = VERIFICATION_FIELDS if keep_progress else ("verification_kind",)
+        verification_values = {fname: result_values[fname] for fname in field_names}
         if self.state == "not_run" and any(verification_values.values()):
             case_copy.write(verification_values)

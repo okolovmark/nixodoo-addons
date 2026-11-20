@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from odoo import Command, fields
 from odoo.tests.common import TransactionCase, tagged
+from odoo.tools.translate import PYTHON_TRANSLATION_COMMENT, TranslationModuleReader
 
 from odoo.addons.project_support_request.controllers import project_support_request as controller
 
@@ -165,7 +166,8 @@ class TestSupportRequest(TransactionCase):
             {"error": "Invalid task type: no_such_type"},
         )
         self.assertEqual(
-            self._call_route(self.user_dev1, "create_request", name="  "), {"error": "Ticket title is required."}
+            self._call_route(self.user_dev1, "create_request", name="  "),
+            {"error": "Support request title is required."},
         )
 
     def test_the_config_names_each_priority_level(self):
@@ -261,7 +263,7 @@ class TestSupportRequest(TransactionCase):
         )
         self.assertEqual(
             self._call_route(portal_user, "create_request", name="Filed by a portal user"),
-            {"error": controller.INTERNAL_USERS_ONLY_ERROR},
+            {"error": "Only internal users file support requests."},
         )
         self.assertFalse(self.env["project.task"].search([("name", "=", "Filed by a portal user")]))
 
@@ -287,6 +289,25 @@ class TestSupportRequest(TransactionCase):
         self.project.active = False
 
         self._assert_not_configured()
+
+    def test_the_errors_of_a_request_are_exported_for_translation(self):
+        server_terms = {
+            "Only internal users file support requests.",
+            "No active project develops this Odoo: a Settings administrator ticks Develops This Odoo"
+            " on the AI-driven project that develops it, or restores the archived one that carries it.",
+            "Support request title is required.",
+            "Invalid task type: %s",
+        }
+
+        exported_terms = {
+            source
+            for _module, _type, _name, _res_id, source, _value, comments in TranslationModuleReader(
+                self.env.cr, modules=["project_support_request"]
+            )
+            if PYTHON_TRANSLATION_COMMENT in comments
+        }
+
+        self.assertEqual(server_terms - exported_terms, set(), "the errors the translation export misses")
 
     def _assert_not_configured(self):
         self.assertEqual(self._call_route(self.user_dev1, "_get_support_project_id"), 0)

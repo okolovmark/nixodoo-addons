@@ -1,7 +1,7 @@
 {
     "name": "Project Support Request",
     "summary": "A Support item in the header that files requests in the project that develops this Odoo",
-    "version": "20.0.1.1.1",
+    "version": "20.0.1.1.2",
     "category": "Services/Project",
     "author": "Mark Okolov",
     "website": "https://github.com/okolovmark/nixodoo-addons",
