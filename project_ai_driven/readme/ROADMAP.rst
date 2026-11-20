@@ -33,16 +33,23 @@
   installed or about to be, takes it off every task that held it.
 * The closing rule and the estimate rule are checked on the tasks of a write
   that names their stage or their project. A stage recomputed for another
-  reason is not checked, as for a subtask whose parent changes project, and
-  neither are the other tasks of a recurrence that the write is extended to.
+  reason is not checked, as for a subtask whose parent changes project.
 * A module that writes a task's new project on its own, before the other
   values of the same write, runs both rules before the Resolution, the task
   type and the estimate of that write arrive. Setting them in an earlier
   write avoids it.
-* Neither rule is run when a stage gets marked or a project gets flagged, so
-  a task can sit in a marked stage without what the stage requires: a
-  Resolution, a pull request, a task type or an estimate. Such a task stops
-  the duplication of its project until it gets it.
+* Neither rule is run when a stage gets marked or a project gets flagged,
+  nor on the creation of the next task of a recurrence, in the first stage
+  of its project or, when the project lists none, in the stage of the task
+  it repeats, so a task can sit in a marked stage without what the stage
+  requires: a Resolution, a pull request, a task type or an estimate. Such
+  a task stops the duplication of its project until it gets it.
+* The creation of the next task of a recurrence is told by a marker in the
+  context of that creation: a task that an automated action creates inside
+  it, on the creation of the next task, enters its stage unchecked too.
+* A stage saved for *All tasks* or *This and following tasks* of a
+  recurrence is refused when one of the tasks it reaches has no project:
+  Odoo's check of a personal stage runs on every task reached.
 * The priority star is hidden on the views the description lists. The
   portal keeps it: the project sharing views, the task list and the task
   page.

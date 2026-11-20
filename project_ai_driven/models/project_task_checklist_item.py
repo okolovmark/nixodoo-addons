@@ -113,6 +113,10 @@ class ProjectTaskChecklistItem(models.Model):
             "target": "main",
         }
 
+    def _get_copy_values_from_zero(self):
+        """The values of a copy of each item that starts it over: TODO without deadline."""
+        return [record.copy_data({"state": "todo", "deadline": False})[0] for record in self]
+
     def _check_change_allowed(self):
         if self._filter_items_of_others():
             raise UserError(

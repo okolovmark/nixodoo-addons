@@ -27,6 +27,10 @@ class TestClosingRule(ProjectAiDrivenCommon):
             {"name": "Task", "project_id": self.project.id, "stage_id": self.stage_progress.id, **values},
         )
 
+    def _create_next_occurrence(self, recurring_task):
+        recurring_task.recurrence_id._create_next_task()
+        return recurring_task.recurrence_id.task_ids - recurring_task
+
     def test_no_resolution_and_no_pull_request_is_refused(self):
         with self.assertRefused("Choose a Resolution", self.task.name):
             self.task.stage_id = self.stage_done
@@ -237,6 +241,60 @@ class TestClosingRule(ProjectAiDrivenCommon):
         task = self.task.sudo().with_context(tracking_disable=True, mail_notrack=True, install_mode=True)
         with self.assertRefused("Choose a Resolution"):
             task.stage_id = self.stage_done
+
+    def test_no_value_a_caller_can_send_exempts_a_task_from_the_rule(self):
+        for value in (True, 1, "1"):
+            with self.subTest(value=value), self.assertRefused("Choose a Resolution"):
+                self.env["project.task"].with_context(project_ai_driven_next_occurrence=value).create(
+                    {"name": "Task", "project_id": self.project.id, "stage_id": self.stage_done.id}
+                )
+
+    def test_the_next_occurrence_and_its_sub_task_enter_a_marked_first_stage_without_a_resolution(self):
+        """Nor do they take the Resolution and the pull requests of the tasks they repeat."""
+        self.project.write({"allow_recurring_tasks": True, "pr_required_states": self.stage_progress.ids})
+        closing_values = {"stage_id": self.stage_review.id, "pull_request_ids": [Command.link(self.pull_request.id)]}
+        recurring_task = self._create_task(
+            resolution="code", recurring_task=True, repeat_unit="week", mon=True, **closing_values
+        )
+        self._create_task(name="Sub-task", parent_id=recurring_task.id, resolution="data", **closing_values)
+
+        next_task = self._create_next_occurrence(recurring_task)
+
+        self.assertEqual(next_task.child_ids.name, "Sub-task")
+        self.assertRecordValues(
+            next_task | next_task.child_ids,
+            [{"stage_id": self.stage_progress.id, "resolution": False, "pull_request_ids": []}] * 2,
+        )
+
+    def test_the_next_occurrence_moved_back_into_a_marked_stage_is_checked(self):
+        self.project.write({"allow_recurring_tasks": True, "pr_required_states": self.stage_progress.ids})
+        recurring_task = self._create_task(
+            stage_id=self.stage_review.id, recurring_task=True, repeat_unit="week", mon=True
+        )
+        next_task = self._create_next_occurrence(recurring_task)
+        next_task.stage_id = self.stage_review
+
+        with self.assertRefused("Choose a Resolution"):
+            next_task.stage_id = self.stage_progress
+        self.assertEqual(next_task.stage_id, self.stage_review)
+
+    def test_a_move_of_the_following_or_all_tasks_of_a_recurrence_checks_each_of_them(self):
+        saved_task = self._create_task(name="First occurrence", resolution="data")
+        other_task = self._create_task(name="Second occurrence")
+        tasks = saved_task | other_task
+        self.env["project.task.recurrence"].create({"mon": True, "task_ids": [Command.set(tasks.ids)]})
+
+        for recurrence_update in ("subsequent", "all"):
+            with (
+                self.subTest(recurrence_update=recurrence_update),
+                self.assertRefused("Choose a Resolution", "Tasks: %s" % other_task.display_name),
+            ):
+                saved_task.write({"stage_id": self.stage_done.id, "recurrence_update": recurrence_update})
+            self.assertEqual(tasks.stage_id, self.stage_progress)
+
+        other_task.resolution = "no_change"
+        saved_task.write({"stage_id": self.stage_done.id, "recurrence_update": "all"})
+        self.assertEqual(tasks.stage_id, self.stage_done)
 
     def test_resolution_set_by_the_rule_is_tracked(self):
         self._flush_tracking()

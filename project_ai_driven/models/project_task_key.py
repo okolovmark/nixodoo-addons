@@ -1,7 +1,6 @@
 import logging
 
 from odoo import api, fields, models
-from odoo.osv import expression
 
 _logger = logging.getLogger(__name__)
 
@@ -56,8 +55,9 @@ class ProjectTask(models.Model):
     def write(self, vals):
         """A task that changes project gets the next key of its new project, or loses its key
         outside a project, and so does each sub-task that moves with it, with its new parent or
-        with its own displayed project, and each other task of its recurrence that core writes
-        too; a task written with its own project keeps its key, or gets one if it has none.
+        with its own displayed project, and each other task of its recurrence that the write
+        reaches (_get_tasks_written_with); a task written with its own project keeps its key, or
+        gets one if it has none.
         """
         if vals.keys().isdisjoint(PROJECT_MOVING_FIELDS) or not self.env["project.project"]._gives_task_keys():
             return super().write(vals)
@@ -90,24 +90,6 @@ class ProjectTask(models.Model):
             project_id = vals["project_id"] if "project_id" in vals else self.env.context.get("default_project_id")
             if project_id:
                 vals["key"] = self.env["project.project"].browse(project_id)._get_next_task_key()
-
-    def _get_tasks_written_with(self, vals):
-        """Return self and the tasks of their recurrences that core's write gives vals too, found
-        as core finds them.
-        """
-        recurrence_update = vals.get("recurrence_update", "this")
-        if recurrence_update == "this":
-            return self
-        if recurrence_update == "subsequent":
-            recurrence_domain = expression.OR(
-                [
-                    [("recurrence_id", "=", task.recurrence_id.id), ("create_date", ">=", task.create_date)]
-                    for task in self
-                ]
-            )
-        else:
-            recurrence_domain = [("recurrence_id", "in", self.recurrence_id.ids)]
-        return self | self.search(recurrence_domain)
 
     def _set_next_key(self):
         """Give each task the next key of its project, in the order of self; a task whose project

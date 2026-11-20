@@ -10,9 +10,12 @@ from odoo.tools.misc import clean_context
 
 from .project_pull_request import parse_single_pull_request_link
 from .project_task_image_mixin import ImageMover
+from .project_task_recurrence import is_next_occurrence_creation
 from .project_task_testcase import TESTCASE_STATES
+from odoo.addons.web_editor.controllers.main import handle_history_divergence
 
 KANBAN_TESTCASE_STATES = ("not_run", "failed", "waiting")
+SILENT_ASSIGNMENT_KEY = "project_ai_driven_silent_assignment"
 # Marked for an upgrade or a removal, a module is still installed.
 INSTALLED_MODULE_STATES = ("installed", "to upgrade", "to remove")
 
@@ -30,6 +33,12 @@ def get_size(hours):
 def _is_create_command(command):
     # A list from the web client, with a virtual id; a tuple from Command.create.
     return isinstance(command, (list, tuple)) and command[0] == Command.CREATE
+
+
+class SilentAssignmentTaskIds(frozenset):
+    """The ids of the tasks a write assigns without notifying, under
+    SILENT_ASSIGNMENT_KEY: a type no call over RPC can send.
+    """
 
 
 class ProjectTask(models.Model):
@@ -302,19 +311,31 @@ class ProjectTask(models.Model):
         tasks = super().create(vals_list)
         # Sudo: an empty module_ids in vals leaves nothing cached, and a read checks the field's groups.
         tasks._check_modules_installed(tasks.sudo().module_ids)
-        tasks._apply_closing_rule()
-        tasks._apply_estimate_rule()
+        if not is_next_occurrence_creation(self.env):
+            tasks._apply_closing_rule()
+            tasks._apply_estimate_rule()
         # The caller's env: core returns a portal user's tasks in sudo, past the item's access rights.
         tasks.with_env(self.env)._create_checklist_items(new_items_per_task)
         return tasks
 
     def write(self, vals):
+        """A recurrence_update other than this one is turned into the tasks it
+        reaches, written together without it (_without_recurrence_update):
+        every rule checks each of them. The rest stays as core's write of self:
+        the editor's history check of a single task, and the assignment
+        notifications of self only.
+        """
         vals = self._without_size(vals)
-        former_stages = self._get_former_stages(vals)
-        former_modules = self._get_former_modules(vals)
-        result = super().write(vals)
-        self._check_modules_installed(self._get_added_modules(former_modules))
-        moved_tasks = self._filter_moved_from(former_stages)
+        tasks = self._get_tasks_written_with(vals)
+        vals = self._without_recurrence_update(vals)
+        if len(self) == 1 and len(tasks) > 1:
+            handle_history_divergence(self, "description", vals)
+        former_stages = tasks._get_former_stages(vals)
+        former_modules = tasks._get_former_modules(vals)
+        # not tasks.write: the overrides above this one already run for this write
+        result = super(ProjectTask, tasks._with_silent_assignment(tasks - self)).write(vals)
+        tasks._check_modules_installed(tasks._get_added_modules(former_modules))
+        moved_tasks = tasks._filter_moved_from(former_stages)
         moved_tasks._apply_closing_rule()
         moved_tasks._apply_estimate_rule()
         return result
@@ -432,6 +453,56 @@ class ProjectTask(models.Model):
             and field_name not in self.SELF_WRITABLE_FIELDS
             and self.env.user.has_group("base.group_portal")
         )
+
+    def _get_tasks_written_with(self, vals):
+        """Return self and the tasks of their recurrences that a write of vals
+        reaches by its recurrence_update, as core means it: the tasks of a
+        recurrence created at or after the task written (subsequent), or all
+        of them. Found from the recurrences before the write, in the caller's
+        env as core searches; a task without a recurrence adds only itself.
+        A portal user's subsequent or all is refused here, by core's check of
+        the fields they may read; core's write refuses them any
+        recurrence_update, which they keep (_without_recurrence_update).
+        """
+        recurrence_update = vals.get("recurrence_update", "this")
+        if recurrence_update == "this":
+            return self
+        recurring_tasks = self.filtered("recurrence_id")
+        if not recurring_tasks:
+            return self
+        if recurrence_update == "subsequent":
+            recurrence_domain = expression.OR(
+                [
+                    [("recurrence_id", "=", task.recurrence_id.id), ("create_date", ">=", task.create_date)]
+                    for task in recurring_tasks
+                ]
+            )
+        else:
+            recurrence_domain = [("recurrence_id", "in", recurring_tasks.recurrence_id.ids)]
+        return self | self.search(recurrence_domain)
+
+    @api.model
+    def _without_recurrence_update(self, vals):
+        """Return the vals of a write without its recurrence_update, once
+        _get_tasks_written_with has turned it into the tasks written. Core
+        finds them after it removed the recurrence of a write that unticks
+        Recurrent, so it reached later tasks of any project, or none. A portal
+        user's write keeps it, for core to refuse as any field outside the
+        portal's writable fields.
+        """
+        if "recurrence_update" not in vals or self._is_refused_to_portal("recurrence_update"):
+            return vals
+        return {field_name: value for field_name, value in vals.items() if field_name != "recurrence_update"}
+
+    def _with_silent_assignment(self, silent_tasks):
+        """Return self for core's write, which notifies the new assignees of every
+        task it writes: silent_tasks get theirs without a notification, as core
+        gives them to the other tasks of a recurrence. Every write sets it anew,
+        so a write nested in this one notifies all of its own tasks.
+        """
+        if not silent_tasks and SILENT_ASSIGNMENT_KEY not in self.env.context:
+            return self
+        return self.with_context(**{SILENT_ASSIGNMENT_KEY: SilentAssignmentTaskIds(silent_tasks.ids)})
 
     def _get_former_stages(self, vals):
         """Return {task id: stage} when vals may move the tasks to another stage:
@@ -592,7 +663,12 @@ class ProjectTask(models.Model):
         (e.g. an RPC service account) can never assign tasks: message_notify
         raises "Unable to send message, please configure the sender's email
         address" before any context flag is consulted.
+
+        Nor does it notify on the tasks a write assigns silently (_with_silent_assignment).
         """
         if self.env.context.get("mail_auto_subscribe_no_notify"):
             return None
+        silent_task_ids = self.env.context.get(SILENT_ASSIGNMENT_KEY)
+        if isinstance(silent_task_ids, SilentAssignmentTaskIds):
+            users_per_task = {task: users for task, users in users_per_task.items() if task.id not in silent_task_ids}
         return super()._task_message_auto_subscribe_notify(users_per_task)
