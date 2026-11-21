@@ -145,6 +145,134 @@ class TestHtmlToMarkdown(TransactionCase):
             '<ul><li class="oe-nested"><ol><li>x</li></ol></li></ul><ol><li>y</li></ol>', "  1. x\n\n1) y"
         )
 
+    def test_a_list_opening_with_a_nested_list_right_after_a_list_stays_apart(self):
+        """Its nested lines open at its own level, which CommonMark reads as at the start of a text."""
+        self.assertMarkdown(
+            '<ul><li>a</li></ul><ul><li class="oe-nested"><ul><li>b</li></ul></li><li>c</li></ul>', "- a\n\n+ b\n+ c"
+        )
+        self.assertMarkdown(
+            '<ol><li>a</li></ol><ol><li class="oe-nested"><ol><li>b</li></ol></li><li>c</li></ol>',
+            "1. a\n\n1) b\n1) c",
+        )
+        self.assertMarkdown('<ul><li>a</li></ul><ul><li class="oe-nested"><ul><li>b</li></ul></li></ul>', "- a\n\n+ b")
+        self.assertMarkdown(
+            '<ul><li>a</li><li class="oe-nested"><ul><li>x</li></ul></li>'
+            '<li class="oe-nested"><ul><li class="oe-nested"><ul><li>y</li></ul></li><li>z</li></ul></li></ul>',
+            "- a\n  - x\n  + y\n  + z",
+        )
+        self.assertMarkdown(
+            '<ul><li>a<ul><li>x</li></ul><ul><li class="oe-nested"><ul><li>y</li></ul></li><li>z</li></ul></li></ul>',
+            "- a\n  - x\n  + y\n  + z",
+        )
+        self.assertMarkdown(
+            '<p>p</p><ul><li class="oe-nested"><ul><li>b</li></ul></li><li>c</li></ul>', "p\n\n  - b\n- c"
+        )
+
+    def test_a_rule_opening_a_bullet_item_stays_in_it(self):
+        self.assertMarkdown("<ul><li>a</li><li><hr></li></ul>", "- a\n- * * *")
+        self.assertMarkdown("<ul><li>a<ul><li><hr></li></ul></li></ul>", "- a\n  - * * *")
+        self.assertMarkdown("<ul><li>a</li></ul><ul><li><hr></li></ul>", "- a\n\n+ * * *")
+        self.assertMarkdown(
+            "<ol><li><hr></li></ol><ul><li>a<hr>b</li></ul><hr>", "1. ---\n\n- a\n\n  ---\n\n  b\n\n---"
+        )
+
+    def test_a_nested_list_not_numbered_from_one_is_a_paragraph_apart_from_the_item_text(self):
+        """CommonMark lets only an ordered list from 1 start right under a paragraph: another is its text."""
+        self.assertMarkdown(
+            '<ul><li>step<ol start="3"><li>x</li></ol></li><li>step</li>'
+            '<li class="oe-nested"><ol start="4"><li>y</li></ol></li><li>last</li></ul>',
+            "- step\n\n  3. x\n- step\n\n  4. y\n- last",
+        )
+        self.assertMarkdown(
+            '<ol><li>step</li><li class="oe-nested"><ol start="0"><li>x</li></ol></li></ol>', "1. step\n\n   0. x"
+        )
+        self.assertMarkdown(
+            "<ul><li>step<ol><li>x</li></ol></li><li>step<ul><li>y</li></ul></li>"
+            '<li><h3>Step</h3><ol start="3"><li>z</li></ol></li>'
+            '<li>a<ul><li>w</li></ul></li><li class="oe-nested"><ol start="5"><li>v</li></ol></li></ul>',
+            "- step\n  1. x\n- step\n  - y\n- ### Step\n  3. z\n- a\n  - w\n  5. v",
+        )
+
+    def test_a_nested_list_not_numbered_from_one_right_under_another_block_than_a_paragraph_is_not_apart(self):
+        for block_html, block_markdown in (
+            ("<hr>", "---"),
+            ("<blockquote>q</blockquote>", "> q"),
+            ("<table><tr><td>t</td></tr></table>", "| t |\n   | --- |"),
+            ("<pre>c</pre>", "```\n   c\n   ```"),
+        ):
+            with self.subTest(block=block_markdown):
+                self.assertMarkdown(
+                    '<ol><li><p>a</p>%s<ol start="3"><li>b</li></ol></li></ol>' % block_html,
+                    "1. a\n\n   %s\n   3. b" % block_markdown,
+                )
+
+    def test_a_list_opening_with_nested_lists_two_levels_deep_right_after_a_list_keeps_its_items(self):
+        """Every opening level opens at the level of the list: no line loses its marker or joins the item above."""
+        self.assertMarkdown(
+            '<ul><li>a</li></ul><ul><li class="oe-nested"><ul><li class="oe-nested"><ul><li>b</li></ul></li>'
+            "<li>x</li></ul></li><li>c</li></ul>",
+            "- a\n\n+ b\n+ x\n+ c",
+        )
+        self.assertMarkdown(
+            '<ol><li>a</li></ol><ol><li class="oe-nested"><ol><li class="oe-nested"><ol><li>b</li></ol></li>'
+            "<li>x</li></ol></li><li>c</li></ol>",
+            "1. a\n\n1) b\n1) x\n1) c",
+        )
+        self.assertMarkdown(
+            '<ul><li>a</li></ul><ul><li class="oe-nested"><ul><li class="oe-nested"><ul><li>b</li></ul></li><li>x</li>'
+            '<li class="oe-nested"><ul><li>y</li></ul></li></ul></li><li>c</li></ul>',
+            "- a\n\n+ b\n+ x\n  - y\n+ c",
+        )
+        self.assertMarkdown(
+            '<ol><li>a</li></ol><ol><li class="oe-nested"><ol><li class="oe-nested"><ol><li>b</li></ol></li><li>x</li>'
+            '<li class="oe-nested"><ol><li>y</li></ol></li></ol></li><li>c</li></ol>',
+            "1. a\n\n1) b\n1) x\n   1. y\n1) c",
+        )
+
+    def test_the_items_of_a_list_opening_with_nested_lists_take_their_marker_from_the_list_before_it(self):
+        """Not from the nested lists it opens with, so that its first item stays apart from their last."""
+        self.assertMarkdown(
+            '<ol><li>a</li></ol><ol><li class="oe-nested"><ul><li>b</li></ul></li>'
+            '<li class="oe-nested"><ol><li>x</li></ol></li><li>c</li></ol>',
+            "1. a\n\n- b\n1. x\n1) c",
+        )
+        self.assertMarkdown(
+            '<ul><li>a</li></ul><ul><li class="oe-nested"><ol><li>b</li></ol></li>'
+            '<li class="oe-nested"><ul><li>x</li></ul></li><li>c</li></ul>',
+            "- a\n\n1. b\n- x\n+ c",
+        )
+
+    def test_a_nested_list_after_the_first_item_of_a_list_right_after_a_list_stays_under_that_item(self):
+        self.assertMarkdown(
+            '<ul><li>a</li></ul><ul><li class="oe-nested"><ul><li>b</li></ul></li><li>c</li>'
+            '<li class="oe-nested"><ul><li>d</li></ul></li></ul>',
+            "- a\n\n+ b\n+ c\n  - d",
+        )
+
+    def test_a_rule_right_in_a_bullet_list_is_a_rule_between_its_items(self):
+        self.assertMarkdown("<ul><li>a</li><hr><li>b</li></ul>", "- a\n- ---\n- b")
+
+    def test_a_list_in_a_div_right_after_a_list_of_its_marker_takes_the_other_one(self):
+        self.assertMarkdown("<ul><li>a</li></ul><div><ul><li>b</li></ul></div>", "- a\n\n+ b")
+
+    def test_a_list_loose_in_a_table_right_after_a_list_of_its_marker_takes_the_other_one(self):
+        self.assertMarkdown(
+            "<ol><li>a</li></ol><table><ol><li>b</li></ol><tr><td>c</td></tr></table>"
+            "<ul><li>d</li></ul><table><tbody><ul><li>e</li></ul><tr><td>f</td></tr></tbody></table>",
+            "1. a\n\n1) b\n\n| c |\n| --- |\n\n- d\n\n+ e\n\n| f |\n| --- |",
+        )
+
+    def test_a_nested_list_opening_with_a_nested_list_stays_right_under_the_item_text(self):
+        self.assertMarkdown(
+            '<ul><li>a<ul><li class="oe-nested"><ul><li>b</li></ul></li></ul></li></ul>', "- a\n    - b"
+        )
+
+    def test_lines_nested_after_loose_text_opening_a_list_right_after_a_list_open_under_it(self):
+        """The loose text parts the list from the one before it: its nested lines open as at the start of a text."""
+        self.assertMarkdown(
+            '<ul><li>a</li></ul><ul>Loose<li class="oe-nested"><ul><li>b</li></ul></li></ul>', "- a\n\nLoose\n\n  - b"
+        )
+
     def test_a_checklist_item_opening_with_a_code_block_or_a_quote_has_its_box_alone(self):
         self.assertMarkdown(
             '<ul class="o_checklist"><li class="o_checked"><pre>x = 1</pre>Then</li>'
@@ -518,6 +646,28 @@ class TestHtmlToMarkdown(TransactionCase):
             "| A | B |\n| --- | --- |\n| 1 | 2 |\n|  | 3 |\n|  | 4 |\n| 5 | 6 |",
         )
 
+    def test_a_span_is_read_as_html_reads_it_up_to_its_first_other_character(self):
+        self.assertMarkdown(
+            '<table><tr><td colspan="2px">a</td><td>b</td></tr><tr><td>1</td><td>2</td><td>3</td></tr></table>'
+            '<table><tr><td rowspan=" 2 rows">m</td><td>1</td></tr><tr><td>2</td></tr></table>'
+            '<table><tr><td colspan="+2">p</td><td>q</td></tr><tr><td>1</td><td>2</td><td>3</td></tr></table>'
+            '<table><tr><td rowspan="-0">z</td><td>1</td></tr><tr><td>2</td></tr><tr><td>3</td></tr></table>',
+            "| a |  | b |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n| m | 1 |\n| --- | --- |\n|  | 2 |\n\n"
+            "| p |  | q |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n| z | 1 |\n| --- | --- |\n|  | 2 |\n|  | 3 |",
+        )
+        self.assertMarkdown(
+            '<table><tr><td colspan="\t2">t</td><td colspan="\n2">n</td><td colspan="\f2">f</td>'
+            '<td colspan="\r2">r</td><td>e</td></tr></table>',
+            "| t |  | n |  | f |  | r |  | e |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        )
+        self.assertMarkdown(
+            '<table><tr><td colspan="x2">a</td><td colspan="-2">b</td><td colspan="&nbsp;2">c</td>'
+            '<td colspan="2">d</td></tr></table>',
+            "| a | b | c | d |  |\n| --- | --- | --- | --- | --- |",
+        )
+        rows = html_to_markdown('<table><tr><td colspan="%spx">x</td></tr></table>' % ("9" * 5000)).split("\n")
+        self.assertEqual(rows[0].count(" | "), 99, "the cell spans the most columns a span gives")
+
     def test_numbers_of_ten_digits_or_more_open_no_list(self):
         """CommonMark numbers a list item with nine digits at most: a paragraph so numbered is no list to join or
         to switch the marker of the list after it.
@@ -534,6 +684,17 @@ class TestHtmlToMarkdown(TransactionCase):
             "<ul><li><p>a</p><p>1234567890. Released</p></li></ul>"
             '<ul class="o_checklist"><li>1234567890. Due</li></ul>',
             "- a\n\n  1234567890. Released\n\n+ [ ] 1234567890. Due",
+        )
+        # after the item's own list, the ten-digit line is a block of its own, not text of that list's last item
+        self.assertMarkdown(
+            "<ul><li>a<ol><li>x</li></ol><p>1234567890. y</p></li></ul>", "- a\n  1. x\n\n  1234567890. y"
+        )
+
+    def test_the_list_after_one_takes_its_marker_from_its_last_line_of_least_indent(self):
+        self.assertMarkdown("<ul><li><p>a</p><p>b</p></li></ul><ul><li>c</li></ul>", "- a\n\n  b\n\n+ c")
+        self.assertMarkdown(
+            '<ol><li>a</li></ol><ul><li class="oe-nested"><ol><li>b</li></ol></li><li>c</li></ul><ul><li>d</li></ul>',
+            "1. a\n\n1) b\n- c\n\n+ d",
         )
 
     def test_numbers_of_thousands_of_digits_are_bounded(self):
