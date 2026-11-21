@@ -5,6 +5,7 @@ from odoo import Command
 from odoo.exceptions import AccessError
 from odoo.tests import Form
 from odoo.tests.common import HttpCase, tagged
+from odoo.tools import mute_logger
 
 from .common import NO_ESTIMATE, NO_TYPE, NOT_AI_DRIVEN, SHARING_FORM_VIEW, ProjectAiDrivenCommon
 
@@ -387,11 +388,13 @@ class TestTaskQuickCreateProjectSharingTour(ProjectAiDrivenCommon, HttpCase):
         )
         collaborator = self._create_collaborator("project_ai_driven_sharing_tour", "advanced_edit", self.project)
 
-        self.start_tour(
-            f"/my/projects/{self.project.id}/project_sharing",
-            "project_ai_driven_sharing_quick_create_refusal",
-            login=collaborator.login,
-        )
+        # the refusal the tour provokes is logged by odoo.http as a warning
+        with mute_logger("odoo.http"):
+            self.start_tour(
+                f"/my/projects/{self.project.id}/project_sharing",
+                "project_ai_driven_sharing_quick_create_refusal",
+                login=collaborator.login,
+            )
 
         self.assertRecordValues(
             self.env["project.task"].search([("name", "=", "Reported without an estimate")]),
