@@ -17,6 +17,7 @@ RUNNING_TIMER_FIELDS = (
     "is_task_readable",
     "project_id",
     "project_name",
+    "description",
     "date_time",
     "unit_amount",
     "elapsed_seconds",
@@ -163,6 +164,21 @@ class TestTimesheetSystrayData(TimesheetSystrayCase):
 
         self.assertEqual(running_lines, line_off, "only the user's own timer runs on")
         self.assertNotIn(line_off_of_another, running_lines)
+
+    def test_of_timers_started_in_the_same_second_the_one_created_last_comes_first(self):
+        started = datetime.now().replace(microsecond=0) - timedelta(minutes=10)
+        task_line = self._create_timesheet(self.task_in_progress, self.user_dev1, self.employee_dev1, date_time=started)
+        line_without_task = self._create_running_line_without_task(
+            self.project, self.user_dev1, self.employee_dev1, date_time=started
+        )
+
+        running_lines = self.env["account.analytic.line"].with_user(self.user_dev1)._get_own_running_lines()
+
+        self.assertEqual(
+            running_lines.ids,
+            [line_without_task.id, task_line.id],
+            "a tie on the start time is broken the same way on every refresh of the Timelog",
+        )
 
     def test_in_progress_tasks_exclude_folded(self):
         tasks = self._open_tasks(self.user_dev1)
@@ -320,6 +336,7 @@ class TestTimesheetSystrayData(TimesheetSystrayCase):
             self.employee_dev1,
             unit_amount=0,
             date_time=datetime.now() - timedelta(minutes=45),
+            name="Pairing on the parser",
         )
 
         result = self._call_route(self.env.user, "_format_running_timesheet", line=line)
@@ -329,6 +346,7 @@ class TestTimesheetSystrayData(TimesheetSystrayCase):
         self.assertEqual(result["task_id"], self.task_in_progress.id)
         self.assertEqual(result["task_name"], "Active Task")
         self.assertEqual(result["project_id"], self.project.id)
+        self.assertEqual(result["description"], "Pairing on the parser")
         self.assertEqual(result["unit_amount"], 0)
         self.assertGreater(result["elapsed_seconds"], 2600)
         self.assertLess(result["elapsed_seconds"], 2800)

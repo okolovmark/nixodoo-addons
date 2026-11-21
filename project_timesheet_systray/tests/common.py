@@ -63,7 +63,7 @@ class TimesheetSystrayCase(TransactionCase):
             )
         )
 
-    def _create_timesheet(self, task, user, employee, unit_amount=0, date_time=None, logged_by=None):
+    def _create_timesheet(self, task, user, employee, unit_amount=0, date_time=None, logged_by=None, name=None):
         """A line with unit_amount 0 and a date_time is a running timer; `logged_by` creates it."""
         time_lines = self.env["account.analytic.line"]
         if logged_by:
@@ -74,9 +74,26 @@ class TimesheetSystrayCase(TransactionCase):
                 "project_id": task.project_id.id,
                 "employee_id": employee.id,
                 "user_id": user.id,
-                "name": task.name,
+                "name": name or task.name,
                 "date_time": date_time or fields.Datetime.now(),
                 "unit_amount": unit_amount,
+            }
+        )
+
+    def _create_running_line_without_task(self, project, user, employee, name="/", date_time=None, logged_by=None):
+        """A running timer on `project` with no task, as Start work on a project form leaves. `name`
+        defaults to "/", which hr_timesheet writes on a line created without a description."""
+        time_lines = self.env["account.analytic.line"]
+        if logged_by:
+            time_lines = time_lines.with_user(logged_by)
+        return time_lines.create(
+            {
+                "project_id": project.id,
+                "employee_id": employee.id,
+                "user_id": user.id,
+                "name": name,
+                "date_time": date_time or fields.Datetime.now(),
+                "unit_amount": 0,
             }
         )
 

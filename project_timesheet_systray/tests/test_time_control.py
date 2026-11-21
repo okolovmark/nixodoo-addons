@@ -170,6 +170,20 @@ class TestTimeControlOnTasksNotFollowed(TimesheetSystrayCase):
         with self.assertRaisesRegex(UserError, "2 running timers found"):
             self._start_work_form(task)
 
+    def test_start_work_with_a_running_timer_on_a_task_and_one_without_asks_to_stop_them_first(self):
+        task = self._create_task("Task Followed", self.stage_in_progress, self.user_dev1)
+        self._create_timesheet(task, self.user_dev1, self.employee_dev1)
+        self._create_running_line_without_task(self.project, self.user_dev1, self.employee_dev1)
+
+        with self.assertRaises(UserError) as refusal:
+            self._start_work_form(task)
+
+        self.assertEqual(
+            refusal.exception.args[0],
+            "2 running timers found. Cannot know which one to stop: stop them first, from the Timelog item"
+            " in the header or with Stop on each running line of your timesheets.",
+        )
+
     def test_the_project_form_shows_and_stops_a_running_timer_the_rules_hid_after_its_task_was_unfollowed(self):
         task = self._create_unfollowed_task("followers")
         line = self._create_hidden_running_line(task)

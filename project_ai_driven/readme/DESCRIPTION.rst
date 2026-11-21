@@ -591,10 +591,16 @@ a heading, a list, a table, a rule, a code block or a quote. Another list
 item that starts like one has its bracket escaped. A list right after a
 list of its kind at the same level, nested ones included, takes the other
 marker, ``+`` for ``-`` or ``1)`` for ``1.`` and back, so that it stays a
-list of its own. A table cell spans at most 100 columns, and its rows at
-most to the end of its row group (its ``thead``, ``tbody`` or ``tfoot``),
-the end ``rowspan="0"`` spans to; a list number has at most nine digits,
-however long the number the text gives.
+list of its own. Right after a list, nested items that open a list before
+its first item are written at its level, not under the last item of the
+list before. A rule that opens a bullet item is written ``- * * *``
+(``- ---`` is a rule of its own), and a nested ordered list not numbered
+from 1 stands a blank line under the paragraph above it, which would
+otherwise read it as its text. A table cell spans at most 100 columns, and
+its rows at most to the end of its row group (its ``thead``, ``tbody`` or
+``tfoot``), the end ``rowspan="0"`` spans to; a span is read as a browser
+reads it (``2px`` spans 2). A list number has at most nine digits, however
+long the number the text gives.
 
 * An image or a link that names an attachment, by a relative url or a url on
   the host of this database (``get_base_url()``, a website's domain where it
