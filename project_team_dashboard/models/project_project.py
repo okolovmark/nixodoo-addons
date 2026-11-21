@@ -576,8 +576,15 @@ class ProjectProject(models.Model):
         Project = self.with_context(active_test=True)
         Project.check_access("read")
         manager_user = Project.env["res.users"].browse(user_id or Project.env.uid)
+        # walked once for the managers the user opens and the check of a manager they do not
+        users_below = None if Project._sees_every_team() else Project._get_users_below()
         return Project._get_manager_dashboard(
-            manager_user, Project._get_openable_manager_users(), date_start, date_end, max_depth
+            manager_user,
+            Project._get_openable_manager_users(users_below),
+            date_start,
+            date_end,
+            max_depth,
+            users_below=users_below,
         )
 
     @api.model
@@ -595,10 +602,13 @@ class ProjectProject(models.Model):
         return Project._get_department_dashboard(department, Project._get_openable_departments(), date_start, date_end)
 
     @api.model
-    def _get_manager_dashboard(self, manager_user, openable_users, date_start=None, date_end=None, max_depth=0):
+    def _get_manager_dashboard(
+        self, manager_user, openable_users, date_start=None, date_end=None, max_depth=0, users_below=None
+    ):
         """The Manager mode of manager_user for a user who opens the teams of openable_users
-        (_get_openable_manager_users), which the board computes once for its rows."""
-        is_openable = self._check_manager_mode_access(manager_user, openable_users)
+        (_get_openable_manager_users), which the board computes once for its rows. users_below is
+        the user's _get_users_below when the caller has walked it already."""
+        is_openable = self._check_manager_mode_access(manager_user, openable_users, users_below)
         if not manager_user.exists():
             return {"error": self.env._("User not found")}
         # sudo: a project user may not read hr.employee
@@ -668,13 +678,19 @@ class ProjectProject(models.Model):
         )
 
     @api.model
-    def _check_manager_mode_access(self, manager_user, openable_users):
+    def _check_manager_mode_access(self, manager_user, openable_users, users_below=None):
         """The Manager mode reads the logged hours of a whole team with elevated rights: a user
         opens it for openable_users only. Return whether they do: a user who sees every team, or
         to whom the manager reports, is not refused, but told the manager has no employee, in the
-        selected companies when the manager has one in a company the user may select."""
+        selected companies when the manager has one in a company the user may select.
+
+        users_below is the user's _get_users_below; without it, the check walks it when it needs it."""
         is_openable = self.env.su or manager_user in openable_users
-        if not (is_openable or self._sees_every_team() or manager_user in self._get_users_below()):
+        if is_openable or self._sees_every_team():
+            return is_openable
+        if users_below is None:
+            users_below = self._get_users_below()
+        if manager_user not in users_below:
             raise AccessError(
                 self.env._(
                     "You can open the Team Dashboard by manager only for yourself and the managers who report to you."
@@ -698,16 +714,17 @@ class ProjectProject(models.Model):
         return is_openable
 
     @api.model
-    def _get_openable_manager_users(self):
+    def _get_openable_manager_users(self, users_below=None):
         """The managers whose team the user opens, on the screen and on the board: themselves, and
         the users of the public employees of _get_openable_manager_employee_domain."""
-        employees = self.env["hr.employee.public"].search(self._get_openable_manager_employee_domain())
+        employees = self.env["hr.employee.public"].search(self._get_openable_manager_employee_domain(users_below))
         return employees.user_id | self.env["res.users"].browse(self.env.uid)
 
     @api.model
-    def _get_openable_manager_employee_domain(self):
+    def _get_openable_manager_employee_domain(self, users_below=None):
         """The public employees, in a company of the context, of the users whose team the user opens
-        besides their own: those below one of their employees, or any for _sees_every_team. Under
+        besides their own: those below one of their employees (users_below, the user's
+        _get_users_below, walked here when not given), or any for _sees_every_team. Under
         active_test, which the screen and the board pin, these and the user's own employees are the
         active ones.
 
@@ -717,7 +734,9 @@ class ProjectProject(models.Model):
         domain = Domain("user_id", "!=", False) & Domain("company_id", "in", self.env.companies.ids)
         if self._sees_every_team():
             return domain
-        return domain & Domain("user_id", "in", self._get_users_below().ids)
+        if users_below is None:
+            users_below = self._get_users_below()
+        return domain & Domain("user_id", "in", users_below.ids)
 
     @api.model
     def _get_users_below(self):
@@ -874,12 +893,12 @@ class ProjectProject(models.Model):
 
     @api.model
     def _get_member_planning_day(self, user):
-        """Return the day the estimated completion of user is planned from: their today in the
-        timezone of their preferences, else in their employee's, else in UTC. Not the UTC day their
-        Hours today count on without a timezone: the plan runs in their employee's timezone, where
-        that day can be over."""
+        """Return the day the estimated completion of user is planned from: their today in their
+        employee's timezone, where _compute_user_eta plans, else in the timezone of their
+        preferences, else in UTC. Not the day their Hours today count on: in a timezone other than
+        their employee's, that day can be over where the plan runs."""
         # sudo: the viewer may not read employees
-        planning_tz = user.tz or user.sudo().employee_id.tz or "UTC"
+        planning_tz = user.sudo().employee_id.tz or user.tz or "UTC"
         return fields.Date.context_today(self.with_context(tz=planning_tz))
 
     def _get_member_data(self, user, user_tasks, hours_logged_period, hours_logged_today, today):
