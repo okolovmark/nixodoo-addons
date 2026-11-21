@@ -301,6 +301,16 @@ class TestTestCases(ProjectAiDrivenCommon):
         self.assertIn("<ul><li><b>Not run: 1</b></li></ul>", self.task.kanban_testcases)
         self.assertNotIn("Failed", self.task.kanban_testcases)
 
+    def test_the_card_names_the_completion_of_every_case_not_the_reader_s_own(self):
+        self._new_case(name="Passed", state="passed")
+        self._new_case(name="Not run")
+
+        card_text = self.task.with_user(self.user_lead).testcase_completion_xml
+
+        self.assertIn("Test cases:", card_text)
+        self.assertIn("50.0% Done", card_text)
+        self.assertNotIn("Your", card_text, "a case has no assignee: the figure is the task's, not the reader's")
+
     def test_kanban_lists_the_cases_not_run_failed_and_waiting(self):
         self._new_case(state="passed")
         self._new_case(state="not_applicable")

@@ -259,7 +259,7 @@ class ProjectTask(models.Model):
                 record.testcase_completion_xml = f"""
                 <div class="task_progress">
                     <div class="progress_info">
-                        Your Test cases:
+                        Test cases:
                     </div>
                     <div> {round(completion, 2)}% Done</div>
                 </div>
@@ -568,13 +568,12 @@ class ProjectTask(models.Model):
         """Give each Not run case of copied_tasks, sub-tasks included, the
         verification of its source case, which its create took back. A copy
         from or into a template takes its Verification alone, see
-        _write_verification_on_copy.
+        _write_verifications_on_copies of the cases.
         """
         if not self.has_field_access(self._fields["testcase_ids"], "read"):
             return
-        keep_progress = not self._is_template_copy()
-        for case, case_copy in self._get_copied_case_pairs(copied_tasks, default, copied_tasks):
-            case._write_verification_on_copy(case_copy, keep_progress)
+        case_pairs = self._get_copied_case_pairs(copied_tasks, default, copied_tasks)
+        self.env["project.task.testcase"]._write_verifications_on_copies(case_pairs, not self._is_template_copy())
 
     def _get_copied_case_pairs(self, copied_tasks, default, new_tasks):
         """Yield each case of self and of their sub-tasks with its copy, as
@@ -609,10 +608,15 @@ class ProjectTask(models.Model):
         read and written in sudo, as the recurrence builds them.
         """
         task_mapping, _task_dependencies = self._create_task_mapping(occurrences.sudo())
-        for source_id, occurrence in task_mapping.items():
-            source_cases = self.browse(source_id).sudo().testcase_ids
-            for case, case_copy in zip(source_cases, occurrence.testcase_ids.sorted("id")):
-                case._write_verification_on_copy(case_copy, keep_progress=False)
+        # one browse per side: the cases of every level are read together, not task by task
+        source_tasks = self.sudo().browse(list(task_mapping))
+        occurrence_tasks = source_tasks.browse([occurrence.id for occurrence in task_mapping.values()])
+        case_pairs = (
+            case_pair
+            for source_task, occurrence in zip(source_tasks, occurrence_tasks)
+            for case_pair in zip(source_task.testcase_ids, occurrence.testcase_ids.sorted("id"))
+        )
+        self.env["project.task.testcase"].sudo()._write_verifications_on_copies(case_pairs, keep_progress=False)
 
     @api.model
     def _without_size(self, vals):
