@@ -166,7 +166,8 @@ class ProjectProject(models.Model):
         """Compute estimated completion date for a user's remaining work.
 
         Uses the employee's resource calendar and leaves to project when
-        all remaining hours of work will be completed.
+        all remaining hours of work will be completed, from midnight of today in the employee's
+        timezone: today is the employee's day (_get_member_planning_day).
 
         Returns:
             str: Date string (YYYY-MM-DD) or False if cannot compute.
@@ -833,9 +834,13 @@ class ProjectProject(models.Model):
         user who sees every team, or whom the manager reports to, is not refused, but told the
         manager has no employee, in the selected companies when the manager has one in a company
         the user may select."""
-        is_openable = self.env.su or manager_user in self._get_openable_manager_users()
-        is_answered = is_openable or self._sees_every_team() or manager_user in self._get_users_below()
-        if not is_answered:
+        if self.env.su:
+            return True
+        if self._sees_every_team():
+            return manager_user in self._get_openable_manager_users()
+        users_below = self._get_users_below()
+        is_openable = manager_user in self._get_openable_manager_users(users_below)
+        if not is_openable and manager_user not in users_below:
             raise AccessError(
                 _("You can open the Team Dashboard by manager only for yourself and the managers who report to you.")
             )
@@ -860,18 +865,20 @@ class ProjectProject(models.Model):
         return is_openable
 
     @api.model
-    def _get_openable_manager_users(self):
+    def _get_openable_manager_users(self, users_below=None):
         """The managers whose team the user opens, on the screen and on the board: themselves, and
         the users with an active employee in a company of the context below one of theirs, or any
         such user for _sees_every_team, whatever the caller's active_test. A database may switch
         the employees' company rules off: the company is a condition here.
 
         Odoo lets an employee manage their own manager, or themselves: the walk visits each
-        employee once.
+        employee once. A caller that walked it already passes its _get_users_below as users_below.
         """
         employee_domain = [("user_id", "!=", False), ("company_id", "in", self.env.companies.ids)]
         if not self._sees_every_team():
-            employee_domain.append(("user_id", "in", self._get_users_below().ids))
+            if users_below is None:
+                users_below = self._get_users_below()
+            employee_domain.append(("user_id", "in", users_below.ids))
         manager_users = self.env["hr.employee"].with_context(active_test=True).search(employee_domain).sudo().user_id
         return self.env.user | manager_users
 
@@ -1015,18 +1022,18 @@ class ProjectProject(models.Model):
 
     @api.model
     def _get_member_planning_day(self, user):
-        """Return the day the member's estimated completion starts on: in the timezone of their
-        preferences, else of the employee whose working schedule it is planned on, else UTC, where
-        _get_member_today_by_user falls back to UTC alone."""
+        """Return the day the member's estimated completion starts on: in the timezone of the
+        employee whose working schedule _compute_user_eta plans it on, from midnight in that
+        timezone; without an employee in the timezone of the member's preferences, else UTC."""
         # sudo: the reader may not read employees, and the day shows nothing of theirs
-        tz_name = user.tz or user.sudo().employee_id.tz or "UTC"
+        tz_name = user.sudo().employee_id.tz or user.tz or "UTC"
         return fields.Date.context_today(self.with_context(tz=tz_name))
 
     def _get_member_data(self, user, user_tasks, hours_logged_period, hours_logged_today, today):
         """Return the card of user, whose open tasks are user_tasks: the current task is the
         in-progress one written last, the others queue in sequence before the backlog.
 
-        Overdue follows the reader's today, the ETA the user's own _get_member_planning_day."""
+        Overdue follows the reader's today, the ETA the member's _get_member_planning_day."""
         in_progress_tasks = user_tasks.filtered(lambda task: task.stage_id.is_in_progress)
         backlog_tasks = user_tasks.filtered(lambda task: task.stage_id.is_backlog)
         other_tasks = user_tasks - in_progress_tasks - backlog_tasks

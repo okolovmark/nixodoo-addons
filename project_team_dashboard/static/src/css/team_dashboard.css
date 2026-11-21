@@ -23,6 +23,7 @@ html .o_web_client > .o_action_manager > .o_action.o_team_dashboard {
 }
 
 /* Search wrapper dropdowns (shared style for project/user/dept) */
+.o_project_search_dropdown,
 .o_user_search_dropdown,
 .o_dept_search_dropdown {
     max-height: 300px;

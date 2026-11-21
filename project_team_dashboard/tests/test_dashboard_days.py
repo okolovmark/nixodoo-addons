@@ -22,7 +22,7 @@ TODAY_HEADER_COLOR = "FFFDEBD0"
 class TestDashboardDays(TeamDashboardCommon):
     """The period, today and the overdue tasks are the reader's day; a member's hours of today
     count from the member's own day, UTC without a time zone, and their estimated completion
-    from that day in the time zone of their employee when they have none."""
+    from their employee's day, the member's own without an employee."""
 
     @classmethod
     def setUpClass(cls):
@@ -49,7 +49,7 @@ class TestDashboardDays(TeamDashboardCommon):
         cls.employee_dev2.tz = "UTC"
         employee_dev3.tz = "Asia/Manila"
         # not the company's calendar, whose hours and leaves are the database's: eight hours, Monday to Friday
-        calendar = cls.env["resource.calendar"].create(
+        cls.calendar = cls.env["resource.calendar"].create(
             {
                 "name": "Eight Hours a Day",
                 "attendance_ids": [
@@ -59,7 +59,7 @@ class TestDashboardDays(TeamDashboardCommon):
             }
         )
         (cls.employee_dev1 | cls.employee_dev2 | employee_dev3).write(
-            {"parent_id": employee_lead.id, "department_id": cls.department.id, "resource_calendar_id": calendar.id}
+            {"parent_id": employee_lead.id, "department_id": cls.department.id, "resource_calendar_id": cls.calendar.id}
         )
         task_vals = {"project_id": cls.project.id, "stage_id": cls.stage_in_progress.id, "planned_hours": 11.0}
         cls.task_dev1, cls.task_dev2, cls.task_dev3, cls.task_without_employee, cls.task_deadline_only = cls.env[
@@ -189,11 +189,8 @@ class TestDashboardDays(TeamDashboardCommon):
                     )
 
     @freeze_time(WEEKDAY_NOW)
-    def test_the_estimated_completion_starts_on_the_member_s_own_day(self):
-        # 8 hours left each: a working day from the member's midnight, on their employee's schedule,
-        # in the employee's time zone for Dev Three, who has none;
-        # 5.7 hours left without an employee: a day of 5.7 hours after the member's own day
-        own_day_completions = {
+    def test_the_estimated_completion_starts_on_the_employee_s_day_else_the_member_s(self):
+        completions = {
             self.user_dev1.id: "2026-06-02",
             self.user_dev2.id: "2026-06-01",
             self.user_dev3.id: "2026-06-02",
@@ -203,15 +200,49 @@ class TestDashboardDays(TeamDashboardCommon):
             with self.subTest(reader=reader.name):
                 cards = self._cards(self._project_model(reader).get_team_dashboard_data(self.project.id))
                 self.assertEqual(
-                    {user_id: cards[user_id]["estimated_completion"] for user_id in own_day_completions},
-                    own_day_completions,
+                    {user_id: cards[user_id]["estimated_completion"] for user_id in completions},
+                    completions,
+                    "8 hours left fill the employee's day, in Manila or in UTC; without an employee, "
+                    "5.7 hours end the day after the member's own",
+                )
+
+    @freeze_time(WEEKDAY_NOW)
+    def test_the_estimated_completion_starts_on_the_employee_s_day_over_the_member_s_time_zone(self):
+        member = self.env["res.users"].create(
+            dict(self._user_vals("Member in UTC", ["project.group_project_user"]), tz="UTC")
+        )
+        employee = self.env["hr.employee"].create(
+            {"name": "Member in UTC", "user_id": member.id, "resource_calendar_id": self.calendar.id}
+        )
+        # not in create: core gives a new employee the time zone of their user
+        employee.tz = "Asia/Manila"
+        self.assertEqual((member.tz, employee.tz), ("UTC", "Asia/Manila"))
+        self.env["project.task"].create(
+            {
+                "name": "Eight hours left",
+                "project_id": self.project.id,
+                "stage_id": self.stage_in_progress.id,
+                "planned_hours": 8.0,
+                "user_ids": [Command.set(member.ids)],
+            }
+        )
+        for reader in self.reader_manila | self.reader_utc:
+            with self.subTest(reader=reader.name):
+                card = self._cards(self._project_model(reader).get_team_dashboard_data(self.project.id))[member.id]
+                self.assertEqual(
+                    card["estimated_completion"],
+                    "2026-06-02",
+                    "Monday 20:00 in UTC is already Tuesday in Manila, the employee's day the 8 hours fill",
                 )
 
     @freeze_time(LATE_WEEKDAY_NOW)
     def test_a_member_without_a_time_zone_logs_today_on_the_utc_day_and_completes_from_their_employee_s(self):
-        # Dev Three: 2 hours logged on Monday 1 June, the UTC day; 8 hours left from Tuesday 2 June in Manila
         for reader in self.reader_manila | self.reader_utc:
             for mode, data in self._team_data(self._project_model(reader)).items():
                 with self.subTest(reader=reader.name, mode=mode):
                     card = self._cards(data)[self.user_dev3.id]
-                    self.assertEqual((card["hours_logged_today"], card["estimated_completion"]), (2.0, "2026-06-02"))
+                    self.assertEqual(
+                        (card["hours_logged_today"], card["estimated_completion"]),
+                        (2.0, "2026-06-02"),
+                        "the hours of the UTC Monday; 8 hours left from the employee's Tuesday in Manila",
+                    )

@@ -67,7 +67,7 @@
             <t t-if="dashboardMode === 'project'">
                 <div class="o_project_filter_wrapper d-flex align-items-center gap-2 mw-100">
                     <label class="fw-bold mb-0 small">Project:</label>
-                    <div class="o_project_search_wrapper position-relative" style="width: 280px;">
+                    <div class="o_project_search_wrapper position-relative mw-100" style="width: 280px;">
                         <input
                             type="text"
                             class="o_project_search_input form-control form-control-sm"
@@ -75,7 +75,7 @@
                             t-att-value="selectedProjectName"
                             autocomplete="off"
                         />
-                        <div class="o_project_search_dropdown dropdown-menu w-100" style="max-height: 300px; overflow-y: auto;">
+                        <div class="o_project_search_dropdown dropdown-menu w-100">
                             <t t-foreach="projects" t-as="proj">
                                 <a href="#"
                                    class="dropdown-item o_project_search_item text-truncate"
@@ -93,7 +93,7 @@
             <t t-if="dashboardMode === 'manager'">
                 <div class="o_user_filter_wrapper d-flex align-items-center gap-2 mw-100">
                     <label class="fw-bold mb-0 small">Manager:</label>
-                    <div class="o_user_search_wrapper position-relative" style="width: 250px;">
+                    <div class="o_user_search_wrapper position-relative mw-100" style="width: 250px;">
                         <input
                             type="text"
                             class="o_user_search_input form-control form-control-sm"
@@ -101,7 +101,7 @@
                             t-att-value="managerName"
                             autocomplete="off"
                         />
-                        <div class="o_user_search_dropdown dropdown-menu w-100" style="max-height: 300px; overflow-y: auto;">
+                        <div class="o_user_search_dropdown dropdown-menu w-100">
                             <t t-foreach="managerUsers" t-as="usr">
                                 <a href="#"
                                    class="dropdown-item o_user_search_item text-truncate"
@@ -115,7 +115,7 @@
                 </div>
                 <div class="o_depth_wrapper d-flex align-items-center gap-2">
                     <label class="fw-bold mb-0 small">Depth:</label>
-                    <select class="o_depth_select form-select form-select-sm" style="width: auto;">
+                    <select class="o_depth_select form-select form-select-sm w-auto">
                         <option value="0" t-att-selected="maxDepth === 0 ? 'selected' : undefined">All levels</option>
                         <option value="1" t-att-selected="maxDepth === 1 ? 'selected' : undefined">1 level</option>
                         <option value="2" t-att-selected="maxDepth === 2 ? 'selected' : undefined">2 levels</option>
@@ -130,7 +130,7 @@
             <t t-if="dashboardMode === 'department'">
                 <div class="o_dept_filter_wrapper d-flex align-items-center gap-2 mw-100">
                     <label class="fw-bold mb-0 small">Department:</label>
-                    <div class="o_dept_search_wrapper position-relative" style="width: 300px;">
+                    <div class="o_dept_search_wrapper position-relative mw-100" style="width: 300px;">
                         <input
                             type="text"
                             class="o_dept_search_input form-control form-control-sm"
@@ -138,7 +138,7 @@
                             t-att-value="departmentName"
                             autocomplete="off"
                         />
-                        <div class="o_dept_search_dropdown dropdown-menu w-100" style="max-height: 300px; overflow-y: auto;">
+                        <div class="o_dept_search_dropdown dropdown-menu w-100">
                             <t t-foreach="departments" t-as="dept">
                                 <a href="#"
                                    class="dropdown-item o_dept_search_item text-truncate"
@@ -155,7 +155,7 @@
             <!-- Period selector (shared across all modes) -->
             <div class="o_period_wrapper d-flex align-items-center gap-2">
                 <label class="fw-bold mb-0 small">Period:</label>
-                <select class="o_period_select form-select form-select-sm" style="width: auto;">
+                <select class="o_period_select form-select form-select-sm w-auto">
                     <option value="this_week" t-att-selected="period === 'this_week' ? 'selected' : undefined">This Week</option>
                     <option value="last_week" t-att-selected="period === 'last_week' ? 'selected' : undefined">Last Week</option>
                     <option value="this_month" t-att-selected="period === 'this_month' ? 'selected' : undefined">This Month</option>
@@ -165,9 +165,9 @@
             </div>
 
             <div t-attf-class="o_custom_dates d-flex align-items-center gap-2 #{period !== 'custom' ? 'd-none' : ''}">
-                <input type="date" class="o_date_start form-control form-control-sm" style="width: auto;" t-att-value="dateStart" />
+                <input type="date" class="o_date_start form-control form-control-sm w-auto" t-att-value="dateStart" />
                 <span>to</span>
-                <input type="date" class="o_date_end form-control form-control-sm" style="width: auto;" t-att-value="dateEnd" />
+                <input type="date" class="o_date_end form-control form-control-sm w-auto" t-att-value="dateEnd" />
             </div>
 
             <div class="o_period_info ms-auto">
@@ -483,14 +483,14 @@
                         <div class="o_gantt_multiproject_tags">
                             <!-- Tags rendered by JS -->
                         </div>
-                        <div class="o_project_search_wrapper position-relative" style="width: 200px;">
+                        <div class="o_project_search_wrapper position-relative mw-100" style="width: 200px;">
                             <input
                                 type="text"
                                 class="o_gantt_project_add_input o_project_search_input form-control form-control-sm"
                                 placeholder="Add project..."
                                 autocomplete="off"
                             />
-                            <div class="o_project_search_dropdown dropdown-menu w-100" style="max-height: 300px; overflow-y: auto;">
+                            <div class="o_project_search_dropdown dropdown-menu w-100">
                                 <t t-foreach="projects" t-as="proj">
                                     <a href="#"
                                        class="dropdown-item o_project_search_item text-truncate"
@@ -558,18 +558,16 @@
                             </button>
                         </div>
                     </div>
-                    <div class="o_gantt_search_box position-relative" style="flex:0 1 420px;">
-                        <div class="o_gantt_faceted_input d-flex flex-wrap align-items-center form-control form-control-sm gap-1"
-                             style="min-height:31px;cursor:text;">
+                    <div class="o_gantt_search_box position-relative mw-100" style="width: 420px;">
+                        <div class="o_gantt_faceted_input d-flex flex-wrap align-items-center form-control form-control-sm gap-1">
                             <!-- Facet chips rendered by JS -->
-                            <input type="text" class="o_gantt_search_input border-0 flex-grow-1 p-0"
-                                   placeholder="Search…" style="outline:none;min-width:80px;" />
+                            <input type="text" class="o_gantt_search_input border-0 flex-grow-1 p-0 min-w-0" placeholder="Search…" />
                         </div>
                         <div class="o_gantt_search_dropdown dropdown-menu w-100" />
                     </div>
-                    <div class="o_gantt_legend d-flex align-items-center gap-3 ms-auto small">
-                        <span class="o_gantt_no_dates_count d-none badge bg-warning text-dark" title="Click to view tasks without planned dates" style="font-size:11px;cursor:pointer;" />
-                        <span class="o_gantt_legend_stages d-flex align-items-center gap-3"/>
+                    <div class="o_gantt_legend d-flex flex-wrap align-items-center gap-3 ms-auto small">
+                        <span class="o_gantt_no_dates_count d-none badge bg-warning text-dark fs-6 cursor-pointer" title="Click to view tasks without planned dates" />
+                        <span class="o_gantt_legend_stages d-flex flex-wrap align-items-center gap-3"/>
                         <span class="d-flex align-items-center gap-1">
                             <span class="o_gantt_legend_dot o_gantt_legend_overdue"/>
                             Overdue
