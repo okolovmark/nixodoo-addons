@@ -38,11 +38,9 @@ LINE_BREAK_RUN = re.compile(r"\n{3,}")
 BACKTICK_RUN = re.compile(r"`+")
 # the id of an attachment as the editor writes it, at most ten digits: int() refuses over 4300
 ATTACHMENT_ID = re.compile(r"[0-9]{1,10}")
-# a list number read from a text, leading zeros aside: int() refuses over 4300 digits
-BOUNDED_NUMBER = re.compile(r"0*([0-9]{1,9})")
 HTML_WHITESPACE = "\t\n\f\r "
-# a span as HTML reads it past its leading ASCII white space: a sign, then the digits up to the first other character
-HTML_SPAN = re.compile(r"([-+]?)([0-9]+)")
+# an integer as HTML reads it past its leading ASCII white space: a sign, then the digits up to the first other one
+HTML_INTEGER = re.compile(r"([-+]?)([0-9]+)")
 # a CommonMark list number has nine digits at most
 MAX_LIST_NUMBER = 999999999
 # a line starting so is a list item, its number of nine digits at most: every other block escapes a line that would
@@ -50,11 +48,11 @@ LIST_START = re.compile(r" {0,3}(?:([-+*])|[0-9]{1,9}([.)])) ")
 THEMATIC_BREAK = "---"
 # "- ---" is a rule, not an item holding one
 BULLET_ITEM_BREAK = "* * *"
-# how a heading, quote, table or code block written here opens; a paragraph has such a start escaped
-OTHER_BLOCK_START = re.compile(r"#{1,6} |>|\||`{3,}\n")
-# After a task list box on its line, a block that is no paragraph would be its text. BLOCK_MARKUP finds most;
-# this one finds an ordered list and a code block, whose fence BLOCK_MARKUP sees only as a line of its own.
-BOX_ALONE_BLOCK = re.compile(r"[0-9]{1,9}[.)] |`{3,}\n")
+# how a line of a heading, quote, table or code block written here starts; a paragraph has such a start escaped
+OTHER_BLOCK_LINE = re.compile(r"#{1,6} |>|\||`{3,}$")
+# The block before the first block of a list item, as get_blocks passes it on: unlike None, the start of a text, it
+# stands for the item's marker, which indents what follows it on its line.
+ITEM_START = ""
 TASK_LIST_BOX = re.compile(r"\[[ xX]\](?:\s|$)")
 # A heading, quote, list item, code fence of three or more, rule, setext underline, table row, table
 # delimiter row or HTML block (a tag, comment or declaration) when a line starts with it. A backtick run with a
@@ -342,8 +340,28 @@ def _join_lines(lines):
     return ["\n".join(lines)] if lines else []
 
 
-def _is_paragraph(block):
-    return bool(block) and not (LIST_START.match(block) or OTHER_BLOCK_START.match(block) or block == THEMATIC_BREAK)
+def _get_last_line(lines):
+    """The last of lines at their least indentation, where their outermost blocks stand, else "": a list may open
+    with the lines of an item nested in one of its own (oe-nested), further in.
+    """
+    last_line, least_indent = "", math.inf
+    for line in reversed(lines):
+        indent = len(line) - len(line.lstrip(" "))
+        if indent < least_indent and line.strip():
+            last_line, least_indent = line, indent
+            if not indent:
+                break
+    return last_line
+
+
+def _ends_in_paragraph(block):
+    """Whether block ends in a paragraph, at its least indentation: a list does where loose text of a list nested
+    at its level ends it.
+    """
+    last_line = _get_last_line((block or "").split("\n"))
+    return bool(last_line) and not (
+        LIST_START.match(last_line) or OTHER_BLOCK_LINE.match(last_line) or last_line == THEMATIC_BREAK
+    )
 
 
 def _opens_list_not_from_one(block):
@@ -355,14 +373,19 @@ def _opens_list_not_from_one(block):
     return bool(list_start) and list_start.group().strip()[:-1] not in ("", "1")
 
 
-def _join_item_blocks(blocks):
-    """The blocks of a list item: a nested list right under the line above it, any other block a paragraph apart,
-    as is an ordered list not from 1 under a paragraph.
+def _is_under(block, previous_block):
+    """Whether block goes right under previous_block: a list does, but for an ordered one not from 1 under a
+    paragraph; any other block goes a paragraph apart.
     """
+    return bool(LIST_START.match(block)) and not (
+        _opens_list_not_from_one(block) and _ends_in_paragraph(previous_block)
+    )
+
+
+def _join_item_blocks(blocks):
     parts = blocks[:1]
     for block in blocks[1:]:
-        is_under = LIST_START.match(block) and not (_opens_list_not_from_one(block) and _is_paragraph(parts[-1]))
-        parts.extend(("\n" if is_under else "\n\n", block))
+        parts.extend(("\n" if _is_under(block, parts[-1]) else "\n\n", block))
     return "".join(parts)
 
 
@@ -374,30 +397,42 @@ def _get_list_marker(tag, previous_marker):
     return other_marker if previous_marker == default_marker else default_marker
 
 
-def _get_last_list_marker(block):
-    """The marker character of the list block ends in, else None: that of its
-    last line at its least indentation, where its outermost lists stand. A list
-    may open with the lines of an item nested in one of its own (oe-nested).
-    """
-    lines = [line for line in (block or "").split("\n") if line.strip()]
-    if not lines:
-        return None
-    least_indent = min(len(line) - len(line.lstrip(" ")) for line in lines)
-    last_line = next(line for line in reversed(lines) if len(line) - len(line.lstrip(" ")) == least_indent)
-    list_start = LIST_START.match(last_line)
+def _get_last_list_marker(lines):
+    """The marker character of the list lines end in, else None."""
+    list_start = LIST_START.match(_get_last_line(lines))
     return list_start and (list_start.group(1) or list_start.group(2))
+
+
+def _get_html_integer(value):
+    """The integer value gives as HTML reads it, else None: one of ten digits or more, past any list number or
+    table, is infinite.
+    """
+    integer = HTML_INTEGER.match((value or "").lstrip(HTML_WHITESPACE))
+    if not integer:
+        return None
+    digits = integer.group(2).lstrip("0")
+    size = math.inf if len(digits) > 9 else int(digits or 0)
+    return -size if integer.group(1) == "-" else size
+
+
+def _get_list_start(element):
+    """The number of the first item of the list as HTML reads its start, as near as CommonMark writes it: 0 for
+    a negative one, which it has no way to write; 1 where it gives none or one of ten digits or more.
+    """
+    start = _get_html_integer(element.get("start"))
+    if start is None or abs(start) == math.inf:
+        return 1
+    return max(start, 0)
 
 
 def _get_span(cell, attribute, max_span, zero_span=1):
     """The span attribute of cell gives as HTML reads it, at most max_span: 1 where it gives none or one below 0,
     zero_span where it gives 0.
     """
-    span = HTML_SPAN.match((cell.get(attribute) or "").lstrip(HTML_WHITESPACE))
-    digits = span.group(2).lstrip("0") if span else ""
-    if not span or (span.group(1) == "-" and digits):
+    span = _get_html_integer(cell.get(attribute))
+    if span is None or span < 0:
         return 1
-    # ten digits or more
-    return max_span if len(digits) > 9 else min(int(digits or 0), max_span) or zero_span
+    return min(span, max_span) or zero_span
 
 
 def _get_table_row(cells):
@@ -537,77 +572,91 @@ class _MarkdownWriter:
             return _get_link_target(clean_url)
         return "[%s](%s)" % (link_text, _get_link_target(clean_url))
 
-    def _get_list(self, element, previous_block=None):
-        """The list as Markdown; text and inline elements right inside it, which
-        a browser shows between its items, are paragraphs between its parts. An
-        item of an editor's checklist is a task list item, - [x] when ticked, the
-        box on a line of its own above a first block that is no paragraph;
-        another item that starts like one has its bracket escaped. A list right
-        after a list of its marker, previous_block or a nested list under the
-        same item, takes the other marker of LIST_MARKERS. Right after a list,
-        the nested lists before its first item, which would go under the last
-        item of that list, open at its level, as at the start of a text.
+    def _get_list(self, element, previous_block=None, is_opening=False):
+        """The list as Markdown, an editor's checklist as a task list. Text and
+        rules right inside it stand between its parts, after which it goes on as
+        at the start of a text. A list right after a list of its marker takes the
+        other marker of LIST_MARKERS. Nested lines before its first item stand
+        two spaces in, which CommonMark reads at its level; none where it opens a
+        list (is_opening) or an item (ITEM_START), which indents them, or follows
+        a list, under whose last item they would go.
         """
         is_ordered = element.tag == "ol"
         is_checklist = _has_class(element, CHECKLIST_CLASS)
-        previous_marker = _get_last_list_marker(previous_block)
+        previous_marker = _get_last_list_marker((previous_block or "").split("\n"))
         marker_character = _get_list_marker(element.tag, previous_marker)
-        start = (element.get("start") or "").strip()
-        bounded_start = BOUNDED_NUMBER.fullmatch(start)
-        number = int(bounded_start.group(1)) if bounded_start else 1
-        indent = "  "
+        number = _get_list_start(element)
+        is_opening = is_opening or previous_block == ITEM_START
         blocks = []
+        # the lines since the start of the list or the last paragraph or rule right inside it
         lines = []
+        # the indent of the content of the last item of lines, None before their first item
+        indent = None
         # the last block under the last item, which a nested list follows in the same container
         item_last_block = None
-        is_opening_after_list = previous_marker is not None
+        is_after_list = previous_marker is not None
         inline_parts = [self._get_text(element.text)]
         for child in element:
             if not _is_block(child):
                 inline_parts.extend((self._get_inline(child), self._get_text(child.tail)))
                 continue
-            loose_paragraph = self._get_paragraph(inline_parts)
-            if loose_paragraph:
-                blocks.extend(_join_lines(lines) + loose_paragraph)
-                lines = []
-                item_last_block = None
-                is_opening_after_list = False
+            is_nested_list = child.tag in LIST_TAGS or _is_list_only(child)
+            item_blocks = [] if is_nested_list else self._get_element_blocks(child, ITEM_START)
+            # a browser numbers items only: a rule in another block is a rule between the list's parts
+            is_rule = child.tag != "li" and item_blocks == [THEMATIC_BREAK]
+            loose_blocks = self._get_paragraph(inline_parts) + ([THEMATIC_BREAK] if is_rule else [])
             inline_parts = [self._get_text(child.tail)]
-            if child.tag in LIST_TAGS or _is_list_only(child):
-                nested_previous_block = previous_block if is_opening_after_list and not lines else item_last_block
-                if child.tag in LIST_TAGS:
-                    nested_blocks = self._get_list(child, nested_previous_block)
-                else:
-                    nested_blocks = self.get_blocks(child, previous_block=nested_previous_block)
+            if loose_blocks:
+                blocks.extend(_join_lines(lines) + loose_blocks)
+                lines = []
+                indent = item_last_block = None
+                is_after_list = False
+                marker_character = _get_list_marker(element.tag, None)
+            if is_rule:
+                continue
+            if is_nested_list:
+                nested_previous_block = previous_block if is_after_list and not lines else item_last_block
+                nested_blocks = []
+                for nested_list in [child] if child.tag in LIST_TAGS else child:
+                    nested_blocks += self._get_list(nested_list, nested_previous_block, indent is None)
+                    nested_previous_block = (nested_blocks or [nested_previous_block])[-1]
                 if nested_blocks:
                     nested_lines = _join_item_blocks(nested_blocks).split("\n")
-                    if _opens_list_not_from_one(nested_lines[0]) and _is_paragraph(item_last_block):
+                    if lines and not _is_under(nested_lines[0], item_last_block):
                         lines.append("")
-                    lines.extend(nested_lines if is_opening_after_list else _indent_lines(nested_lines, indent))
+                    if indent is not None:
+                        nested_lines = _indent_lines(nested_lines, indent)
+                    elif not (is_opening or is_after_list):
+                        nested_lines = _indent_lines(nested_lines, "  ")
+                    lines.extend(nested_lines)
                     item_last_block = nested_blocks[-1]
                 continue
-            item_blocks = self.get_blocks(child) if child.tag == "li" else self._get_element_blocks(child)
             if not item_blocks:
                 continue
-            is_opening_after_list = False
-            item_last_block = item_blocks[-1]
+            # the first item right under an ordered list of its marker would go on with its numbers
+            if is_ordered and indent is None and _get_last_list_marker(lines) == marker_character:
+                marker_character = _get_list_marker(element.tag, marker_character)
             if is_ordered:
                 marker = "%d%s " % (min(number, MAX_LIST_NUMBER), marker_character)
             else:
                 marker = marker_character + " "
+            # the first only: a later item goes on with the list, whatever the item above it ends with
+            if indent is None and lines and not _is_under(marker, item_last_block):
+                lines.append("")
+            item_last_block = item_blocks[-1]
             indent = " " * len(marker)
             item_lines = _join_item_blocks(item_blocks).split("\n")
             # the box is part of the item's text: its nested lists stay under the list marker
             if is_checklist and child.tag == "li":
                 box = "[x]" if _has_class(child, CHECKED_ITEM_CLASS) else "[ ]"
-                if BLOCK_MARKUP.match(item_blocks[0]) or BOX_ALONE_BLOCK.match(item_blocks[0]):
+                if BLOCK_MARKUP.match(item_lines[0]) or LIST_START.match(item_lines[0]):
                     # a blank line ends the box's paragraph: a rule would underline it, a list join it
                     item_lines[0:0] = [box, ""]
                 else:
                     item_lines[0] = "%s %s" % (box, item_lines[0])
             elif TASK_LIST_BOX.match(item_lines[0]):
                 item_lines[0] = "\\" + item_lines[0]
-            # an item's rule only: an <hr> right in the list holds no item's content
+            # an item's rule only: one in another block right in the list stays a rule between its items
             elif not is_ordered and child.tag == "li" and item_lines[0] == THEMATIC_BREAK:
                 item_lines[0] = BULLET_ITEM_BREAK
             lines.append(marker + item_lines[0])

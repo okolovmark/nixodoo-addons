@@ -77,9 +77,10 @@ the same terms.
 A member row keeps its project and its user. Members are added by an Admin
 of the project, or by a Project Administrator to a Standard project and as
 the first Admins, themselves or other users, of a project made Public or
-Private. The refusals of the module name no record the user cannot read;
-Odoo's own record access error lists the refused records to an internal
-user with Technical Features.
+Private. The refusals of the module name no record the user cannot read,
+and a refused create names its task by its name alone, without the key it
+drew; Odoo's own record access error lists the refused records to an
+internal user with Technical Features.
 
 On the task form of such a project, the Assignees are read-only for anyone
 but an Admin, and the UAT users for anyone who may not set them, by the

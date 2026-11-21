@@ -45,8 +45,7 @@ class ProjectTask(models.Model):
         """
         if "project_id" not in vals and "parent_id" not in vals:
             return super().write(vals)
-        # Core moves archived sub-tasks with their parent too, and those the user cannot read.
-        moving_tasks = (self | self.with_context(active_test=False)._get_all_subtasks()).sudo()
+        moving_tasks = self._get_moving_tasks()
         former_projects = {task: task.project_id for task in moving_tasks}
         result = super().write(vals)
         rekeyed_tasks = moving_tasks.filtered(lambda record: record.project_id != former_projects[record])
