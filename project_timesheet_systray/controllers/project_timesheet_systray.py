@@ -1,6 +1,18 @@
 from odoo import _, fields, http
 from odoo.http import request
 
+CARD_DESCRIPTION_MAX_LENGTH = 200
+
+
+def _card_description(line_name):
+    """The line's description as the Timelog card shows it: none for "/", which hr_timesheet writes on a
+    line created without one; past the limit, cut to fit it with an ellipsis, no space before that."""
+    if line_name in (False, "/"):
+        return ""
+    if len(line_name) <= CARD_DESCRIPTION_MAX_LENGTH:
+        return line_name
+    return line_name[: CARD_DESCRIPTION_MAX_LENGTH - 1].rstrip() + "…"
+
 
 def _record_key(record):
     # `key` is declared outside this module's dependencies (OCA project_key): a database may have none.
@@ -208,8 +220,7 @@ class TimesheetSystrayController(http.Controller):
             "is_task_readable": is_task_readable,
             "project_id": project_sudo.id,
             "project_name": _project_label(project_sudo),
-            # "/" is what hr_timesheet writes on a line created without a description.
-            "description": "" if line.name in (False, "/") else line.name,
+            "description": _card_description(line.name),
             "date_time": str(line.date_time) if line.date_time else "",
             "unit_amount": line.unit_amount,
             "elapsed_seconds": elapsed,

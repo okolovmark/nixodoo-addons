@@ -173,13 +173,6 @@ export class TimesheetSystray extends Component {
         this.state.loading = false;
     }
 
-    async onStartTimer(ev) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        if (!this.state.timesheet) return;
-        await this._startTimerForTask(this.state.timesheet.task_id);
-    }
-
     async onStartTaskTimer(taskId, ev) {
         if (ev) {
             ev.preventDefault();

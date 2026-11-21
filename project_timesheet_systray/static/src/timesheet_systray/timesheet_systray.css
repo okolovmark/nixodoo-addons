@@ -21,12 +21,30 @@
     border-radius: 10px;
 }
 
+/* Not top-0 / end-0 / w-*: the phone rule overrides these, and w-* sizes against the narrow item.
+   A fixed width, so long names truncate instead of pushing the panel off screen. */
 .o_timesheet_systray_dropdown {
+    top: 0;
+    right: 0;
+    width: 340px;
+    /* Over chat windows, which share .dropdown-menu's 1000 and come later in the page, as core's messaging menu. */
+    z-index: 1055;
     border-radius: 8px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
     border: 1px solid rgba(0, 0, 0, 0.1);
     overflow: hidden;
     animation: tsDropdownIn 0.15s ease-out;
+}
+
+@media (max-width: 767.98px) {
+    /* Hung from the item, the panel runs off a phone where items sit right of it: viewport-wide here,
+       top: auto keeping its static place under the item, a banner above the navbar or not. */
+    .o_timesheet_systray_dropdown {
+        position: fixed;
+        top: auto;
+        left: 0;
+        width: auto;
+    }
 }
 
 @keyframes tsDropdownIn {
