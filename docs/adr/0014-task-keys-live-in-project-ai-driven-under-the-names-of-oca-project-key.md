@@ -1,6 +1,6 @@
 # Task keys live in project_ai_driven, under the names of OCA project_key
 
-Status: accepted (2026-11-18), amended (2026-11-20: the other tasks of a recurrence a write reaches are found before the write, from the recurrence as it stands)
+Status: accepted (2026-11-18), amended (2026-11-20: the other tasks of a recurrence a write reaches are found before the write, from the recurrence as it stands; 2026-11-21: a refused create spends the key it drew and names the task by its name only)
 
 A task is referred to by its key, PROJ-1234: in messages, in commits, in links to `/tasks/PROJ-1234`. The keys came from OCA `project_key`: a key per project made from the initials of its name, a sequence per project that numbers its tasks, the display name "KEY - name", a name search by key and two routes. Two of its defects were never fixed there: a batch create of projects keeps only the last one, and a portal collaborator cannot create a task in a shared project ("You cannot write on key fields in task."), because the key is written into the values core checks for a portal user.
 
@@ -56,5 +56,6 @@ The order matters: `project_key` is uninstalled after this module holds the fiel
 - The project form requires a key, as in `project_key`. Keys being off in a test run, a test of another module that saves a project through `Form` without setting a key fails on the required field, as it did with `project_key` installed.
 - A generated key may still clash with the key of a project the user cannot read, in another company for one: the counter searches what the user reads, as in `project_key`, and the unique constraint then refuses the project.
 - The 20.0 branch gets the same change when this work is forward-ported to it.
+- Keys may skip numbers. A create that draws its key before the rules (so the assignment notice names it) and is then refused spends that number: the sequences are standard ones, PostgreSQL sequences that a rollback does not undo, like any other failed create. Every refusal of a create by the rules of this module and of project_member_access names the task by its name only, not by the key it never kept (2026-11-21).
 
 Reversal cost: installing `project_key` again puts it back in charge of the same columns and sequences; nothing is converted on the way in or out.

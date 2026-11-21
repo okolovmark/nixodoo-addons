@@ -5,7 +5,7 @@ from odoo.exceptions import AccessError, ValidationError
 from odoo.tests.common import Form, tagged
 
 from ..models.project_task_recurrence import is_next_occurrence_creation
-from .common import NO_ESTIMATE, NO_TYPE, ProjectAiDrivenCommon
+from .common import NO_ESTIMATE, NO_PULL_REQUEST, NO_RESOLUTION, NO_TYPE, ProjectAiDrivenCommon
 
 NOT_A_NUMBER = "The Estimate is a finite number of hours"
 
@@ -117,6 +117,44 @@ class TestEstimateRule(ProjectAiDrivenCommon):
             self._create_task(stage_id=self.stage_progress.id, planned_hours=3)
         self.assertIn(NO_TYPE, refusal.exception.args[0])
         self.assertNotIn(NO_ESTIMATE, refusal.exception.args[0])
+
+    def test_a_refused_create_names_the_task_without_the_key_it_drew(self):
+        keyed_env = self.env(context=dict(self.env.context, test_project_key=True))
+        keyed_project = keyed_env["project.project"].create(
+            {"name": "Keyed", "key": "ZQRULE", "is_ai_driven": True, "type_ids": [Command.clear()]}
+        )
+        stage_estimate = self._create_stage("In Progress", 1, project=keyed_project)
+        stage_closing = self._create_stage("Done", 2, project=keyed_project)
+        keyed_project.write(
+            {
+                "estimate_required_states": [Command.set(stage_estimate.ids)],
+                "pr_required_states": [Command.set(stage_closing.ids)],
+            }
+        )
+        refused_creates = {
+            NO_ESTIMATE: {"name": "Reported without an estimate", "stage_id": stage_estimate.id, "task_type": "bug"},
+            NOT_A_NUMBER: {"name": "Estimated at NaN hours", "planned_hours": float("nan")},
+        }
+        # project_task_pull_request refuses these first, with a message of its own
+        if not self._is_pull_request_module_installed():
+            refused_creates[NO_RESOLUTION] = {"name": "Closed without a resolution", "stage_id": stage_closing.id}
+            refused_creates[NO_PULL_REQUEST] = {
+                "name": "Closed as code without a pull request",
+                "stage_id": stage_closing.id,
+                "resolution": "code",
+            }
+        for requirement, vals in refused_creates.items():
+            with self.subTest(requirement=requirement):
+                with self.assertRefused(requirement) as refusal:
+                    keyed_env["project.task"].create({"project_id": keyed_project.id, **vals})
+                self.assertIn("Tasks: %s" % vals["name"], refusal.exception.args[0])
+
+        task = keyed_env["project.task"].create(
+            {"name": "Saved", "project_id": keyed_project.id, "task_type": "bug", "planned_hours": 1}
+        )
+        self.assertTrue(task.key.startswith("ZQRULE-"), "keys are on, so the refusals had a key to leave out")
+        with self.assertRefused(NOT_A_NUMBER, "Tasks: %s" % task.display_name):
+            task.planned_hours = float("nan")
 
     def test_create_without_a_stage_in_a_project_whose_default_stage_is_marked(self):
         self.project.estimate_required_states = self.stage_backlog

@@ -16,6 +16,9 @@ from odoo.addons.web_editor.controllers.main import handle_history_divergence
 
 KANBAN_TESTCASE_STATES = ("not_run", "failed", "waiting")
 SILENT_ASSIGNMENT_KEY = "project_ai_driven_silent_assignment"
+# The value of the context key under which core creates the tasks of a create, which no RPC call
+# can send: a constraint refusing them names them without the key the create gave and takes back.
+TASK_CREATION = object()
 # Marked for an upgrade or a removal, a module is still installed.
 INSTALLED_MODULE_STATES = ("installed", "to upgrade", "to remove")
 
@@ -33,6 +36,10 @@ def get_size(hours):
 def _is_create_command(command):
     # A list from the web client, with a virtual id; a tuple from Command.create.
     return isinstance(command, (list, tuple)) and command[0] == Command.CREATE
+
+
+def is_task_creation(env):
+    return env.context.get("project_ai_driven_task_creation") is TASK_CREATION
 
 
 class SilentAssignmentTaskIds(frozenset):
@@ -319,20 +326,24 @@ class ProjectTask(models.Model):
         """
         tasks = self.filtered(lambda record: not math.isfinite(record.planned_hours))
         if tasks:
+            name_field = "name" if is_task_creation(self.env) else "display_name"
             raise ValidationError(
                 _("The Estimate is a finite number of hours: NaN and infinity are refused.\nTasks: %s")
-                % ", ".join(tasks.mapped("display_name"))
+                % ", ".join(tasks.mapped(name_field))
             )
 
     @api.model_create_multi
     def create(self, vals_list):
         vals_list, new_items_per_task = self._split_checklist_item_creations(vals_list)
-        tasks = super().create(vals_list)
+        creating_self = self.with_context(project_ai_driven_task_creation=TASK_CREATION)
+        # the marker off: a later write of the tasks names them with their key
+        tasks = super(ProjectTask, creating_self).create(vals_list).with_context(project_ai_driven_task_creation=None)
         # Sudo: an empty module_ids in vals leaves nothing cached, and a read checks the field's groups.
         tasks._check_modules_installed(tasks.sudo().module_ids)
         if not is_next_occurrence_creation(self.env):
-            tasks._apply_closing_rule()
-            tasks._apply_estimate_rule()
+            # A refusal undoes the create and the key it gave: name the tasks by their name.
+            tasks._apply_closing_rule(name_field="name")
+            tasks._apply_estimate_rule(name_field="name")
         # The caller's env: core returns a portal user's tasks in sudo, past the item's access rights.
         tasks.with_env(self.env)._create_checklist_items(new_items_per_task)
         return tasks
@@ -566,13 +577,13 @@ class ProjectTask(models.Model):
                 % ", ".join(sorted(not_installed_modules.mapped("name")))
             )
 
-    def _apply_closing_rule(self):
+    def _apply_closing_rule(self, name_field="display_name"):
         """Run on tasks that just entered a stage. Sudo: a user can write a
         task of a project they cannot read.
         """
         tasks = self.sudo()._filter_closing_rule_tasks()
-        tasks._check_resolution_chosen()
-        tasks._check_code_has_pull_request()
+        tasks._check_resolution_chosen(name_field)
+        tasks._check_code_has_pull_request(name_field)
         tasks._set_resolution_of_pull_request()
 
     def _filter_closing_rule_tasks(self):
@@ -580,7 +591,7 @@ class ProjectTask(models.Model):
             lambda record: record.project_id.is_ai_driven and record.stage_id in record.project_id.pr_required_states
         )
 
-    def _check_resolution_chosen(self):
+    def _check_resolution_chosen(self, name_field="display_name"):
         unresolved_tasks = self.filtered(lambda record: not record.resolution and not record.pull_request_ids)
         if unresolved_tasks:
             raise ValidationError(
@@ -588,10 +599,10 @@ class ProjectTask(models.Model):
                     "Choose a Resolution: a task enters this stage only with one. Code needs a pull"
                     " request on the task; Data, Configuration and No change do not.\nTasks: %s"
                 )
-                % ", ".join(unresolved_tasks.mapped("display_name"))
+                % ", ".join(unresolved_tasks.mapped(name_field))
             )
 
-    def _check_code_has_pull_request(self):
+    def _check_code_has_pull_request(self, name_field="display_name"):
         code_tasks = self.filtered(lambda record: record.resolution == "code" and not record.pull_request_ids)
         if code_tasks:
             raise ValidationError(
@@ -600,17 +611,17 @@ class ProjectTask(models.Model):
                     " one. A task closed without a pull request takes Data, Configuration or No"
                     " change.\nTasks: %s"
                 )
-                % ", ".join(code_tasks.mapped("display_name"))
+                % ", ".join(code_tasks.mapped(name_field))
             )
 
     def _set_resolution_of_pull_request(self):
         self.filtered(lambda record: not record.resolution and record.pull_request_ids).resolution = "code"
 
-    def _apply_estimate_rule(self):
+    def _apply_estimate_rule(self, name_field="display_name"):
         """Run on tasks that just entered a stage. Sudo: a user can write a
         task of a project they cannot read.
         """
-        self.sudo()._filter_estimate_rule_tasks()._check_type_and_estimate()
+        self.sudo()._filter_estimate_rule_tasks()._check_type_and_estimate(name_field)
 
     def _filter_estimate_rule_tasks(self):
         return self.filtered(
@@ -618,9 +629,9 @@ class ProjectTask(models.Model):
             and record.stage_id in record.project_id.estimate_required_states
         )
 
-    def _check_type_and_estimate(self):
+    def _check_type_and_estimate(self, name_field="display_name"):
         refusals = [
-            "%s\n%s" % (requirement, _("Tasks: %s") % ", ".join(tasks.mapped("display_name")))
+            "%s\n%s" % (requirement, _("Tasks: %s") % ", ".join(tasks.mapped(name_field)))
             for requirement, tasks in self._get_missing_type_and_estimate()
             if tasks
         ]

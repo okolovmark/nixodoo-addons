@@ -584,23 +584,39 @@ A brief holds, in this order, each part only when it has something to show:
 
 Times are in UTC. The texts become Markdown (headings, emphasis, links,
 lists, tables, code) with no markup left; the headings of a text sit below
-the section that holds it. An item of an editor's checklist is a task list
-item, ``- [x]`` when ticked and ``- [ ]`` when not, a nested checklist
-nested items; the box stands on a line of its own when the item opens with
-a heading, a list, a table, a rule, a code block or a quote. Another list
-item that starts like one has its bracket escaped. A list right after a
-list of its kind at the same level, nested ones included, takes the other
-marker, ``+`` for ``-`` or ``1)`` for ``1.`` and back, so that it stays a
-list of its own. Right after a list, nested items that open a list before
-its first item are written at its level, not under the last item of the
-list before. A rule that opens a bullet item is written ``- * * *``
-(``- ---`` is a rule of its own), and a nested ordered list not numbered
-from 1 stands a blank line under the paragraph above it, which would
-otherwise read it as its text. A table cell spans at most 100 columns, and
-its rows at most to the end of its row group (its ``thead``, ``tbody`` or
-``tfoot``), the end ``rowspan="0"`` spans to; a span is read as a browser
-reads it (``2px`` spans 2). A list number has at most nine digits, however
-long the number the text gives.
+the section that holds it. Lists:
+
+* An item of an editor's checklist is a task list item, ``- [x]`` when
+  ticked and ``- [ ]`` when not, a nested checklist nested items; the box
+  stands on a line of its own when the item opens with a heading, a list, a
+  table, a rule, a code block or a quote. Another list item that starts
+  like one has its bracket escaped.
+* A list right after a list of its kind at the same level, nested ones
+  included, takes the other marker, ``+`` for ``-`` or ``1)`` for ``1.``
+  and back, so that it stays a list of its own. So does the first item of
+  an ordered list right under nested items that end in an ordered list of
+  its marker, so that each list keeps the numbers a browser shows.
+* A list that opens with nested items, two levels deep or more, stays a
+  list, not code, at the start of a text, after a paragraph, under an item
+  or as an item's first block. Right after a list, those nested items are
+  written at its level, not under the last item of the list before.
+* Text and rules right inside a list, an ``<hr>`` or a block holding only a
+  rule, stand between its parts, and the list goes on after them as at the
+  start of a text; an ordered list keeps its numbers across them. A rule
+  that opens a bullet item is written ``- * * *`` (``- ---`` is a rule of
+  its own).
+* In a list, an ordered list not numbered from 1 stands a blank line under
+  a paragraph above it, one that ends nested items included, which would
+  otherwise read it as its text.
+* The ``start`` of an ordered list is read as a browser reads an integer
+  (``3px`` starts at 3); a negative one starts at 0, as CommonMark writes
+  no lower number. A list number has at most nine digits, however long the
+  number the text gives.
+
+A table cell spans at most 100 columns, and its rows at most to the end of
+its row group (its ``thead``, ``tbody`` or ``tfoot``), the end
+``rowspan="0"`` spans to; a span is read as a browser reads it (``2px``
+spans 2).
 
 * An image or a link that names an attachment, by a relative url or a url on
   the host of this database (``get_base_url()``, a website's domain where it
@@ -658,6 +674,11 @@ projects and tasks by key. The task's ``url`` is the link to its form.
   it, archived ones and those the user cannot read included, and the other
   tasks of its recurrence that the same edit moves; taken out of its
   project, or moved to a project that gives no key, they lose theirs.
+* Keys may skip numbers: a task draws its key as it is created, from a
+  standard sequence that a refused or failed create does not take back. A
+  create refused by the closing rule, the estimate rule or an Estimate that
+  is no finite number names its tasks by their names alone, without the key
+  they drew.
 * A new project key renames the keys of the project's tasks that end in a
   hyphen and a number, each keeping that number, and the prefix of its
   sequence; other task keys stay. A cleared key clears the keys of all its

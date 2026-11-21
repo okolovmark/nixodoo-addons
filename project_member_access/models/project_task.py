@@ -27,6 +27,7 @@ class ProjectTask(models.Model):
         tasks = super().create(vals_list)
         tasks._revoke_access_tokens()
         if not (self.env.su or self.env.user._is_system()):
+            # a refusal undoes the create and the key it gave: the checks name a task by its name
             tasks._ensure_admin_assigns_on_create()
             tasks._ensure_uat_users_allowed_on_create()
         return tasks
@@ -80,7 +81,7 @@ class ProjectTask(models.Model):
         for task in self.sudo().filtered(
             lambda record: record.uat_user_ids and record.project_id.access_mode in RESTRICTED_ACCESS_MODES
         ):
-            task._ensure_uat_users_change_allowed()
+            task._ensure_uat_users_change_allowed(name_field="name")
 
     def _ensure_member_role_allows(self, vals):
         """Refuse what the role of the user does not let them write on a task that stays
@@ -121,14 +122,14 @@ class ProjectTask(models.Model):
             value = [command for command in commands if command[0] != Command.UPDATE]
         return set(self._fields[field_name].convert_to_cache(value, self)) != set(self[field_name].ids)
 
-    def _ensure_uat_users_change_allowed(self):
+    def _ensure_uat_users_change_allowed(self, name_field="display_name"):
         """Refuse setting the UAT users of this task unless the user is one of its assignees
         or an Editor or Admin of its project.
         """
         if not self._is_assignee_or_editor(self.env.user):
             raise AccessError(
                 _("Only an assignee of %(task)s, or an Editor or Admin of %(project)s, sets its UAT users.")
-                % {"task": self.display_name, "project": self.project_id.display_name}
+                % {"task": self[name_field], "project": self.project_id.display_name}
             )
 
     def _is_assignee_or_editor(self, user):
