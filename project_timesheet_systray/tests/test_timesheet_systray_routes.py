@@ -487,8 +487,7 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
         self.assertFalse(self.env["account.analytic.line"].search([("task_id", "=", task.id)]))
 
     def test_a_running_timer_without_a_task_shows_its_project_and_description_and_no_task(self):
-        if "key" in self.project._fields:
-            self.project.write({"key": ""})
+        self.project.key = False
         line = self._create_running_line_without_task(
             self.project,
             self.user_dev1,
@@ -562,8 +561,7 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
 
     def test_a_running_timer_without_a_task_in_a_followers_only_project_no_longer_followed_shows_and_stops(self):
         project = self._create_project(name="Followers Only Releases", privacy_visibility="followers")
-        if "key" in project._fields:
-            project.key = ""
+        project.key = False
         project.message_subscribe(self.user_dev1.partner_id.ids)
         line = self._create_running_line_without_task(
             project,
@@ -713,8 +711,7 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
     def test_a_running_timer_without_a_task_in_a_company_not_selected_in_the_tab_shows_and_stops(self):
         other_company, other_employee = self._give_dev1_a_second_company()
         project = self._create_project(name="Second Company Project", company_id=other_company.id)
-        if "key" in project._fields:
-            project.key = ""
+        project.key = False
         line = self._create_running_line_without_task(
             project,
             self.user_dev1,

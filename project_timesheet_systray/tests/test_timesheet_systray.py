@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from odoo.exceptions import UserError
+from odoo import Command
 from odoo.tests.common import tagged
 
 from .common import TimesheetSystrayCase
@@ -37,8 +37,9 @@ class TestTimesheetSystrayData(TimesheetSystrayCase):
     def _running_lines(self, user):
         return self.env["account.analytic.line"].with_user(user)._get_own_running_lines()
 
-    def _open_tasks(self, user):
-        return self.env["project.task"].search([("user_ids", "in", [user.id]), ("stage_id.fold", "=", False)])
+    def _listed_tasks(self, user):
+        result = self._call_route(user, "get_systray_timesheet", limit=0)
+        return self.env["project.task"].browse([task_data["task_id"] for task_data in result["tasks"]])
 
     def test_running_timer_detected(self):
         line = self._create_timesheet(
@@ -164,17 +165,24 @@ class TestTimesheetSystrayData(TimesheetSystrayCase):
         )
 
     def test_in_progress_tasks_exclude_folded(self):
-        tasks = self._open_tasks(self.user_dev1)
-        self.assertIn(self.task_in_progress, tasks)
-        self.assertIn(self.task_backlog, tasks)
-        self.assertNotIn(self.task_done, tasks, "Done (folded) task must not appear")
+        self.assertEqual(
+            self._listed_tasks(self.user_dev1),
+            self.task_in_progress + self.task_backlog,
+            "the user's tasks in unfolded stages; the Done (folded) one must not appear",
+        )
 
     def test_in_progress_tasks_user_specific(self):
-        self.assertNotIn(self.task_dev2, self._open_tasks(self.user_dev1))
-        self.assertNotIn(self.task_in_progress, self._open_tasks(self.user_dev2))
+        self.assertEqual(self._listed_tasks(self.user_dev2), self.task_dev2, "only the tasks the user is assigned to")
 
     def test_task_sorting_by_last_timelog(self):
-        TimesheetLine = self.env["account.analytic.line"]
+        task_never_logged = self._create_task("Never Logged Task", self.stage_in_progress, self.user_dev1)
+        self._create_timesheet(
+            self.task_in_progress,
+            self.user_dev1,
+            self.employee_dev1,
+            unit_amount=1.0,
+            date_time=datetime.now() - timedelta(days=10),
+        )
         self._create_timesheet(
             self.task_backlog,
             self.user_dev1,
@@ -190,127 +198,148 @@ class TestTimesheetSystrayData(TimesheetSystrayCase):
             date_time=datetime.now() - timedelta(hours=1),
         )
 
-        in_progress_tasks = self._open_tasks(self.user_dev1)
-        timelog_groups = TimesheetLine.read_group(
-            [
-                ("user_id", "=", self.user_dev1.id),
-                ("task_id", "in", in_progress_tasks.ids),
-                ("unit_amount", ">", 0),
-            ],
-            ["task_id", "date_time:max"],
-            ["task_id"],
+        result = self._call_route(self.user_dev1, "get_systray_timesheet", limit=0)
+
+        self.assertEqual(
+            [task_data["task_id"] for task_data in result["tasks"]],
+            [self.task_in_progress.id, self.task_backlog.id, task_never_logged.id],
+            "the task logged last comes first, by its latest line; a task never logged after",
         )
-        last_timelog_map = {group["task_id"][0]: group["date_time"] for group in timelog_groups if group["task_id"]}
-
-        def sort_key(task):
-            last_timelog = last_timelog_map.get(task.id)
-            return (1 if last_timelog else 0, last_timelog or "", task.id)
-
-        sorted_tasks = sorted(in_progress_tasks, key=sort_key, reverse=True)
-
-        tasks_with_logs = [task for task in sorted_tasks if task.id in last_timelog_map]
-        self.assertTrue(len(tasks_with_logs) >= 2)
-        self.assertEqual(tasks_with_logs[0], self.task_in_progress, "Task with most recent timelog should be first")
-        self.assertEqual(tasks_with_logs[1], self.task_backlog, "Task with older timelog should be second")
-
-        tasks_without_logs = [task for task in sorted_tasks if task.id not in last_timelog_map]
-        if tasks_with_logs and tasks_without_logs:
-            self.assertLess(
-                sorted_tasks.index(tasks_with_logs[-1]),
-                sorted_tasks.index(tasks_without_logs[0]),
-                "Tasks with timelogs should sort before tasks without",
-            )
 
     def test_task_limit(self):
+        extra_tasks = self.env["project.task"]
         for index in range(6):
-            self._create_task("Extra Task %s" % index, self.stage_in_progress, self.user_dev1)
+            extra_tasks += self._create_task("Extra Task %s" % index, self.stage_in_progress, self.user_dev1)
+        open_task_count = len(self.task_in_progress + self.task_backlog + extra_tasks)
+        # The oldest task comes last in project.task's order: a limit in the search would leave it out.
+        self._create_timesheet(
+            self.task_in_progress,
+            self.user_dev1,
+            self.employee_dev1,
+            unit_amount=1.0,
+            date_time=datetime.now() - timedelta(days=1),
+        )
 
-        tasks = self._open_tasks(self.user_dev1)
-        self.assertGreater(len(tasks), 5, "Should have more than 5 tasks for this test")
-        self.assertEqual(len(list(tasks)[:5]), 5)
+        first_tasks = self._call_route(self.user_dev1, "get_systray_timesheet")
+        all_tasks = self._call_route(self.user_dev1, "get_systray_timesheet", limit=0)
+
+        self.assertEqual(
+            (len(first_tasks["tasks"]), first_tasks["total_tasks"]),
+            (5, open_task_count),
+            "five tasks by default, all counted",
+        )
+        self.assertEqual(
+            first_tasks["tasks"][0]["task_id"], self.task_in_progress.id, "the limit cuts the list after its sort"
+        )
+        self.assertEqual(
+            (len(all_tasks["tasks"]), all_tasks["total_tasks"]),
+            (open_task_count, open_task_count),
+            "limit 0 returns them all",
+        )
+        self.assertEqual(first_tasks["tasks"], all_tasks["tasks"][:5])
 
     def test_start_timer_creates_running_line(self):
-        task = self.task_in_progress
-        new_line = (
-            self.env["account.analytic.line"]
-            .with_user(self.user_dev1)
-            .create(
-                {
-                    "task_id": task.id,
-                    "project_id": task.project_id.id,
-                    "employee_id": self.employee_dev1.id,
-                    "user_id": self.user_dev1.id,
-                    "name": task.name,
-                    "date_time": datetime.now(),
-                    "unit_amount": 0,
-                }
-            )
+        started = self._call_route(self.user_dev1, "start_timer", task_id=self.task_in_progress.id)
+
+        new_line = self.env["account.analytic.line"].browse(started["timesheet"]["id"])
+        self.assertTrue(started["running"])
+        self.assertEqual(
+            (
+                new_line.task_id,
+                new_line.project_id,
+                new_line.employee_id,
+                new_line.user_id,
+                new_line.name,
+                new_line.unit_amount,
+            ),
+            (
+                self.task_in_progress,
+                self.project,
+                self.employee_dev1,
+                self.user_dev1,
+                self.task_in_progress.name,
+                0,
+            ),
         )
-        self.assertTrue(new_line.exists())
-        self.assertEqual(new_line.unit_amount, 0)
-        self.assertEqual(new_line.task_id, task)
-        self.assertTrue(new_line.date_time)
-
-    def test_start_timer_stops_existing_running(self):
-        old_line = self._create_timesheet(
-            self.task_in_progress,
-            self.user_dev1,
-            self.employee_dev1,
-            unit_amount=0,
-            date_time=datetime.now() - timedelta(hours=1),
-        )
-        self.assertEqual(old_line.unit_amount, 0, "Old timer should be running")
-
-        dev1_lines = self.env["account.analytic.line"].with_user(self.user_dev1)
-        running = dev1_lines.search(dev1_lines._running_domain(), limit=10)
-        self.assertTrue(running, "Should find the running timer")
-        running.button_end_work()
-
-        self.assertGreater(old_line.unit_amount, 0, "Stopped timer should have computed duration")
+        self.assertAlmostEqual(new_line.date_time, datetime.now(), delta=timedelta(minutes=1))
+        self.assertEqual(self._running_lines(self.user_dev1), new_line)
 
     def test_start_timer_nonexistent_task_returns_error(self):
-        self.assertFalse(self.env["project.task"].browse(999999).exists(), "Non-existent task should fail exists()")
+        running_line = self._create_timesheet(self.task_in_progress, self.user_dev1, self.employee_dev1)
+        deleted_task = self._create_task("Deleted Task", self.stage_in_progress, self.user_dev1)
+        deleted_task_id = deleted_task.id
+        deleted_task.unlink()
 
-    def test_start_timer_no_employee_detectable(self):
-        user_no_employee = self.env["res.users"].create(
+        answer = self._call_route(self.user_dev1, "start_timer", task_id=deleted_task_id)
+
+        self.assertEqual(answer, {"error": "Task not found"})
+        self.assertEqual(self._running_lines(self.user_dev1), running_line, "a refused start leaves the timer running")
+
+    def test_start_timer_without_an_employee_in_the_task_company_returns_error(self):
+        other_company = self.env["res.company"].create({"name": "Timelog Other Company"})
+        user_without_employee = self.env["res.users"].create(
             self._project_user_vals("No Employee", "timesheet_systray_no_emp")
         )
-        task_company = self.task_in_progress.company_id or self.task_in_progress.project_id.company_id
-        employee = (
-            self.env["hr.employee"]
-            .sudo()
-            .search([("user_id", "=", user_no_employee.id), ("company_id", "=", task_company.id)], limit=1)
+        user_employed_elsewhere = self.env["res.users"].create(
+            {
+                **self._project_user_vals("Employed Elsewhere", "timesheet_systray_elsewhere"),
+                "company_id": self.env.company.id,
+                "company_ids": [Command.set((self.env.company + other_company).ids)],
+            }
         )
-        self.assertFalse(employee, "User without employee should have no match")
-
-    def test_stop_timer_computes_duration(self):
-        line = self._create_timesheet(
-            self.task_in_progress,
-            self.user_dev1,
-            self.employee_dev1,
-            unit_amount=0,
-            date_time=datetime.now() - timedelta(hours=2),
+        self.env["hr.employee"].create(
+            {"name": "Employed Elsewhere", "user_id": user_employed_elsewhere.id, "company_id": other_company.id}
         )
-        self.assertEqual(line.unit_amount, 0)
+        for user in (user_without_employee, user_employed_elsewhere):
+            with self.subTest(user=user.login):
+                answer = self._call_route(user, "start_timer", task_id=self.task_in_progress.id)
 
-        line.button_end_work()
+                self.assertEqual(answer, {"error": "No employee linked to your user"})
+                self.assertFalse(self.env["account.analytic.line"].search([("user_id", "=", user.id)]))
 
-        self.assertGreater(line.unit_amount, 0, "Duration should be computed after stop")
-        self.assertAlmostEqual(line.unit_amount, 2.0, delta=0.1)
+    def test_stop_timer_ends_the_timer_and_answers_with_the_task_list(self):
+        started = datetime.now().replace(microsecond=0) - timedelta(hours=2)
+        line = self._create_timesheet(self.task_in_progress, self.user_dev1, self.employee_dev1, date_time=started)
 
-    def test_stop_timer_already_stopped_raises(self):
-        line = self._create_timesheet(
-            self.task_in_progress,
+        stopped = self._call_route(self.user_dev1, "stop_timer", timesheet_id=line.id)
+
+        self.assertAlmostEqual(line.unit_amount, 2.0, delta=0.05)
+        self.assertEqual(
+            (
+                stopped["running"],
+                stopped["total_tasks"],
+                [(task_data["task_id"], task_data["last_timelog"]) for task_data in stopped["tasks"]],
+            ),
+            (
+                False,
+                len(self.task_in_progress + self.task_backlog),
+                [(self.task_in_progress.id, str(started)), (self.task_backlog.id, "")],
+            ),
+            "no timer runs on, so the task list, the task just logged first by the start of its line",
+        )
+
+    def test_stop_timer_of_a_deleted_or_stopped_line_returns_error(self):
+        running_line = self._create_timesheet(
+            self.task_in_progress, self.user_dev1, self.employee_dev1, date_time=datetime.now() - timedelta(hours=1)
+        )
+        logged_line = self._create_timesheet(
+            self.task_backlog,
             self.user_dev1,
             self.employee_dev1,
             unit_amount=1.5,
-            date_time=datetime.now() - timedelta(hours=2),
+            date_time=datetime.now() - timedelta(hours=3),
         )
-        with self.assertRaises(UserError):
-            line.button_end_work()
+        deleted_line = self._create_timesheet(self.task_backlog, self.user_dev1, self.employee_dev1, unit_amount=1)
+        deleted_line_id = deleted_line.id
+        deleted_line.unlink()
+        for timesheet_id in (deleted_line_id, logged_line.id):
+            with self.subTest(timesheet_id=timesheet_id):
+                answer = self._call_route(self.user_dev1, "stop_timer", timesheet_id=timesheet_id)
 
-    def test_stop_timer_nonexistent_line(self):
-        self.assertFalse(self.env["account.analytic.line"].browse(999999).exists())
+                self.assertEqual(answer, {"error": "Timer is not running"})
+        self.assertEqual(
+            (running_line.unit_amount, logged_line.unit_amount), (0, 1.5), "only the timer named is stopped"
+        )
 
     def test_format_running_timesheet_structure(self):
         line = self._create_timesheet(
@@ -327,7 +356,7 @@ class TestTimesheetSystrayData(TimesheetSystrayCase):
         self.assertEqual(set(result.keys()), set(RUNNING_TIMER_FIELDS))
         self.assertEqual(result["id"], line.id)
         self.assertEqual(result["task_id"], self.task_in_progress.id)
-        self.assertEqual(result["task_name"], "Active Task")
+        self.assertEqual(result["task_name"], self.task_in_progress.name)
         self.assertEqual(result["project_id"], self.project.id)
         self.assertEqual(result["description"], "Pairing on the parser")
         self.assertEqual(result["unit_amount"], 0)
@@ -352,16 +381,14 @@ class TestTimesheetSystrayData(TimesheetSystrayCase):
                 self.assertEqual(result["description"], expected_description)
 
     def test_format_running_timesheet_project_label_with_key(self):
-        self._skip_without_keys()
-        self.project.write({"key": "TST"})
+        self.project.key = "TST"
 
         line = self._create_timesheet(self.task_in_progress, self.user_dev1, self.employee_dev1)
         result = self._call_route(self.env.user, "_format_running_timesheet", line=line)
         self.assertEqual(result["project_name"], "TST - %s" % self.project.name)
 
     def test_format_running_timesheet_project_label_without_key(self):
-        if "key" in self.project._fields:
-            self.project.write({"key": ""})
+        self.project.key = False
 
         line = self._create_timesheet(self.task_in_progress, self.user_dev1, self.employee_dev1)
         result = self._call_route(self.env.user, "_format_running_timesheet", line=line)
@@ -373,32 +400,32 @@ class TestTimesheetSystrayTaskData(TimesheetSystrayCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        if "key" in cls.project._fields:
-            cls.project.key = "TST"
-        # The key modules hand out no task key in test mode unless the context asks for one.
+        cls.project.key = "TST"
+        # project_ai_driven hands out no task key in test mode unless the context asks for one.
         cls.task1 = cls._create_task("Task Alpha", cls.stage_in_progress, cls.user_dev1, test_project_key=True)
         cls.task2 = cls._create_task("Task Beta", cls.stage_other, cls.user_dev1, test_project_key=True)
 
     def test_task_data_dict_structure(self):
-        self._skip_without_keys()
-        task = self.task1
-        project = task.project_id
-        project_label = (project.key + " - " + project.name) if project.key else project.name
-        task_data = {
-            "task_id": task.id,
-            "task_name": task.name,
-            "task_key": task.key or "",
-            "project_id": project.id,
-            "project_name": project_label,
-            "stage_name": task.stage_id.name,
-            "last_timelog": "",
-        }
-        self.assertEqual(task_data["task_name"], "Task Alpha")
-        self.assertEqual(task_data["stage_name"], "In Progress")
-        self.assertIn("TST", task_data["project_name"])
+        result = self._call_route(self.user_dev1, "get_systray_timesheet", limit=0)
+
+        self.assertEqual(
+            {name: value for name, value in result.items() if name != "tasks"},
+            {"running": False, "timesheet": False, "total_tasks": len(self.task1 + self.task2), "message": ""},
+        )
+        self.assertEqual(
+            {task_data["task_id"]: task_data for task_data in result["tasks"]}[self.task1.id],
+            {
+                "task_id": self.task1.id,
+                "task_name": self.task1.name,
+                "task_key": self.task1.key,
+                "project_id": self.project.id,
+                "project_name": "TST - %s" % self.project.name,
+                "stage_name": self.stage_in_progress.name,
+                "last_timelog": "",
+            },
+        )
 
     def test_in_progress_task_list_project_label_with_key(self):
-        self._skip_without_keys()
         dev1_request = SimpleNamespace(env=self.env(user=self.user_dev1))
         with patch.object(controller, "request", dev1_request):
             result = TimesheetSystrayController().get_systray_timesheet(limit=0)
@@ -412,93 +439,32 @@ class TestTimesheetSystrayTaskData(TimesheetSystrayCase):
         )
 
     def test_task_data_with_timelog(self):
-        TimesheetLine = self.env["account.analytic.line"]
-        TimesheetLine.create(
-            {
-                "task_id": self.task1.id,
-                "project_id": self.task1.project_id.id,
-                "employee_id": self.employee_dev1.id,
-                "user_id": self.user_dev1.id,
-                "name": "Work session",
-                "date_time": datetime.now() - timedelta(hours=3),
-                "unit_amount": 2.0,
-            }
+        self.user_dev1.groups_id = [Command.link(self.env.ref("hr_timesheet.group_hr_timesheet_approver").id)]
+        latest_start = datetime.now().replace(microsecond=0) - timedelta(hours=3)
+        self._create_timesheet(
+            self.task1, self.user_dev1, self.employee_dev1, unit_amount=1.0, date_time=latest_start - timedelta(hours=2)
+        )
+        self._create_timesheet(self.task1, self.user_dev1, self.employee_dev1, unit_amount=2.0, date_time=latest_start)
+        self._create_timesheet(
+            self.task1, self.user_dev2, self.employee_dev2, unit_amount=1.0, date_time=latest_start + timedelta(hours=2)
         )
 
-        timelog_groups = TimesheetLine.read_group(
-            [
-                ("user_id", "=", self.user_dev1.id),
-                ("task_id", "in", [self.task1.id]),
-                ("unit_amount", ">", 0),
-            ],
-            ["task_id", "date_time:max"],
-            ["task_id"],
+        result = self._call_route(self.user_dev1, "get_systray_timesheet", limit=0)
+
+        self.assertEqual(
+            {task_data["task_id"]: task_data["last_timelog"] for task_data in result["tasks"]},
+            {self.task1.id: str(latest_start), self.task2.id: ""},
+            "the start of the user's latest logged line, not of a later one of another user an approver reads; "
+            "none on a task they never logged",
         )
-        last_timelog_map = {group["task_id"][0]: group["date_time"] for group in timelog_groups if group["task_id"]}
-        self.assertIn(self.task1.id, last_timelog_map)
-        self.assertTrue(last_timelog_map[self.task1.id])
 
     def test_empty_tasks_message(self):
         user_empty = self.env["res.users"].create(self._project_user_vals("Empty User", "timesheet_systray_empty"))
-        tasks = self.env["project.task"].search([("user_ids", "in", [user_empty.id]), ("stage_id.fold", "=", False)])
-        self.assertFalse(tasks, "User with no tasks should have empty task list")
 
-
-@tagged("post_install", "-at_install")
-class TestTimesheetSystrayEndToEnd(TimesheetSystrayCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.task = cls._create_task("E2E Task", cls.stage_in_progress, cls.user_dev1)
-        cls.task2 = cls._create_task("E2E Task 2", cls.stage_in_progress, cls.user_dev1)
-
-    def _start(self, task, date_time):
-        return self._create_timesheet(task, self.user_dev1, self.employee_dev1, unit_amount=0, date_time=date_time)
-
-    def _stop_running_timers(self):
-        dev1_lines = self.env["account.analytic.line"].with_user(self.user_dev1)
-        running = dev1_lines.search(dev1_lines._running_domain(), limit=10)
-        running.button_end_work()
-        return running
-
-    def test_full_timer_lifecycle(self):
-        TimesheetLine = self.env["account.analytic.line"]
-        running_domain = [
-            ("date_time", "!=", False),
-            ("user_id", "=", self.user_dev1.id),
-            ("project_id.allow_timesheets", "=", True),
-            ("unit_amount", "=", 0),
-            ("task_id", "!=", False),
-        ]
-        self.assertFalse(TimesheetLine.search(running_domain, limit=1), "No timer should be running initially")
-
-        new_line = self._start(self.task, datetime.now())
-        self.assertEqual(new_line.unit_amount, 0)
-        self.assertEqual(TimesheetLine.search(running_domain, limit=1, order="date_time desc"), new_line)
-
-        new_line.button_end_work()
-        self.assertGreater(new_line.unit_amount, 0, "Timer should have recorded duration")
-        self.assertFalse(TimesheetLine.search(running_domain, limit=1), "No timer should be running after stop")
-
-    def test_switch_timer_between_tasks(self):
-        line1 = self._start(self.task, datetime.now() - timedelta(minutes=30))
-        self.assertEqual(line1.unit_amount, 0)
-
-        self._stop_running_timers()
-        self.assertGreater(line1.unit_amount, 0)
-
-        line2 = self._start(self.task2, datetime.now())
-        self.assertEqual(line2.unit_amount, 0, "New timer should be running")
-        self.assertGreater(line1.unit_amount, 0, "Old timer should be stopped")
-
-    def test_multiple_running_timers_all_stopped(self):
-        line1 = self._start(self.task, datetime.now() - timedelta(hours=2))
-        line2 = self._start(self.task2, datetime.now() - timedelta(hours=1))
-
-        running = self._stop_running_timers()
-        self.assertEqual(len(running), 2, "Both timers should be found as running")
-        self.assertGreater(line1.unit_amount, 0)
-        self.assertGreater(line2.unit_amount, 0)
+        self.assertEqual(
+            self._call_route(user_empty, "get_systray_timesheet"),
+            {"running": False, "timesheet": False, "tasks": [], "total_tasks": 0, "message": "No tasks in progress"},
+        )
 
 
 @tagged("post_install", "-at_install")
@@ -527,10 +493,25 @@ class TestTimesheetSystrayRoutes(TimesheetSystrayCase):
         self.assertFalse(stopped["running"])
         self.assertFalse(dev1_lines.search(dev1_lines._running_domain()))
 
+    def test_start_timer_ends_every_running_timer_of_the_user(self):
+        task = self._create_task("Timed Task", self.stage_in_progress, self.user_dev1)
+        next_task = self._create_task("Next Task", self.stage_in_progress, self.user_dev1)
+        line_of_two_hours = self._create_timesheet(
+            task, self.user_dev1, self.employee_dev1, date_time=datetime.now() - timedelta(hours=2)
+        )
+        line_of_one_hour = self._create_timesheet(
+            next_task, self.user_dev1, self.employee_dev1, date_time=datetime.now() - timedelta(hours=1)
+        )
+
+        started = self._call_route(self.user_dev1, "start_timer", task_id=next_task.id)
+
+        self.assertAlmostEqual(line_of_two_hours.unit_amount, 2.0, delta=0.05)
+        self.assertAlmostEqual(line_of_one_hour.unit_amount, 1.0, delta=0.05)
+        dev1_lines = self.env["account.analytic.line"].with_user(self.user_dev1)
+        self.assertEqual(dev1_lines.search(dev1_lines._running_domain()).ids, [started["timesheet"]["id"]])
+
     def test_the_task_list_labels_a_project_without_a_key_by_its_name(self):
-        """Also where no module declares keys at all."""
-        if "key" in self.project._fields:
-            self.project.write({"key": ""})
+        self.project.key = False
         task = self._create_task("Keyless Task", self.stage_in_progress, self.user_dev1)
         dev1_request = SimpleNamespace(env=self.env(user=self.user_dev1))
         with patch.object(controller, "request", dev1_request):
