@@ -29,7 +29,11 @@ and open them by link.
   AI-driven project: a collaborator of the shared project with Edit or
   Advanced Edit writes them there, one who may only read does not. On the
   tasks of any other project the portal writes neither, as in core, and
-  its views show both read-only. With Task Logs (``hr_timesheet``)
+  its views show both read-only. Nor does a portal user's write take a
+  task that has either out of an AI-driven project into one that is not,
+  as a new parent in such a project can do for a sub-task and the
+  sub-tasks under it: the write is refused, naming the tasks the user may
+  read and counting the others. With Task Logs (``hr_timesheet``)
   installed, timesheet users also see the same field as *Allocated Time*
   on the tasks of a project that uses timesheets, and an estimate given in
   the same save wins over the hours Task Logs reads from a title such as
@@ -408,7 +412,9 @@ an Estimate left at zero, so the rule refuses it, and the kanban then opens
 the form of a new task with the title typed. A column whose stage also
 requires a Resolution still refuses the quick create, which has no
 Resolution. The quick create of a shared project's kanban, which Odoo
-offers to a collaborator with Advanced Edit, asks for them the same way.
+offers to a collaborator with Advanced Edit, asks for them the same way;
+a refusal there shows its message, and the quick create stays open with
+what was typed.
 
 The next occurrence of a recurring task is a copy of the task, so it
 carries its task type and its estimate.
@@ -682,9 +688,15 @@ block or a quote. Another list item that starts like one has its bracket
 escaped. A list right after a list of its kind takes the other marker
 (``+`` after ``-``, ``)`` after ``.``), so that Markdown keeps the two
 apart: the marker of the list before is that of its own items, not of a
-list nested in its first one. A table cell spans at most 100 columns, and
-rows to the end of its ``thead``, ``tbody`` or ``tfoot`` at most, to that
-end with ``rowspan="0"``. A list number has at most nine digits, however
+list nested in its first one. Right after a list, nested items that open a
+list before its first item are written at its level, not under the last
+item of the list before. A rule that opens a bullet item is written
+``- * * *`` (``- ---`` is a rule of its own), and a nested ordered list not
+numbered from 1 stands a blank line under the paragraph above it, which
+would otherwise read it as its text. A table cell spans at most 100
+columns, and rows to the end of its ``thead``, ``tbody`` or ``tfoot`` at
+most, to that end with ``rowspan="0"``; a span is read as a browser reads
+it (``2px`` spans 2). A list number has at most nine digits, however
 long the number the text gives, as in Markdown, where a line numbered
 with ten or more is no list item.
 

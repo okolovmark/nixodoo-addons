@@ -9,6 +9,7 @@ from . import test_inline_images
 from . import test_line_access
 from . import test_migrations
 from . import test_note_categories
+from . import test_portal_estimate_rule
 from . import test_project_key_rename
 from . import test_pull_request
 from . import test_questions

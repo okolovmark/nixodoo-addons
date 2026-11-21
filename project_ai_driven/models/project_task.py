@@ -182,7 +182,7 @@ class ProjectTask(models.Model):
 
     @property
     def TASK_PORTAL_WRITABLE_FIELDS(self):
-        # on the tasks of an AI-driven project only: _check_portal_estimate_rule_fields
+        # on the tasks of an AI-driven project only: the _check_portal_estimate_rule_* methods
         return super().TASK_PORTAL_WRITABLE_FIELDS | set(ESTIMATE_RULE_FIELDS)
 
     @api.depends("allocated_hours")
@@ -369,8 +369,11 @@ class ProjectTask(models.Model):
         vals = self._without_size(vals)
         former_projects_and_stages = self._get_former_projects_and_stages(vals)
         former_modules = self._get_former_modules(vals)
+        movable_ai_driven_tasks = self._get_portal_movable_ai_driven_tasks(vals)
+        readable_movable_tasks = self._get_readable_tasks(movable_ai_driven_tasks)
         result = super().write(vals)
         self._check_portal_estimate_rule_fields([vals] * len(self))
+        self._check_portal_estimate_rule_moves(movable_ai_driven_tasks, readable_movable_tasks)
         self._restore_given_estimates([vals] * len(self))
         self._check_modules_installed(self._get_added_modules(former_modules))
         moved_tasks = self._filter_moved_from(former_projects_and_stages)
@@ -425,19 +428,21 @@ class ProjectTask(models.Model):
         self._log_stage_moves(vals_list)
         return super()._write_multi(vals_list)
 
-    @api.model
-    def _get_view(self, view_id=None, view_type="form", **options):
+    def _get_view_postprocessed(self, view, arch, **options):
         """A portal user's views keep the fields of the estimate rule read-only
         on a task outside an AI-driven project: a new task, a sub-task added in
-        a list included, would send them, and the save would be refused. Core
-        caches the views of the portal apart (_get_view_cache_key).
+        a list included, would send them, and the save would be refused.
+
+        Here, not in _get_view: core caches what this returns under the key of
+        the task's views, which holds the portal flag (_get_view_cache_key),
+        while the view of another model fetches the list of a task x2many
+        through _get_view and caches it under its own key, which does not.
         """
-        arch, view = super()._get_view(view_id, view_type, **options)
-        if self.env.user._is_portal() and view_type != "search":
+        if self.env.user._is_portal() and arch.tag != "search":
             for node in self._get_estimate_rule_field_nodes(arch):
                 readonly = node.get("readonly")
                 node.set("readonly", "(%s) or not is_ai_driven" % readonly if readonly else "not is_ai_driven")
-        return arch, view
+        return super()._get_view_postprocessed(view, arch, **options)
 
     def action_open_notes(self):
         self.ensure_one()
@@ -650,12 +655,62 @@ class ProjectTask(models.Model):
             if (vals.keys() | default_fields) & set(ESTIMATE_RULE_FIELDS) and not task.project_id.is_ai_driven
         )
         if refused_tasks:
-            raise AccessError(
-                self.env._(
-                    "Only the tasks of an AI-driven project take a Task Type and an Estimate from you.\nTasks: %s",
-                    ", ".join(refused_tasks.mapped("display_name")),
-                )
+            self._raise_portal_estimate_rule_refusal(refused_tasks)
+
+    def _get_portal_movable_ai_driven_tasks(self, vals):
+        """Return, in sudo, the tasks of an AI-driven project that a portal
+        user's write of vals may move to another project: these tasks and the
+        sub-tasks under them, archived ones included, which follow the project
+        of their parent. Removing the parent keeps the project.
+        """
+        may_move_project = "project_id" in vals or bool(vals.get("parent_id"))
+        if self.env.su or not may_move_project or not self.env.user._is_portal():
+            return self.sudo().browse()
+        tasks = self.sudo().with_context(active_test=False)
+        return (tasks | tasks._get_all_subtasks()).filtered("project_id.is_ai_driven")
+
+    @api.model
+    def _get_readable_tasks(self, tasks):
+        """Return those of tasks, archived ones included, the user may read,
+        in the order of the model. A search, not a browse: a value the sudo
+        capture cached passes no read rule.
+        """
+        return self.with_context(active_test=False).search([("id", "in", tasks.ids)])
+
+    def _check_portal_estimate_rule_moves(self, movable_ai_driven_tasks, readable_tasks):
+        """Refuse a portal user a write that took a task with a Task Type or an
+        Estimate out of an AI-driven project into one that is not, where a write
+        of either is refused them: a sub-task that does not show in a project of
+        its own goes with its new parent, and its sub-tasks with it.
+
+        readable_tasks are those the user could read before the write, the
+        state its refusal leaves them in: the refusal names these and counts
+        the others.
+        """
+        moved_tasks = movable_ai_driven_tasks.filtered(
+            lambda task: not task.project_id.is_ai_driven and (task.task_type or task.allocated_hours)
+        )
+        if moved_tasks:
+            self._raise_portal_estimate_rule_refusal(readable_tasks & moved_tasks, moved_tasks - readable_tasks)
+
+    def _raise_portal_estimate_rule_refusal(self, named_tasks, hidden_tasks=None):
+        """Refuse the write of self, naming named_tasks, which the caller found
+        the user may read; hidden_tasks are only counted, under the tasks of
+        self that hold them.
+        """
+        message = self.env._("Only the tasks of an AI-driven project take a Task Type and an Estimate from you.")
+        if named_tasks:
+            # Sudo: the write may have taken a task the user could read out of their reach.
+            message += "\n" + self.env._("Tasks: %s", ", ".join(named_tasks.sudo().mapped("display_name")))
+        if hidden_tasks:
+            written_tasks = self.sudo().with_context(active_test=False)
+            holding_tasks = written_tasks.filtered(lambda task: hidden_tasks & task._get_all_subtasks())
+            message += "\n" + self.env._(
+                "Sub-tasks under %(tasks)s that you cannot see: %(count)s",
+                tasks=", ".join(holding_tasks.mapped("display_name")),
+                count=len(hidden_tasks),
             )
+        raise AccessError(message)
 
     @api.model
     def _get_estimate_rule_field_nodes(self, arch):
