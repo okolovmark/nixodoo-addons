@@ -905,7 +905,7 @@ class ProjectProject(models.Model):
         """Return the card of user, whose open tasks are user_tasks: the current task is the
         in-progress one written last, the others queue in sequence before the backlog.
 
-        Overdue follows the viewer's today, the ETA the user's own _get_member_planning_day."""
+        Overdue follows the viewer's today, the ETA the member's _get_member_planning_day."""
         in_progress_tasks = user_tasks.filtered(lambda task: task.stage_id.is_in_progress)
         backlog_tasks = user_tasks.filtered(lambda task: task.stage_id.is_backlog)
         other_tasks = user_tasks - in_progress_tasks - backlog_tasks
