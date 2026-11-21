@@ -36,7 +36,18 @@
                     </div>
 
                     <div class="px-3 py-2">
-                        <div class="d-flex align-items-start mb-2">
+                        <div t-if="!state.timesheet.task_id" class="d-flex align-items-start mb-2">
+                            <i class="fa fa-folder-open me-2 mt-1 text-muted" role="img" aria-label="Project" title="Project"/>
+                            <div class="flex-grow-1 overflow-hidden">
+                                <strong class="d-block text-truncate text-dark" t-att-title="state.timesheet.project_name">
+                                    <t t-esc="state.timesheet.project_name"/>
+                                </strong>
+                                <div t-if="state.timesheet.description" class="small text-break text-muted">
+                                    <t t-esc="state.timesheet.description"/>
+                                </div>
+                            </div>
+                        </div>
+                        <div t-else="" class="d-flex align-items-start mb-2">
                             <i class="fa fa-tasks me-2 mt-1" style="color: #555;"/>
                             <div class="flex-grow-1 overflow-hidden">
                                 <a t-if="state.timesheet.is_task_readable" href="#"
