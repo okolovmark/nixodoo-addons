@@ -329,6 +329,11 @@ read the same task in one transaction; and the next task of a
 recurrence, and each of its sub-tasks, keeps the Verification of each test
 case that was Not run with one; the tasks created before stay as they are.
 
+The update to 16.0.2.24.0 has no migration and writes nothing on existing
+records; it can run with the server up. From it the kanban card of a task
+names the completion of its test cases *Test cases*, no longer *Your Test
+cases*: the figure counts every case of the task, whoever reads it.
+
 **Coming from project_task_pull_request**
 
 This module declares ``pr_uri`` on the task and ``pr_required_states`` on

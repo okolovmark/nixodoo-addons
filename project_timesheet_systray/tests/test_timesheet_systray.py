@@ -87,6 +87,83 @@ class TestTimesheetSystrayData(TimesheetSystrayCase):
         running = self._running_lines(self.user_dev2, limit=1)
         self.assertFalse(running, "Dev2 should not see dev1's running timer")
 
+    def test_a_zero_hour_line_of_a_project_with_timesheets_off_runs_only_as_the_latest_line_of_the_user(self):
+        project_off = self.env["project.project"].create({"name": "Project Turning Timesheets Off"})
+        task_off = self.env["project.task"].create(
+            {"name": "Task Turning Timesheets Off", "project_id": project_off.id}
+        )
+        line_off = self._create_timesheet(
+            task_off,
+            self.user_dev1,
+            self.employee_dev1,
+            date_time=datetime.now() - timedelta(days=2),
+            logged_by=self.user_dev1,
+        )
+        line_on = self._create_timesheet(
+            self.task_in_progress,
+            self.user_dev1,
+            self.employee_dev1,
+            date_time=datetime.now() - timedelta(days=3),
+            logged_by=self.user_dev1,
+        )
+        project_off.allow_timesheets = False
+        lines_dev1 = self.env["account.analytic.line"].with_user(self.user_dev1)
+
+        self.assertEqual(
+            lines_dev1._get_own_running_lines(), line_off + line_on, "the timer ran when Timesheets went off"
+        )
+        self._create_timesheet(
+            self.task_in_progress,
+            self.user_dev1,
+            self.employee_dev1,
+            unit_amount=1,
+            date_time=datetime.now() - timedelta(days=1),
+            logged_by=self.user_dev1,
+        )
+        self.assertEqual(
+            lines_dev1._get_own_running_lines(),
+            line_on,
+            "a line the user logged time after was forgotten; with Timesheets on, OCA's running timer stays",
+        )
+
+    def test_a_timer_of_a_project_with_timesheets_off_runs_on_after_lines_the_user_did_not_log(self):
+        project_off = self.env["project.project"].create({"name": "Project Turning Timesheets Off"})
+        task_off = self.env["project.task"].create(
+            {"name": "Task Turning Timesheets Off", "project_id": project_off.id}
+        )
+        line_off = self._create_timesheet(
+            task_off,
+            self.user_dev1,
+            self.employee_dev1,
+            date_time=datetime.now() - timedelta(days=2),
+            logged_by=self.user_dev1,
+        )
+        line_off_of_another = self._create_timesheet(
+            task_off, self.user_dev1, self.employee_dev1, date_time=datetime.now() - timedelta(hours=12)
+        )
+        project_off.allow_timesheets = False
+        # An approver logs a line for the user yesterday; the user puts a time off on next week.
+        self._create_timesheet(
+            self.task_in_progress,
+            self.user_dev1,
+            self.employee_dev1,
+            unit_amount=8,
+            date_time=datetime.now() - timedelta(days=1),
+        )
+        self._create_timesheet(
+            self.task_in_progress,
+            self.user_dev1,
+            self.employee_dev1,
+            unit_amount=8,
+            date_time=datetime.now() + timedelta(days=7),
+            logged_by=self.user_dev1,
+        )
+
+        running_lines = self.env["account.analytic.line"].with_user(self.user_dev1)._get_own_running_lines()
+
+        self.assertEqual(running_lines, line_off, "only the user's own timer runs on")
+        self.assertNotIn(line_off_of_another, running_lines)
+
     def test_in_progress_tasks_exclude_folded(self):
         tasks = self._open_tasks(self.user_dev1)
         self.assertIn(self.task_in_progress, tasks)

@@ -130,9 +130,11 @@ Passed, Failed, Waiting or Not applicable.
   such as a test selector. Not run leaves it.
 
 The task carries general comments and a completion percentage: its Passed
-cases over all its cases but the Not applicable ones. Its kanban card counts
-the cases Not run, Failed and Waiting. The **Test Cases** menu opens
-filtered on the cases Not run; remove the *Not run* filter to see them all.
+cases over all its cases but the Not applicable ones. Its kanban card shows
+it as *Test cases: N% Done*, the same figure for every reader, as a case has
+no assignee, and counts the cases Not run, Failed and Waiting. The
+**Test Cases** menu opens filtered on the cases Not run; remove the
+*Not run* filter to see them all.
 Copying a task also copies its checklist items, keeping their states, and
 its test cases, keeping their status, Verified by, Verified on,
 Verification and Automated test reference.

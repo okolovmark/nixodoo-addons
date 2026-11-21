@@ -14,31 +14,37 @@ def _project_label(project):
     return "%s - %s" % (project_key, project_sudo.name) if project_key else project_sudo.name
 
 
-def _web_client_company_ids():
-    """The companies the web client opens a form with: those the request carries, else the `cids`
-    cookie's, read as the 16.0 company service reads it (the user's current company where it names
-    none, or one the user may not use). Timelog RPCs carry none, and an environment without them
-    holds all the user's companies.
-    """
-    if request.env.context.get("allowed_company_ids"):
-        return request.env.companies.ids
-    user = request.env.user
+def _parse_company_ids(company_ids):
+    """`company_ids`, a list or the comma-separated `cids` cookie, as integers; none where malformed."""
+    if isinstance(company_ids, str):
+        company_ids = company_ids.split(",")
     try:
-        company_ids = [int(company_id) for company_id in request.httprequest.cookies.get("cids", "").split(",")]
-    except ValueError:
-        company_ids = []
-    if not company_ids or not set(company_ids) <= set(user.company_ids.ids):
-        company_ids = user.company_id.ids
-    return company_ids
+        return [int(company_id) for company_id in company_ids or []]
+    except (TypeError, ValueError):
+        return []
+
+
+def _web_client_company_ids(tab_company_ids=None):
+    """The companies a web client tab opens a form with: `tab_company_ids`, which the Timelog sends
+    from the tab, else the `cids` cookie's, shared by the browser's tabs; read as the 16.0 company
+    service reads them, the user's current company where they name none or one the user may not use.
+    """
+    user = request.env.user
+    cookie_company_ids = request.httprequest.cookies.get("cids")
+    for company_ids in (_parse_company_ids(tab_company_ids), _parse_company_ids(cookie_company_ids)):
+        if company_ids and set(company_ids) <= set(user.company_ids.ids):
+            return company_ids
+    return user.company_id.ids
 
 
 class TimesheetSystrayController(http.Controller):
     @http.route("/project_timesheet_systray/systray", type="json", auth="user", methods=["POST"])
-    def get_systray_timesheet(self, limit=5, **kwargs):
+    def get_systray_timesheet(self, limit=5, company_ids=None, **kwargs):
         """The user's running timer, or when none runs their tasks in unfolded stages of
         projects with Timesheets on, the most recently logged first; `limit` 0 returns them all.
         `available` is false for a user without Timesheets rights: the header then shows no
-        Timelog item.
+        Timelog item. `company_ids` are those of the web client tab, in which the running
+        timer's task opens or not; not a context, which would narrow the task list.
         """
         TimesheetLine = request.env["account.analytic.line"].sudo(False)
         user = request.env.user
@@ -57,7 +63,7 @@ class TimesheetSystrayController(http.Controller):
         if running:
             return {
                 "running": True,
-                "timesheet": self._format_running_timesheet(running),
+                "timesheet": self._format_running_timesheet(running, company_ids),
                 "tasks": [],
                 "total_tasks": 0,
                 "message": "",
@@ -124,7 +130,7 @@ class TimesheetSystrayController(http.Controller):
         }
 
     @http.route("/project_timesheet_systray/start", type="json", auth="user", methods=["POST"])
-    def start_timer(self, task_id, **kwargs):
+    def start_timer(self, task_id, company_ids=None, **kwargs):
         """Stop the user's running timers and start one on the task, for the user's employee in
         the task's company; the user follows the task again where the time line needs it.
         """
@@ -162,14 +168,14 @@ class TimesheetSystrayController(http.Controller):
             new_line = TimesheetLine._create_with_task_follow(task, lambda: TimesheetLine.create(line_vals))
         return {
             "running": True,
-            "timesheet": self._format_running_timesheet(new_line),
+            "timesheet": self._format_running_timesheet(new_line, company_ids),
             "tasks": [],
             "total_tasks": 0,
             "message": "",
         }
 
     @http.route("/project_timesheet_systray/stop", type="json", auth="user", methods=["POST"])
-    def stop_timer(self, timesheet_id, **kwargs):
+    def stop_timer(self, timesheet_id, company_ids=None, **kwargs):
         """Stop the user's running timer and answer with the task list, as the systray route does."""
         running_line = (
             request.env["account.analytic.line"]._get_own_running_lines().filtered(lambda line: line.id == timesheet_id)
@@ -177,13 +183,13 @@ class TimesheetSystrayController(http.Controller):
         if not running_line:
             return {"error": _("Timer is not running")}
         running_line.button_end_work()
-        return self.get_systray_timesheet()
+        return self.get_systray_timesheet(company_ids=company_ids)
 
-    def _format_running_timesheet(self, line):
+    def _format_running_timesheet(self, line, company_ids=None):
         # Sudo: the line is the user's own, its task may no longer be readable to them (a timesheet
         # manager taken off a task of a followers-only project while the timer runs).
         task_sudo = line.task_id.sudo()
-        task = line.task_id.sudo(False).with_context(allowed_company_ids=_web_client_company_ids())
+        task = line.task_id.sudo(False).with_context(allowed_company_ids=_web_client_company_ids(company_ids))
         is_task_readable = task.check_access_rights("read", raise_exception=False) and bool(
             task._filter_access_rules("read")
         )

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <!-- The previous timer may be a line the rules on time lines hide from the user: no link to it. -->
+    <record id="hr_timesheet_switch_view_form" model="ir.ui.view">
+        <field name="name">hr.timesheet.switch.view.form.inherit.project_timesheet_systray</field>
+        <field name="model">hr.timesheet.switch</field>
+        <field name="inherit_id" ref="project_timesheet_time_control.hr_timesheet_switch_form" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='running_timer_id']" position="attributes">
+                <attribute name="options">{'no_open': True}</attribute>
+            </xpath>
+        </field>
+    </record>
+</odoo>
