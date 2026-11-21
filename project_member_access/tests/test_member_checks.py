@@ -2,7 +2,7 @@ from odoo import Command
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests import tagged
 
-from .common import MemberAccessCommon
+from .common import ROLE_LOGINS, MemberAccessCommon
 
 PULL_REQUEST_URL = "https://example.com/org/repo/pull/1"
 OTHER_PULL_REQUEST_URL = "https://example.com/org/repo/pull/2"
@@ -337,6 +337,35 @@ class TestMemberChecks(MemberAccessCommon):
                 for user in self.editor | self.admin:
                     task = self._create_task(project, user, uat_user_ids=[Command.set(self.reader.ids)])
                     self.assertEqual(task.uat_user_ids, self.reader)
+
+    def test_a_refused_create_names_the_task_without_the_key_it_drew(self):
+        keyed_env = self.env(context=dict(self.env.context, test_project_key=True))
+        members = [Command.create({"user_id": getattr(self, login).id, "role": login}) for login in ROLE_LOGINS]
+        keyed_project = keyed_env["project.project"].create(
+            {
+                "name": "Keyed",
+                "key": "ZQMEMBER",
+                "access_mode": "public",
+                "privacy_visibility": "followers",
+                "member_ids": members,
+            }
+        )
+        Task = keyed_env["project.task"].with_context(default_project_id=keyed_project.id)
+        refused_creates = {
+            "sets its UAT users": {"name": "Tested by a reader", "uat_user_ids": [Command.set(self.reader.ids)]},
+            "closes it or reopens it": {"name": "Closed at once", "state": DONE},
+        }
+        for refusal_end, vals in refused_creates.items():
+            with (
+                self.subTest(refusal=refusal_end),
+                self.assertRefused(AccessError, "Only an assignee of %s, or" % vals["name"], refusal_end),
+            ):
+                Task.with_user(self.contributor).create(vals)
+
+        task = Task.with_user(self.contributor).create({"name": "Saved"})
+        self.assertTrue(task.key.startswith("ZQMEMBER-"), "keys are on, so the refusals had a key to leave out")
+        with self.assertRefused(AccessError, "Only an assignee of %s, or" % task.display_name):
+            task.with_user(self.contributor).write({"uat_user_ids": [Command.set(self.reader.ids)]})
 
     def test_moving_a_task_with_uat_users_in_takes_an_editor(self):
         task = self._create_task(self.standard_project, uat_user_ids=[Command.set(self.reader.ids)])

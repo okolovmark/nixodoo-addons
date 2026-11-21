@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from odoo import Command
-from odoo.exceptions import AccessError
+from odoo.exceptions import AccessError, RedirectWarning
 from odoo.tests import Form
 from odoo.tests.common import HttpCase, tagged
 from odoo.tools import mute_logger
@@ -379,34 +379,56 @@ class TestTaskQuickCreateProjectSharing(ProjectAiDrivenCommon):
 
 @tagged("post_install", "-at_install")
 class TestTaskQuickCreateProjectSharingTour(ProjectAiDrivenCommon, HttpCase):
-    def test_a_refused_quick_create_shows_the_refusal_and_keeps_what_was_typed(self):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
         # "New" opens the quick create in the first column: Development, as no task is left without a stage
-        stage_development = self._create_stage("Development", 1)
-        self.task.stage_id = self._create_stage("Backlog", 2)
-        self.project.write(
-            {"privacy_visibility": "portal", "estimate_required_states": [Command.set(stage_development.ids)]}
-        )
-        collaborator = self._create_collaborator("project_ai_driven_sharing_tour", "advanced_edit", self.project)
+        cls.stage_development = cls._create_stage("Development", 1)
+        cls.task.stage_id = cls._create_stage("Backlog", 2)
+        cls.project.privacy_visibility = "portal"
+        cls.collaborator = cls._create_collaborator("project_ai_driven_sharing_tour", "advanced_edit", cls.project)
 
-        # the refusal the tour provokes is logged by odoo.http as a warning
+    def _start_sharing_tour(self, tour_name):
+        # the refusals the tours provoke are logged by odoo.http
         with mute_logger("odoo.http"):
-            self.start_tour(
-                f"/my/projects/{self.project.id}/project_sharing",
-                "project_ai_driven_sharing_quick_create_refusal",
-                login=collaborator.login,
-            )
+            self.start_tour(f"/my/projects/{self.project.id}/project_sharing", tour_name, login=self.collaborator.login)
+
+    def test_a_refused_quick_create_shows_the_refusal_and_keeps_what_was_typed(self):
+        self.project.estimate_required_states = [Command.set(self.stage_development.ids)]
+
+        self._start_sharing_tour("project_ai_driven_sharing_quick_create_refusal")
 
         self.assertRecordValues(
             self.env["project.task"].search([("name", "=", "Reported without an estimate")]),
             [
                 {
-                    "stage_id": stage_development.id,
+                    "stage_id": self.stage_development.id,
                     "task_type": "bug",
                     "allocated_hours": 2,
-                    "create_uid": collaborator.id,
+                    "create_uid": self.collaborator.id,
                 }
             ],
         )
+
+    def test_a_quick_create_refused_with_a_redirect_shows_its_button(self):
+        projects_action = self.env.ref("project.open_view_project_all")
+
+        def refuse_with_a_redirect(tasks, **kwargs):
+            raise RedirectWarning("Pick the project in the backend.", projects_action.id, "Open the Projects")
+
+        with patch.object(self.registry["project.task"], "_apply_estimate_rule", refuse_with_a_redirect):
+            self._start_sharing_tour("project_ai_driven_sharing_quick_create_redirect")
+
+        self.assertFalse(self.env["project.task"].search([("name", "=", "Reported elsewhere")]))
+
+    def test_a_quick_create_failing_on_the_server_shows_a_portal_user_its_message_alone(self):
+        def fail_on_the_server(tasks, **kwargs):
+            raise RuntimeError("The estimate check is down.")
+
+        with patch.object(self.registry["project.task"], "_apply_estimate_rule", fail_on_the_server):
+            self._start_sharing_tour("project_ai_driven_sharing_quick_create_server_error")
+
+        self.assertFalse(self.env["project.task"].search([("name", "=", "Reported while the server fails")]))
 
 
 @tagged("post_install", "-at_install")
@@ -415,4 +437,7 @@ class TestTaskQuickCreateProjectSharingTourMobile(TestTaskQuickCreateProjectShar
     touch_enabled = True
 
     def test_a_refused_quick_create_shows_the_refusal_and_keeps_what_was_typed(self):
+        """Declared again to run here: Odoo's test loader takes only the test methods a class
+        declares itself, not those it inherits.
+        """
         super().test_a_refused_quick_create_shows_the_refusal_and_keeps_what_was_typed()

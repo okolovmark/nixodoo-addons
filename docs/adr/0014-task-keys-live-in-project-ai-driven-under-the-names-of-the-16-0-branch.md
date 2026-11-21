@@ -1,6 +1,6 @@
 # Task keys live in project_ai_driven, under the names of the 16.0 branch
 
-Status: accepted (2026-11-18)
+Status: accepted (2026-11-18), amended (2026-11-21: a refused create spends the key it drew and names the task by its name only)
 
 The 16.0 branch decided this first. Its record, `docs/adr/0014-task-keys-live-in-project-ai-driven-under-the-names-of-oca-project-key.md` there, holds the alternatives it weighed and every way its keys differ from OCA `project_key`; this one states the decision as it stands on 20.0 and what differs.
 
@@ -30,5 +30,6 @@ A task is referred to by its key, PROJ-1234: in messages, in commits, in links t
 - The project form requires a key, as on 16.0. Keys being off in a test run, a test of another module that saves a project through `Form` without a key fails on the required field.
 - A generated key may clash with the key of a project the user cannot read, in another company for one: the counter searches what the user reads, and the unique constraint then refuses the project.
 - `project_support_request` shows each request's key and creates new requests with theirs; on this branch it reads `key` directly, as `project_ai_driven` is its dependency.
+- Keys may skip numbers. A create that draws its key before the rules (so the assignment notice names it) and is then refused spends that number: the sequences are standard ones, PostgreSQL sequences that a rollback does not undo, like any other failed create. Every refusal of a create by the rules of this module and of project_member_access names the task by its name only, not by the key it never kept (2026-11-21).
 
 Reversal cost: the keys are columns of their own and the sequences records of their own; dropping them takes the fields out of the module and the keys out of every reference made to them since.

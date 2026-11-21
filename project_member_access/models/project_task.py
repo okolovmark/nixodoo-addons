@@ -67,6 +67,7 @@ class ProjectTask(models.Model):
         tasks = super().create(vals_list)
         tasks._revoke_access_tokens()
         if is_role_checked:
+            # a refusal undoes the create and the key it gave: the checks name a task by its name
             tasks._ensure_admin_assigns_on_create()
             tasks._ensure_uat_users_allowed_on_create()
             tasks._ensure_closing_allowed_on_create()
@@ -134,13 +135,13 @@ class ProjectTask(models.Model):
         for task in self.sudo().filtered(
             lambda record: record.uat_user_ids and record.project_id.access_mode in RESTRICTED_ACCESS_MODES
         ):
-            task._ensure_uat_users_change_allowed()
+            task._ensure_uat_users_change_allowed(name_field="name")
 
     def _ensure_closing_allowed_on_create(self):
         for task in self.sudo().filtered(
             lambda record: record.state in CLOSED_STATES and record.project_id.access_mode in RESTRICTED_ACCESS_MODES
         ):
-            task._ensure_moving_on_allowed()
+            task._ensure_moving_on_allowed(name_field="name")
 
     @api.model
     def _get_restricted_listed_stages(self):
@@ -222,7 +223,7 @@ class ProjectTask(models.Model):
             return False
         return set(self._fields[fname].convert_to_cache(vals[fname], self)) != set(self[fname].ids)
 
-    def _ensure_uat_users_change_allowed(self):
+    def _ensure_uat_users_change_allowed(self, name_field="display_name"):
         """Refuse setting the UAT users of this task unless the user is one of its assignees
         or an Editor or Admin of its project.
         """
@@ -230,12 +231,12 @@ class ProjectTask(models.Model):
             raise AccessError(
                 self.env._(
                     "Only an assignee of %(task)s, or an Editor or Admin of %(project)s, sets its UAT users.",
-                    task=self.display_name,
+                    task=self[name_field],
                     project=self.project_id.display_name,
                 )
             )
 
-    def _ensure_moving_on_allowed(self):
+    def _ensure_moving_on_allowed(self, name_field="display_name"):
         """Refuse moving this task to another stage, closing or reopening it, unless the
         user is one of its assignees or an Editor or Admin of its project.
         """
@@ -244,7 +245,7 @@ class ProjectTask(models.Model):
                 self.env._(
                     "Only an assignee of %(task)s, or an Editor or Admin of %(project)s, moves it to another"
                     " stage, closes it or reopens it.",
-                    task=self.display_name,
+                    task=self[name_field],
                     project=self.project_id.display_name,
                 )
             )
@@ -273,9 +274,10 @@ class ProjectTask(models.Model):
         return user in task.user_ids or user in task.project_id.editor_user_ids
 
     def _get_former_projects(self):
-        """Return {task id: project} of self and of all their sub-tasks, archived included."""
-        tasks = self.sudo().with_context(active_test=False).search([("id", "child_of", self.ids)])
-        return {task.id: task.project_id for task in tasks}
+        """Return {task id: project} of self and of all their sub-tasks, archived included, in the
+        order of the model: the first task refused names the project of the refusal.
+        """
+        return {task.id: task.project_id for task in self._get_moving_tasks().sorted()}
 
     def _get_entered_tasks(self, former_projects):
         """Return, in sudo, the tasks of former_projects now in another project, a Public or Private one."""

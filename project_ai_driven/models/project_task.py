@@ -18,6 +18,9 @@ OCCURRENCE_LINE_FIELDS = tuple(field_name for field_name in LINE_FIELDS if field
 # The value of the context key under which core creates the next occurrences: an object of
 # this module, which no RPC call can send, so no caller switches the stage rules off with it.
 NEXT_OCCURRENCE_CREATION = object()
+# The value of the context key under which core creates the tasks of a create, which no RPC call
+# can send: a constraint refusing them names them without the key the create gave and takes back.
+TASK_CREATION = object()
 # Marked for an upgrade or a removal, a module is still installed.
 INSTALLED_MODULE_STATES = ("installed", "to upgrade", "to remove")
 # What the estimate rule asks for, which a portal user writes on the tasks of an AI-driven project only
@@ -41,6 +44,10 @@ def _is_create_command(command):
 
 def is_next_occurrence_creation(env):
     return env.context.get("project_ai_driven_next_occurrence") is NEXT_OCCURRENCE_CREATION
+
+
+def is_task_creation(env):
+    return env.context.get("project_ai_driven_task_creation") is TASK_CREATION
 
 
 class ProjectTask(models.Model):
@@ -342,25 +349,29 @@ class ProjectTask(models.Model):
         """
         tasks = self.filtered(lambda record: not math.isfinite(record.allocated_hours))
         if tasks:
+            name_field = "name" if is_task_creation(self.env) else "display_name"
             raise ValidationError(
                 self.env._(
                     "The Estimate is a finite number of hours: NaN and infinity are refused.\nTasks: %s",
-                    ", ".join(tasks.mapped("display_name")),
+                    ", ".join(tasks.mapped(name_field)),
                 )
             )
 
     @api.model_create_multi
     def create(self, vals_list):
         vals_list, new_items_per_task = self._split_checklist_item_creations(vals_list)
-        tasks = super().create(vals_list)
+        creating_self = self.with_context(project_ai_driven_task_creation=TASK_CREATION)
+        # the marker off: a later write of the tasks names them with their key
+        tasks = super(ProjectTask, creating_self).create(vals_list).with_context(project_ai_driven_task_creation=None)
         # The caller's env: core may return a portal user's tasks in sudo, which the check would skip.
         tasks.with_env(self.env)._check_portal_estimate_rule_fields(vals_list, defaults=True)
         tasks._restore_given_estimates(vals_list)
         # Sudo: a default of the context may set modules too, and a read checks the field's groups.
         tasks._check_modules_installed(tasks.sudo().module_ids)
         if not is_next_occurrence_creation(self.env):
-            tasks._apply_closing_rule()
-            tasks._apply_estimate_rule()
+            # A refusal undoes the create and the key it gave: name the tasks by their name.
+            tasks._apply_closing_rule(name_field="name")
+            tasks._apply_estimate_rule(name_field="name")
         # The caller's env: an override may return the tasks in sudo, past the item's access rights.
         tasks.with_env(self.env)._create_checklist_items(new_items_per_task)
         return tasks
@@ -666,8 +677,17 @@ class ProjectTask(models.Model):
         may_move_project = "project_id" in vals or bool(vals.get("parent_id"))
         if self.env.su or not may_move_project or not self.env.user._is_portal():
             return self.sudo().browse()
+        return self._get_moving_tasks().filtered("project_id.is_ai_driven")
+
+    def _get_moving_tasks(self):
+        """Return, in sudo, these tasks and every sub-task under them, archived
+        ones included: a write of their project or parent may move them, as a
+        sub-task that does not show in a project of its own follows its parent.
+        """
         tasks = self.sudo().with_context(active_test=False)
-        return (tasks | tasks._get_all_subtasks()).filtered("project_id.is_ai_driven")
+        # core reads the sub-task tree by SQL, which a pending change of parent does not reach
+        tasks.flush_model(["parent_id"])
+        return tasks | tasks._get_all_subtasks()
 
     @api.model
     def _get_readable_tasks(self, tasks):
@@ -803,13 +823,13 @@ class ProjectTask(models.Model):
                 )
             )
 
-    def _apply_closing_rule(self):
+    def _apply_closing_rule(self, name_field="display_name"):
         """Run on tasks that just entered a stage. Sudo: a user can write a
         task of a project they cannot read.
         """
         tasks = self.sudo()._filter_closing_rule_tasks()
-        tasks._check_resolution_chosen()
-        tasks._check_code_has_pull_request()
+        tasks._check_resolution_chosen(name_field)
+        tasks._check_code_has_pull_request(name_field)
         tasks._set_resolution_of_pull_request()
 
     def _filter_rule_tasks(self):
@@ -828,18 +848,18 @@ class ProjectTask(models.Model):
             lambda record: record.stage_id in record.project_id.pr_required_states
         )
 
-    def _check_resolution_chosen(self):
+    def _check_resolution_chosen(self, name_field="display_name"):
         unresolved_tasks = self.filtered(lambda record: not record.resolution and not record.pull_request_ids)
         if unresolved_tasks:
             raise ValidationError(
                 self.env._(
                     "Choose a Resolution: a task enters this stage only with one. Code needs a pull"
                     " request on the task; Data, Configuration and No change do not.\nTasks: %s",
-                    ", ".join(unresolved_tasks.mapped("display_name")),
+                    ", ".join(unresolved_tasks.mapped(name_field)),
                 )
             )
 
-    def _check_code_has_pull_request(self):
+    def _check_code_has_pull_request(self, name_field="display_name"):
         code_tasks = self.filtered(lambda record: record.resolution == "code" and not record.pull_request_ids)
         if code_tasks:
             raise ValidationError(
@@ -847,27 +867,27 @@ class ProjectTask(models.Model):
                     "Add a pull request: a task with the Resolution Code enters this stage only with"
                     " one. A task closed without a pull request takes Data, Configuration or No"
                     " change.\nTasks: %s",
-                    ", ".join(code_tasks.mapped("display_name")),
+                    ", ".join(code_tasks.mapped(name_field)),
                 )
             )
 
     def _set_resolution_of_pull_request(self):
         self.filtered(lambda record: not record.resolution and record.pull_request_ids).resolution = "code"
 
-    def _apply_estimate_rule(self):
+    def _apply_estimate_rule(self, name_field="display_name"):
         """Run on tasks that just entered a stage. Sudo: a user can write a
         task of a project they cannot read.
         """
-        self.sudo()._filter_estimate_rule_tasks()._check_type_and_estimate()
+        self.sudo()._filter_estimate_rule_tasks()._check_type_and_estimate(name_field)
 
     def _filter_estimate_rule_tasks(self):
         return self._filter_rule_tasks().filtered(
             lambda record: record.stage_id in record.project_id.estimate_required_states
         )
 
-    def _check_type_and_estimate(self):
+    def _check_type_and_estimate(self, name_field="display_name"):
         refusals = [
-            "%s\n%s" % (requirement, self.env._("Tasks: %s", ", ".join(tasks.mapped("display_name"))))
+            "%s\n%s" % (requirement, self.env._("Tasks: %s", ", ".join(tasks.mapped(name_field))))
             for requirement, tasks in self._get_missing_type_and_estimate()
             if tasks
         ]

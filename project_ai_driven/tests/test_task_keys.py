@@ -284,6 +284,14 @@ class TestTaskKeys(ProjectAiDrivenCommon):
         self.assertEqual(self.sub_task.project_id, self.other_project)
         self.assertEqual((self.parent_task | self.sub_task).mapped("key"), ["ZQOTHER-2", "ZQOTHER-3"])
 
+    def test_the_moving_tasks_take_a_sub_task_whose_parent_is_still_unflushed(self):
+        loose_task = self.Task.create({"name": "Loose", "project_id": self.key_project.id})
+        # in the cache alone, as a compute leaves it: a write's own recomputation flushes the parent
+        with self.env.protecting([self.Task._fields["parent_id"]], loose_task):
+            loose_task.parent_id = self.parent_task
+
+        self.assertEqual(self.parent_task._get_moving_tasks(), self.parent_task | self.sub_task | loose_task)
+
     def test_a_sub_task_in_a_project_of_its_own_stays_there_with_its_key(self):
         own_sub_task = self.Task.create(
             {"name": "Own sub-task", "parent_id": self.parent_task.id, "project_id": self.other_project.id}

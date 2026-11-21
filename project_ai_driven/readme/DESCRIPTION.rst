@@ -412,9 +412,11 @@ an Estimate left at zero, so the rule refuses it, and the kanban then opens
 the form of a new task with the title typed. A column whose stage also
 requires a Resolution still refuses the quick create, which has no
 Resolution. The quick create of a shared project's kanban, which Odoo
-offers to a collaborator with Advanced Edit, asks for them the same way;
-a refusal there shows its message, and the quick create stays open with
-what was typed.
+offers to a collaborator with Advanced Edit, asks for them the same way.
+A refusal there shows the dialog Odoo shows for its kind of error, such as
+a redirect with its button or an expired session, and another server
+error shows a portal user its message alone, without technical details;
+the quick create stays open with what was typed.
 
 The next occurrence of a recurring task is a copy of the task, so it
 carries its task type and its estimate.
@@ -680,25 +682,40 @@ A brief holds, in this order, each part only when it has something to show:
 
 Times are in UTC, the deadline included. The texts become Markdown
 (headings, emphasis, links, lists, tables, code) with no markup left; the
-headings of a text sit below the section that holds it. An item of an
-editor's checklist is a task list item, ``- [x]`` when ticked and ``- [ ]``
-when not, a nested checklist nested items; the box stands on a line of its
-own when the item opens with a heading, a list, a table, a rule, a code
-block or a quote. Another list item that starts like one has its bracket
-escaped. A list right after a list of its kind takes the other marker
-(``+`` after ``-``, ``)`` after ``.``), so that Markdown keeps the two
-apart: the marker of the list before is that of its own items, not of a
-list nested in its first one. Right after a list, nested items that open a
-list before its first item are written at its level, not under the last
-item of the list before. A rule that opens a bullet item is written
-``- * * *`` (``- ---`` is a rule of its own), and a nested ordered list not
-numbered from 1 stands a blank line under the paragraph above it, which
-would otherwise read it as its text. A table cell spans at most 100
-columns, and rows to the end of its ``thead``, ``tbody`` or ``tfoot`` at
-most, to that end with ``rowspan="0"``; a span is read as a browser reads
-it (``2px`` spans 2). A list number has at most nine digits, however
-long the number the text gives, as in Markdown, where a line numbered
-with ten or more is no list item.
+headings of a text sit below the section that holds it. Lists:
+
+* An item of an editor's checklist is a task list item, ``- [x]`` when
+  ticked and ``- [ ]`` when not, a nested checklist nested items; the box
+  stands on a line of its own when the item opens with a heading, a list, a
+  table, a rule, a code block or a quote. Another list item that starts
+  like one has its bracket escaped.
+* A list right after a list of its kind takes the other marker (``+`` after
+  ``-``, ``)`` after ``.``), so that Markdown keeps the two apart: the
+  marker of the list before is that of its own items, not of a list nested
+  in its first one. So does the first item of an ordered list right under
+  nested items that end in an ordered list of its marker, so that each list
+  keeps the numbers a browser shows.
+* A list that opens with nested items, two levels deep or more, stays a
+  list, not code, at the start of a text, after a paragraph, under an item
+  or as an item's first block. Right after a list, those nested items are
+  written at its level, not under the last item of the list before.
+* Text and rules right inside a list, an ``<hr>`` or a block holding only a
+  rule, stand between its parts, and the list goes on after them as at the
+  start of a text; an ordered list keeps its numbers across them. A rule
+  that opens a bullet item is written ``- * * *`` (``- ---`` is a rule of
+  its own).
+* In a list, an ordered list not numbered from 1 stands a blank line under
+  a paragraph above it, one that ends nested items included, which would
+  otherwise read it as its text.
+* The ``start`` of an ordered list is read as a browser reads an integer
+  (``3px`` starts at 3); a negative one starts at 0, as CommonMark writes
+  no lower number. A list number has at most nine digits, however long the
+  number the text gives, as in Markdown, where a line numbered with ten or
+  more is no list item.
+
+A table cell spans at most 100 columns, and rows to the end of its
+``thead``, ``tbody`` or ``tfoot`` at most, to that end with
+``rowspan="0"``; a span is read as a browser reads it (``2px`` spans 2).
 
 * An image or a link that names an attachment, of the task, of a row or of
   any other record, by a relative url or a url on the host of this database
@@ -765,6 +782,11 @@ client, ``/odoo/action-project.action_view_task/<id>``.
   project of its own stays there with its key. Written with its own
   project, a task keeps its key, and a task without one gets the next key
   of that project; its sub-tasks, which do not move, are left as they are.
+* Keys may skip numbers: a task draws its key as it is created, from a
+  standard sequence that a refused or failed create does not take back. A
+  create refused by the closing rule, the estimate rule or an Estimate that
+  is no finite number names its tasks by their names alone, without the key
+  they drew.
 * A copied task gets the next key of its own project, and none without a
   project: the copy keeps no key of its source. So does the next occurrence
   of a recurring task, and a task created from a template.
