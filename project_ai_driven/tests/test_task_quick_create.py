@@ -4,14 +4,13 @@ from unittest.mock import patch
 from odoo import Command
 from odoo.exceptions import AccessError
 from odoo.tests import Form
-from odoo.tests.common import new_test_user, tagged
+from odoo.tests.common import HttpCase, tagged
+from odoo.tools import mute_logger
 
-from .common import NO_ESTIMATE, NO_TYPE, ProjectAiDrivenCommon
+from .common import NO_ESTIMATE, NO_TYPE, NOT_AI_DRIVEN, SHARING_FORM_VIEW, ProjectAiDrivenCommon
 
 QUICK_CREATE_VIEW = "project.quick_create_task_form"
 SHARING_QUICK_CREATE_VIEW = "project.project_sharing_quick_create_task_form"
-SHARING_FORM_VIEW = "project.project_sharing_project_task_view_form"
-NOT_AI_DRIVEN = "Only the tasks of an AI-driven project take a Task Type and an Estimate from you"
 
 
 @tagged("post_install", "-at_install")
@@ -248,18 +247,6 @@ class TestTaskQuickCreateProjectSharing(ProjectAiDrivenCommon):
         )
         cls.user_viewer = cls._create_collaborator("project_ai_driven_sharing_viewer", "view", cls.project)
 
-    @classmethod
-    def _create_collaborator(cls, login, access_mode, projects):
-        user = new_test_user(
-            cls.env,
-            login,
-            groups="base.group_portal",
-            context={"no_reset_password": True},
-            email=login + "@example.com",
-        )
-        projects.collaborator_ids = [Command.create({"partner_id": user.partner_id.id, "access_mode": access_mode})]
-        return user
-
     def _open_quick_create(self, stage, project=None):
         """As a column of the kanban of project sharing opens it."""
         task_model = (
@@ -388,3 +375,44 @@ class TestTaskQuickCreateProjectSharing(ProjectAiDrivenCommon):
                 self.assertRecordValues(
                     parent.child_ids, [{"name": "Sub-task", "allocated_hours": 2 if is_ai_driven else 0}]
                 )
+
+
+@tagged("post_install", "-at_install")
+class TestTaskQuickCreateProjectSharingTour(ProjectAiDrivenCommon, HttpCase):
+    def test_a_refused_quick_create_shows_the_refusal_and_keeps_what_was_typed(self):
+        # "New" opens the quick create in the first column: Development, as no task is left without a stage
+        stage_development = self._create_stage("Development", 1)
+        self.task.stage_id = self._create_stage("Backlog", 2)
+        self.project.write(
+            {"privacy_visibility": "portal", "estimate_required_states": [Command.set(stage_development.ids)]}
+        )
+        collaborator = self._create_collaborator("project_ai_driven_sharing_tour", "advanced_edit", self.project)
+
+        # the refusal the tour provokes is logged by odoo.http as a warning
+        with mute_logger("odoo.http"):
+            self.start_tour(
+                f"/my/projects/{self.project.id}/project_sharing",
+                "project_ai_driven_sharing_quick_create_refusal",
+                login=collaborator.login,
+            )
+
+        self.assertRecordValues(
+            self.env["project.task"].search([("name", "=", "Reported without an estimate")]),
+            [
+                {
+                    "stage_id": stage_development.id,
+                    "task_type": "bug",
+                    "allocated_hours": 2,
+                    "create_uid": collaborator.id,
+                }
+            ],
+        )
+
+
+@tagged("post_install", "-at_install")
+class TestTaskQuickCreateProjectSharingTourMobile(TestTaskQuickCreateProjectSharingTour):
+    browser_size = "375x667"
+    touch_enabled = True
+
+    def test_a_refused_quick_create_shows_the_refusal_and_keeps_what_was_typed(self):
+        super().test_a_refused_quick_create_shows_the_refusal_and_keeps_what_was_typed()

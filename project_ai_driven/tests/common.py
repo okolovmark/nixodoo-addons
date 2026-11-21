@@ -9,6 +9,8 @@ from odoo.tests.common import TransactionCase, new_test_user
 MODULE = "project_ai_driven"
 NO_TYPE = "Choose a Task Type"
 NO_ESTIMATE = "Enter an Estimate above zero hours"
+NOT_AI_DRIVEN = "Only the tasks of an AI-driven project take a Task Type and an Estimate from you"
+SHARING_FORM_VIEW = "project.project_sharing_project_task_view_form"
 
 
 class ProjectAiDrivenCommon(TransactionCase):
@@ -45,6 +47,19 @@ class ProjectAiDrivenCommon(TransactionCase):
     @classmethod
     def _create_project_user(cls, name, login, email):
         return cls._create_user(name, login, email, extra_group="project.group_project_user")
+
+    @classmethod
+    def _create_collaborator(cls, login, access_mode, projects):
+        """Return a portal user who collaborates on projects with access_mode."""
+        user = new_test_user(
+            cls.env,
+            login,
+            groups="base.group_portal",
+            context={"no_reset_password": True},
+            email=login + "@example.com",
+        )
+        projects.collaborator_ids = [Command.create({"partner_id": user.partner_id.id, "access_mode": access_mode})]
+        return user
 
     @classmethod
     def _set_develops_this_odoo(cls, project):
