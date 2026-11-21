@@ -390,6 +390,40 @@ class TestTimesheetSystrayRoutesOverHttp(HttpCase, TimesheetSystrayCase):
                 other_line.invalidate_recordset(["unit_amount"])
                 self.assertEqual(other_line.unit_amount, 0)
 
+    def test_a_zero_hour_line_an_approver_logs_for_the_user_in_a_project_they_cannot_read_shows_and_stops(self):
+        approver = self._create_timesheet_reviewer("hr_timesheet.group_hr_timesheet_approver")
+        project = self._create_project(name="Followers Only Audit", privacy_visibility="followers")
+        project.key = False
+        project.message_subscribe(approver.partner_id.ids)
+        line = self._create_running_line_without_task(
+            project,
+            self.user_dev1,
+            self.employee_dev1,
+            name="Audit walkthrough",
+            date_time=datetime.now() - timedelta(minutes=30),
+            logged_by=approver,
+        ).with_env(self.env)
+        self.env.flush_all()
+        self.assertFalse(self.env["project.project"].with_user(self.user_dev1).search([("id", "=", project.id)]))
+        self.assertFalse(self.env["account.analytic.line"].with_user(self.user_dev1).search([("id", "=", line.id)]))
+        self.authenticate(self.user_dev1.login, DEV1_PASSWORD)
+
+        timesheet = self._result(SYSTRAY_URL)["timesheet"] or {}
+
+        self.assertEqual(
+            (
+                timesheet.get("id"),
+                timesheet.get("project_id"),
+                timesheet.get("project_name"),
+                timesheet.get("description"),
+            ),
+            (line.id, project.id, "Followers Only Audit", "Audit walkthrough"),
+            "a running line is the user's by its user, whoever logged it",
+        )
+        self.assertFalse(self._result(STOP_URL, timesheet_id=line.id)["running"])
+        line.invalidate_recordset(["unit_amount"])
+        self.assertAlmostEqual(line.unit_amount, 0.5, delta=0.05)
+
     def test_a_timer_whose_project_turned_timesheets_off_shows_in_the_systray_until_stopped(self):
         task = self._create_task_of_a_new_project()
         self.authenticate(self.user_dev1.login, DEV1_PASSWORD)

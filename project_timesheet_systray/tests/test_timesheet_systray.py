@@ -34,37 +34,21 @@ class TestTimesheetSystrayData(TimesheetSystrayCase):
         cls.task_done = cls._create_task("Done Task", cls.stage_done, cls.user_dev1)
         cls.task_dev2 = cls._create_task("Dev2 Task", cls.stage_in_progress, cls.user_dev2)
 
-    def _running_lines(self, user, **search_kwargs):
-        return (
-            self.env["account.analytic.line"]
-            .with_user(user)
-            .search(
-                [
-                    ("date_time", "!=", False),
-                    ("user_id", "=", user.id),
-                    ("project_id.allow_timesheets", "=", True),
-                    ("unit_amount", "=", 0),
-                    ("task_id", "!=", False),
-                ],
-                **search_kwargs,
-            )
-        )
+    def _running_lines(self, user):
+        return self.env["account.analytic.line"].with_user(user)._get_own_running_lines()
 
     def _open_tasks(self, user):
         return self.env["project.task"].search([("user_ids", "in", [user.id]), ("stage_id.fold", "=", False)])
 
     def test_running_timer_detected(self):
-        self._create_timesheet(
+        line = self._create_timesheet(
             self.task_in_progress,
             self.user_dev1,
             self.employee_dev1,
             unit_amount=0,
             date_time=datetime.now() - timedelta(minutes=30),
         )
-        running = self._running_lines(self.user_dev1, limit=1, order="date_time desc")
-        self.assertTrue(running, "Running timer should be detected")
-        self.assertEqual(running.task_id, self.task_in_progress)
-        self.assertEqual(running.unit_amount, 0)
+        self.assertEqual(self._running_lines(self.user_dev1), line, "a line of no hours with a start time runs")
 
     def test_completed_timer_not_running(self):
         self._create_timesheet(
@@ -74,19 +58,18 @@ class TestTimesheetSystrayData(TimesheetSystrayCase):
             unit_amount=1.5,
             date_time=datetime.now() - timedelta(hours=2),
         )
-        running = self._running_lines(self.user_dev1, limit=1)
-        self.assertFalse(running, "Completed timesheet line should not be detected as running")
+        self.assertFalse(self._running_lines(self.user_dev1), "a line with hours logged no longer runs")
 
     def test_running_timer_user_isolation(self):
-        self._create_timesheet(
+        line = self._create_timesheet(
             self.task_in_progress,
             self.user_dev1,
             self.employee_dev1,
             unit_amount=0,
             date_time=datetime.now(),
         )
-        running = self._running_lines(self.user_dev2, limit=1)
-        self.assertFalse(running, "Dev2 should not see dev1's running timer")
+        self.assertEqual(self._running_lines(self.user_dev1), line)
+        self.assertFalse(self._running_lines(self.user_dev2), "Dev2 should not see dev1's running timer")
 
     def test_a_zero_hour_line_of_a_project_with_timesheets_off_runs_only_as_the_latest_line_of_the_user(self):
         project_off = self.env["project.project"].create({"name": "Project Turning Timesheets Off"})
@@ -350,6 +333,23 @@ class TestTimesheetSystrayData(TimesheetSystrayCase):
         self.assertEqual(result["unit_amount"], 0)
         self.assertGreater(result["elapsed_seconds"], 2600)
         self.assertLess(result["elapsed_seconds"], 2800)
+
+    def test_the_card_description_is_cut_past_200_characters_with_an_ellipsis(self):
+        line = self._create_timesheet(self.task_in_progress, self.user_dev1, self.employee_dev1)
+        long_text = "Revue de l'analyseur avec l'équipe, étape par étape. " * 20
+        expected_descriptions = {
+            "é" * 199: "é" * 199,
+            "é" * 200: "é" * 200,
+            "é" * 201: "é" * 199 + "…",
+            "é" * 198 + " suite": "é" * 198 + "…",
+            long_text: long_text[:199] + "…",
+            "/": "",
+        }
+        for name, expected_description in expected_descriptions.items():
+            with self.subTest(length=len(name)):
+                line.name = name
+                result = self._call_route(self.env.user, "_format_running_timesheet", line=line)
+                self.assertEqual(result["description"], expected_description)
 
     def test_format_running_timesheet_project_label_with_key(self):
         self._skip_without_keys()

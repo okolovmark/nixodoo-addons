@@ -8,6 +8,8 @@ from odoo.tests.common import TransactionCase
 PULL_REQUEST_MODULE = "project_task_pull_request"
 NO_TYPE = "Choose a Task Type"
 NO_ESTIMATE = "Enter an Estimate above zero hours"
+NO_RESOLUTION = "Choose a Resolution"
+NO_PULL_REQUEST = "Add a pull request"
 
 
 class ProjectAiDrivenCommon(TransactionCase):
@@ -28,13 +30,17 @@ class ProjectAiDrivenCommon(TransactionCase):
         cls.task = cls.env["project.task"].create({"name": "AI-driven Task", "project_id": cls.project.id})
 
     @classmethod
+    def _is_pull_request_module_installed(cls):
+        domain = [("name", "=", PULL_REQUEST_MODULE), ("state", "=", "installed")]
+        return bool(cls.env["ir.module.module"].search_count(domain))
+
+    @classmethod
     def _skip_next_to_pull_request_module(cls):
         """For the setUpClass of a class whose tasks enter a marked stage without
         a pull request: while project_task_pull_request is installed its
         constraint refuses them first, with a message of its own.
         """
-        domain = [("name", "=", PULL_REQUEST_MODULE), ("state", "=", "installed")]
-        if cls.env["ir.module.module"].search_count(domain):
+        if cls._is_pull_request_module_installed():
             raise SkipTest(
                 "%s is installed: its constraint refuses a task without pr_uri in a marked stage"
                 " before the closing rule runs, with its own message" % PULL_REQUEST_MODULE

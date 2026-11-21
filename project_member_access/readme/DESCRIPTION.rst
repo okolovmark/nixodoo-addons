@@ -65,7 +65,8 @@ still members of the project; the others are left out rather than refused.
 A member row keeps its project and its user. Members are added by an Admin
 of the project, or by a Project Administrator to a Standard project and as
 the first Admins of a project made Public or Private. A refusal names no
-record the user cannot read.
+record the user cannot read, and a refused create names its task by its
+name alone, without the key it drew.
 
 **Notifications**
 
