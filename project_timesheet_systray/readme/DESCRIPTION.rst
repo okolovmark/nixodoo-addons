@@ -7,13 +7,17 @@ it: one they logged time after was left behind, not left running, and stays
 as it is.
 
 * With a timer running, the item shows its elapsed time, and its panel the
-  task and its project; *Stop* ends the timesheet line. The timer is the
-  user's own running line, shown and stopped also where the rules on
-  timesheet lines hide it from them (they unfollowed its task), where they
-  cannot read its project or no longer read its task, and where its project
-  had *Timesheets* turned off after it started. A timesheet approver or
-  administrator stops only their own timer here. The task's name opens the
-  task only where they read it in the companies selected in the browser tab.
+  task and its project; *Stop* ends the timesheet line. A timer on a project
+  with no task, such as *Start work* on a project form leaves, shows the
+  project and the description of its line instead, with no task to open.
+  Where more than one runs, the panel shows the one started last, and once
+  it is stopped the next. The timer is the user's own running line, shown
+  and stopped also where the rules on timesheet lines hide it from them
+  (they unfollowed its task or project), where they cannot read its project
+  or no longer read its task, and where its project had *Timesheets* turned
+  off after it started. A timesheet approver or administrator stops only
+  their own timer here. The task's name opens the task only where they read
+  it in the companies selected in the browser tab.
 * With none running, the panel lists the user's tasks in unfolded stages of
   projects with *Timesheets* on, the most recently logged first, five at a
   time with *Show more* for the rest. Each shows the name of its project,
@@ -32,7 +36,8 @@ that fails changes nothing: the stopped timers run on and the follow is
 taken back. *Start work* on a task form and *Resume work* on a timesheet
 line of a task (``project_timesheet_time_control``) do the same. Their
 *Previous timer* is the user's own running timer, also one the rules hide
-from them, and it ends on the start; where more than one runs, they ask, as
+from them or one on a project with no task, and it ends on the start; where
+more than one runs, they ask, as
 ``project_timesheet_time_control`` does, to stop them first, from the
 Timelog or with *Stop* on each running line of the user's timesheets. A line
 added by hand in the task's *Timesheets* tab does not follow the task again:

@@ -40,8 +40,9 @@ def _web_client_company_ids(tab_company_ids=None):
 class TimesheetSystrayController(http.Controller):
     @http.route("/project_timesheet_systray/systray", type="json", auth="user", methods=["POST"])
     def get_systray_timesheet(self, limit=5, company_ids=None, **kwargs):
-        """The user's running timer, or when none runs their tasks in unfolded stages of
-        projects with Timesheets on, the most recently logged first; `limit` 0 returns them all.
+        """The user's running timer, the latest started, on a task or on a project only, or when
+        none runs their tasks in unfolded stages of projects with Timesheets on, the most recently
+        logged first; `limit` 0 returns them all.
         `available` is false for a user without Timesheets rights: the header then shows no
         Timelog item. `company_ids` are those of the web client tab, in which the running
         timer's task opens or not; not a context, which would narrow the task list.
@@ -59,7 +60,7 @@ class TimesheetSystrayController(http.Controller):
                 "message": "",
             }
 
-        running = TimesheetLine._get_own_running_lines().filtered("task_id")[:1]
+        running = TimesheetLine._get_own_running_lines()[:1]
         if running:
             return {
                 "running": True,
@@ -176,7 +177,8 @@ class TimesheetSystrayController(http.Controller):
 
     @http.route("/project_timesheet_systray/stop", type="json", auth="user", methods=["POST"])
     def stop_timer(self, timesheet_id, company_ids=None, **kwargs):
-        """Stop the user's running timer and answer with the task list, as the systray route does."""
+        """Stop the user's running timer and answer as the systray route does: the timer still
+        running, else the task list."""
         running_line = (
             request.env["account.analytic.line"]._get_own_running_lines().filtered(lambda line: line.id == timesheet_id)
         )
@@ -186,9 +188,10 @@ class TimesheetSystrayController(http.Controller):
         return self.get_systray_timesheet(company_ids=company_ids)
 
     def _format_running_timesheet(self, line, company_ids=None):
-        # Sudo: the line is the user's own, its task may no longer be readable to them (a timesheet
-        # manager taken off a task of a followers-only project while the timer runs).
+        # Sudo: the line is the user's own, its task or project may no longer be readable to them (a
+        # timesheet manager taken off a task of a followers-only project while the timer runs).
         task_sudo = line.task_id.sudo()
+        project_sudo = task_sudo.project_id or line.project_id.sudo()
         task = line.task_id.sudo(False).with_context(allowed_company_ids=_web_client_company_ids(company_ids))
         is_task_readable = task.check_access_rights("read", raise_exception=False) and bool(
             task._filter_access_rules("read")
@@ -203,8 +206,10 @@ class TimesheetSystrayController(http.Controller):
             "task_name": task_sudo.name,
             "task_key": _record_key(task_sudo),
             "is_task_readable": is_task_readable,
-            "project_id": task_sudo.project_id.id,
-            "project_name": _project_label(task_sudo.project_id),
+            "project_id": project_sudo.id,
+            "project_name": _project_label(project_sudo),
+            # "/" is what hr_timesheet writes on a line created without a description.
+            "description": "" if line.name in (False, "/") else line.name,
             "date_time": str(line.date_time) if line.date_time else "",
             "unit_amount": line.unit_amount,
             "elapsed_seconds": elapsed,

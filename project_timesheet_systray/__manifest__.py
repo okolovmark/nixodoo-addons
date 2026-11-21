@@ -1,7 +1,7 @@
 {
     "name": "Project Timesheet Systray",
     "summary": "A timesheet timer in the header: start and stop it on your open tasks",
-    "version": "16.0.1.0.4",
+    "version": "16.0.1.0.5",
     "category": "Services/Project",
     "author": "Mark Okolov",
     "website": "https://github.com/okolovmark/nixodoo-addons",

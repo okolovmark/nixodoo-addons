@@ -47,7 +47,9 @@ class AccountAnalyticLine(models.Model):
             ("date_time", "!=", False),
         ]
         own_lines_sudo = self.sudo()
-        running_lines = own_lines_sudo.search(own_time_line_domain + [("unit_amount", "=", 0)], order="date_time desc")
+        running_lines = own_lines_sudo.search(
+            own_time_line_domain + [("unit_amount", "=", 0)], order="date_time desc, id desc"
+        )
         lines_off = running_lines.filtered(lambda line: not line.project_id.allow_timesheets)
         if not lines_off:
             return running_lines
