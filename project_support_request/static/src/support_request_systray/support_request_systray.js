@@ -66,7 +66,7 @@ export class SupportRequestSystray extends Component {
     async _fetchConfig() {
         try {
             const config = await this.rpc("/project_support_request/config", {});
-            this.state.taskTypes = config.task_types || [];
+            this.state.taskTypes = config.task_types;
         } catch {
             this.state.taskTypes = [];
         }
@@ -79,10 +79,10 @@ export class SupportRequestSystray extends Component {
                 tab: this.state.activeTab,
             });
             this.state.configured = result.configured;
-            this.state.bugsCount = result.bugs_count || 0;
-            this.state.othersCount = result.others_count || 0;
-            this.state.tickets = result.tickets || [];
-            this.state.total = result.total || 0;
+            this.state.bugsCount = result.bugs_count;
+            this.state.othersCount = result.others_count;
+            this.state.tickets = result.tickets;
+            this.state.total = result.total;
         } catch {
             this.state.configured = false;
             this.state.tickets = [];
@@ -212,7 +212,7 @@ export class SupportRequestSystray extends Component {
         try {
             const result = await this.rpc("/project_support_request/create", {
                 name: this.state.createName.trim(),
-                task_type: this.state.createType || "bug",
+                task_type: this.state.createType,
             });
             if (result.error) {
                 this.notification.add(result.error, { type: "warning" });
@@ -239,8 +239,7 @@ export class SupportRequestSystray extends Component {
                 tab: this.state.activeTab,
                 limit: 0,
             });
-            this.state.tickets = result.tickets || [];
-            this.state.total = result.total || 0;
+            this.state.tickets = result.tickets;
             this.state.showAll = true;
         } catch {
             this.notification.add(this.env._t("Error loading support requests"), { type: "danger" });

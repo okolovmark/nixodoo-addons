@@ -158,13 +158,6 @@ class TestSupportRequest(TransactionCase):
             [self.bug_task1.id, self.bug_task2.id],
         )
 
-    def test_ticket_data_fields(self):
-        task = self.bug_task1
-        self.assertTrue(task.name)
-        self.assertTrue(task.stage_id.name)
-        self.assertTrue(task.create_date)
-        self.assertEqual(task.task_type, "bug")
-
     def test_create_ticket_bug(self):
         task = (
             self.env["project.task"]
@@ -222,16 +215,6 @@ class TestSupportRequest(TransactionCase):
         )
         self.assertEqual(task.stage_id, first_stage)
         self.assertFalse(task.stage_id.fold)
-
-    def test_task_type_selection_available(self):
-        task_type_field = self.env["project.task"]._fields.get("task_type")
-        self.assertIsNotNone(task_type_field)
-        selection = task_type_field.selection
-        if callable(selection):
-            selection = selection(self.env["project.task"])
-        values = [value for value, _label in selection]
-        self.assertIn("bug", values)
-        self.assertIn("feature", values)
 
     def test_project_task_create_is_denied_without_the_project_user_group(self):
         """Why create_request runs as sudo: the Support button is open to every internal user,

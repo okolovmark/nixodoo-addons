@@ -30,8 +30,8 @@ Odoo, as tasks of the project flagged **Develops This Odoo**
   user for one, the item's routes name no project, list nothing and refuse
   to create a request.
 
-The task key (``key``) is shown before the title where a module of the
-database declares it, such as OCA ``project_key``.
+Where a request has a task key (``key``, from ``project_ai_driven``), it is
+shown before the title.
 
 The task types of *New Support Request* are labelled in the user's
 language, and every text of the item is translatable: its labels and
