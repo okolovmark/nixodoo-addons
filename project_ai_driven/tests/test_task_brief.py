@@ -1,3 +1,4 @@
+import sys
 from datetime import datetime
 from unittest.mock import patch
 
@@ -107,6 +108,14 @@ class TestHtmlToMarkdown(TransactionCase):
             "- Plain\n  - [x] Ticked\n\n+ [ ] Box\n  1. one",
         )
 
+    def test_an_item_in_a_block_in_a_checklist_has_no_box(self):
+        """The editor draws the box of an item right in the checklist only."""
+        self.assertMarkdown('<ul class="o_checklist"><li>a</li><div><li>b</li></div></ul>', "- [ ] a\n- b")
+        self.assertMarkdown(
+            '<ul class="o_checklist"><li>a</li><div>t<li class="o_checked">b</li></div></ul>', "- [ ] a\n\nt\n\n- b"
+        )
+        self.assertMarkdown('<ul class="o_checklist"><div><li>[ ] b</li></div></ul>', "- \\[ ] b")
+
     def test_a_list_right_after_a_list_of_its_marker_takes_the_other_one(self):
         self.assertMarkdown(
             "<ul><li>a</li></ul><p><br></p><ul><li>b</li></ul><div><ul><li>c</li></ul></div>"
@@ -180,7 +189,6 @@ class TestHtmlToMarkdown(TransactionCase):
         self.assertMarkdown(
             "<ol><li><hr></li></ol><ul><li>a<hr>b</li></ul><hr>", "1. ---\n\n- a\n\n  ---\n\n  b\n\n---"
         )
-        self.assertMarkdown("<ul><li>a</li><div><hr><li>b</li></div><li>c</li></ul>", "- a\n- * * *\n\n  b\n- c")
 
     def test_a_nested_list_not_numbered_from_one_is_a_paragraph_apart_from_the_item_text(self):
         """CommonMark lets only an ordered list from 1 start right under a paragraph: another is its text."""
@@ -289,6 +297,61 @@ class TestHtmlToMarkdown(TransactionCase):
     def test_a_block_holding_an_item_of_the_list_keeps_it_numbered(self):
         self.assertMarkdown("<ol><li>a</li><div><li>b</li></div><li>c</li></ol>", "1. a\n2. b\n3. c")
 
+    def test_what_a_block_holds_beside_an_item_of_the_list_stands_between_its_parts(self):
+        """A browser numbers the item in the list and shows the rest as it shows it right in the list."""
+        self.assertMarkdown("<ol><li>a</li><div>x<li>b</li></div><li>c</li></ol>", "1. a\n\nx\n\n2. b\n3. c")
+        self.assertMarkdown("<ol><li>a</li><div><li>b</li>y</div><li>c</li></ol>", "1. a\n2. b\n\ny\n\n3. c")
+        self.assertMarkdown("<ol><li>a</li><div><li>b</li></div>y<li>c</li></ol>", "1. a\n2. b\n\ny\n\n3. c")
+        self.assertMarkdown("<ol><li>a</li><div><div>x</div><li>b</li></div><li>c</li></ol>", "1. a\n\nx\n\n2. b\n3. c")
+        self.assertMarkdown(
+            "<ol><li>a</li>Loose<div>x<li>b</li></div><li>c</li></ol>", "1. a\n\nLoose\n\nx\n\n2. b\n3. c"
+        )
+        self.assertMarkdown("<ul><li>a</li><div><hr><li>b</li></div><li>c</li></ul>", "- a\n\n---\n\n- b\n- c")
+
+    def test_a_reversed_list_counts_the_items_its_blocks_hold(self):
+        self.assertMarkdown("<ol reversed><li>a</li><div>x<li>b</li></div><li>c</li></ol>", "3. a\n\nx\n\n2. b\n1) c")
+        self.assertMarkdown(
+            "<ol reversed><li>a</li><blockquote><li>b</li></blockquote><li>c</li></ol>", "3. a\n2) > b\n1. c"
+        )
+
+    def test_a_quote_holding_only_lists_right_in_a_list_stands_between_its_parts(self):
+        self.assertMarkdown(
+            "<ul><li>a</li><blockquote><ul><li>q</li></ul></blockquote><li>b</li></ul>", "- a\n\n> - q\n\n- b"
+        )
+        self.assertMarkdown(
+            "<ol><li>a</li><blockquote><ol><li>q</li></ol></blockquote><li>b</li></ol>", "1. a\n\n> 1. q\n\n2. b"
+        )
+
+    def test_items_a_code_block_cut_off_their_list_show_as_a_bullet_list(self):
+        """The HTML parser closes a bullet list at a code block right in it: the items after it stand in no list,
+        where a browser shows them as bullet items, whatever the list was.
+        """
+        self.assertMarkdown("<ul><li>a</li><pre>x</pre><li>b</li><li>c</li></ul>", "- a\n\n```\nx\n```\n\n- b\n- c")
+        self.assertMarkdown("<ol><li>a</li></ol><pre>x</pre><li>b</li>", "1. a\n\n```\nx\n```\n\n- b")
+
+    def test_stray_items_show_as_a_bullet_list_wherever_they_stand(self):
+        self.assertMarkdown("<p>p</p><li>a</li><li>b</li>", "p\n\n- a\n- b")
+        self.assertMarkdown("<li>a</li>t<li>b</li> <li>c</li>", "- a\n\nt\n\n- b\n- c")
+        self.assertMarkdown("<div><li>a</li></div><blockquote><li>b</li><li>c</li></blockquote>", "- a\n\n> - b\n> - c")
+        self.assertMarkdown("<table><tr><td><li>a</li><li>b</li></td></tr></table>", "| - a - b |\n| --- |")
+
+    def test_stray_items_right_after_a_list_of_their_marker_take_the_other_one(self):
+        """A browser shows them apart from the list, whose items stand further in."""
+        self.assertMarkdown("<ul><li>a</li></ul><li>b</li>", "- a\n\n+ b")
+        self.assertMarkdown("<ul><li>a</li></ul><li>b</li><p>t</p>", "- a\n\n+ b\n\nt")
+        self.assertMarkdown("<ul><li>a</li></ul><div><li>b</li></div>", "- a\n\n+ b")
+        self.assertMarkdown("<li>a</li><ul><li>b</li></ul>", "- a\n\n+ b")
+
+    def test_a_stray_item_holds_what_an_item_of_a_list_holds(self):
+        self.assertMarkdown("<li>a<ul><li>b</li></ul></li><li>c</li>", "- a\n  - b\n- c")
+        self.assertMarkdown('<li>a</li><li class="oe-nested"><ul><li>n</li></ul></li><li>b</li>', "- a\n  - n\n- b")
+        self.assertMarkdown("<li>a<div><li>b</li></div></li>", "- a\n  - b")
+
+    def test_an_item_in_a_block_in_a_list_is_no_stray_item(self):
+        """The list around it writes it, as an item of its own or in the item the block makes."""
+        self.assertMarkdown("<ul><li>a</li><div>t<li>b</li></div></ul>", "- a\n\nt\n\n- b")
+        self.assertMarkdown("<ul><li>a</li><blockquote><li>b</li></blockquote></ul>", "- a\n- > b")
+
     def test_a_block_right_in_a_list_is_searched_for_its_items_outside_its_nested_lists_only(self):
         """The items of a nested list are its own: a chain of blocks each holding a list costs its length only."""
         created_elements = []
@@ -323,10 +386,8 @@ class TestHtmlToMarkdown(TransactionCase):
             "2. v\n1) x\n\n1. y",
         )
 
-    def test_empty_blocks_right_in_a_list_read_its_nested_lines_once(self):
-        """Each block between the parts of a list reads the last line of the list at its level: on from the lines
-        read for the block before, or a run of empty blocks after many nested lines takes quadratic time.
-        """
+    def _count_lines_read(self, html_content):
+        """How many lines html_to_markdown reads for the last line of a block, as _get_last_line does."""
         get_last_line = html_markdown._get_last_line
         read_line_counts = []
 
@@ -334,6 +395,60 @@ class TestHtmlToMarkdown(TransactionCase):
             read_line_counts.append(len(lines))
             return get_last_line(lines, *args)
 
+        with patch.object(html_markdown, "_get_last_line", read_last_line):
+            html_to_markdown(html_content)
+        return sum(read_line_counts)
+
+    def _count_lines_run(self, html_content):
+        """How many lines of the converter html_to_markdown runs: its work, whatever code does it."""
+        converter_globals = vars(html_markdown)
+        line_count = 0
+
+        def count_line(_frame, event, _arg):
+            nonlocal line_count
+            if event == "line":
+                line_count += 1
+            return count_line
+
+        def trace_converter(frame, _event, _arg):
+            return count_line if frame.f_globals is converter_globals else None
+
+        previous_trace = sys.gettrace()
+        sys.settrace(trace_converter)
+        try:
+            html_to_markdown(html_content)
+        finally:
+            sys.settrace(previous_trace)
+        return line_count
+
+    def test_a_run_of_empty_ordered_items_costs_its_length_only(self):
+        """The empty items waiting are made items once a line follows them, not at each block after them, or a
+        run of them takes quadratic time.
+        """
+        for empty_item in ("<li><br></li>", "<li></li>", "<li><p><br></p></li>", "<li><br></li><div></div>"):
+            for list_end in ("", "<li>z</li>"):
+                with self.subTest(empty_item=empty_item, list_end=list_end):
+                    short_run, long_run = (
+                        self._count_lines_run("<ol>%s%s</ol>" % (empty_item * run_length, list_end))
+                        for run_length in (300, 600)
+                    )
+                    self.assertLess(long_run, 2.5 * short_run)
+
+    def test_a_chain_of_blocks_holding_an_item_right_in_a_list_costs_its_length_only(self):
+        """The chain is searched for items once, and what it holds goes to the list past no block of it, or a
+        long chain takes its length times what it holds.
+        """
+        for block in ("<p>y</p>", "<li>y</li>"):
+            with self.subTest(block=block):
+                short_chain, long_chain = (
+                    "<ol>%s<li>x</li>%s%s</ol>" % ("<div>" * depth, block * 100, "</div>" * depth) for depth in (10, 40)
+                )
+                self.assertLess(self._count_lines_run(long_chain), 1.5 * self._count_lines_run(short_chain))
+
+    def test_empty_blocks_right_in_a_list_read_its_nested_lines_once(self):
+        """Each block between the parts of a list reads the last line of the list at its level: on from the lines
+        read for the block before, or a run of empty blocks after many nested lines takes quadratic time.
+        """
         count = 300
         for html_content in (
             "<ul><li>a</li><ul>%s</ul>%s</ul>" % ("<li>x</li>" * count, "<p><br></p>" * count),
@@ -341,10 +456,21 @@ class TestHtmlToMarkdown(TransactionCase):
             '<ol><li>a</li><li class="oe-nested"><ol>%s</ol></li>%s</ol>'
             % ("<li>x</li>" * count, "<div></div>" * count),
         ):
-            read_line_counts.clear()
-            with patch.object(html_markdown, "_get_last_line", read_last_line):
-                html_to_markdown(html_content)
-            self.assertLess(sum(read_line_counts), 5 * count)
+            self.assertLess(self._count_lines_read(html_content), 5 * count)
+
+    def test_lists_writing_nothing_read_nothing_of_the_block_before_them(self):
+        """A list reads the block before it for its marker only as it writes a line, or a run of empty lists after
+        a long block takes quadratic time.
+        """
+        count = 300
+        long_list = "<ul>%s</ul>" % ("<li>x</li>" * count)
+        for html_content in (
+            long_list + "<ul></ul>" * count,
+            "<ul><li>a<ul>%s</ul></li>%s</ul>" % ("<li>x</li>" * count, "<ul></ul>" * count),
+            long_list + "<div><ul><ul></ul></ul></div>" * count,
+            long_list + "<ol><li><br></li></ol>" * count,
+        ):
+            self.assertLess(self._count_lines_read(html_content), count)
 
     def test_a_list_in_a_block_right_in_a_list_opening_a_list_takes_no_indent_of_its_own(self):
         """The list the block is in indents it already: four spaces would make its lines text of the block."""
@@ -537,6 +663,70 @@ class TestHtmlToMarkdown(TransactionCase):
         )
         self.assertMarkdown(
             '<ol reversed start="1"><li>a</li><li>b</li><li>c</li><li value="0">d</li></ol>', "1. a\n0) b\n0. c\n0) d"
+        )
+
+    def test_an_empty_ordered_item_shows_its_number_where_an_item_or_nested_lines_follow_it(self):
+        """CommonMark would give the items after it other numbers; one ending a part of the list, or an empty
+        bullet item, changes no number and is left out.
+        """
+        for html_content, markdown in (
+            ("<ol><li>a</li><li><br></li><li>b</li></ol>", "1. a\n2.\n3. b"),
+            ("<ol><li><br></li><li></li><li>b</li></ol>", "1.\n2.\n3. b"),
+            ('<ol><li>a</li><li value="7"><br></li><li>b</li></ol>', "1. a\n7)\n8) b"),
+            ("<ol reversed><li>a</li><li><br></li><li>b</li></ol>", "3. a\n2)\n1. b"),
+            ("<ol><li>a</li><div><li><br></li></div><li>b</li></ol>", "1. a\n2.\n3. b"),
+            ("<ol><li><p>a</p><p>b</p></li><li><br></li><li>c</li></ol>", "1. a\n\n   b\n2.\n3. c"),
+            ("<ol><li>a</li><p>x</p><li><br></li><li>b</li></ol>", "1. a\n\nx\n\n2.\n3. b"),
+            ("<ul><li>a<ol><li>x</li><li><br></li><li>y</li></ol></li></ul>", "- a\n  1. x\n  2.\n  3. y"),
+            (
+                '<ol><li>a</li><li><br></li><li class="oe-nested"><ol><li>x</li></ol></li><li>b</li></ol>',
+                "1. a\n2.\n   1. x\n3. b",
+            ),
+            ("<ol><li>a</li><li><br></li></ol>", "1. a"),
+            ("<ol><li>a</li><li><br></li><p>x</p><li>b</li></ol>", "1. a\n\nx\n\n3. b"),
+            ("<ul><li>a</li><li><br></li><li>b</li></ul>", "- a\n- b"),
+        ):
+            with self.subTest(html_content=html_content):
+                self.assertMarkdown(html_content, markdown)
+
+    def test_what_goes_under_an_empty_item_goes_right_under_it(self):
+        """A blank line would end the item, which CommonMark lets begin with one blank line at most."""
+        self.assertMarkdown(
+            '<ol><li>a</li><li><br></li><li class="oe-nested"><ol>Loose<li>x</li></ol></li></ol>',
+            "1. a\n2.\n   Loose\n   1. x",
+        )
+        self.assertMarkdown(
+            '<ol><li>a</li><li><br></li><li class="oe-nested"><ol start="3"><li>x</li></ol></li></ol>',
+            "1. a\n2.\n   3. x",
+        )
+        self.assertMarkdown(
+            '<ol><li>a</li><li><br></li><li class="oe-nested"><ol><li class="oe-nested"><ol><li>y</li></ol></li>'
+            "<li>x</li></ol></li></ol>",
+            "1. a\n2.\n   1. y\n   1) x",
+        )
+
+    def test_a_list_opening_with_an_empty_item_is_a_paragraph_apart_from_the_text_above_it(self):
+        """CommonMark lets no empty item interrupt a paragraph: it would be text of it."""
+        self.assertMarkdown("<ul><li>t<ol><li><br></li><li>b</li></ol></li></ul>", "- t\n\n  1.\n  2. b")
+        self.assertMarkdown(
+            '<ol><li>t</li><li class="oe-nested"><ol><li><br></li><li>b</li></ol></li></ol>', "1. t\n\n   1.\n   2. b"
+        )
+        self.assertMarkdown(
+            '<ol><li class="oe-nested"><ol><li>x</li>Loose</ol></li><li><br></li><li>b</li></ol>',
+            "  1. x\n\n  Loose\n\n1.\n2. b",
+        )
+        self.assertMarkdown(
+            "<ul><li>a<ol><li>x</li><p>note</p><li><br></li><li>y</li></ol></li></ul>",
+            "- a\n  1. x\n\n  note\n\n  2.\n  3. y",
+        )
+        self.assertMarkdown(
+            '<ul class="o_checklist"><li><ol><li><br></li><li>b</li></ol></li></ul>', "- [ ]\n\n  1.\n  2. b"
+        )
+
+    def test_the_list_after_one_ending_under_an_empty_item_takes_the_other_marker(self):
+        self.assertMarkdown(
+            '<ol><li>a</li><li><br></li><li class="oe-nested"><ul><li>x</li></ul></li></ol><ol><li>b</li></ol>',
+            "1. a\n2.\n   - x\n\n1) b",
         )
 
     def test_a_checklist_item_opening_with_a_code_block_or_a_quote_has_its_box_alone(self):
