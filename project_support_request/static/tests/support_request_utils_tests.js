@@ -62,8 +62,9 @@ QUnit.module(
             assert.strictEqual(ticketAge("2026-11-19 10:32:00", now), "0m ago");
         });
 
-        QUnit.test("a request without a create date has no age", (assert) => {
-            assert.strictEqual(ticketAge(""), "");
+        QUnit.test("a create date with microseconds reads as one without", (assert) => {
+            const now = DateTime.fromISO("2026-11-19T10:30:00Z");
+            assert.strictEqual(ticketAge("2026-11-19 07:15:00.123456", now), "3h ago");
         });
 
         QUnit.test("the age reads in the user's language", (assert) => {

@@ -26,13 +26,11 @@ export function priorityDot(priorityLevel) {
 }
 
 /**
- * How long ago a request was created, from the server's UTC create date ("YYYY-MM-DD HH:MM:SS");
- * a client clock behind the server's makes it 0m, not a negative age.
+ * How long ago a request was created, from the server's UTC create date as `str()` of a Python
+ * datetime: "YYYY-MM-DD HH:MM:SS", with ".ffffff" when it has microseconds. A client clock behind
+ * the server's makes it 0m, not a negative age.
  */
 export function ticketAge(createDate, now = DateTime.now()) {
-    if (!createDate) {
-        return "";
-    }
     const minutes = Math.max(0, Math.floor(now.diff(deserializeDateTime(createDate), "minutes").minutes));
     if (minutes < 60) {
         return sprintf(_t("%sm ago"), minutes);

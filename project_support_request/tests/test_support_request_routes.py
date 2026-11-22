@@ -68,6 +68,43 @@ class TestSupportRequestRoutes(HttpCase):
         )
         self.assertEqual([ticket["id"] for ticket in systray["tickets"]], [task.id])
 
+    def test_a_filed_request_answers_with_the_key_of_its_task(self):
+        self.project.with_context(test_project_key=True).key = "ZQSUP"
+        self.authenticate(self.internal_user.login, self.internal_user.login)
+
+        # Task keys are off under test_enable unless the request's context switches them on.
+        ticket = self._result(CREATE_URL, name="Filed with a key", task_type="bug", context={"test_project_key": True})
+
+        task = self.env["project.task"].browse(ticket["ticket_id"])
+        self.assertEqual((ticket["ticket_key"], task.key), ("ZQSUP-1", "ZQSUP-1"))
+
+    def test_the_systray_lists_a_request_with_the_fields_the_widget_shows(self):
+        self.project.with_context(test_project_key=True).key = "ZQSYS"
+        self.authenticate(self.internal_user.login, self.internal_user.login)
+        ticket = self._result(
+            CREATE_URL, name="Listed with its fields", task_type="bug", context={"test_project_key": True}
+        )
+        task = self.env["project.task"].browse(ticket["ticket_id"])
+        task.priority_level = "4"
+
+        tickets = self._result(SYSTRAY_URL, tab="bugs", limit=0)["tickets"]
+
+        self.assertEqual(
+            tickets,
+            [
+                {
+                    "id": task.id,
+                    "key": "ZQSYS-1",
+                    "name": "Listed with its fields",
+                    "task_type": "bug",
+                    "stage_name": self.stage_open.name,
+                    "priority_level": "4",
+                    "create_date": str(task.create_date),
+                    "sequence": task.sequence,
+                }
+            ],
+        )
+
     def test_the_task_types_are_labelled_in_the_users_language(self):
         self.env["res.lang"]._activate_lang("fr_FR")
         self.env["ir.model.fields"]._get("project.task", "task_type").selection_ids.filtered(

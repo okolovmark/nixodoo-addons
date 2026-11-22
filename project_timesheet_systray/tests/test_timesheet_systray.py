@@ -1,13 +1,9 @@
 from datetime import datetime, timedelta
-from types import SimpleNamespace
-from unittest.mock import patch
 
 from odoo import Command
 from odoo.tests.common import tagged
 
 from .common import TimesheetSystrayCase
-from odoo.addons.project_timesheet_systray.controllers import project_timesheet_systray as controller
-from odoo.addons.project_timesheet_systray.controllers.project_timesheet_systray import TimesheetSystrayController
 
 RUNNING_TIMER_FIELDS = (
     "id",
@@ -426,9 +422,8 @@ class TestTimesheetSystrayTaskData(TimesheetSystrayCase):
         )
 
     def test_in_progress_task_list_project_label_with_key(self):
-        dev1_request = SimpleNamespace(env=self.env(user=self.user_dev1))
-        with patch.object(controller, "request", dev1_request):
-            result = TimesheetSystrayController().get_systray_timesheet(limit=0)
+        result = self._call_route(self.user_dev1, "get_systray_timesheet", limit=0)
+
         self.assertTrue(self.task1.key and self.task2.key, "the tasks of a keyed project get keys")
         self.assertEqual(
             {task_data["task_id"]: (task_data["project_name"], task_data["task_key"]) for task_data in result["tasks"]},
@@ -513,9 +508,9 @@ class TestTimesheetSystrayRoutes(TimesheetSystrayCase):
     def test_the_task_list_labels_a_project_without_a_key_by_its_name(self):
         self.project.key = False
         task = self._create_task("Keyless Task", self.stage_in_progress, self.user_dev1)
-        dev1_request = SimpleNamespace(env=self.env(user=self.user_dev1))
-        with patch.object(controller, "request", dev1_request):
-            result = TimesheetSystrayController().get_systray_timesheet(limit=0)
+
+        result = self._call_route(self.user_dev1, "get_systray_timesheet", limit=0)
+
         self.assertEqual(
             [(task_data["task_id"], task_data["project_name"]) for task_data in result["tasks"]],
             [(task.id, self.project.name)],

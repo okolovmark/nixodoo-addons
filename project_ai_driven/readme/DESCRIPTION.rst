@@ -105,8 +105,9 @@ The task's kanban card shows the current user's completion percentage over
 their non-cancelled items and the number of their TODO and Waiting items.
 These figures, the buttons of an item and the red of one's own TODO items
 are computed for the user who reads them, also where two users read the
-same task in one transaction. The **Checklist** menu opens on your own TODO items (the *My* and *TODO* filters
-are on by default); remove those filters to see every item you can read.
+same task in one transaction. The **Checklist** menu opens on your own TODO
+items (the *My* and *TODO* filters are on by default); remove those filters
+to see every item you can read.
 
 **Test cases** (``project.task.testcase``)
 
@@ -170,8 +171,9 @@ are rows in an order of their own:
 * **Status**: Open, Answered or Dropped. A row is Open until it gets an
   answer that shows something: text, an image, a video or an icon. A create
   or a write that gives such an answer to an Open row makes it Answered,
-  unless the same call sets the status; a Dropped row stays Dropped. An answer of spaces, empty paragraphs or empty
-  list items leaves the row Open.
+  unless the same call sets the status; a Dropped row stays Dropped. An
+  answer of spaces, empty paragraphs or empty list items leaves the row
+  Open.
 * **Answered by** and **Answered on**: who made the row Answered, and when. A
   create or write that makes a row Answered fills them with the user who
   makes it, also under ``sudo()``, and the current time; a value the same
@@ -519,11 +521,11 @@ files (an ``<a href>`` to ``/web/content/<id>``, as the editor links an
 uploaded file), as a duplicated task, the next task of a recurrence or a
 create from another task's text does, gets its own copy of that attachment,
 with its own access token, or the attachment its task has with the same
-contents, and its text links it. A file link keeps its path, query and fragment, with
-the new id and access token; the file is copied as uploaded, without
-core's resize. A question row or a test case moved to another task copies
-the images and files of its texts the same way. A copy outlives the task it
-was made from.
+contents, and its text links it. A file link keeps its path, query and
+fragment, with the new id and access token; the file is copied as
+uploaded, without core's resize. A question row or a test case moved to
+another task copies the images and files of its texts the same way. A
+copy outlives the task it was made from.
 
 * A link is one of this database when it is relative, or names the host of
   the task as the brief reads it (``get_base_url()``, a website's domain
@@ -586,11 +588,12 @@ Times are in UTC. The texts become Markdown (headings, emphasis, links,
 lists, tables, code) with no markup left; the headings of a text sit below
 the section that holds it. Lists:
 
-* An item of an editor's checklist is a task list item, ``- [x]`` when
-  ticked and ``- [ ]`` when not, a nested checklist nested items; the box
-  stands on a line of its own when the item opens with a heading, a list, a
-  table, a rule, a code block or a quote. Another list item that starts
-  like one has its bracket escaped.
+* An item right inside an editor's checklist is a task list item, ``- [x]``
+  when ticked and ``- [ ]`` when not, a nested checklist nested items; the
+  box stands on a line of its own when the item opens with a heading, a
+  list, a table, a rule, a code block or a quote. An item in a block inside
+  the checklist has no box, as the editor draws none. Another list item
+  that starts like one has its bracket escaped.
 * A list right after a list of its kind at the same level, nested ones
   included, takes the other marker, ``+`` for ``-`` or ``1)`` for ``1.``
   and back, so that it stays a list of its own. So does the first item of
@@ -602,25 +605,36 @@ the section that holds it. Lists:
   after a list, those nested items are written at its level, not under the
   last item of the list before.
 * An item that holds nothing but lists keeps its marker, as in a browser
-  (``2. - x``). The editor's nested item (class ``oe-nested``), or another
-  block right inside a list that holds nothing but lists, has none: its
-  lists are nested items.
+  (``2. - x``). The editor's nested item (class ``oe-nested``), or a block
+  other than a quote right inside a list that holds nothing but lists, has
+  none: its lists are nested items. Such a quote stays a quote between the
+  list's parts; an editor's nested item right after it is then a list of
+  its own.
 * Text right inside a list, and a block right inside it that is no item (a
   paragraph, a heading, a ``<div>``, an ``<hr>``), stand between its parts,
   unnumbered, as in a browser; an empty block is left out. The list goes on
   after them as at the start of a text, or as after a list where they end
   in one. A block that holds an item of the list, outside the lists nested
-  in it, is an item. A rule that opens a bullet item is written ``- * * *``
+  in it, writes that item as an item of the list, numbered on, and the rest
+  of what it holds between the list's parts; a quote or a table that holds
+  one is an item. A rule that opens a bullet item is written ``- * * *``
   (``- ---`` is a rule of its own).
-* In a list, an ordered list not numbered from 1 stands a blank line under
-  a paragraph above it, one that ends nested items included, which would
-  otherwise read it as its text.
+* An item outside any list, as the HTML parser leaves the items after a
+  code block right inside a bullet list, is a bullet item, as a browser
+  shows it; a run of them with no text between them is one list.
+* In a list, an ordered list not numbered from 1 or opening with an empty
+  item stands a blank line under a paragraph above it, one that ends nested
+  items included, which would otherwise read it as its text.
 * An ordered item has the number a browser shows, across the parts of its
   list too: the ``value`` of an item sets its number and the items after it
   go on from it; a ``reversed`` list counts down from its ``start``, else
   from the number of its items. CommonMark numbers a list on from its first
   item, so an item whose number does not follow the one above opens a list
   of the other delimiter (``1)`` for ``1.`` and back).
+* An empty ordered item is written as its number alone, as a browser shows
+  it, where an item or nested lines follow it in its part of the list
+  (``2.`` between ``1. a`` and ``3. b``). An empty item that ends a list or
+  a part of it, and an empty bullet item, are left out.
 * A ``start`` or a ``value`` is read as a browser reads an integer (``3px``
   gives 3); a number below 0 is written 0, as CommonMark writes no lower
   one. A list number has at most nine digits, however long the number the

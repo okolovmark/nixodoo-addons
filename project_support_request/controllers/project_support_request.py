@@ -9,11 +9,6 @@ NO_SUPPORT_PROJECT_ERROR = (
 TICKET_FIELDS = ("key", "name", "task_type", "stage_id", "priority_level", "create_date", "sequence")
 
 
-def _record_key(record):
-    # `key` is declared outside this module's dependencies (OCA project_key): a database may have none.
-    return (record.key or "") if "key" in record._fields else ""
-
-
 class SupportRequestController(http.Controller):
     def _get_support_project_id(self):
         """The id of the active project flagged Develops This Odoo, else 0; 0 as well for a user
@@ -54,18 +49,12 @@ class SupportRequestController(http.Controller):
             tab_domain = base_domain + [("task_type", "!=", "bug")]
         total = bugs_count if tab == "bugs" else others_count
 
-        tickets_data = Task.search_read(
-            tab_domain,
-            [fname for fname in TICKET_FIELDS if fname in Task._fields],
-            order="sequence",
-            limit=limit or None,
-        )
+        tickets_data = Task.search_read(tab_domain, TICKET_FIELDS, order="sequence", limit=limit or None)
         for ticket in tickets_data:
-            ticket["stage_name"] = ticket.pop("stage_id", [False, ""])[1] or ""
-            ticket["priority_level"] = ticket.pop("priority_level", "0")
-            ticket["task_type"] = ticket.get("task_type") or ""
-            ticket["key"] = ticket.get("key") or ""
-            ticket["create_date"] = str(ticket["create_date"]) if ticket.get("create_date") else ""
+            ticket["stage_name"] = ticket.pop("stage_id")[1]
+            ticket["task_type"] = ticket["task_type"] or ""
+            ticket["key"] = ticket["key"] or ""
+            ticket["create_date"] = str(ticket["create_date"])
 
         return {
             "configured": True,
@@ -81,12 +70,10 @@ class SupportRequestController(http.Controller):
         its type picker from, labelled in the user's language.
         """
         project_id = self._get_support_project_id()
-        task_type_field = request.env["project.task"]._fields.get("task_type")
-        task_types = []
-        if task_type_field:
-            task_types = [
-                {"value": value, "label": label} for value, label in task_type_field._description_selection(request.env)
-            ]
+        task_type_field = request.env["project.task"]._fields["task_type"]
+        task_types = [
+            {"value": value, "label": label} for value, label in task_type_field._description_selection(request.env)
+        ]
         return {
             "project_id": project_id or False,
             "uid": request.env.uid,
@@ -141,5 +128,5 @@ class SupportRequestController(http.Controller):
         task = request.env["project.task"].sudo().create(vals)
         return {
             "ticket_id": task.id,
-            "ticket_key": _record_key(task),
+            "ticket_key": task.key or "",
         }
