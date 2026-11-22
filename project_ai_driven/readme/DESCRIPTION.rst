@@ -696,22 +696,35 @@ headings of a text sit below the section that holds it. Lists:
   nested items that end in an ordered list of its marker, so that each list
   keeps the numbers a browser shows.
 * A list that opens with nested items, two levels deep or more, stays a
-  list, not code, at the start of a text, after a paragraph, under an item
-  or as an item's first block. Right after a list, those nested items are
-  written at its level, not under the last item of the list before.
-* Text and rules right inside a list, an ``<hr>`` or a block holding only a
-  rule, stand between its parts, and the list goes on after them as at the
-  start of a text; an ordered list keeps its numbers across them. A rule
-  that opens a bullet item is written ``- * * *`` (``- ---`` is a rule of
-  its own).
+  list, not code, at the start of a text, after a paragraph, under an item,
+  as an item's first block or in a block between a list's parts. Right
+  after a list, those nested items are written at its level, not under the
+  last item of the list before.
+* An item that holds nothing but lists keeps its marker, as in a browser
+  (``2. - x``). The editor's nested item (class ``oe-nested``), or another
+  block right inside a list that holds nothing but lists, has none: its
+  lists are nested items.
+* Text right inside a list, and a block right inside it that is no item (a
+  paragraph, a heading, a ``<div>``, an ``<hr>``), stand between its parts,
+  unnumbered, as in a browser; an empty block is left out. The list goes on
+  after them as at the start of a text, or as after a list where they end
+  in one. A block that holds an item of the list, outside the lists nested
+  in it, is an item. A rule that opens a bullet item is written ``- * * *``
+  (``- ---`` is a rule of its own).
 * In a list, an ordered list not numbered from 1 stands a blank line under
   a paragraph above it, one that ends nested items included, which would
   otherwise read it as its text.
-* The ``start`` of an ordered list is read as a browser reads an integer
-  (``3px`` starts at 3); a negative one starts at 0, as CommonMark writes
-  no lower number. A list number has at most nine digits, however long the
-  number the text gives, as in Markdown, where a line numbered with ten or
-  more is no list item.
+* An ordered item has the number a browser shows, across the parts of its
+  list too: the ``value`` of an item sets its number and the items after it
+  go on from it; a ``reversed`` list counts down from its ``start``, else
+  from the number of its items. CommonMark numbers a list on from its first
+  item, so an item whose number does not follow the one above opens a list
+  of the other delimiter, ``)`` for ``.`` and back.
+* A ``start`` or a ``value`` is read as a browser reads an integer (``3px``
+  gives 3); a number below 0 is written 0, as CommonMark writes no lower
+  one. A list number has at most nine digits, however long the number the
+  text gives, as in Markdown, where a line numbered with ten or more is no
+  list item.
 
 A table cell spans at most 100 columns, and rows to the end of its
 ``thead``, ``tbody`` or ``tfoot`` at most, to that end with

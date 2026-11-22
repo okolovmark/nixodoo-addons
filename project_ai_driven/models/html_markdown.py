@@ -22,6 +22,7 @@ LIST_TAGS = ("ol", "ul")
 LIST_MARKERS = {"ul": ("-", "+"), "ol": (".", ")")}
 CHECKLIST_CLASS = "o_checklist"
 CHECKED_ITEM_CLASS = "o_checked"
+NESTED_ITEM_CLASS = "oe-nested"
 CELL_TAGS = ("td", "th")
 TABLE_PART_TAGS = ("thead", "tbody", "tfoot", "tr")
 LINK_SCHEMES = ("", "http", "https", "mailto")
@@ -266,13 +267,35 @@ def _has_class(element, class_name):
 
 
 def _is_list_only(element):
-    """Whether element holds nothing but lists: the editor nests a list in an item of its own."""
     children = list(element)
     return (
         bool(children)
         and not (element.text or "").strip()
         and all(child.tag in LIST_TAGS and not (child.tail or "").strip() for child in children)
     )
+
+
+def _is_nested_list(element):
+    """Whether element, right in a list, nests lists in it: a list, or a block other than a plain item holding
+    nothing but lists; the editor nests a list in an oe-nested item of its own, while a plain one shows its marker.
+    """
+    if element.tag in LIST_TAGS:
+        return True
+    return (element.tag != "li" or _has_class(element, NESTED_ITEM_CLASS)) and _is_list_only(element)
+
+
+def _holds_list_item(element):
+    """Whether element, right in a list, holds an item of that list, one outside the lists nested in it, which
+    a browser numbers in it as in its list.
+    """
+    descendants = list(element)
+    while descendants:
+        descendant = descendants.pop()
+        if descendant.tag == "li":
+            return True
+        if descendant.tag not in LIST_TAGS:
+            descendants.extend(descendant)
+    return False
 
 
 def _normalise_space(text):
@@ -340,11 +363,13 @@ def _join_lines(lines):
     return ["\n".join(lines)] if lines else []
 
 
-def _get_last_line(lines):
+def _get_last_line(lines, last_line=""):
     """The last of lines at their least indentation, where their outermost blocks stand, else "": a list may open
-    with the lines of an item nested in one of its own (oe-nested), further in.
+    with the lines of an item nested in one of its own (oe-nested), further in. Given last_line, that of the lines
+    above them, it is that of all: growing lines are read on from where they were read, not all over again.
     """
-    last_line, least_indent = "", math.inf
+    # + 1: a line at the indentation of last_line comes after it
+    least_indent = len(last_line) - len(last_line.lstrip(" ")) + 1 if last_line else math.inf
     for line in reversed(lines):
         indent = len(line) - len(line.lstrip(" "))
         if indent < least_indent and line.strip():
@@ -415,14 +440,24 @@ def _get_html_integer(value):
     return -size if integer.group(1) == "-" else size
 
 
-def _get_list_start(element):
-    """The number of the first item of the list as HTML reads its start, as near as CommonMark writes it: 0 for
-    a negative one, which it has no way to write; 1 where it gives none or one of ten digits or more.
+def _get_list_number(value):
+    """The number value gives an ordered list or item as HTML reads it, as near as CommonMark writes it, else None:
+    0 for a negative one, which it has no way to write; none for one of ten digits or more.
     """
-    start = _get_html_integer(element.get("start"))
-    if start is None or abs(start) == math.inf:
-        return 1
-    return max(start, 0)
+    number = _get_html_integer(value)
+    return None if number is None or abs(number) == math.inf else max(number, 0)
+
+
+def _get_first_number(element):
+    """The number a browser gives the first item of the ordered list: its start, else the count of its items where
+    it is reversed, else 1.
+    """
+    start = _get_list_number(element.get("start"))
+    if start is not None:
+        return start
+    if "reversed" in element.attrib:
+        return sum(child.tag == "li" and not _is_nested_list(child) for child in element)
+    return 1
 
 
 def _get_span(cell, attribute, max_span, zero_span=1):
@@ -446,6 +481,7 @@ class _MarkdownWriter:
         self.base_host = get_base_host(base_url)
         self.link_depth = 0
         self.cell_depth = 0
+        self.is_in_opening_list = False
 
     def get_blocks(self, element, get_child_blocks=None, previous_block=None):
         """The Markdown blocks of what element holds: a paragraph for each run
@@ -574,22 +610,32 @@ class _MarkdownWriter:
 
     def _get_list(self, element, previous_block=None, is_opening=False):
         """The list as Markdown, an editor's checklist as a task list. Text and
-        rules right inside it stand between its parts, after which it goes on as
-        at the start of a text. A list right after a list of its marker takes the
-        other marker of LIST_MARKERS. Nested lines before its first item stand
-        two spaces in, which CommonMark reads at its level; none where it opens a
-        list (is_opening) or an item (ITEM_START), which indents them, or follows
-        a list, under whose last item they would go.
+        blocks other than items right inside it stand between its parts, after
+        which it goes on as at the start of a text, or as after a list where they
+        end in one. A list right after a list of its marker takes the other
+        marker of LIST_MARKERS. An ordered item has the number a browser gives
+        it, by a value or down a reversed list too: where that is not the one
+        after the item above, which CommonMark would give, the item opens a list
+        of the other delimiter. Nested lines before its first item stand two
+        spaces in, which CommonMark reads at its level; none where it opens a
+        list (is_opening) or an item (ITEM_START), or stands in a block between
+        the parts of such a list, which indents them, or follows a list, under
+        whose last item they would go.
         """
         is_ordered = element.tag == "ol"
         is_checklist = _has_class(element, CHECKLIST_CLASS)
         previous_marker = _get_last_list_marker((previous_block or "").split("\n"))
         marker_character = _get_list_marker(element.tag, previous_marker)
-        number = _get_list_start(element)
-        is_opening = is_opening or previous_block == ITEM_START
+        number = _get_first_number(element) if is_ordered else None
+        step = -1 if "reversed" in element.attrib else 1
+        # the number CommonMark gives the last item of the run of lines it numbers on
+        shown_number = None
+        is_opening = is_opening or previous_block == ITEM_START or self.is_in_opening_list
         blocks = []
-        # the lines since the start of the list or the last paragraph or rule right inside it
+        # the lines since the start of the list or the last part of it between its items
         lines = []
+        # _get_last_line of lines, and how many of them it has read
+        last_line, read_line_count = "", 0
         # the indent of the content of the last item of lines, None before their first item
         indent = None
         # the last block under the last item, which a nested list follows in the same container
@@ -600,20 +646,32 @@ class _MarkdownWriter:
             if not _is_block(child):
                 inline_parts.extend((self._get_inline(child), self._get_text(child.tail)))
                 continue
-            is_nested_list = child.tag in LIST_TAGS or _is_list_only(child)
-            item_blocks = [] if is_nested_list else self._get_element_blocks(child, ITEM_START)
-            # a browser numbers items only: a rule in another block is a rule between the list's parts
-            is_rule = child.tag != "li" and item_blocks == [THEMATIC_BREAK]
-            loose_blocks = self._get_paragraph(inline_parts) + ([THEMATIC_BREAK] if is_rule else [])
+            is_nested_list = _is_nested_list(child)
+            is_item = not is_nested_list and (child.tag == "li" or _holds_list_item(child))
+            loose_blocks = self._get_paragraph(inline_parts)
             inline_parts = [self._get_text(child.tail)]
+            if not (is_nested_list or is_item):
+                # a browser numbers items only: another block stands between the list's parts, as loose text does;
+                # what follows a block reads only its last line at its level, so the lines are not joined for it
+                if loose_blocks:
+                    block_before = loose_blocks[-1]
+                elif lines:
+                    last_line, read_line_count = _get_last_line(lines[read_line_count:], last_line), len(lines)
+                    block_before = last_line
+                else:
+                    block_before = previous_block
+                was_in_opening_list, self.is_in_opening_list = self.is_in_opening_list, is_opening
+                loose_blocks += self._get_element_blocks(child, block_before)
+                self.is_in_opening_list = was_in_opening_list
             if loose_blocks:
                 blocks.extend(_join_lines(lines) + loose_blocks)
+                previous_block = blocks[-1]
+                previous_marker = _get_last_list_marker(previous_block.split("\n"))
+                marker_character = _get_list_marker(element.tag, previous_marker)
+                is_after_list = previous_marker is not None
                 lines = []
-                indent = item_last_block = None
-                is_after_list = False
-                marker_character = _get_list_marker(element.tag, None)
-            if is_rule:
-                continue
+                last_line, read_line_count = "", 0
+                indent = item_last_block = shown_number = None
             if is_nested_list:
                 nested_previous_block = previous_block if is_after_list and not lines else item_last_block
                 nested_blocks = []
@@ -631,13 +689,20 @@ class _MarkdownWriter:
                     lines.extend(nested_lines)
                     item_last_block = nested_blocks[-1]
                 continue
+            item_blocks = self._get_element_blocks(child, ITEM_START) if is_item else []
             if not item_blocks:
                 continue
-            # the first item right under an ordered list of its marker would go on with its numbers
-            if is_ordered and indent is None and _get_last_list_marker(lines) == marker_character:
-                marker_character = _get_list_marker(element.tag, marker_character)
             if is_ordered:
-                marker = "%d%s " % (min(number, MAX_LIST_NUMBER), marker_character)
+                value = _get_list_number(child.get("value")) if child.tag == "li" else None
+                number = number if value is None else value
+                item_number = max(number, 0)
+                is_new_run = shown_number is None or item_number != shown_number + 1
+                # an item right under an ordered list of its marker would go on with its numbers
+                if is_new_run and _get_last_list_marker(lines) == marker_character:
+                    marker_character = _get_list_marker(element.tag, marker_character)
+                shown_number = item_number
+                marker = "%d%s " % (min(item_number, MAX_LIST_NUMBER), marker_character)
+                number += step
             else:
                 marker = marker_character + " "
             # the first only: a later item goes on with the list, whatever the item above it ends with
@@ -656,12 +721,10 @@ class _MarkdownWriter:
                     item_lines[0] = "%s %s" % (box, item_lines[0])
             elif TASK_LIST_BOX.match(item_lines[0]):
                 item_lines[0] = "\\" + item_lines[0]
-            # an item's rule only: one in another block right in the list stays a rule between its items
-            elif not is_ordered and child.tag == "li" and item_lines[0] == THEMATIC_BREAK:
+            elif not is_ordered and item_lines[0] == THEMATIC_BREAK:
                 item_lines[0] = BULLET_ITEM_BREAK
             lines.append(marker + item_lines[0])
             lines.extend(_indent_lines(item_lines[1:], indent))
-            number += 1
         return blocks + _join_lines(lines) + self._get_paragraph(inline_parts)
 
     def _get_table(self, element, previous_block=None):
