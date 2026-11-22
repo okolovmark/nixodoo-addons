@@ -14,16 +14,10 @@ def _card_description(line_name):
     return line_name[: CARD_DESCRIPTION_MAX_LENGTH - 1].rstrip() + "…"
 
 
-def _record_key(record):
-    # `key` is declared outside this module's dependencies (OCA project_key): a database may have none.
-    return (record.key or "") if "key" in record._fields else ""
-
-
 def _project_label(project):
     # Sudo: the user reads the task, not always its project (one they do not follow, say).
     project_sudo = project.sudo()
-    project_key = _record_key(project_sudo)
-    return "%s - %s" % (project_key, project_sudo.name) if project_key else project_sudo.name
+    return "%s - %s" % (project_sudo.key, project_sudo.name) if project_sudo.key else project_sudo.name
 
 
 def _parse_company_ids(company_ids):
@@ -126,7 +120,7 @@ class TimesheetSystrayController(http.Controller):
                 {
                     "task_id": task.id,
                     "task_name": task.name,
-                    "task_key": _record_key(task),
+                    "task_key": task.key or "",
                     "project_id": task.project_id.id,
                     "project_name": _project_label(task.project_id),
                     "stage_name": task.stage_id.name,
@@ -216,7 +210,7 @@ class TimesheetSystrayController(http.Controller):
             "id": line.id,
             "task_id": task_sudo.id,
             "task_name": task_sudo.name,
-            "task_key": _record_key(task_sudo),
+            "task_key": task_sudo.key or "",
             "is_task_readable": is_task_readable,
             "project_id": project_sudo.id,
             "project_name": _project_label(project_sudo),

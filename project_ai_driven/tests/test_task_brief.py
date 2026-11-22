@@ -1,12 +1,14 @@
 from datetime import date, datetime
 from unittest.mock import patch
 
+from lxml import etree
 from markupsafe import Markup
 
 from odoo import Command, fields
 from odoo.exceptions import AccessError
 from odoo.tests.common import TransactionCase, tagged
 
+from ..models import html_markdown
 from ..models.html_markdown import NOT_MOVED_IMAGE, get_linked_attachment_ids, html_to_markdown
 from .common import ProjectAiDrivenCommon
 from .test_inline_images import RED, data_uri
@@ -173,6 +175,7 @@ class TestHtmlToMarkdown(TransactionCase):
         self.assertMarkdown(
             "<ol><li><hr></li></ol><ul><li>a<hr>b</li></ul><hr>", "1. ---\n\n- a\n\n  ---\n\n  b\n\n---"
         )
+        self.assertMarkdown("<ul><li>a</li><div><hr><li>b</li></div><li>c</li></ul>", "- a\n- * * *\n\n  b\n- c")
 
     def test_a_nested_list_not_numbered_from_one_is_a_paragraph_apart_from_the_item_text(self):
         """CommonMark lets only an ordered list from 1 start right under a paragraph: another is its text."""
@@ -254,11 +257,103 @@ class TestHtmlToMarkdown(TransactionCase):
 
     def test_a_block_right_in_a_bullet_list_opening_with_a_rule_keeps_it_a_rule(self):
         """Not an item holding a rule: a browser shows no item there."""
-        self.assertMarkdown("<ul><li>a</li><div><hr>Note</div><li>b</li></ul>", "- a\n- ---\n\n  Note\n- b")
+        self.assertMarkdown("<ul><li>a</li><div><hr>Note</div><li>b</li></ul>", "- a\n\n---\n\nNote\n\n- b")
 
     def test_an_ordered_list_keeps_its_numbers_across_a_rule_right_in_it(self):
         self.assertMarkdown("<ol><li>a</li><hr><li>b</li></ol>", "1. a\n\n---\n\n2. b")
         self.assertMarkdown("<ol><li>a</li><div><hr></div><li>b</li></ol>", "1. a\n\n---\n\n2. b")
+
+    def test_a_block_holding_text_right_in_a_list_stands_between_its_items_unnumbered(self):
+        """As loose text does: the list goes on after it as at the start of a text, or after a list where the
+        block ends in one, with the numbers a browser gives its items.
+        """
+        self.assertMarkdown("<ol><li>a</li><div>x</div><li>b</li></ol>", "1. a\n\nx\n\n2. b")
+        self.assertMarkdown("<ol><li>a</li><p>x</p><li>b</li><li>c</li></ol>", "1. a\n\nx\n\n2. b\n3. c")
+        self.assertMarkdown("<ol><li>a</li><div><hr>Note</div><li>b</li></ol>", "1. a\n\n---\n\nNote\n\n2. b")
+        self.assertMarkdown("<ul><li>a</li><h3>Step</h3><li>b</li></ul>", "- a\n\n### Step\n\n- b")
+        self.assertMarkdown("<ol><li>a</li><div>x<ol><li>y</li></ol></div><li>b</li></ol>", "1. a\n\nx\n\n1. y\n\n2) b")
+        self.assertMarkdown("<ol><li>a</li><div><ol><li>y</li></ol>x</div><li>b</li></ol>", "1. a\n\n1) y\n\nx\n\n2. b")
+        self.assertMarkdown(
+            '<ol><li>a</li><div>x<ul><li>y</li></ul></div><li class="oe-nested"><ul><li>z</li></ul></li><li>b</li></ol>',
+            "1. a\n\nx\n\n- y\n\n+ z\n2. b",
+        )
+        self.assertMarkdown(
+            "<ul><li>a<ol><li>x</li><p>note</p><li>y</li></ol></li></ul>", "- a\n  1. x\n\n  note\n\n  2. y"
+        )
+
+    def test_a_block_holding_an_item_of_the_list_keeps_it_numbered(self):
+        self.assertMarkdown("<ol><li>a</li><div><li>b</li></div><li>c</li></ol>", "1. a\n2. b\n3. c")
+
+    def test_a_block_right_in_a_list_is_searched_for_its_items_outside_its_nested_lists_only(self):
+        """The items of a nested list are its own: a chain of blocks each holding a list costs its length only."""
+        created_elements = []
+
+        class CountedElement(etree.ElementBase):
+            def _init(self):
+                created_elements.append(self.tag)
+
+        parser = etree.HTMLParser()
+        parser.set_element_class_lookup(etree.ElementDefaultClassLookup(element=CountedElement))
+        nested_items = "<li>x</li>" * 100
+        for list_html, holds_item in (
+            ("<ul><div>t<ol>%s</ol><div><li>a</li></div></div></ul>" % nested_items, True),
+            ("<ul><div>t<ol>%s</ol></div></ul>" % nested_items, False),
+        ):
+            block = etree.fromstring(list_html, parser).find("body/ul/div")
+            created_elements.clear()
+            self.assertEqual(html_markdown._holds_list_item(block), holds_item)
+            self.assertLess(len(created_elements), 10, "the items of the nested list are not searched")
+
+    def test_blocks_right_in_a_list_read_the_last_line_of_the_lines_before_them(self):
+        """What a block right in a list reads of the lines before it is carried on from block to block, and
+        starts again where the list's lines do.
+        """
+        self.assertMarkdown("<ul><li>a</li><p></p><div><ul><li>b</li></ul><br></div></ul>", "- a\n\n+ b")
+        self.assertMarkdown(
+            "<ul><li>a</li><div>t</div><div><ol><li>b</li></ol></div><div><ol><li>c</li></ol><br></div></ul>",
+            "- a\n\nt\n\n  1. b\n\n1) c",
+        )
+        self.assertMarkdown(
+            "<ol reversed><li>v</li><p></p><li>x</li><div><ol><li>y</li></ol><br></div></ol>",
+            "2. v\n1) x\n\n1. y",
+        )
+
+    def test_empty_blocks_right_in_a_list_read_its_nested_lines_once(self):
+        """Each block between the parts of a list reads the last line of the list at its level: on from the lines
+        read for the block before, or a run of empty blocks after many nested lines takes quadratic time.
+        """
+        get_last_line = html_markdown._get_last_line
+        read_line_counts = []
+
+        def read_last_line(lines, *args):
+            read_line_counts.append(len(lines))
+            return get_last_line(lines, *args)
+
+        count = 300
+        for html_content in (
+            "<ul><li>a</li><ul>%s</ul>%s</ul>" % ("<li>x</li>" * count, "<p><br></p>" * count),
+            "<ul><li>a</li>%s</ul>" % ("<ul><li>x</li></ul><div></div>" * count),
+            '<ol><li>a</li><li class="oe-nested"><ol>%s</ol></li>%s</ol>'
+            % ("<li>x</li>" * count, "<div></div>" * count),
+        ):
+            read_line_counts.clear()
+            with patch.object(html_markdown, "_get_last_line", read_last_line):
+                html_to_markdown(html_content)
+            self.assertLess(sum(read_line_counts), 5 * count)
+
+    def test_a_list_in_a_block_right_in_a_list_opening_a_list_takes_no_indent_of_its_own(self):
+        """The list the block is in indents it already: four spaces would make its lines text of the block."""
+        self.assertMarkdown(
+            '<ul><li class="oe-nested"><ol><div>t<ul><ul><li>x</li></ul></ul></div></ol></li></ul>', "  t\n  - x"
+        )
+
+    def test_a_plain_item_holding_only_lists_shows_its_marker(self):
+        """Only the editor's oe-nested item is a container a browser shows no marker for."""
+        self.assertMarkdown("<ol><li>a</li><li><ol><li>x</li></ol></li><li>b</li></ol>", "1. a\n2. 1. x\n3. b")
+        self.assertMarkdown("<ol><li><ul><li>x</li></ul></li><li>b</li></ol>", "1. - x\n2. b")
+        self.assertMarkdown(
+            '<ul><li>a</li><li><ol><li>x</li></ol><ol start="3"><li>y</li></ol></li></ul>', "- a\n- 1. x\n  3) y"
+        )
 
     def test_lines_nested_after_a_rule_right_in_a_list_open_as_at_the_start_of_a_text(self):
         self.assertMarkdown(
@@ -405,6 +500,39 @@ class TestHtmlToMarkdown(TransactionCase):
                     '<ol start="%s"><li>a</li><li>b</li></ol>' % start,
                     "%d. a\n%d. b" % (first_number, first_number + 1),
                 )
+
+    def test_an_item_value_sets_its_number_and_the_items_after_it_count_on(self):
+        """CommonMark numbers a list on from its first item: an item a browser numbers otherwise opens a list of
+        the other delimiter. A value is read as a start is.
+        """
+        self.assertMarkdown(
+            '<ol><li>a</li><li value="5">b</li><li>c</li><li value="2">d</li></ol>', "1. a\n5) b\n6) c\n2. d"
+        )
+        self.assertMarkdown('<ol><li>a</li><li value="2">b</li></ol>', "1. a\n2. b")
+        self.assertMarkdown(
+            '<ol><li>a</li><li value="x">b</li><li value="-3">c</li><li value="12345678901">d</li>'
+            '<li value=" +7px">e</li></ol><ul><li value="5">f</li></ul>',
+            "1. a\n2. b\n0) c\n1) d\n7. e\n\n- f",
+        )
+        self.assertMarkdown(
+            '<ol start="3"><li>a</li><li class="oe-nested"><ol><li>x</li></ol></li><li value="9">b</li></ol>',
+            "3. a\n   1. x\n9) b",
+        )
+
+    def test_a_reversed_list_counts_down_from_its_start_or_its_item_count(self):
+        self.assertMarkdown("<ol reversed><li>a</li><li>b</li><li>c</li></ol>", "3. a\n2) b\n1. c")
+        self.assertMarkdown('<ol reversed start="10"><li>a</li><li>b</li></ol>', "10. a\n9) b")
+        self.assertMarkdown(
+            '<ol reversed><li>a</li><li class="oe-nested"><ol><li>x</li></ol></li><li><ul><li>y</li></ul></li></ol>',
+            "2. a\n   1. x\n1) - y",
+        )
+        self.assertMarkdown(
+            '<ol reversed><li>a</li><li value="10">b</li><li>c</li></ol><ol><li>d</li></ol>',
+            "3. a\n10) b\n9. c\n\n1) d",
+        )
+        self.assertMarkdown(
+            '<ol reversed start="1"><li>a</li><li>b</li><li>c</li><li value="0">d</li></ol>', "1. a\n0) b\n0. c\n0) d"
+        )
 
     def test_numbers_of_ten_digits_or_more_open_no_list(self):
         """CommonMark numbers a list item with nine digits at most: a paragraph so numbered is no list to join or

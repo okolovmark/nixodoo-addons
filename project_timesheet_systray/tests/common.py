@@ -123,7 +123,3 @@ class TimesheetSystrayCase(TransactionCase):
         user_request = SimpleNamespace(env=self.env(user=user), httprequest=SimpleNamespace(cookies={}))
         with patch.object(controller, "request", user_request):
             return getattr(controller.TimesheetSystrayController(), route_name)(**kwargs)
-
-    def _skip_without_keys(self):
-        if "key" not in self.env["project.project"]._fields:
-            self.skipTest("no module of this database declares project and task keys")
