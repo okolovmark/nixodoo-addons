@@ -146,11 +146,12 @@ item who may create a task in its project under the record rules of tasks:
 a refusal of one leaves them all. ``can_convert`` tells whether its user may
 convert an item under these rules; the closing and estimate rules of the
 first stage, the email address the note needs and a rule on a field Odoo
-computes only once the task is created are checked by the conversion only. The method returns ``True``.
-``action_convert_to_subtask_open`` converts one item and returns the window
-action of its sub-task, the id in ``res_id``. The note on the task is posted
-in the name of the tool's user, who needs an email address even with
-``mail_auto_subscribe_no_notify``; that key silences the assignee's notice.
+computes only once the task is created are checked by the conversion only.
+The method returns ``True``. ``action_convert_to_subtask_open`` converts one
+item and returns the window action of its sub-task, the id in ``res_id``.
+The note on the task is posted in the name of the tool's user, who needs an
+email address even with ``mail_auto_subscribe_no_notify``; that key silences
+the assignee's notice.
 
 A tool that keeps the questions of a task over RPC creates
 ``project.task.question`` records with ``task_id`` and ``question``, and

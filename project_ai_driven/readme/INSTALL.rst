@@ -71,19 +71,30 @@ exist*. Before the data files are loaded, SQL renames, in every module:
 
 The checklist records of this module take these external ids:
 
-====================================  ===========================================
-Former external id                    External id
-====================================  ===========================================
-``access_task_subtask``               ``access_task_checklist_item``
-``subtasks_subtype``                  ``checklist_subtype``
-``all_subtask_subtype``               ``project_checklist_subtype``
-``view_task_kanban_subtasks``         ``view_task_kanban_checklist``
-``project_task_subtask_view_form``    ``project_task_checklist_item_view_form``
-``project_task_subtask_view_search``  ``project_task_checklist_item_view_search``
-``subtask_list_view``                 ``project_task_checklist_item_view_tree``
-``action_view_subtask``               ``action_view_checklist_item``
-``menu_action_view_subtask``          ``menu_action_view_checklist_item``
-====================================  ===========================================
+.. list-table::
+   :header-rows: 1
+   :widths: 36 43
+
+   * - Former external id
+     - External id
+   * - ``access_task_subtask``
+     - ``access_task_checklist_item``
+   * - ``subtasks_subtype``
+     - ``checklist_subtype``
+   * - ``all_subtask_subtype``
+     - ``project_checklist_subtype``
+   * - ``view_task_kanban_subtasks``
+     - ``view_task_kanban_checklist``
+   * - ``project_task_subtask_view_form``
+     - ``project_task_checklist_item_view_form``
+   * - ``project_task_subtask_view_search``
+     - ``project_task_checklist_item_view_search``
+   * - ``subtask_list_view``
+     - ``project_task_checklist_item_view_tree``
+   * - ``action_view_subtask``
+     - ``action_view_checklist_item``
+   * - ``menu_action_view_subtask``
+     - ``menu_action_view_checklist_item``
 
 ``default_user`` is taken out of the stored views of this module. Every
 record keeps its database id, so the items, their activities and the

@@ -588,12 +588,15 @@ Times are in UTC. The texts become Markdown (headings, emphasis, links,
 lists, tables, code) with no markup left; the headings of a text sit below
 the section that holds it. Lists:
 
-* An item right inside an editor's checklist is a task list item, ``- [x]``
-  when ticked and ``- [ ]`` when not, a nested checklist nested items; the
-  box stands on a line of its own when the item opens with a heading, a
-  list, a table, a rule, a code block or a quote. An item in a block inside
-  the checklist has no box, as the editor draws none. Another list item
-  that starts like one has its bracket escaped.
+* An item right inside an editor's bullet checklist, other than an editor's
+  nested item (class ``oe-nested``), is a task list item, ``- [x]`` when
+  ticked and ``- [ ]`` when not, a nested checklist nested items; the box
+  stands on a line of its own when the item opens with a heading, a list,
+  a table, a rule, a code block or a quote. A ``[x]`` typed in the text of
+  such an item stays as typed: the brief is read as raw text. An item in a
+  block inside the checklist has no box, as the editor draws none, and an
+  ordered list of the checklist class keeps its numbers, with no box.
+  Another list item that starts like one has its bracket escaped.
 * A list right after a list of its kind at the same level, nested ones
   included, takes the other marker, ``+`` for ``-`` or ``1)`` for ``1.``
   and back, so that it stays a list of its own. So does the first item of
@@ -605,45 +608,66 @@ the section that holds it. Lists:
   after a list, those nested items are written at its level, not under the
   last item of the list before.
 * An item that holds nothing but lists keeps its marker, as in a browser
-  (``2. - x``). The editor's nested item (class ``oe-nested``), or a block
-  other than a quote right inside a list that holds nothing but lists, has
-  none: its lists are nested items. Such a quote stays a quote between the
-  list's parts; an editor's nested item right after it is then a list of
-  its own.
+  (``2. - x``). An editor's nested item, or a block other than a quote
+  right inside a list that holds nothing but lists, has none: its lists are
+  nested items. Such a quote stays a quote between the list's parts; an
+  editor's nested item right after it is then a list of its own.
+* An editor's nested item that holds text has no marker and no number
+  either, as the editor shows it as a block: its text goes on under the
+  item before it in its part of the list, on a new line of that item's
+  last paragraph where both are paragraphs, else as a block apart
+  (``1. alpha``, ``bravo`` under it, ``2. charlie``). With no item before
+  it in its part, it stands between the list's parts. An empty one takes
+  no number, nor does a block that holds no items but editor's nested ones.
 * Text right inside a list, and a block right inside it that is no item (a
   paragraph, a heading, a ``<div>``, an ``<hr>``), stand between its parts,
   unnumbered, as in a browser; an empty block is left out. The list goes on
   after them as at the start of a text, or as after a list where they end
   in one. A block that holds an item of the list, outside the lists nested
-  in it, writes that item as an item of the list, numbered on, and the rest
-  of what it holds between the list's parts; a quote or a table that holds
-  one is an item. A rule that opens a bullet item is written ``- * * *``
-  (``- ---`` is a rule of its own).
+  in it, writes that item as one right in the list, and the rest of what it
+  holds between the list's parts; a quote or a table that holds one, other
+  than an editor's nested item, is an item. A rule that opens a bullet item
+  is written ``- * * *`` (``- ---`` is a rule of its own).
 * An item outside any list, as the HTML parser leaves the items after a
   code block right inside a bullet list, is a bullet item, as a browser
-  shows it; a run of them with no text between them is one list.
+  shows it, an editor's nested one as in a list; a run of them with no
+  text between them is one list.
 * In a list, an ordered list not numbered from 1 or opening with an empty
   item stands a blank line under a paragraph above it, one that ends nested
   items included, which would otherwise read it as its text.
 * An ordered item has the number a browser shows, across the parts of its
   list too: the ``value`` of an item sets its number and the items after it
   go on from it; a ``reversed`` list counts down from its ``start``, else
-  from the number of its items. CommonMark numbers a list on from its first
+  from the number of its items; an editor's nested item is not counted,
+  and its ``value`` is not read. CommonMark numbers a list on from its first
   item, so an item whose number does not follow the one above opens a list
   of the other delimiter (``1)`` for ``1.`` and back).
 * An empty ordered item is written as its number alone, as a browser shows
-  it, where an item or nested lines follow it in its part of the list
-  (``2.`` between ``1. a`` and ``3. b``). An empty item that ends a list or
-  a part of it, and an empty bullet item, are left out.
+  it, where an item, nested lines or the text of an editor's nested item
+  follow it in its part of the list (``2.`` between ``1. a`` and ``3. b``).
+  An empty bullet item is written only right before the text of an
+  editor's nested item, which goes under its marker; in a checklist it
+  keeps its box, and a paragraph goes on the box's line. Text right under
+  the marker of an empty item is escaped as the start of an item's text: a
+  typed ``[x]`` stays text there. Any other empty item is left out.
 * A ``start`` or a ``value`` is read as a browser reads an integer (``3px``
   gives 3); a number below 0 is written 0, as CommonMark writes no lower
   one. A list number has at most nine digits, however long the number the
   text gives.
 
-A table cell spans at most 100 columns, and its rows at most to the end of
-its row group (its ``thead``, ``tbody`` or ``tfoot``), the end
-``rowspan="0"`` spans to; a span is read as a browser reads it (``2px``
-spans 2).
+A table is read as a browser builds it. A row, a cell or a caption inside
+another block of the table, a list too, is written in the table only, and
+the rest of that block before it; a row inside a cell or a caption is a
+row of the table, not part of their text. A cell outside a row stands in a
+row the browser implies, up to the next row, row group or caption. The
+captions, wherever they stand outside the cells, are written before the
+table; a caption ends the row and the row group it stands in. A table
+inside a table, outside its cells and captions, ends that table: it and
+what follows it are no part of it. A cell spans at most 100 columns, and
+rows at most to the end of its row group, to that end with
+``rowspan="0"``: the ``thead``, ``tbody`` or ``tfoot`` nearest around its
+row, else the run of rows outside them. A span is read as a browser reads
+it (``2px`` spans 2).
 
 * An image or a link that names an attachment, by a relative url or a url on
   the host of this database (``get_base_url()``, a website's domain where it
@@ -666,7 +690,11 @@ spans 2).
 * User text that would open a Markdown heading, list, quote, code fence (of
   three backticks or more), table row or HTML block at the start of a line is
   escaped, a table delimiter row too, and names are put on one line, so a text
-  cannot open a section of the brief.
+  cannot open a section of the brief. So is a ``[label]:`` at the start of a
+  paragraph, its label over more lines too, which Markdown would read as a
+  link reference definition and show nothing of; and a label that opens a
+  paragraph and is still open at its end, where the text of an editor's
+  nested item going on after it could close it.
 
 A reader who cannot read the task is refused, as a read of it is. What the
 reader may not read is left out: the lines (question rows, checklist items,

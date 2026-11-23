@@ -1,6 +1,6 @@
 # A task brief computed for the reader, in Markdown
 
-Status: accepted (2026-11-18)
+Status: accepted (2026-11-18), amended (2026-11-20: a rowspan fills the rows its row group has)
 
 An agent that works a task through a connector needs the whole task: its attributes, related tasks, pull requests, texts, question rows, checklist, test cases, sessions, notes and attachments. Over RPC that is a read of the task, a read per kind of line and a search each for its notes and its attachments, and the texts come as Html with the markup of the editor.
 
@@ -24,6 +24,7 @@ Rejected:
 - A client asks for the brief by name; a read without a field list does not return it.
 - Two readers of one task may get different briefs.
 - Tokens and credentials are removed from urls on a best-effort basis in plain text and code: a url split by markup, or holding a brace, `<`, `>`, or a bracket or a quote in its query, may keep its token, and a token written loose outside a url stays.
+- A rowspan is not capped (2026-11-20; before, at 100 rows like a colspan): it fills only the rows of its row group (`thead`, `tbody`, `tfoot`, or a run of rows outside them, which a caption ends too), as a browser shows it, `rowspan="0"` to the end of that group, and one of ten digits or more runs to the last of them.
 - The header shows fields other modules declare (`key`, `planned_date_start` and `planned_date_end`, `effective_hours`, `uat_user_ids`) where the model has them.
 
 Reversal cost: drop the field and the converter. Nothing is stored, so nothing is migrated; a tool that reads `brief` goes back to reading the task and its lines.
