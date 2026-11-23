@@ -1,0 +1,1168 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils: https://docutils.sourceforge.io/" />
+<title>AI Assistant</title>
+<style type="text/css">
+
+/*
+:Author: David Goodger (goodger@python.org)
+:Id: $Id: html4css1.css 9511 2024-01-13 09:50:07Z milde $
+:Copyright: This stylesheet has been placed in the public domain.
+
+Default cascading style sheet for the HTML output of Docutils.
+Despite the name, some widely supported CSS2 features are used.
+
+See https://docutils.sourceforge.io/docs/howto/html-stylesheets.html for how to
+customize this style sheet.
+*/
+
+/* used to remove borders from tables and images */
+.borderless, table.borderless td, table.borderless th {
+  border: 0 }
+
+table.borderless td, table.borderless th {
+  /* Override padding for "table.docutils td" with "! important".
+     The right padding separates the table cells. */
+  padding: 0 0.5em 0 0 ! important }
+
+.first {
+  /* Override more specific margin styles with "! important". */
+  margin-top: 0 ! important }
+
+.last, .with-subtitle {
+  margin-bottom: 0 ! important }
+
+.hidden {
+  display: none }
+
+.subscript {
+  vertical-align: sub;
+  font-size: smaller }
+
+.superscript {
+  vertical-align: super;
+  font-size: smaller }
+
+a.toc-backref {
+  text-decoration: none ;
+  color: black }
+
+blockquote.epigraph {
+  margin: 2em 5em ; }
+
+dl.docutils dd {
+  margin-bottom: 0.5em }
+
+object[type="image/svg+xml"], object[type="application/x-shockwave-flash"] {
+  overflow: hidden;
+}
+
+/* Uncomment (and remove this text!) to get bold-faced definition list terms
+dl.docutils dt {
+  font-weight: bold }
+*/
+
+div.abstract {
+  margin: 2em 5em }
+
+div.abstract p.topic-title {
+  font-weight: bold ;
+  text-align: center }
+
+div.admonition, div.attention, div.caution, div.danger, div.error,
+div.hint, div.important, div.note, div.tip, div.warning {
+  margin: 2em ;
+  border: medium outset ;
+  padding: 1em }
+
+div.admonition p.admonition-title, div.hint p.admonition-title,
+div.important p.admonition-title, div.note p.admonition-title,
+div.tip p.admonition-title {
+  font-weight: bold ;
+  font-family: sans-serif }
+
+div.attention p.admonition-title, div.caution p.admonition-title,
+div.danger p.admonition-title, div.error p.admonition-title,
+div.warning p.admonition-title, .code .error {
+  color: red ;
+  font-weight: bold ;
+  font-family: sans-serif }
+
+/* Uncomment (and remove this text!) to get reduced vertical space in
+   compound paragraphs.
+div.compound .compound-first, div.compound .compound-middle {
+  margin-bottom: 0.5em }
+
+div.compound .compound-last, div.compound .compound-middle {
+  margin-top: 0.5em }
+*/
+
+div.dedication {
+  margin: 2em 5em ;
+  text-align: center ;
+  font-style: italic }
+
+div.dedication p.topic-title {
+  font-weight: bold ;
+  font-style: normal }
+
+div.figure {
+  margin-left: 2em ;
+  margin-right: 2em }
+
+div.footer, div.header {
+  clear: both;
+  font-size: smaller }
+
+div.line-block {
+  display: block ;
+  margin-top: 1em ;
+  margin-bottom: 1em }
+
+div.line-block div.line-block {
+  margin-top: 0 ;
+  margin-bottom: 0 ;
+  margin-left: 1.5em }
+
+div.sidebar {
+  margin: 0 0 0.5em 1em ;
+  border: medium outset ;
+  padding: 1em ;
+  background-color: #ffffee ;
+  width: 40% ;
+  float: right ;
+  clear: right }
+
+div.sidebar p.rubric {
+  font-family: sans-serif ;
+  font-size: medium }
+
+div.system-messages {
+  margin: 5em }
+
+div.system-messages h1 {
+  color: red }
+
+div.system-message {
+  border: medium outset ;
+  padding: 1em }
+
+div.system-message p.system-message-title {
+  color: red ;
+  font-weight: bold }
+
+div.topic {
+  margin: 2em }
+
+h1.section-subtitle, h2.section-subtitle, h3.section-subtitle,
+h4.section-subtitle, h5.section-subtitle, h6.section-subtitle {
+  margin-top: 0.4em }
+
+h1.title {
+  text-align: center }
+
+h2.subtitle {
+  text-align: center }
+
+hr.docutils {
+  width: 75% }
+
+img.align-left, .figure.align-left, object.align-left, table.align-left {
+  clear: left ;
+  float: left ;
+  margin-right: 1em }
+
+img.align-right, .figure.align-right, object.align-right, table.align-right {
+  clear: right ;
+  float: right ;
+  margin-left: 1em }
+
+img.align-center, .figure.align-center, object.align-center {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+table.align-center {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.align-left {
+  text-align: left }
+
+.align-center {
+  clear: both ;
+  text-align: center }
+
+.align-right {
+  text-align: right }
+
+/* reset inner alignment in figures */
+div.align-right {
+  text-align: inherit }
+
+/* div.align-center * { */
+/*   text-align: left } */
+
+.align-top    {
+  vertical-align: top }
+
+.align-middle {
+  vertical-align: middle }
+
+.align-bottom {
+  vertical-align: bottom }
+
+ol.simple, ul.simple {
+  margin-bottom: 1em }
+
+ol.arabic {
+  list-style: decimal }
+
+ol.loweralpha {
+  list-style: lower-alpha }
+
+ol.upperalpha {
+  list-style: upper-alpha }
+
+ol.lowerroman {
+  list-style: lower-roman }
+
+ol.upperroman {
+  list-style: upper-roman }
+
+p.attribution {
+  text-align: right ;
+  margin-left: 50% }
+
+p.caption {
+  font-style: italic }
+
+p.credits {
+  font-style: italic ;
+  font-size: smaller }
+
+p.label {
+  white-space: nowrap }
+
+p.rubric {
+  font-weight: bold ;
+  font-size: larger ;
+  color: maroon ;
+  text-align: center }
+
+p.sidebar-title {
+  font-family: sans-serif ;
+  font-weight: bold ;
+  font-size: larger }
+
+p.sidebar-subtitle {
+  font-family: sans-serif ;
+  font-weight: bold }
+
+p.topic-title {
+  font-weight: bold }
+
+pre.address {
+  margin-bottom: 0 ;
+  margin-top: 0 ;
+  font: inherit }
+
+pre.literal-block, pre.doctest-block, pre.math, pre.code {
+  margin-left: 2em ;
+  margin-right: 2em }
+
+pre.code .ln { color: gray; } /* line numbers */
+pre.code, code { background-color: #eeeeee }
+pre.code .comment, code .comment { color: #5C6576 }
+pre.code .keyword, code .keyword { color: #3B0D06; font-weight: bold }
+pre.code .literal.string, code .literal.string { color: #0C5404 }
+pre.code .name.builtin, code .name.builtin { color: #352B84 }
+pre.code .deleted, code .deleted { background-color: #DEB0A1}
+pre.code .inserted, code .inserted { background-color: #A3D289}
+
+span.classifier {
+  font-family: sans-serif ;
+  font-style: oblique }
+
+span.classifier-delimiter {
+  font-family: sans-serif ;
+  font-weight: bold }
+
+span.interpreted {
+  font-family: sans-serif }
+
+span.option {
+  white-space: nowrap }
+
+span.pre {
+  white-space: pre }
+
+span.problematic, pre.problematic {
+  color: red }
+
+span.section-subtitle {
+  /* font-size relative to parent (h1..h6 element) */
+  font-size: 80% }
+
+table.citation {
+  border-left: solid 1px gray;
+  margin-left: 1px }
+
+table.docinfo {
+  margin: 2em 4em }
+
+table.docutils {
+  margin-top: 0.5em ;
+  margin-bottom: 0.5em }
+
+table.footnote {
+  border-left: solid 1px black;
+  margin-left: 1px }
+
+table.docutils td, table.docutils th,
+table.docinfo td, table.docinfo th {
+  padding-left: 0.5em ;
+  padding-right: 0.5em ;
+  vertical-align: top }
+
+table.docutils th.field-name, table.docinfo th.docinfo-name {
+  font-weight: bold ;
+  text-align: left ;
+  white-space: nowrap ;
+  padding-left: 0 }
+
+/* "booktabs" style (no vertical lines) */
+table.docutils.booktabs {
+  border: 0px;
+  border-top: 2px solid;
+  border-bottom: 2px solid;
+  border-collapse: collapse;
+}
+table.docutils.booktabs * {
+  border: 0px;
+}
+table.docutils.booktabs th {
+  border-bottom: thin solid;
+  text-align: left;
+}
+
+h1 tt.docutils, h2 tt.docutils, h3 tt.docutils,
+h4 tt.docutils, h5 tt.docutils, h6 tt.docutils {
+  font-size: 100% }
+
+ul.auto-toc {
+  list-style-type: none }
+
+</style>
+</head>
+<body>
+<div class="document" id="ai-assistant">
+<h1 class="title">AI Assistant</h1>
+
+<!-- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! This file is generated by oca-gen-addon-readme !!
+!! changes will be overwritten.                   !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! source digest: sha256:c0f11cff6a9cd956e23858939face43071a7ad55768418182f9488a7a4148900
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! -->
+<p><a class="reference external image-reference" href="https://odoo-community.org/page/development-status"><img alt="Beta" src="https://img.shields.io/badge/maturity-Beta-yellow.png" /></a> <a class="reference external image-reference" href="http://www.gnu.org/licenses/lgpl-3.0-standalone.html"><img alt="License: LGPL-3" src="https://img.shields.io/badge/license-LGPL--3-blue.png" /></a> <a class="reference external image-reference" href="https://github.com/okolovmark/nixodoo-addons/tree/16.0/ai_assistant"><img alt="okolovmark/nixodoo-addons" src="https://img.shields.io/badge/github-okolovmark%2Fnixodoo--addons-lightgray.png?logo=github" /></a></p>
+<p>The AI Assistant: Claude answers an employee’s question from live Odoo data,
+which it looks up through read-only tools that run as that employee. Every
+internal user has it, in two places:</p>
+<ul class="simple">
+<li><strong>Ask AI</strong>, a button in the chatter of a record: answers about that record
+and the records linked to it, as internal notes on the record;</li>
+<li>the <strong>AI Assistant</strong> app: conversations on a full page or in a quick panel
+from the systray, and AI reports.</li>
+</ul>
+<p>It only reads: it creates, changes and deletes no record and never offers
+to. The one thing it saves is an AI report, the employee’s own page. It
+answers on Claude only, the models of <tt class="docutils literal">claude_models</tt> in order (Sonnet 5.5,
+then Haiku 5.5), never on another model: when no Claude model answers,
+nobody does. It answers in the language of the question, gives times in the
+employee’s timezone and names the records its answer rests on.</p>
+<p><strong>Ask AI</strong></p>
+<p><em>Ask AI</em> sits after <em>Log note</em> in the chatter of a saved record (an icon on a
+phone). It opens a dialog for a question of up to 2,000 characters. The
+question is posted at once as a note by the employee; a queue job writes the
+answer as a second note by <em>AI Assistant</em>, in reply to the question, opening
+with a line that quotes the asker and the start of the question: two answers
+on one record may arrive in either order. Both carry the <em>Ask AI</em> subtype,
+which is internal and followed by nobody: they notify nobody, and every
+internal user who can see the record sees them. The asker does not become a
+follower.</p>
+<p>Ask AI answers about the record and the records linked to it; for reports,
+rankings and statistics over other records it points to the app. It is
+refused on a record the employee may not read, on one the AI deny list holds,
+on a Discuss channel (its notes would reach the members) and on the
+assistants’ own <tt class="docutils literal">ai.*</tt> records. A missing, hidden or denied record gets the
+same message.</p>
+<p>The answer is escaped, then only its marks are rendered (bold, emphasis,
+code, headings, lists, paragraphs); only URLs into this Odoo, at its own host
+or a path of the web client, become links. A question without an answer gets
+a note instead:</p>
+<ul class="simple">
+<li>it needed more tool rounds or time than one answer has: <em>narrow it (one
+record, a shorter period) and ask again</em>;</li>
+<li>no Claude model answered: <em>the AI Assistant is not available right now</em>.</li>
+</ul>
+<p>The record’s earlier Ask AI questions, from any asker, go with a new
+question as its history (see How an answer is made), as long as the
+question note and the note of its latest answer are still in the chatter.
+Another employee’s earlier question is passed with their name, quoted as
+data, never as an instruction.</p>
+<p>The asker rates an answer with a thumbs-up or thumbs-down reaction on the
+answer note, also on a record they may only read. Only the asker’s own
+reactions count; a thumbs-down wins over a thumbs-up.</p>
+<p><strong>The AI Assistant app</strong></p>
+<p>The <em>AI Assistant</em> app opens on <em>Assistant</em>, which lists the employee’s
+conversations, the most recently active first, with <em>New chat</em> and <em>My
+reports</em>; administrators also have <em>Review</em> and <em>Configuration</em> (see
+Administration). A conversation is named after its first
+question and kept until its owner deletes it, which deletes its questions
+and answers; the AI reports it saved stay in <em>My reports</em>. An employee sees
+only their own conversations.</p>
+<p>The magic-wand icon in the systray opens a quick panel over the current
+screen and carries it: the window action’s model and, on a form, the record
+shown. The panel continues the employee’s latest conversation while it was
+asked from the same screen; otherwise the next question starts a new one.
+<em>Open in the AI Assistant app</em> moves to the full page. A question in the app
+may be about any data the employee can see: the screen is context, not a
+limit. While an answer is written the composer waits; each answer has
+<em>Helpful</em> and <em>Not helpful</em> buttons, and the same button again takes the
+rating back. A new answer an administrator sends shows in the conversation
+as an answer quoting the question it answers again (see To Review).</p>
+<p><strong>How an answer is made</strong></p>
+<p><tt class="docutils literal">readme/answer_flow.puml</tt> draws one question.</p>
+<p>A question is an <tt class="docutils literal">ai.assistant.exchange</tt> row, answered by one queue job on
+the channel <tt class="docutils literal">root.ai_assistant</tt>. The row keeps the companies selected in
+the switcher when the question was asked, the current one first; the answer
+reads in those the employee still works in, or in their main company when
+none is left. When the job runs, the employee’s group and, for Ask AI, their
+access to the record and the deny list are checked again. A question refused
+then is closed as <em>Unavailable</em> without asking Claude: nothing is posted on
+the record, and an Ask AI asker alone gets a notification that they no longer
+have access to the AI Assistant or to the record; in the app the refusal shows
+in place of the answer.</p>
+<p>The job sends Claude the system prompt (a constant of the module), the
+history, and a context block (the employee, the date and time in their
+timezone, their companies, the record or screen) before the question, then
+runs the tool loop of <tt class="docutils literal">ai.claude.gateway._claude_chain</tt>
+(<tt class="docutils literal">ai_claude</tt>). Each model has <tt class="docutils literal">claude_max_tool_rounds</tt> (12)
+rounds of tool calls and <tt class="docutils literal">claude_tool_budget_seconds</tt> (300) from its first
+call; a tool asked for past the budget is not run. A model that reaches
+either limit ends the question without an answer: the next model would meet
+the same limit.</p>
+<p>The history is the last 10 answered questions asked before the question,
+oldest first: the record’s for Ask AI, the conversation’s in the app. Each
+goes with its latest answer: a new answer takes the place of the answer it
+answers again.</p>
+<p>The job’s own transaction writes nothing; the answer is written in a short
+transaction of its own, only while the question is still pending, so a
+second run of the job never answers twice. That write is tried 3 times when
+it meets concurrent updates; then one more transaction closes the question
+as <em>Unavailable</em>, with the <em>not available</em> text, without asking Claude
+again. Should that meet a conflict too, the question stays pending for the
+cron below.</p>
+<p>An answer that says neither the module documentation nor the data answers
+the question is flagged <em>Not covered</em>. A question whose job failed or was
+cancelled is closed at once as <em>Unavailable</em>, and the asker sees the
+<em>not available</em> text. The cron <em>AI Assistant: close questions whose answer
+never came</em> (every 5 minutes) closes the questions still pending
+<tt class="docutils literal">pending_stale_seconds</tt> (1800) after their job started or was enqueued, or
+after the question when it has no job; a running job is never cut short.
+Whichever of these closes a question, an app asker who has lost the AI
+Assistant since sees the refusal instead; for a new answer the refusal is
+told to nobody.</p>
+<p><strong>Tools</strong></p>
+<p>The tools run as the asking employee, in the companies of the question, and
+refuse to run as the superuser: access rights, record rules, companies and
+field groups decide what they return, as they do on screen, then the AI deny
+list takes away what the assistant must not read. <tt class="docutils literal">find_models</tt> reads the
+model and field lists (<tt class="docutils literal">ir.model</tt>, <tt class="docutils literal">ir.model.fields</tt>) as superuser, then
+keeps only the models the employee’s access rights let them read and the
+fields their field groups let them see, less the deny list.
+<tt class="docutils literal">find_menus</tt> reads the menus, their actions, the access rights and the
+roles as superuser and returns only names from them; whether the employee can
+open a menu is decided as the employee. <tt class="docutils literal">find_models</tt>, <tt class="docutils literal">find_menus</tt> and
+<tt class="docutils literal">module_docs</tt> read the installed modules behind a model as superuser too.
+Each call runs in a savepoint that is always rolled back, under a statement
+timeout of <tt class="docutils literal">tool_seconds</tt> (15).</p>
+<ul>
+<li><p class="first"><tt class="docutils literal">search_read</tt>: the records matching a domain with the fields asked for
+(none asked: the stored fields that are not binary, HTML or x2many), at
+most <tt class="docutils literal">max_rows</tt> (200); it says when more match.</p>
+</li>
+<li><p class="first"><tt class="docutils literal">read</tt>: records by id, archived ones too, at most <tt class="docutils literal">max_rows</tt>; it lists
+the ids that do not exist or that the employee may not see.</p>
+</li>
+<li><p class="first"><tt class="docutils literal">read_group</tt>: totals by group. Group keys are fields of the model itself,
+a date by day, week, month, quarter or year; measures are
+<tt class="docutils literal">field:function</tt> or <tt class="docutils literal">name:function(field)</tt> with sum, avg, min, max,
+count or count_distinct of a stored field; every group has <tt class="docutils literal">__count</tt>; at
+most <tt class="docutils literal">max_rows</tt> groups.</p>
+</li>
+<li><p class="first"><tt class="docutils literal">find_models</tt>: where a kind of data is kept, for a query of a few words,
+such as <em>leave credit</em>. The query is split at spaces, commas, semicolons
+and <tt class="docutils literal">/</tt>, and each word loses the punctuation at its ends (an inner <tt class="docutils literal">.</tt>
+or <tt class="docutils literal">_</tt> stays, as in <tt class="docutils literal">hr.employee.credits</tt>). Single characters and
+common question words, such as how, many or left, are not looked for.
+<tt class="docutils literal">no</tt> is looked for only right after a word that is, as in <em>serial no</em>,
+not in <em>why is there no attendance</em>. A note names the words not looked for
+(<em>Not looked for: why, is, there, no.</em>); of more than 10 words, only the
+first 10 are looked for, and a note says so.</p>
+<p>A model matches when its technical name, its description or the label of
+one of its fields holds a word of the query, ignoring case. A word of two
+letters, such as OT or SL, matches only a whole word; a longer one matches
+only where a word starts (after anything but a letter or a digit), so
+<em>tag</em> finds <em>Tags</em> but not <em>Stage</em>. A word of four letters or more that
+ends in s is also looked for as a singular: <em>-ies</em> becomes <em>-y</em> from five
+letters on, <em>-sses</em>, <em>-xes</em>, <em>-ches</em> and <em>-shes</em> lose <em>es</em>, any other <em>-s</em>
+but <em>-ss</em> loses its <em>s</em>. <tt class="docutils literal">_</tt> and <tt class="docutils literal">%</tt> are plain characters. The fields
+every model has (<tt class="docutils literal">id</tt>, <tt class="docutils literal">create_uid</tt>, <tt class="docutils literal">create_date</tt>, <tt class="docutils literal">write_uid</tt>,
+<tt class="docutils literal">write_date</tt>, <tt class="docutils literal">display_name</tt>, <tt class="docutils literal">__last_update</tt>) are never matched by
+label, and a model that only <tt class="docutils literal">no</tt> matches is left out.</p>
+<p>It returns at most 15 models: those matching more of the words other than
+<tt class="docutils literal">no</tt> first, then those whose name or description holds more of them as
+typed, then those whose name or description holds any of them, then those
+with a label holding <tt class="docutils literal">no</tt>, then those with more matching fields, then by
+technical name. Each comes with its description, up to 10 matching fields
+(technical name and label, those matching more words first) with the
+count of the others, and the installed modules that define or
+extend it and have a README, which <tt class="docutils literal">module_docs</tt> reads. Left out: models
+the employee’s access rights do not let them read, models on the AI deny
+list, transient and abstract models, and fields outside the employee’s
+field groups or on the deny list. A note also gives the count of matching
+models past 15, or, when none matches, suggests another word, a synonym or
+the singular.</p>
+</li>
+<li><p class="first"><tt class="docutils literal">find_menus</tt>: where a screen, menu or report is, for a query of a few
+words, such as <em>inventory analysis</em>. The query is read and its words match
+as for <tt class="docutils literal">find_models</tt>, against the menu’s name, its action’s name and the
+names of the menus above it, in the employee’s language; a menu that only
+<tt class="docutils literal">no</tt> matches is left out.</p>
+<p>It looks at the active menus whose action exists. Left out: menus without
+an action and menus under an archived one; developer mode menus (whose
+only group is <tt class="docutils literal">base.group_no_one</tt>) and the menus Odoo keeps out of the
+employee’s web client whatever their access, with the menus under them.</p>
+<p>It returns at most 10 menus: those matching more of the words other than
+<tt class="docutils literal">no</tt> first, then those matching more of them in their own or action
+name, then by path; a note gives the count past 10, or, when none matches,
+suggests another word, a synonym or the singular. Each comes with:</p>
+<ul class="simple">
+<li><tt class="docutils literal">path</tt>: the menu names from the app down, joined by <tt class="docutils literal">&gt;</tt>;</li>
+<li><tt class="docutils literal">model</tt>: the model its window, server, report or client action opens,
+when that model is installed; a URL action has none;</li>
+<li><tt class="docutils literal">modules</tt>: as for <tt class="docutils literal">find_models</tt>; or instead <tt class="docutils literal">denied</tt>, when the
+model is on the AI deny list or a wizard’s, whose data and documentation
+the assistant does not read;</li>
+<li><tt class="docutils literal">can_open</tt>: whether the employee can open the menu and every menu above
+it outside developer mode: their groups, and read access to the model of
+each window, server or report action on the path.</li>
+</ul>
+<p>A menu the employee cannot open also has <tt class="docutils literal">needs</tt>, lists of group full
+names such as <em>Invoicing / Billing</em>: every list is required, one group of
+a list is enough. A list holds the groups of a menu on the path the
+employee has none of, or the groups whose access rights read the model of
+a window, server or report action on the path that the employee may not
+read; a list holding every group of another is left out. <tt class="docutils literal">needs</tt> is
+absent when no group opens the menu, as when no access right lets anyone
+read such a model. With base_user_role installed, <tt class="docutils literal">roles</tt> lists up to 5
+roles, by name, that each grant a group of every list on their own, and
+<tt class="docutils literal">more_roles</tt> counts the others.</p>
+</li>
+<li><p class="first"><tt class="docutils literal">fields</tt>: the fields the employee may see and the deny list leaves, with
+label, type, related model, help, selection values and whether they can be
+searched, sorted and grouped.</p>
+</li>
+<li><p class="first"><tt class="docutils literal">record_history</tt>: a record’s chatter, newest first, without user
+notifications: author, date, type, subtype, text (each cut at 2,000
+characters), attachment names and tracked changes, at most <tt class="docutils literal">max_rows</tt>
+messages, marked as untrusted data.</p>
+</li>
+<li><p class="first"><tt class="docutils literal">module_docs</tt>: the READMEs of the installed modules that define or
+extend a model, by name; a module may read others, or fewer, through
+<tt class="docutils literal">ai.assistant.tools._module_docs_modules</tt>. Each README
+is the running module’s rendered one, as plain text, without its table of
+contents, changelog, bug tracker, credits, link targets and media.</p>
+</li>
+<li><p class="first"><tt class="docutils literal">report_run</tt>, <tt class="docutils literal">report_save</tt> and <tt class="docutils literal">report_get</tt> (app only): see <em>AI
+reports</em>.</p>
+</li>
+</ul>
+<p>A tool result holds at most 60,000 characters: <tt class="docutils literal">search_read</tt>, <tt class="docutils literal">read</tt>,
+<tt class="docutils literal">read_group</tt>, <tt class="docutils literal">find_models</tt> and <tt class="docutils literal">find_menus</tt> drop rows from the end,
+<tt class="docutils literal">fields</tt> drops fields and <tt class="docutils literal">record_history</tt> the oldest messages, each
+with a note saying so. HTML comes as plain text, datetimes in UTC. <tt class="docutils literal">module_docs</tt> shares one
+result among a model’s READMEs as evenly as their lengths allow; the module that
+defines the model, and those <tt class="docutils literal">_docs_floor_module_names</tt> adds, keep at least
+a quarter each. A README cut to fit ends at a paragraph with <tt class="docutils literal">[cut at X of
+its Y characters]</tt>, a closing note names the modules cut or left out, and
+the tool with a <tt class="docutils literal">module</tt> and an <tt class="docutils literal">offset</tt> reads that README alone from X
+on.</p>
+<p>The model reads errors as text written for it, never Odoo’s own message,
+which may name records read as superuser: a refused access is <em>Not
+available: the employee may not read this</em>, a query past the timeout asks to
+narrow it, an unexpected failure names only its type.</p>
+<p>A model that is not installed is not a refusal: the error says it is not
+installed here and that the data may be kept in a model of a custom module,
+to look for with <tt class="docutils literal">find_models</tt>. The system prompt says so too; a module may
+say more there through <tt class="docutils literal">ai.assistant.engine._system_prompt_parts</tt>. An
+abstract model gets an error that it holds no records, also pointing to
+<tt class="docutils literal">find_models</tt>. Both errors are logged as <em>Error</em>, not <em>Denied</em>.</p>
+<p>The system prompt also tells the model never to guess a model: it finds one
+with <tt class="docutils literal">find_models</tt>, or with <tt class="docutils literal">find_menus</tt> when the question is where
+something is in Odoo, before it reads that model’s documentation or data.</p>
+<p><strong>Domains</strong></p>
+<p>A domain is a JSON array of <tt class="docutils literal">[field, operator, value]</tt> terms and the prefix
+operators <tt class="docutils literal">&amp;</tt>, <tt class="docutils literal">|</tt> and <tt class="docutils literal">!</tt>. Every field of a path must be one the
+employee may read and the deny list leaves. Refused, with a reason the model
+can act on:</p>
+<ul class="simple">
+<li><tt class="docutils literal">=?</tt>, and <tt class="docutils literal">in</tt> or <tt class="docutils literal">not in</tt> without a list (one id on a link is taken
+as a list of it);</li>
+<li>a computed field Odoo cannot search;</li>
+<li><tt class="docutils literal">child_of</tt> and <tt class="docutils literal">parent_of</tt> on anything but ids, or on a link Odoo
+cannot walk. They take <tt class="docutils literal">id</tt> or a stored, non-related link of the model’s
+own, or one inherited from a parent that stores it, to its own model or to
+a model whose hierarchy is stored or held by a plain link to itself; never
+messages. They start only from roots the employee may read and the deny
+list leaves, and Odoo resolves them with its own rules; a private address
+under a public contact never matches a <tt class="docutils literal">child_of</tt>;</li>
+<li>a path through a link to messages that Odoo does not join in SQL, or such a
+link compared with a name: Odoo would check every message one by one;</li>
+<li>sorting by a contact or a copy of a contact’s data, grouping by a path,
+grouping or aggregating (other than counting) a copy of a contact’s data,
+and sorting, grouping or aggregating a message’s text, or a timesheet’s
+amount or margin or an analytic total where the rows hold or sum a
+timesheet;</li>
+<li>reading a field by a dotted name, and reading a binary field.</li>
+</ul>
+<p>Without an order, a search keeps the model’s own, less the terms that sort by
+a contact, then by id: users by login and id rather than by name, a
+contact’s; companies by sequence and id; contacts by id, the newest first.</p>
+<p>One exception follows Odoo’s own search: on a path through an
+<tt class="docutils literal">auto_join</tt> link (a record’s messages or activities, a user’s contact), and
+on a term that compares a link the deny list filters with ids, a range, a
+name search’s result or nothing, the linked rows are matched in SQL without
+their record rules, as Odoo joins them or compares a many2one’s column. The
+deny list’s row filter and the link’s own domain still apply, and every
+later step of the path is resolved with the employee’s rights and rules.</p>
+<p><strong>AI deny list</strong></p>
+<p>What the assistant never reads, even when the employee may: an Ask AI answer
+is seen by everyone who can see the record, not only by the asker.</p>
+<ul class="simple">
+<li><strong>Models</strong> (fnmatch patterns): <tt class="docutils literal">hr.payslip*</tt>, <tt class="docutils literal">hr.payroll.*</tt>,
+<tt class="docutils literal">hr.contract*</tt>, <tt class="docutils literal">hr.appraisal*</tt>, <tt class="docutils literal">res.partner.bank</tt>, <tt class="docutils literal">res.bank</tt>,
+<tt class="docutils literal">ir.config_parameter</tt>, <tt class="docutils literal">ir.mail_server</tt>, <tt class="docutils literal">fetchmail.server</tt>,
+<tt class="docutils literal">res.users.apikeys*</tt>, <tt class="docutils literal">auth_totp.device</tt>, <tt class="docutils literal">payment.provider</tt>,
+<tt class="docutils literal">payment.token</tt>, <tt class="docutils literal">mail.ice.server</tt>, <tt class="docutils literal">mail.guest</tt>,
+<tt class="docutils literal">sign.request.item.value</tt>, <tt class="docutils literal">sign.log</tt> and <tt class="docutils literal">ai.*</tt>; and every
+transient model, since settings and wizard rows hold what was typed in
+them.</li>
+<li><strong>Fields</strong>: the hourly <tt class="docutils literal">cost</tt> and <tt class="docutils literal">display_cost</tt> of a project’s
+employee mapping; <tt class="docutils literal">account_number</tt> of bank statement lines; the task
+brief (<tt class="docutils literal">brief</tt> of tasks, from <tt class="docutils literal">project_ai_driven</tt>), the whole task in
+one text, its notes, their authors and its attachments included, past the
+masks applied value by value: the assistant reads a task field by field;
+<tt class="docutils literal">can_open_last_appraisal</tt> on any model (<tt class="docutils literal">hr_appraisal_oca</tt>’s flag on
+employees and their public profiles), a bit derived from the appraisals, a
+denied model; the website’s Plausible and Google Maps keys, a signature
+request’s share link and a Discuss channel’s <tt class="docutils literal">uuid</tt> and invitation URL;
+and on every model, the fields named like a token, secret, password, API
+key or credential (<tt class="docutils literal">access_token</tt>, <tt class="docutils literal">signup_token</tt>, <tt class="docutils literal">signup_url</tt>,
+<tt class="docutils literal">invite_token</tt>, <tt class="docutils literal">*_token</tt>, <tt class="docutils literal">*secret*</tt>, <tt class="docutils literal">*password*</tt>, <tt class="docutils literal">*passwd*</tt>,
+<tt class="docutils literal">*api_key*</tt>, <tt class="docutils literal">credential*</tt>, <tt class="docutils literal">callback_hash</tt>, <tt class="docutils literal">visibility_password*</tt>).</li>
+<li><strong>Employees</strong>: every field of <tt class="docutils literal">hr.employee</tt> that <tt class="docutils literal">hr.employee.public</tt>
+does not have, but those <tt class="docutils literal">ai.assistant.tools._employee_work_fields</tt>
+names, and every <tt class="docutils literal">hr.employee</tt> field restricted to a group of <tt class="docutils literal">hr</tt> or
+of an <tt class="docutils literal">hr_*</tt> module.</li>
+<li><strong>Employee requests</strong>, the models <tt class="docutils literal">ai.assistant.tools._request_models</tt>
+names (none here): readable, but none of their attachments, those posted
+in their chatter included, and none of their mails, which print the
+reason. Notes, tracked changes and comments without a file stay readable;
+their reason fields go on the deny list with them.</li>
+<li><strong>Private addresses</strong>: contacts of type <em>Private</em>, employees’ home
+addresses that are not a user’s own contact, and every contact under
+either. They are left out of every read; a link to one reads <em>a private
+address, on the AI deny list</em>, and so does a copy of its data: a related
+field through it, a stored text computed from it, a name taken from it, a
+message’s sender address, a mail’s recipients.</li>
+<li><strong>Timesheet costs</strong>: the <tt class="docutils literal">amount</tt> of an analytic line that names an
+employee, its hours times the employee’s hourly cost, reads <em>an employee’s
+cost, on the AI deny list</em> and matches no filter, negated or not; it is
+never a sort key, group or total over rows that hold such a line. Analytic
+lines without an employee (accounting) keep their amount. A row of the
+<em>Timesheets Analysis</em> report (<tt class="docutils literal">timesheets.analysis.report</tt>) that names an
+employee is masked the same, its <tt class="docutils literal">amount</tt> and, with <tt class="docutils literal">sale_timesheet</tt>,
+its <tt class="docutils literal">margin</tt>, the revenue plus that cost. The totals of an analytic
+account with at least one line that names an employee, even a line the
+asker may not read, read the same: the account’s <tt class="docutils literal">balance</tt>, <tt class="docutils literal">debit</tt>
+and <tt class="docutils literal">credit</tt> and a project’s <tt class="docutils literal">analytic_account_balance</tt>, which beside
+the hours would give the rate. They are computed, so no filter, group or
+aggregate takes them, and a sort by one over such an account is refused.
+An account without such a line keeps its totals.</li>
+<li><strong>Links</strong> into a denied model, and related fields whose path crosses a
+denied field.</li>
+<li><strong>Rows of a denied record</strong> or a private address: its messages, mails,
+tracking values, notifications, reactions, followers, activities,
+attachments and calendar events. Also left out: the tracked changes of a
+denied field or of a field the employee may not read, and attachments that
+hold a denied binary field or whose <tt class="docutils literal">res_model</tt> names no model. A message
+that carries a refused attachment loses its text, and a link to a refused
+attachment reads <em>an attachment on the AI deny list</em>.</li>
+</ul>
+<p><tt class="docutils literal">deny_models_extra</tt> and <tt class="docutils literal">deny_fields_extra</tt> add patterns, and so may a
+module through <tt class="docutils literal">_deny_list_models</tt> and <tt class="docutils literal">_deny_list_fields</tt>; narrowing
+the list is a code change. A refused call is logged as <em>Denied</em>, and the model is
+told the data is not available and not to reach it another way.</p>
+<p><strong>AI reports</strong></p>
+<p>In the app, a request for a report, a chart or a table to keep gets an AI
+report (<tt class="docutils literal">ai.report</tt>). <tt class="docutils literal">readme/ai_report_flow.puml</tt> draws its life. The
+model writes:</p>
+<ul class="simple">
+<li>the <strong>specification</strong>: up to 8 datasets, each grouped (group keys and
+measures, as <tt class="docutils literal">read_group</tt>) or a list of records (fields, as
+<tt class="docutils literal">search_read</tt>) over a model and a domain, with an order and a limit; up to
+20 formula columns per dataset or merge, over numbers, the columns before
+it, <tt class="docutils literal">+ - * / %</tt>, comparisons and <tt class="docutils literal">abs</tt>, <tt class="docutils literal">round</tt>, <tt class="docutils literal">min</tt>, <tt class="docutils literal">max</tt> and
+<tt class="docutils literal">coalesce</tt> (parsed and walked, never run as code; a null operand or a
+division by zero gives null); and up to 4 merges of two grouped datasets on
+their group keys (<tt class="docutils literal">inner</tt>, <tt class="docutils literal">left</tt> or <tt class="docutils literal">full</tt>), whose keys must be of
+the same kind;</li>
+<li>the <strong>page</strong>: HTML and CSS with its written conclusions, and bindings that
+tie page elements, by id, to the data: single figures (the first, last,
+sum, average, minimum, maximum or count of a column, optionally of the rows
+matching a value), tables (columns, a limit, a total row) and Chart.js
+2.9.4 charts (bar, horizontal bar, line, pie, doughnut, stacked or not).</li>
+</ul>
+<p><tt class="docutils literal">report_run</tt> runs the specification as the employee through the same tools
+and returns all its data; past <tt class="docutils literal">report_max_tokens</tt> (about two characters of
+JSON a token) it refuses and asks to aggregate further, as it does when a
+dataset without a limit matches more than <tt class="docutils literal">max_rows</tt>. <tt class="docutils literal">report_save</tt> runs
+it again and keeps the data with the page and bindings. The model types no
+figure into the page except in the conclusions, which quote what
+<tt class="docutils literal">report_run</tt> returned. When a model saved a report and the next model
+starts over, that model’s first save replaces it. <tt class="docutils literal">report_get</tt> returns a
+report the employee may open, as untrusted data, to save a revised version as
+a new report; a report a colleague shared comes without its specification.</p>
+<p>The page keeps only its layout and text: headings, paragraphs, sections,
+lists, tables and inline formatting, <tt class="docutils literal">&lt;style&gt;</tt> at the top of the page, and
+the attributes <tt class="docutils literal">id</tt>, <tt class="docutils literal">class</tt>, <tt class="docutils literal">style</tt>, <tt class="docutils literal">title</tt>, <tt class="docutils literal">lang</tt>, <tt class="docutils literal">dir</tt>,
+<tt class="docutils literal">align</tt>, <tt class="docutils literal">width</tt>, <tt class="docutils literal"><span class="pre">aria-*</span></tt> and, on cells, <tt class="docutils literal">colspan</tt> and <tt class="docutils literal">rowspan</tt>.
+Scripts, event handlers, images, SVG, forms and every link’s <tt class="docutils literal">href</tt> are
+removed; a style sheet or style attribute whose CSS loads a file or a font or
+runs script (<tt class="docutils literal">url()</tt>, <tt class="docutils literal"><span class="pre">image-set()</span></tt>, <tt class="docutils literal">&#64;import</tt>, <tt class="docutils literal"><span class="pre">&#64;font-face</span></tt>,
+<tt class="docutils literal">expression()</tt>, <tt class="docutils literal"><span class="pre">-moz-binding</span></tt>, <tt class="docutils literal">behavior</tt>) is removed whole. A tag
+removed leaves its content in place; the cleaning runs again on its own
+output until its parser (libxml2) gives it back unchanged, three passes at
+most. A page that is mostly script is refused. A title has up to 120
+characters, a page up to 100,000.</p>
+<p>The app shows the page in a sandboxed frame that holds a second sandboxed
+frame with the page, both under a content security policy that refuses every
+request and lets only Chart.js and the module’s renderer
+(<tt class="docutils literal">static/report_frame/report_renderer.js</tt>) run, by their hashes. The
+renderer fills the bindings from the stored data. A figure over a dataset
+whose limit left rows out is marked <em>(partial)</em>, a table or chart over one
+says it holds the first rows, in the reader’s language: the server sends
+these notes translated with the data.</p>
+<p>The data is a snapshot taken when the report was saved. <em>Refresh</em>, for the
+owner only, reruns the specification as the owner, without the model, in the
+report’s companies the owner still works in, the current one first; the page
+and its conclusions stay as written, and the report then says they were
+written on older data. A refresh that fails says why as the tools tell the
+model: their own reasons as written, a refused access, a timeout or an
+unexpected error by kind only (logged as a warning), never Odoo’s message. A
+model the report reads that is no longer installed is told in plain words:
+<em>the model X it reads is not installed any more</em>. A failed refresh keeps
+the report’s data. <em>Export</em> downloads an xlsx file: a sheet of the report’s facts, then a sheet
+per dataset and merge.</p>
+<p><em>Share</em> lets the owner choose colleagues who use the AI Assistant. They get
+the report itself, the owner’s snapshot: title, owner, dates, page and data,
+which they may export, but neither refresh nor share. The conversation and
+answer it came from, whom it is shared with, its specification and its
+companies are for administrators only, and nobody else filters, sorts or
+groups reports by them; the owner sees whom it is shared with in the app, and
+the AI Assistant reads the specification for them with <tt class="docutils literal">report_get</tt>. Each
+share and unshare is logged (by whom, with whom, when, and the report’s
+title), and the log outlives the report. The owner and administrators may
+delete a report; it is then gone for everyone it was shared with.</p>
+<p><strong>Administration</strong></p>
+<p>For Settings administrators the app has two more menus. Each window is
+titled as its menu.</p>
+<p><em>Review</em>:</p>
+<ul class="simple">
+<li><em>To Review</em>: the answers to review, Ask AI and app alike (see To
+Review);</li>
+<li><em>Conversations</em>: the conversations of every assistant (filters <em>Ask AI</em>,
+<em>AI Assistant</em>): one Ask AI conversation per record,
+shared by its askers, and one per app conversation. Each shows its
+transcript, its answers with their cost and attempts, and a chatter of
+deviations: a fallback to the next model, a question no Claude model
+answered, a spend limit. <em>Not helpful</em>, the stored count of answers their
+askers rated down, is a column of the list, a figure on an AI Assistant
+conversation’s form and a filter; with <em>With fallbacks</em> also on, the list
+holds the conversations that are both;</li>
+<li><em>Assistant Answers</em>: every question with its kind (<em>Ask AI</em> or <em>AI
+Assistant</em>), employee, record or screen, companies, state (<em>Pending</em>,
+<em>Answered</em>, <em>Unavailable</em>), feedback, <em>Not covered</em>, review (<em>Fixed</em>,
+<em>Dismissed</em>), model, tokens, cost, latency, attempts and the AI reports
+it saved;</li>
+<li><em>Tool Calls</em>: every tool call with its employee, AI conversation, tool,
+model, arguments, rows returned, the modules whose README text
+<tt class="docutils literal">module_docs</tt> returned, outcome (<em>OK</em>, <em>Denied</em>, <em>Error</em>), error and
+latency, never the data it read. A row is written in a transaction of its
+own, so it outlives a failed answer, and is deleted after 12 months;</li>
+<li><em>Reports</em>: every AI report, with its share log.</li>
+</ul>
+<p><em>Configuration</em>:</p>
+<ul class="simple">
+<li><em>Settings</em>: the parameters of the AI Assistant, but the runtime state
+(see Configuration).</li>
+</ul>
+<p>A module of another assistant may add its own screens to these menus.</p>
+<p>The cron <em>AI Assistant: watch for Claude going quiet</em>, every 15 minutes,
+runs the Claude incident check of <tt class="docutils literal">ai_claude</tt> for the AI Assistant: when
+Claude answered none of at least 3 questions in 30 minutes, it mails the
+incident recipients, and again when Claude answers. A question that ran out
+of tool rounds or time counts for neither: Claude answered, the question
+needed more lookups. The AI Assistant has a Claude circuit breaker of its
+own.</p>
+<p><strong>To Review</strong></p>
+<p>An answer is to review while its asker rated it down, it is flagged <em>Not
+covered</em> or it was not answered (<em>Unavailable</em>), and no administrator has
+closed it. <em>Review &gt; To Review</em> lists these answers, the newest first;
+<em>Assistant Answers</em> has the same filter, <em>To Review</em>, next to <em>Fixed</em> and
+<em>Dismissed</em>. An answer’s form shows <em>To Review</em>, <em>Review</em>, <em>Reviewed by</em>
+and <em>Reviewed on</em>, the answer it is a new answer to, and the new answers
+sent to it.</p>
+<p>The review buttons are for Settings administrators. <em>Fixed</em> and <em>Dismiss</em>,
+on the form of an answer to review or on a selection in the list, close
+the selected answers still to review as <em>Fixed</em> or <em>Dismissed</em>, keeping who
+and when; the others are left as they are. Nothing reopens a closed
+answer.</p>
+<p><em>Send new answer</em>, on the form of an answer with a thumbs-down, <em>Not
+covered</em> or not answered, to review or closed, asks the AI Assistant the
+question again after a confirmation. It is refused with the reason, and
+nothing changes, while a new answer to the question is still being
+written, or when the asker is archived, no longer has the <em>AI Assistant</em>
+group, no longer has any of the companies the question was asked in or,
+for Ask AI, may no longer Ask AI on the record (it was deleted, they may no
+longer read it, or the AI deny list holds it). Otherwise the answer is
+marked <em>Fixed</em> if it is still to review (a <em>Dismissed</em> one stays so), and
+the new answer is queued to run as the asker: in their language and
+timezone, with their rights, on the same record or screen, in the
+companies of the question they still have, with the history from before
+the question.</p>
+<p>The new answer replies to the question:</p>
+<ul class="simple">
+<li>Ask AI: a note by <em>AI Assistant</em> in reply to the question note, opening
+with <em>New answer to the question of</em>, the asker and the start of the
+question;</li>
+<li>app: an answer in the conversation, without the question repeated,
+opening with <em>New answer to your question of</em>, the date it was asked and
+the start of the question. The conversation’s transcript marks it <em>New
+answer to the question of</em> that date.</li>
+</ul>
+<p>Once it is answered, the asker alone is notified, in their Inbox or by
+email: for Ask AI by the note itself, for the app by a note of <em>AI
+Assistant</em> on the conversation with the link <em>Open it in the AI
+Assistant</em>. The <em>View</em> button of that mail and its Inbox entry open the
+app on the conversation too; should its owner open the conversation’s
+form, it shows neither its figures nor its transcript and answers. A new
+answer that is not answered notifies nobody and shows as any unanswered
+question does; one refused, however it is closed, posts nothing and tells
+nobody. Either way it is to review.</p>
+<p>A new answer is an answer like any other: it may be rated, reviewed and
+answered again; a new answer to a new answer quotes the question the asker
+asked. Later questions carry the new answer in their history, not the
+answer it replaced.</p>
+<p>The cron <em>AI Assistant: weekly digest of answers to review</em> mails
+<tt class="docutils literal">digest_recipients</tt> every answer to review, whatever its age, at most 50,
+the newest first. Those created in the last 7 days are marked <em>New</em>; the
+mail counts them, the answers to review and the questions asked in those 7
+days, where a new answer an administrator sent never counts as a question
+asked. Each row gives the date, the asker, the kind (for a new answer, with
+the date of the question it answers), why it is to review, the record or
+screen, the modules whose documentation the answer read, links to the
+answer (<em>Review</em>) and to its AI conversation, then the question and the
+answer or the error. Nothing is sent while no answer is to review and no
+question was asked in the last 7 days; without recipients the digest is
+only logged.</p>
+<p><strong>A module of the organisation’s own</strong></p>
+<p>What an organisation changes is in methods its module overrides, calling
+<tt class="docutils literal">super()</tt>:</p>
+<ul class="simple">
+<li><tt class="docutils literal">ai.assistant.tools</tt>: <tt class="docutils literal">_deny_list_models</tt> and <tt class="docutils literal">_deny_list_fields</tt>
+(<tt class="docutils literal">with_patterns_after</tt> puts a pattern right after the shipped one it
+follows), <tt class="docutils literal">_employee_work_fields</tt>, <tt class="docutils literal">_request_models</tt>, <tt class="docutils literal">_tool_texts</tt>
+(who keeps and documents the data, in the tools’ descriptions and
+errors), <tt class="docutils literal">_model_modules</tt> (the modules whose READMEs may document a
+model), <tt class="docutils literal">_module_docs_modules</tt> and <tt class="docutils literal">_docs_floor_module_names</tt>;</li>
+<li><tt class="docutils literal">ai.assistant.engine</tt>: <tt class="docutils literal">_system_prompt_parts</tt> (the organisation, the
+paragraph on models that are not installed, whom to ask) and
+<tt class="docutils literal">_default_claude_key_env</tt> (see Configuration);</li>
+<li><tt class="docutils literal">ai.assistant.exchange</tt>: <tt class="docutils literal">_incident_recipients</tt>.</li>
+</ul>
+<p>The shipped words name no organisation: <em>our</em> Odoo, <em>an administrator</em>,
+<em>Odoo</em>, <em>modules</em>.</p>
+<p><strong>Table of contents</strong></p>
+<div class="contents local topic" id="contents">
+<ul class="simple">
+<li><a class="reference internal" href="#installation" id="toc-entry-1">Installation</a></li>
+<li><a class="reference internal" href="#configuration" id="toc-entry-2">Configuration</a></li>
+<li><a class="reference internal" href="#usage" id="toc-entry-3">Usage</a></li>
+<li><a class="reference internal" href="#known-issues-roadmap" id="toc-entry-4">Known issues / Roadmap</a></li>
+<li><a class="reference internal" href="#bug-tracker" id="toc-entry-5">Bug Tracker</a></li>
+<li><a class="reference internal" href="#credits" id="toc-entry-6">Credits</a><ul>
+<li><a class="reference internal" href="#authors" id="toc-entry-7">Authors</a></li>
+<li><a class="reference internal" href="#contributors" id="toc-entry-8">Contributors</a></li>
+<li><a class="reference internal" href="#maintainers" id="toc-entry-9">Maintainers</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="installation">
+<h1><a class="toc-backref" href="#toc-entry-1">Installation</a></h1>
+<p>Installing needs <tt class="docutils literal">ai_claude</tt> and the <tt class="docutils literal">anthropic</tt> and <tt class="docutils literal">httpx2</tt> Python
+packages; give the job channel a capacity (see Configuration).</p>
+<p><strong>A database that holds the AI Assistant under another module</strong></p>
+<p>The AI Assistant may be installed already under another module, which then
+hands it over: that module drops it from its code and depends on this one,
+and its update installs this module first. Update it with the server
+stopped. <tt class="docutils literal">ai_claude</tt> installs in the same update and adopts its own
+records first (see its README).</p>
+<ul class="simple">
+<li>Before any data file is loaded, the <tt class="docutils literal">pre_init_hook</tt> takes the records
+that module holds under this module’s external ids: the models, their
+fields and selection values (the <em>Ask AI</em> and <em>AI Assistant</em> values of the
+conversation’s <em>Assistant</em>, with their conversations), the group, access
+rights and record rules, settings, the <em>Ask AI</em> subtype, the <em>AI
+Assistant</em> partner, the job channel and job functions, the crons that
+close stale questions and send the weekly digest, the xlsx report, views,
+actions and menus, with the constraints and many2many tables of its
+models. Every record keeps its database id: conversations, answers, tool
+calls, AI reports, their shares and share logs stay. A holder is a module
+that holds the external id of a model of this module; one that held none
+of the records of its data files keeps its settings.</li>
+<li>The holder’s settings, <tt class="docutils literal"><span class="pre">&lt;holder&gt;.&lt;name&gt;</span></tt>, become <tt class="docutils literal"><span class="pre">ai_assistant.&lt;name&gt;</span></tt>
+with their values, unless that key exists already. Each setting of this
+module’s data file whose key has a row takes its external id on that row,
+so a setting emptied and filled again keeps its value.</li>
+<li>The data files loaded at install write even noupdate records: the
+<tt class="docutils literal">post_init_hook</tt> writes back the values the adopted noupdate records had,
+so settings, crons and the job channel stay as they were, and removes again
+a <tt class="docutils literal"><span class="pre">forcecreate=&quot;0&quot;</span></tt> setting the holder no longer had (an emptied one),
+which the data file creates at install.</li>
+<li>The holder’s xlsx report model, <tt class="docutils literal"><span class="pre">report.&lt;holder&gt;.ai_report_xlsx</span></tt>, becomes
+<tt class="docutils literal">report.ai_assistant.ai_report_xlsx</tt>, with its fields, under the same
+ids, unless that model exists already.</li>
+<li>The cron <em>AI Assistant: watch for Claude going quiet</em> is this module’s
+own and is created at install.</li>
+<li>A database where no other module holds a model of this module is left
+untouched, and a second run finds nothing to move.</li>
+</ul>
+</div>
+<div class="section" id="configuration">
+<h1><a class="toc-backref" href="#toc-entry-2">Configuration</a></h1>
+<p><em>Internal User</em> implies the hidden group <em>AI Assistant</em>
+(<tt class="docutils literal">ai_assistant.group_ai_assistant</tt>): every internal user has the
+app, the systray panel and <em>Ask AI</em>. The app’s <em>Review</em> and <em>Configuration</em>
+menus, the <em>Fixed</em>, <em>Dismiss</em> and <em>Send new answer</em> buttons, every
+conversation and every AI report are for Settings administrators.</p>
+<p><em>AI Assistant &gt; Configuration &gt; Settings</em> opens the <em>AI Assistant</em> block of
+the Settings app, also listed there. Its section <em>AI Assistant</em> sets the
+parameters below, prefix <tt class="docutils literal">ai_assistant.</tt>. A value in brackets is installed
+with the module only: an update neither brings back an emptied parameter
+nor adds one new to the data file, which takes a migration. An emptied
+text field or effort removes its parameter; its default then applies and
+the form shows it: the installed value, but nothing for <tt class="docutils literal">claude_models</tt>
+and <tt class="docutils literal">claude_key_env</tt>. A number must be above zero: the form refuses 0 or
+less, and an emptied number field is 0. A number parameter set in <em>System
+Parameters</em> to 0 or less, or to anything but a whole number (any number for
+<tt class="docutils literal">tool_seconds</tt>), is read as its default, and a <tt class="docutils literal">claude_effort</tt> the API
+does not accept as medium; the form shows what is read. Saving any Settings
+page writes the default shown for an absent parameter.</p>
+<ul class="simple">
+<li><em>Claude</em>: <tt class="docutils literal">claude_models</tt> (<tt class="docutils literal"><span class="pre">claude-sonnet-5-5,claude-haiku-5-5</span></tt>), the
+Claude models, comma-separated, asked in order; empty, the AI Assistant
+does not answer. <tt class="docutils literal">claude_key_env</tt> (<tt class="docutils literal">ANTHROPIC_API_KEY</tt>), the
+name of the environment variable of the Odoo service that holds the
+Anthropic API key; the key is never stored in the database. While the
+variable is unset or empty, the AI Assistant does not answer.
+<tt class="docutils literal">claude_effort</tt> (medium; low, medium, high, xhigh or max),
+<tt class="docutils literal">claude_max_tokens</tt> (16000) and <tt class="docutils literal">claude_timeout_seconds</tt> (120): per
+Claude call. <tt class="docutils literal">claude_max_tokens</tt> caps the whole reply, an AI report’s
+page and bindings included.</li>
+<li><em>Tools</em>: <tt class="docutils literal">claude_max_tool_rounds</tt> (12) and
+<tt class="docutils literal">claude_tool_budget_seconds</tt> (300), one model’s tool loop;
+<tt class="docutils literal">tool_seconds</tt> (15), the statement timeout of one tool call, fractions
+allowed; <tt class="docutils literal">max_rows</tt> (200), the most rows or groups one tool call
+returns, and the most a report dataset holds.</li>
+<li><em>Circuit breaker</em>: <tt class="docutils literal">circuit_threshold</tt> and <tt class="docutils literal">circuit_cooldown_seconds</tt>,
+the AI Assistant’s Claude breaker, not installed; absent, 3 failed
+questions in a row and 300 seconds.</li>
+<li><em>Answers and AI reports</em>: <tt class="docutils literal">pending_stale_seconds</tt> (1800), a question
+still pending this long is closed as <em>Unavailable</em>;
+<tt class="docutils literal">report_max_tokens</tt> (200000), the most data, in estimated tokens, the
+report tools hand the model.</li>
+<li><em>AI deny list</em>: <tt class="docutils literal">deny_models_extra</tt> and <tt class="docutils literal">deny_fields_extra</tt> (empty),
+comma-separated fnmatch patterns added to the AI deny list, models as
+<tt class="docutils literal">x_salary*</tt> and fields as <tt class="docutils literal">model.field</tt>, such as
+<tt class="docutils literal">sale.order.x_margin*</tt>. They only add to the list.</li>
+<li><em>Notifications</em>: <tt class="docutils literal">incident_emails</tt> (empty), recipients of the mails on
+Claude not answering the AI Assistant, empty: nobody is mailed
+(<tt class="docutils literal">ai.assistant.exchange._incident_recipients</tt> may name others);
+<tt class="docutils literal">digest_recipients</tt> (empty),
+recipients of the weekly digest, empty: it is only written to the server
+log. Both comma-separated.</li>
+</ul>
+<p>The breaker and incident state, <tt class="docutils literal">claude_consecutive_failures</tt>,
+<tt class="docutils literal">claude_circuit_open_until</tt> and <tt class="docutils literal">claude_incident_open</tt>, is written by
+the module and is in <em>Settings &gt; Technical &gt; Parameters &gt; System
+Parameters</em> (developer mode) only.</p>
+<p>Set the variable <tt class="docutils literal">claude_key_env</tt> names in the environment of the Odoo
+service to a key of a workspace of the Anthropic Console of its own. That
+workspace’s monthly spend limit caps what the AI Assistant costs; Odoo keeps
+no budget of its own. A module that installs after this one may name
+another variable in <tt class="docutils literal">ai.assistant.engine._default_claude_key_env</tt>. Only
+<tt class="docutils literal">ai.assistant.engine._seed_claude_key_env</tt> reads it, and sets the
+parameter to it while the parameter still holds <tt class="docutils literal">ANTHROPIC_API_KEY</tt>: it
+takes effect only where that module calls <tt class="docutils literal">_seed_claude_key_env</tt>, for
+example from a noupdate <tt class="docutils literal">&lt;function&gt;</tt> of its data, which runs at its
+install only. Like <tt class="docutils literal">ai_claude</tt>, this module needs the <tt class="docutils literal">anthropic</tt> and
+<tt class="docutils literal">httpx2</tt> Python packages to install.</p>
+<p>Answers run as queue jobs on the channel <tt class="docutils literal">root.ai_assistant</tt>. Give it a
+capacity in the job runner’s <tt class="docutils literal">channels</tt> line of <tt class="docutils literal">odoo.conf</tt>, for example
+<tt class="docutils literal">root.ai_assistant:2</tt>: it caps how many answers wait on Claude at once.</p>
+<p>A neutralized database has <tt class="docutils literal">claude_models</tt>, <tt class="docutils literal">digest_recipients</tt> and
+<tt class="docutils literal">incident_emails</tt> blanked, so a copy of production never calls Claude,
+whatever key its host’s environment holds, and mails nobody.</p>
+</div>
+<div class="section" id="usage">
+<h1><a class="toc-backref" href="#toc-entry-3">Usage</a></h1>
+<p><strong>About one record.</strong> Open it, click <em>Ask AI</em> in its chatter, write the
+question and click <em>Ask</em>. The question shows in the chatter at once and the
+answer note follows when it is written, as a reply to the question that
+opens by quoting the asker and the question, so two answers on one record
+are not mixed up. React with a thumbs-up or thumbs-down on the answer to
+rate it. A later question on the same record sees the record’s last 10
+answered Ask AI questions with their latest answers, so a follow-up may
+build on them. Everyone who can see the
+record sees both notes. If, when the answer is due, you no longer have
+access to the AI Assistant or to the record, nothing is posted: a
+notification tells you alone that the question was not answered.</p>
+<p><strong>About anything else.</strong> Open the <em>AI Assistant</em> app, or click the
+magic-wand icon in the systray to ask about the screen you are on without
+leaving it. Ask in any language. The AI Assistant reads what you could look
+up yourself in Odoo, less the AI deny list; when it says it cannot see
+something, the data is outside your access rights or on the deny list. Ask
+it where a screen, menu or report is: it finds the menu, says whether you
+can open it and, when you cannot, which groups or roles open it. If you
+lose the AI Assistant while a question waits, the refusal shows in place of
+its answer.</p>
+<p><strong>AI reports.</strong> In the app, ask for a report, a chart or a table to keep.
+The answer shows a card that opens the report; <em>My reports</em> lists your
+reports and those shared with you. To change one, ask for the change in its
+conversation: the AI Assistant saves a revised version as a new report. In a
+report, <em>Refresh</em> computes the figures again from today’s data (the written
+conclusions stay as they were; when a model the report reads is no longer
+installed, it says so and the report keeps its data), <em>Share</em> shows it to chosen colleagues,
+<em>Export</em> downloads its data as xlsx, and the bin deletes it, for everyone it
+is shared with.</p>
+<p><strong>A new answer to your question.</strong> When an administrator has the AI
+Assistant answer one of your questions again, you are notified in your
+Inbox or by email. On a record the new answer is a note in reply to your
+question, opening with <em>New answer to the question of</em>. In the app it
+shows in the conversation, opening with <em>New answer to your question of</em>
+and the question; <em>Open it in the AI Assistant</em>, the mail’s <em>View</em> button
+and the Inbox entry open the app on that conversation. Rate it as any
+answer.</p>
+<p><strong>Review (administrators).</strong> <em>Review &gt; To Review</em> lists the answers that
+got a thumbs-down, were not covered or were not answered, until they are
+closed. Each is a candidate for a README fix, since <tt class="docutils literal">module_docs</tt> serves
+the READMEs as deployed. Open one to read its question, answer, attempts
+and cost, with a link to its AI conversation. Click <em>Fixed</em> once the README
+or the code is corrected, or <em>Dismiss</em> when there is nothing to correct;
+both also work on a selection in the list. Once the fix is deployed, <em>Send
+new answer</em> asks the AI Assistant the question again as its asker, who is
+notified of the new answer; the answer is marked <em>Fixed</em> at the same time
+if it is still to review. The weekly digest mail lists every answer still
+to review, those of the last 7 days marked <em>New</em>, each with a <em>Review</em>
+link to it. <em>Review &gt; Assistant Answers</em> holds every question (filters <em>Not
+helpful</em>, <em>Not covered</em>, <em>Unavailable</em>, <em>Pending</em>, <em>To Review</em>, <em>Fixed</em>,
+<em>Dismissed</em>); <em>Review &gt; Tool Calls</em> (filters <em>Denied</em>, <em>Errors</em>) shows what
+each answer looked up. <em>Configuration &gt; Settings</em> sets the AI Assistant.</p>
+</div>
+<div class="section" id="known-issues-roadmap">
+<h1><a class="toc-backref" href="#toc-entry-4">Known issues / Roadmap</a></h1>
+<ul class="simple">
+<li>Claude only: when no Claude model answers (an outage, a missing key, the
+workspace’s spend limit), the AI Assistant does not answer. There is no
+fallback to another model and no per-employee budget in Odoo, so one heavy user
+can spend the workspace’s monthly limit for everyone.</li>
+<li>It reads and never acts: it changes no record and offers no actions.</li>
+<li>An Ask AI answer is seen by everyone who can see the record. Text written
+into a record or an incoming email can steer an answer, but cannot make it
+change anything.</li>
+<li>A shared AI report shows the owner’s data, which may be wider than what
+its recipients may read themselves.</li>
+<li>An Ask AI question refused when its answer job runs (the asker left the
+<em>AI Assistant</em> group, or Ask AI is no longer available on the record) is
+closed as <em>Unavailable</em> without a note on the record: only the asker learns
+of it, from a notification shown while they have Odoo open.</li>
+<li>An AI report page holds no images, SVG, links or fonts of its own, and
+its charts are those of Chart.js 2.9.4.</li>
+<li>Two concurrent presses of <em>Send new answer</em> on one question queue one new
+answer, guarded by a row lock on the question and a check read past the
+transaction’s snapshot. The tests run in one transaction and do not
+exercise that race.</li>
+<li><tt class="docutils literal">find_models</tt> and <tt class="docutils literal">find_menus</tt> match a word only where a word starts:
+<em>keeping</em> does not find <em>Timekeeping</em>.</li>
+<li><tt class="docutils literal">find_models</tt> and <tt class="docutils literal">find_menus</tt> do not reduce a word of three letters:
+<em>OTs</em> does not find <em>OT</em>.</li>
+<li><tt class="docutils literal">find_models</tt> and <tt class="docutils literal">find_menus</tt> form singulars by spelling alone:
+<em>cookies</em> does not find <em>Cookie</em>, nor <em>statuses</em> or <em>analyses</em> <em>Status</em> or
+<em>Analysis</em>.</li>
+<li><tt class="docutils literal">find_models</tt> never matches the fields every model has by label, also
+where a model labels one otherwise, such as <tt class="docutils literal">create_date</tt> as <em>Creation
+Date</em>.</li>
+<li><tt class="docutils literal">do</tt> is a common word <tt class="docutils literal">find_models</tt> and <tt class="docutils literal">find_menus</tt> leave out, also
+where it stands for a delivery order.</li>
+</ul>
+</div>
+<div class="section" id="bug-tracker">
+<h1><a class="toc-backref" href="#toc-entry-5">Bug Tracker</a></h1>
+<p>Bugs are tracked on <a class="reference external" href="https://github.com/okolovmark/nixodoo-addons/issues">GitHub Issues</a>.
+In case of trouble, please check there if your issue has already been reported.
+If you spotted it first, help us to smash it by providing a detailed and welcomed
+<a class="reference external" href="https://github.com/okolovmark/nixodoo-addons/issues/new?body=module:%20ai_assistant%0Aversion:%2016.0%0A%0A**Steps%20to%20reproduce**%0A-%20...%0A%0A**Current%20behavior**%0A%0A**Expected%20behavior**">feedback</a>.</p>
+<p>Do not contact contributors directly about support or help with technical issues.</p>
+</div>
+<div class="section" id="credits">
+<h1><a class="toc-backref" href="#toc-entry-6">Credits</a></h1>
+<div class="section" id="authors">
+<h2><a class="toc-backref" href="#toc-entry-7">Authors</a></h2>
+<ul class="simple">
+<li>Mark Okolov</li>
+</ul>
+</div>
+<div class="section" id="contributors">
+<h2><a class="toc-backref" href="#toc-entry-8">Contributors</a></h2>
+<ul class="simple">
+<li>Mark Okolov &lt;<a class="reference external" href="https://github.com/okolovmark">https://github.com/okolovmark</a>&gt;</li>
+</ul>
+</div>
+<div class="section" id="maintainers">
+<h2><a class="toc-backref" href="#toc-entry-9">Maintainers</a></h2>
+<p>This module is part of the <a class="reference external" href="https://github.com/okolovmark/nixodoo-addons/tree/16.0/ai_assistant">okolovmark/nixodoo-addons</a> project on GitHub.</p>
+<p>You are welcome to contribute.</p>
+</div>
+</div>
+</div>
+</body>
+</html>

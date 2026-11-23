@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="ai_assistant_app_action" model="ir.actions.client">
+        <field name="name">AI Assistant</field>
+        <field name="tag">ai_assistant.app</field>
+    </record>
+
+    <menuitem id="ai_assistant_app_menu"
+              name="AI Assistant"
+              action="ai_assistant_app_action"
+              web_icon="ai_assistant,static/description/icon.png"
+              groups="group_ai_assistant"
+              sequence="6">
+        <menuitem id="ai_assistant_app_menu_assistant"
+                  name="Assistant"
+                  action="ai_assistant_app_action"
+                  groups="group_ai_assistant"
+                  sequence="10"/>
+
+        <menuitem id="ai_assistant_app_menu_review" name="Review" groups="base.group_system" sequence="20">
+            <menuitem id="ai_assistant_app_menu_to_review"
+                      name="To Review"
+                      action="ai_assistant_exchange_action_to_review"
+                      sequence="10"/>
+            <menuitem id="ai_assistant_app_menu_conversations"
+                      name="Conversations"
+                      action="ai_claude.ai_conversation_action"
+                      sequence="30"/>
+            <menuitem id="ai_assistant_app_menu_assistant_answers"
+                      name="Assistant Answers"
+                      action="ai_assistant_exchange_action"
+                      sequence="50"/>
+            <menuitem id="ai_assistant_app_menu_tool_calls"
+                      name="Tool Calls"
+                      action="ai_assistant_tool_call_action"
+                      sequence="60"/>
+            <menuitem id="ai_assistant_app_menu_reports"
+                      name="Reports"
+                      action="ai_report_action"
+                      sequence="70"/>
+        </menuitem>
+
+        <menuitem id="ai_assistant_app_menu_configuration"
+                  name="Configuration"
+                  groups="base.group_system"
+                  sequence="30">
+            <menuitem id="ai_assistant_app_menu_settings"
+                      name="Settings"
+                      action="res_config_settings_action_ai_assistant"
+                      sequence="10"/>
+        </menuitem>
+    </menuitem>
+</odoo>

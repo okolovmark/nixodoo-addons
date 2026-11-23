@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="ai_assistant_exchange_view_form" model="ir.ui.view">
+        <field name="name">ai.assistant.exchange.view.form</field>
+        <field name="model">ai.assistant.exchange</field>
+        <field name="arch" type="xml">
+            <form create="false" edit="false">
+                <header>
+                    <button name="action_mark_fixed" string="Fixed" type="object" class="oe_highlight" groups="base.group_system" attrs="{'invisible': [('to_review', '=', False)]}"/>
+                    <button name="action_dismiss" string="Dismiss" type="object" groups="base.group_system" attrs="{'invisible': [('to_review', '=', False)]}"/>
+                    <button name="action_send_new_answer" string="Send new answer" type="object" groups="base.group_system"
+                            attrs="{'invisible': [('feedback', '!=', 'down'), ('not_covered', '=', False), ('state', '!=', 'unavailable')]}"
+                            confirm="Ask the AI Assistant this question again, as its asker, and notify them of the new answer? This answer, while to review, is marked Fixed."/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="create_date"/>
+                            <field name="user_id"/>
+                            <field name="kind"/>
+                            <field name="state" widget="badge" decoration-success="state == 'answered'" decoration-warning="state == 'pending'" decoration-danger="state == 'unavailable'"/>
+                            <field name="feedback"/>
+                            <field name="not_covered"/>
+                        </group>
+                        <group>
+                            <field name="res_model"/>
+                            <field name="res_id"/>
+                            <field name="company_id"/>
+                            <field name="allowed_company_ids" widget="many2many_tags"/>
+                            <field name="conversation_id"/>
+                            <field name="latency_ms"/>
+                            <field name="prompt_chars"/>
+                        </group>
+                    </group>
+                    <group string="Review" name="review">
+                        <group>
+                            <field name="to_review"/>
+                            <field name="review_state" widget="badge" decoration-success="review_state == 'fixed'" decoration-muted="review_state == 'dismissed'"/>
+                            <field name="reviewed_by_id" attrs="{'invisible': [('review_state', '=', False)]}"/>
+                            <field name="reviewed_date" attrs="{'invisible': [('review_state', '=', False)]}"/>
+                        </group>
+                        <group>
+                            <field name="reply_to_id" attrs="{'invisible': [('reply_to_id', '=', False)]}"/>
+                        </group>
+                    </group>
+                    <group string="New answers" name="new_answers" attrs="{'invisible': [('reply_ids', '=', [])]}">
+                        <field name="reply_ids" nolabel="1" colspan="2">
+                            <tree>
+                                <field name="create_date"/>
+                                <field name="state" widget="badge" decoration-success="state == 'answered'" decoration-warning="state == 'pending'" decoration-danger="state == 'unavailable'"/>
+                                <field name="review_state" widget="badge" decoration-success="review_state == 'fixed'" decoration-muted="review_state == 'dismissed'"/>
+                            </tree>
+                        </field>
+                    </group>
+                    <group string="Answered by" name="answered_by">
+                        <group>
+                            <field name="provider"/>
+                            <field name="model"/>
+                            <field name="cost"/>
+                        </group>
+                        <group>
+                            <field name="input_tokens"/>
+                            <field name="output_tokens"/>
+                            <field name="cache_read_tokens"/>
+                            <field name="cache_write_tokens"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="question"/>
+                        <field name="answer"/>
+                        <field name="report_ids" widget="many2many_tags" attrs="{'invisible': [('report_ids', '=', [])]}"/>
+                        <field name="error"/>
+                        <field name="attempts"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="ai_assistant_exchange_view_tree" model="ir.ui.view">
+        <field name="name">ai.assistant.exchange.view.tree</field>
+        <field name="model">ai.assistant.exchange</field>
+        <field name="arch" type="xml">
+            <tree create="false" edit="false" decoration-danger="feedback == 'down'" decoration-muted="state == 'unavailable'">
+                <header>
+                    <button name="action_mark_fixed" string="Fixed" type="object" groups="base.group_system"/>
+                    <button name="action_dismiss" string="Dismiss" type="object" groups="base.group_system"/>
+                </header>
+                <field name="create_date"/>
+                <field name="user_id"/>
+                <field name="res_model"/>
+                <field name="question"/>
+                <field name="state"/>
+                <field name="feedback"/>
+                <field name="not_covered"/>
+                <field name="review_state" widget="badge" decoration-success="review_state == 'fixed'" decoration-muted="review_state == 'dismissed'" optional="show"/>
+                <field name="model" optional="show"/>
+                <field name="cost" optional="show" sum="Total"/>
+                <field name="kind" optional="hide"/>
+                <field name="input_tokens" optional="hide"/>
+                <field name="output_tokens" optional="hide"/>
+                <field name="latency_ms" optional="hide"/>
+                <field name="conversation_id" optional="hide"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Phones open the kanban, desktops the list. -->
+    <record id="ai_assistant_exchange_view_kanban" model="ir.ui.view">
+        <field name="name">ai.assistant.exchange.view.kanban</field>
+        <field name="model">ai.assistant.exchange</field>
+        <field name="arch" type="xml">
+            <kanban create="false" class="o_kanban_mobile">
+                <templates>
+                    <t t-name="kanban-box">
+                        <div class="oe_kanban_global_click">
+                            <div class="o_kanban_record_top">
+                                <div class="o_kanban_record_headings">
+                                    <strong class="o_kanban_record_title">
+                                        <field name="question"/>
+                                    </strong>
+                                    <div><field name="res_model"/></div>
+                                </div>
+                                <field name="state" widget="badge" decoration-success="state == 'answered'" decoration-warning="state == 'pending'" decoration-danger="state == 'unavailable'"/>
+                            </div>
+                            <div class="o_kanban_record_bottom">
+                                <div class="oe_kanban_bottom_left">
+                                    <field name="user_id"/>
+                                </div>
+                                <div class="oe_kanban_bottom_right">
+                                    <field name="feedback"/>
+                                    <field name="review_state" widget="badge" decoration-success="review_state == 'fixed'" decoration-muted="review_state == 'dismissed'"/>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <record id="ai_assistant_exchange_view_search" model="ir.ui.view">
+        <field name="name">ai.assistant.exchange.view.search</field>
+        <field name="model">ai.assistant.exchange</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="question"/>
+                <field name="user_id"/>
+                <field name="res_model"/>
+                <field name="conversation_id"/>
+                <filter string="Not helpful" name="feedback_down" domain="[('feedback', '=', 'down')]"/>
+                <filter string="Not covered" name="not_covered" domain="[('not_covered', '=', True)]"/>
+                <filter string="Unavailable" name="unavailable" domain="[('state', '=', 'unavailable')]"/>
+                <filter string="Pending" name="pending" domain="[('state', '=', 'pending')]"/>
+                <separator/>
+                <filter string="To Review" name="to_review" domain="[('to_review', '=', True)]"/>
+                <filter string="Fixed" name="review_fixed" domain="[('review_state', '=', 'fixed')]"/>
+                <filter string="Dismissed" name="review_dismissed" domain="[('review_state', '=', 'dismissed')]"/>
+                <group expand="0" string="Group By">
+                    <filter string="Employee" name="group_user" context="{'group_by': 'user_id'}"/>
+                    <filter string="Model" name="group_res_model" context="{'group_by': 'res_model'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="ai_assistant_exchange_action" model="ir.actions.act_window">
+        <field name="name">Assistant Answers</field>
+        <field name="res_model">ai.assistant.exchange</field>
+        <field name="view_mode">tree,kanban,form</field>
+    </record>
+
+    <record id="ai_assistant_exchange_action_to_review" model="ir.actions.act_window">
+        <field name="name">To Review</field>
+        <field name="res_model">ai.assistant.exchange</field>
+        <field name="view_mode">tree,kanban,form</field>
+        <field name="context">{'search_default_to_review': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No answer to review</p>
+            <p>An answer with a thumbs-down, not covered or not answered waits here until it is marked Fixed or Dismissed.</p>
+        </field>
+    </record>
+</odoo>

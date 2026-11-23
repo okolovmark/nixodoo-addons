@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="ai_report_action_xlsx" model="ir.actions.report">
+        <field name="name">AI report (xlsx)</field>
+        <field name="model">ai.report</field>
+        <field name="report_type">xlsx</field>
+        <field name="report_name">ai_assistant.ai_report_xlsx</field>
+        <field name="report_file">ai_assistant.ai_report_xlsx</field>
+        <field name="print_report_name">object.name</field>
+        <field name="binding_model_id" ref="model_ai_report"/>
+        <field name="binding_type">report</field>
+    </record>
+</odoo>

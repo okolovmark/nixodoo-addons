@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="ai_assistant.AiReportView" owl="1">
+        <div class="o_ai_report_view d-flex flex-column flex-grow-1 min-w-0">
+            <t t-if="state.report">
+                <t t-set="report" t-value="state.report"/>
+                <div class="d-flex flex-wrap align-items-center gap-2 border-bottom px-3 py-2">
+                    <div class="o_ai_report_dates small text-muted flex-grow-1 min-w-0">
+                        <div t-if="!report.is_owner">Shared by <t t-esc="report.owner_name"/></div>
+                        <div>Data of <t t-esc="formatDate(report.data_date)"/></div>
+                        <div t-if="report.shared_user_names.length" class="text-truncate">
+                            Shared with <t t-esc="report.shared_user_names.join(', ')"/>
+                        </div>
+                    </div>
+                    <div class="d-flex gap-1">
+                        <button t-if="report.can_refresh" class="o_ai_report_refresh btn btn-secondary"
+                                type="button" title="Refresh: compute the figures again" aria-label="Refresh"
+                                t-on-click="refresh">
+                            <i class="fa fa-refresh" aria-hidden="true"/><span class="d-none d-md-inline ms-1">Refresh</span>
+                        </button>
+                        <button t-if="report.can_share" class="o_ai_report_share btn btn-secondary"
+                                type="button" title="Share with colleagues" aria-label="Share"
+                                t-on-click="share">
+                            <i class="fa fa-share-alt" aria-hidden="true"/><span class="d-none d-md-inline ms-1">Share</span>
+                        </button>
+                        <button class="o_ai_report_export btn btn-secondary"
+                                type="button" title="Export the data to Excel" aria-label="Export"
+                                t-on-click="exportXlsx">
+                            <i class="fa fa-file-excel-o" aria-hidden="true"/><span class="d-none d-md-inline ms-1">Export</span>
+                        </button>
+                        <button t-if="report.can_delete" class="o_ai_report_delete btn btn-secondary"
+                                type="button" title="Delete the report" aria-label="Delete"
+                                t-on-click="remove">
+                            <i class="fa fa-trash" aria-hidden="true"/>
+                        </button>
+                    </div>
+                </div>
+                <div t-if="report.is_stale" class="o_ai_report_stale alert alert-warning rounded-0 border-0 border-bottom small mb-0 px-3 py-2" role="status">
+                    The conclusions were written on the data of <t t-esc="formatDate(report.conclusions_date)"/>;
+                    the figures are of <t t-esc="formatDate(report.data_date)"/>.
+                </div>
+                <iframe class="o_ai_report_frame flex-grow-1 flex-basis-0 w-100 border-0"
+                        sandbox="allow-scripts"
+                        t-att-title="report.name"
+                        t-att-srcdoc="report.frame_html"/>
+            </t>
+        </div>
+    </t>
+
+</templates>

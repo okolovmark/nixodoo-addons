@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="ai_conversation_view_form" model="ir.ui.view">
+        <field name="name">ai.conversation.view.form.inherit.ai_assistant</field>
+        <field name="model">ai.conversation</field>
+        <field name="inherit_id" ref="ai_claude.ai_conversation_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//group[@name='who']/field[@name='assistant']" position="after">
+                <field name="user_id" attrs="{'invisible': [('assistant', '!=', 'app')]}"/>
+                <field name="res_model" attrs="{'invisible': ['|', ('assistant', 'not in', ('ask_ai', 'app')), ('res_model', '=', False)]}"/>
+                <field name="res_id" attrs="{'invisible': ['|', ('assistant', 'not in', ('ask_ai', 'app')), ('res_model', '=', False)]}"/>
+            </xpath>
+            <!-- An employee reads their own AI Assistant conversation: the transcript and the answers read the
+                 administrators' logs. -->
+            <xpath expr="//group[@name='figures']" position="attributes">
+                <attribute name="groups">base.group_system</attribute>
+            </xpath>
+            <xpath expr="//notebook" position="attributes">
+                <attribute name="groups">base.group_system</attribute>
+            </xpath>
+            <xpath expr="//group[@name='figures']/field[@name='fallback_count']" position="after">
+                <field name="not_helpful_count" attrs="{'invisible': [('assistant', 'not in', ('ask_ai', 'app'))]}"/>
+            </xpath>
+            <xpath expr="//page[@name='answers']" position="inside">
+                <field name="assistant_exchange_ids" attrs="{'invisible': [('assistant', 'not in', ('ask_ai', 'app'))]}">
+                    <tree>
+                        <field name="create_date"/>
+                        <field name="user_id"/>
+                        <field name="state"/>
+                        <field name="feedback"/>
+                        <field name="not_covered"/>
+                        <field name="model"/>
+                        <field name="input_tokens" optional="hide"/>
+                        <field name="output_tokens" optional="hide"/>
+                        <field name="cost" sum="Total"/>
+                        <field name="latency_ms" optional="hide"/>
+                        <field name="attempts" optional="hide"/>
+                        <field name="question" optional="hide"/>
+                    </tree>
+                </field>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="ai_conversation_view_tree" model="ir.ui.view">
+        <field name="name">ai.conversation.view.tree.inherit.ai_assistant</field>
+        <field name="model">ai.conversation</field>
+        <field name="inherit_id" ref="ai_claude.ai_conversation_view_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='assistant']" position="after">
+                <field name="user_id" optional="show"/>
+                <field name="res_model" optional="hide"/>
+            </xpath>
+            <xpath expr="//field[@name='fallback_count']" position="after">
+                <field name="not_helpful_count" optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="ai_conversation_view_search" model="ir.ui.view">
+        <field name="name">ai.conversation.view.search.inherit.ai_assistant</field>
+        <field name="model">ai.conversation</field>
+        <field name="inherit_id" ref="ai_claude.ai_conversation_view_search"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='name']" position="after">
+                <field name="user_id"/>
+                <field name="res_model"/>
+            </xpath>
+            <xpath expr="//filter[@name='with_fallbacks']/preceding-sibling::separator[1]" position="before">
+                <filter string="Ask AI" name="assistant_ask_ai" domain="[('assistant', '=', 'ask_ai')]"/>
+                <filter string="AI Assistant" name="assistant_app" domain="[('assistant', '=', 'app')]"/>
+            </xpath>
+            <xpath expr="//filter[@name='with_fallbacks']" position="after">
+                <separator/>
+                <filter string="Not helpful" name="not_helpful" domain="[('not_helpful_count', '&gt;', 0)]"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="ai_assistant.AiAssistantThread" owl="1">
+        <div class="o_ai_assistant_thread d-flex flex-column flex-grow-1 min-w-0">
+            <div t-ref="messages" class="o_ai_assistant_messages flex-grow-1 flex-basis-0 overflow-auto p-3">
+                <div t-if="!state.messages.length" class="o_ai_assistant_empty text-center text-muted my-5">
+                    <i class="fa fa-comments-o fa-3x mb-3" aria-hidden="true"/>
+                    <p class="mb-1">Ask about your data or how Odoo works here.</p>
+                    <p class="small mb-0">The AI Assistant reads with your access rights and changes nothing.</p>
+                </div>
+                <t t-foreach="state.messages" t-as="message" t-key="message.id">
+                    <div t-if="!message.reply_to" class="d-flex justify-content-end mb-2">
+                        <div class="o_ai_assistant_question bg-primary text-white rounded-3 px-3 py-2 text-break mw-75">
+                            <t t-foreach="questionLines(message)" t-as="line" t-key="line_index">
+                                <br t-if="!line_first"/>
+                                <t t-esc="line"/>
+                            </t>
+                        </div>
+                    </div>
+                    <div class="d-flex mb-3">
+                        <div class="o_ai_assistant_answer bg-light border rounded-3 px-3 py-2 text-break mw-100">
+                            <div t-if="message.reply_to" class="o_ai_assistant_reply_quote small text-muted border-start border-3 ps-2 mb-2">
+                                New answer to your question of <t t-esc="replyDate(message)"/>:
+                                <span class="fst-italic">"<t t-esc="message.reply_to.question"/>"</span>
+                            </div>
+                            <div t-if="message.state === 'pending'" class="o_ai_assistant_pending text-muted">
+                                <i class="fa fa-circle-o-notch fa-spin me-2" aria-hidden="true"/>The AI Assistant is answering...
+                            </div>
+                            <t t-else="">
+                                <div class="o_ai_assistant_answer_body" t-out="answerHtml(message)"/>
+                                <div t-foreach="message.reports" t-as="report" t-key="report.id"
+                                     class="o_ai_assistant_report_card card mt-2">
+                                    <div class="card-body d-flex align-items-center gap-2 p-2">
+                                        <i class="fa fa-bar-chart text-primary" aria-hidden="true"/>
+                                        <span class="flex-grow-1 min-w-0 text-truncate fw-bold" t-esc="report.name"/>
+                                        <button class="o_ai_assistant_report_card_open btn btn-sm btn-primary"
+                                                type="button"
+                                                t-on-click="() => this.props.onOpenReport(report.id)">Open</button>
+                                    </div>
+                                </div>
+                                <div t-if="message.state === 'answered'" class="d-flex gap-2 mt-2">
+                                    <button class="o_ai_assistant_rate_up btn btn-link p-0"
+                                            type="button"
+                                            title="Helpful"
+                                            aria-label="Helpful"
+                                            t-att-class="message.feedback === 'up' ? 'text-success' : 'text-muted'"
+                                            t-on-click="() => this.rate(message, 'up')">
+                                        <i t-attf-class="fa {{ message.feedback === 'up' ? 'fa-thumbs-up' : 'fa-thumbs-o-up' }}" aria-hidden="true"/>
+                                    </button>
+                                    <button class="o_ai_assistant_rate_down btn btn-link p-0"
+                                            type="button"
+                                            title="Not helpful"
+                                            aria-label="Not helpful"
+                                            t-att-class="message.feedback === 'down' ? 'text-danger' : 'text-muted'"
+                                            t-on-click="() => this.rate(message, 'down')">
+                                        <i t-attf-class="fa {{ message.feedback === 'down' ? 'fa-thumbs-down' : 'fa-thumbs-o-down' }}" aria-hidden="true"/>
+                                    </button>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+                </t>
+            </div>
+            <div class="o_ai_assistant_composer d-flex align-items-end gap-2 border-top p-2">
+                <textarea t-ref="composer"
+                          class="o_ai_assistant_question_input form-control"
+                          rows="2"
+                          maxlength="2000"
+                          placeholder="Ask the AI Assistant"
+                          t-model="state.draft"
+                          t-on-keydown="onKeydownComposer"/>
+                <button class="o_ai_assistant_send btn btn-primary"
+                        type="button"
+                        title="Send"
+                        aria-label="Send"
+                        t-att-disabled="!canSend"
+                        t-on-click="send">
+                    <i class="fa fa-paper-plane" aria-hidden="true"/>
+                </button>
+            </div>
+        </div>
+    </t>
+
+</templates>

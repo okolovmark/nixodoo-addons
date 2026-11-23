@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="ai_assistant.AskAiDialog" owl="1">
+        <Dialog title="title" size="'md'">
+            <textarea class="o_ask_ai_question form-control"
+                rows="5"
+                maxlength="2000"
+                placeholder="Ask about this record and the records linked to it"
+                t-model="state.question"
+                t-ref="autofocus"/>
+            <p class="text-muted small mt-2 mb-0">
+                The question and the answer are internal notes on this record, seen by everyone who can see it.
+                The AI Assistant only reads.
+            </p>
+            <t t-set-slot="footer">
+                <button class="o_ask_ai_submit btn btn-primary" t-att-disabled="!canAsk" t-on-click="onClickAsk">Ask</button>
+                <button class="btn btn-secondary" t-on-click="props.close">Cancel</button>
+            </t>
+        </Dialog>
+    </t>
+
+</templates>

@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="ai_assistant.AiAssistantApp" owl="1">
+        <div class="o_action o_action_delegate_scroll o_ai_assistant_app">
+            <Layout display="{ controlPanel: { 'top-right': false, 'bottom-right': false } }" className="'d-flex bg-view'">
+                <t t-set-slot="control-panel-bottom-left">
+                    <button class="o_ai_assistant_new_chat btn btn-primary" type="button" t-on-click="newChat">New chat</button>
+                </t>
+                <aside class="o_ai_assistant_sidebar col-12 col-md-4 col-xl-3 flex-column h-100 border-end d-md-flex"
+                       t-att-class="state.isListShown ? 'd-flex' : 'd-none'">
+                    <div class="list-group list-group-flush border-bottom">
+                        <button class="o_ai_assistant_reports list-group-item list-group-item-action d-flex align-items-center"
+                                type="button"
+                                t-att-class="{ active: state.page === 'reports' }"
+                                t-on-click="openReports">
+                            <i class="fa fa-bar-chart me-2" aria-hidden="true"/>My reports
+                        </button>
+                    </div>
+                    <div class="small text-uppercase text-muted fw-bold px-3 pt-3 pb-1">Conversations</div>
+                    <div class="o_ai_assistant_conversations list-group list-group-flush flex-grow-1 flex-basis-0 overflow-auto">
+                        <div t-foreach="state.conversations" t-as="conversation" t-key="conversation.id"
+                             class="o_ai_assistant_conversation list-group-item list-group-item-action d-flex align-items-center p-0"
+                             t-att-class="{ active: state.page === 'chat' and conversation.id === state.conversationId }">
+                            <button class="btn text-reset text-start flex-grow-1 min-w-0 px-3 py-2 border-0 shadow-none"
+                                    type="button"
+                                    t-on-click="() => this.openConversation(conversation.id)">
+                                <div class="text-truncate" t-esc="conversation.name"/>
+                                <div class="small opacity-75" t-esc="lastActivity(conversation)"/>
+                            </button>
+                            <button class="o_ai_assistant_delete btn text-reset opacity-75 border-0 shadow-none me-1"
+                                    type="button"
+                                    title="Delete conversation"
+                                    aria-label="Delete conversation"
+                                    t-on-click="() => this.deleteConversation(conversation)">
+                                <i class="fa fa-trash" aria-hidden="true"/>
+                            </button>
+                        </div>
+                        <div t-if="!state.conversations.length" class="text-muted small px-3 py-2">
+                            No conversations yet.
+                        </div>
+                    </div>
+                </aside>
+                <section class="o_ai_assistant_main flex-column flex-grow-1 min-w-0 h-100 d-md-flex"
+                         t-att-class="state.isListShown ? 'd-none' : 'd-flex'">
+                    <div class="d-flex align-items-center gap-2 border-bottom px-3 py-2">
+                        <button class="o_ai_assistant_back btn btn-link p-0"
+                                type="button"
+                                t-att-class="{ 'd-md-none': state.page !== 'report' }"
+                                title="Back"
+                                aria-label="Back"
+                                t-on-click="goBack">
+                            <i class="fa fa-arrow-left" aria-hidden="true"/>
+                        </button>
+                        <span class="o_ai_assistant_title fw-bold text-truncate" t-esc="title"/>
+                    </div>
+                    <t t-if="state.page === 'reports'">
+                        <div t-if="state.reports.length" class="o_ai_assistant_report_list list-group list-group-flush flex-grow-1 flex-basis-0 overflow-auto">
+                            <div t-foreach="state.reports" t-as="report" t-key="report.id"
+                                 class="o_ai_assistant_report list-group-item d-flex align-items-center p-0">
+                                <button class="o_ai_assistant_report_open btn text-reset text-start flex-grow-1 min-w-0 px-3 py-2 border-0 shadow-none"
+                                        type="button"
+                                        t-on-click="() => this.openReport(report.id)">
+                                    <div class="fw-bold text-truncate" t-esc="report.name"/>
+                                    <div class="small text-muted text-truncate">
+                                        <span t-if="!report.is_owner" class="me-2">Shared by <t t-esc="report.owner_name"/></span>
+                                        <span t-elif="report.shared_count" class="me-2">Shared with <t t-esc="report.shared_count"/></span>
+                                        <span>Data of <t t-esc="formatDate(report.data_date)"/></span>
+                                    </div>
+                                </button>
+                                <Dropdown class="'o_ai_assistant_report_actions'" position="'bottom-end'" togglerClass="'btn btn-link text-muted px-3'" title="'Report actions'">
+                                    <t t-set-slot="toggler">
+                                        <i class="fa fa-ellipsis-v" aria-hidden="true"/>
+                                    </t>
+                                    <DropdownItem onSelected="() => this.openReport(report.id)">Open</DropdownItem>
+                                    <DropdownItem t-if="report.can_refresh" onSelected="() => this.refreshReport(report)">Refresh</DropdownItem>
+                                    <DropdownItem t-if="report.can_share" onSelected="() => this.shareReport(report)">Share</DropdownItem>
+                                    <DropdownItem onSelected="() => this.reportActions.exportXlsx(report.id)">Export to Excel</DropdownItem>
+                                    <DropdownItem t-if="report.can_delete" onSelected="() => this.deleteReport(report)">Delete</DropdownItem>
+                                </Dropdown>
+                            </div>
+                        </div>
+                        <div t-else="" class="o_ai_assistant_reports_empty text-center text-muted p-5">
+                            <i class="fa fa-bar-chart fa-3x mb-3" aria-hidden="true"/>
+                            <p class="fw-bold mb-1">No AI reports yet</p>
+                            <p class="small mb-0">Ask the AI Assistant for a report, a chart or a table: what it builds for you, and what colleagues share with you, is listed here.</p>
+                        </div>
+                    </t>
+                    <AiReportView t-elif="state.page === 'report'"
+                                  reportId="state.reportId"
+                                  onLoaded.bind="onReportLoaded"
+                                  onChanged.bind="loadReports"
+                                  onDeleted.bind="onReportDeleted"/>
+                    <AiAssistantThread t-else="" conversationId="state.conversationId" onAsked.bind="onAsked" onOpenReport.bind="openReport"/>
+                </section>
+            </Layout>
+        </div>
+    </t>
+
+</templates>

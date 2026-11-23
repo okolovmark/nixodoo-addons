@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Claude only, Sonnet then Haiku; the API key is in the environment variable
+     claude_key_env names. Without it the AI Assistant does not answer: no other
+     model answers it.
+     claude_max_tool_rounds and claude_tool_budget_seconds cap one model's tool
+     loop; tool_seconds is each tool call's statement timeout, max_rows the rows
+     one call returns at most.
+     deny_models_extra: comma-separated fnmatch patterns of models added to the
+     AI deny list, e.g. "x_salary*,hr.leave.allocation"; deny_fields_extra the
+     same for fields, as "model.field", e.g. "sale.order.x_margin*".
+     incident_emails: comma-separated addresses mailed when Claude stops
+     answering the AI Assistant; empty, the incident is only logged.
+     digest_recipients: comma-separated addresses of the weekly digest of answers
+     to review; empty, the digest is only logged.
+     pending_stale_seconds: a question still pending after this many seconds is
+     closed as unavailable, its asker told: its answer job ended or never ran.
+     report_max_tokens: the most data, in estimated tokens, an AI report hands
+     the model; past it the report tools ask it to aggregate further. -->
+<odoo noupdate="1">
+    <!-- forcecreate="0": an emptied setting stays empty at -u; a seed added
+         later needs a migration. -->
+    <record id="config_claude_models" model="ir.config_parameter" forcecreate="0">
+        <field name="key">ai_assistant.claude_models</field>
+        <field name="value">claude-sonnet-5-5,claude-haiku-5-5</field>
+    </record>
+    <record id="config_claude_effort" model="ir.config_parameter" forcecreate="0">
+        <field name="key">ai_assistant.claude_effort</field>
+        <field name="value">medium</field>
+    </record>
+    <record id="config_claude_max_tokens" model="ir.config_parameter" forcecreate="0">
+        <field name="key">ai_assistant.claude_max_tokens</field>
+        <field name="value">16000</field>
+    </record>
+    <record id="config_claude_timeout" model="ir.config_parameter" forcecreate="0">
+        <field name="key">ai_assistant.claude_timeout_seconds</field>
+        <field name="value">120</field>
+    </record>
+    <record id="config_claude_key_env" model="ir.config_parameter" forcecreate="0">
+        <field name="key">ai_assistant.claude_key_env</field>
+        <field name="value">ANTHROPIC_API_KEY</field>
+    </record>
+    <record id="config_claude_max_tool_rounds" model="ir.config_parameter" forcecreate="0">
+        <field name="key">ai_assistant.claude_max_tool_rounds</field>
+        <field name="value">12</field>
+    </record>
+    <record id="config_claude_tool_budget" model="ir.config_parameter" forcecreate="0">
+        <field name="key">ai_assistant.claude_tool_budget_seconds</field>
+        <field name="value">300</field>
+    </record>
+    <record id="config_max_rows" model="ir.config_parameter" forcecreate="0">
+        <field name="key">ai_assistant.max_rows</field>
+        <field name="value">200</field>
+    </record>
+    <record id="config_tool_seconds" model="ir.config_parameter" forcecreate="0">
+        <field name="key">ai_assistant.tool_seconds</field>
+        <field name="value">15</field>
+    </record>
+    <record id="config_deny_models_extra" model="ir.config_parameter" forcecreate="0">
+        <field name="key">ai_assistant.deny_models_extra</field>
+        <field name="value" eval="''"/>
+    </record>
+    <record id="config_deny_fields_extra" model="ir.config_parameter" forcecreate="0">
+        <field name="key">ai_assistant.deny_fields_extra</field>
+        <field name="value" eval="''"/>
+    </record>
+    <record id="config_report_max_tokens" model="ir.config_parameter" forcecreate="0">
+        <field name="key">ai_assistant.report_max_tokens</field>
+        <field name="value">200000</field>
+    </record>
+    <record id="config_incident_emails" model="ir.config_parameter" forcecreate="0">
+        <field name="key">ai_assistant.incident_emails</field>
+        <field name="value" eval="''"/>
+    </record>
+    <record id="config_digest_recipients" model="ir.config_parameter" forcecreate="0">
+        <field name="key">ai_assistant.digest_recipients</field>
+        <field name="value" eval="''"/>
+    </record>
+    <record id="config_pending_stale" model="ir.config_parameter" forcecreate="0">
+        <field name="key">ai_assistant.pending_stale_seconds</field>
+        <field name="value">1800</field>
+    </record>
+    <!-- The Claude breaker's state, seeded so that two first failures at once
+         update a row instead of both inserting it. -->
+    <record id="config_claude_consecutive_failures" model="ir.config_parameter">
+        <field name="key">ai_assistant.claude_consecutive_failures</field>
+        <field name="value">0</field>
+    </record>
+    <record id="config_claude_circuit_open_until" model="ir.config_parameter">
+        <field name="key">ai_assistant.claude_circuit_open_until</field>
+        <field name="value">0</field>
+    </record>
+</odoo>

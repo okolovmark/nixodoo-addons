@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AI Assistant conversations are private: an employee reaches only their
+     own; administrators review every conversation of every assistant. -->
+<odoo>
+    <record id="ai_conversation_rule_user" model="ir.rule">
+        <field name="name">AI conversation: own AI Assistant conversations</field>
+        <field name="model_id" ref="ai_claude.model_ai_conversation"/>
+        <field name="groups" eval="[Command.link(ref('group_ai_assistant'))]"/>
+        <field name="domain_force">[('assistant', '=', 'app'), ('user_id', '=', user.id)]</field>
+    </record>
+
+    <record id="ai_conversation_rule_system" model="ir.rule">
+        <field name="name">AI conversation: administrators review all</field>
+        <field name="model_id" ref="ai_claude.model_ai_conversation"/>
+        <field name="groups" eval="[Command.link(ref('base.group_system'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+</odoo>

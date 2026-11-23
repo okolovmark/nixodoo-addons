@@ -1,0 +1,579 @@
+The AI Assistant: Claude answers an employee's question from live Odoo data,
+which it looks up through read-only tools that run as that employee. Every
+internal user has it, in two places:
+
+* **Ask AI**, a button in the chatter of a record: answers about that record
+  and the records linked to it, as internal notes on the record;
+* the **AI Assistant** app: conversations on a full page or in a quick panel
+  from the systray, and AI reports.
+
+It only reads: it creates, changes and deletes no record and never offers
+to. The one thing it saves is an AI report, the employee's own page. It
+answers on Claude only, the models of ``claude_models`` in order (Sonnet 5.5,
+then Haiku 5.5), never on another model: when no Claude model answers,
+nobody does. It answers in the language of the question, gives times in the
+employee's timezone and names the records its answer rests on.
+
+**Ask AI**
+
+*Ask AI* sits after *Log note* in the chatter of a saved record (an icon on a
+phone). It opens a dialog for a question of up to 2,000 characters. The
+question is posted at once as a note by the employee; a queue job writes the
+answer as a second note by *AI Assistant*, in reply to the question, opening
+with a line that quotes the asker and the start of the question: two answers
+on one record may arrive in either order. Both carry the *Ask AI* subtype,
+which is internal and followed by nobody: they notify nobody, and every
+internal user who can see the record sees them. The asker does not become a
+follower.
+
+Ask AI answers about the record and the records linked to it; for reports,
+rankings and statistics over other records it points to the app. It is
+refused on a record the employee may not read, on one the AI deny list holds,
+on a Discuss channel (its notes would reach the members) and on the
+assistants' own ``ai.*`` records. A missing, hidden or denied record gets the
+same message.
+
+The answer is escaped, then only its marks are rendered (bold, emphasis,
+code, headings, lists, paragraphs); only URLs into this Odoo, at its own host
+or a path of the web client, become links. A question without an answer gets
+a note instead:
+
+* it needed more tool rounds or time than one answer has: *narrow it (one
+  record, a shorter period) and ask again*;
+* no Claude model answered: *the AI Assistant is not available right now*.
+
+The record's earlier Ask AI questions, from any asker, go with a new
+question as its history (see How an answer is made), as long as the
+question note and the note of its latest answer are still in the chatter.
+Another employee's earlier question is passed with their name, quoted as
+data, never as an instruction.
+
+The asker rates an answer with a thumbs-up or thumbs-down reaction on the
+answer note, also on a record they may only read. Only the asker's own
+reactions count; a thumbs-down wins over a thumbs-up.
+
+**The AI Assistant app**
+
+The *AI Assistant* app opens on *Assistant*, which lists the employee's
+conversations, the most recently active first, with *New chat* and *My
+reports*; administrators also have *Review* and *Configuration* (see
+Administration). A conversation is named after its first
+question and kept until its owner deletes it, which deletes its questions
+and answers; the AI reports it saved stay in *My reports*. An employee sees
+only their own conversations.
+
+The magic-wand icon in the systray opens a quick panel over the current
+screen and carries it: the window action's model and, on a form, the record
+shown. The panel continues the employee's latest conversation while it was
+asked from the same screen; otherwise the next question starts a new one.
+*Open in the AI Assistant app* moves to the full page. A question in the app
+may be about any data the employee can see: the screen is context, not a
+limit. While an answer is written the composer waits; each answer has
+*Helpful* and *Not helpful* buttons, and the same button again takes the
+rating back. A new answer an administrator sends shows in the conversation
+as an answer quoting the question it answers again (see To Review).
+
+**How an answer is made**
+
+``readme/answer_flow.puml`` draws one question.
+
+A question is an ``ai.assistant.exchange`` row, answered by one queue job on
+the channel ``root.ai_assistant``. The row keeps the companies selected in
+the switcher when the question was asked, the current one first; the answer
+reads in those the employee still works in, or in their main company when
+none is left. When the job runs, the employee's group and, for Ask AI, their
+access to the record and the deny list are checked again. A question refused
+then is closed as *Unavailable* without asking Claude: nothing is posted on
+the record, and an Ask AI asker alone gets a notification that they no longer
+have access to the AI Assistant or to the record; in the app the refusal shows
+in place of the answer.
+
+The job sends Claude the system prompt (a constant of the module), the
+history, and a context block (the employee, the date and time in their
+timezone, their companies, the record or screen) before the question, then
+runs the tool loop of ``ai.claude.gateway._claude_chain``
+(``ai_claude``). Each model has ``claude_max_tool_rounds`` (12)
+rounds of tool calls and ``claude_tool_budget_seconds`` (300) from its first
+call; a tool asked for past the budget is not run. A model that reaches
+either limit ends the question without an answer: the next model would meet
+the same limit.
+
+The history is the last 10 answered questions asked before the question,
+oldest first: the record's for Ask AI, the conversation's in the app. Each
+goes with its latest answer: a new answer takes the place of the answer it
+answers again.
+
+The job's own transaction writes nothing; the answer is written in a short
+transaction of its own, only while the question is still pending, so a
+second run of the job never answers twice. That write is tried 3 times when
+it meets concurrent updates; then one more transaction closes the question
+as *Unavailable*, with the *not available* text, without asking Claude
+again. Should that meet a conflict too, the question stays pending for the
+cron below.
+
+An answer that says neither the module documentation nor the data answers
+the question is flagged *Not covered*. A question whose job failed or was
+cancelled is closed at once as *Unavailable*, and the asker sees the
+*not available* text. The cron *AI Assistant: close questions whose answer
+never came* (every 5 minutes) closes the questions still pending
+``pending_stale_seconds`` (1800) after their job started or was enqueued, or
+after the question when it has no job; a running job is never cut short.
+Whichever of these closes a question, an app asker who has lost the AI
+Assistant since sees the refusal instead; for a new answer the refusal is
+told to nobody.
+
+**Tools**
+
+The tools run as the asking employee, in the companies of the question, and
+refuse to run as the superuser: access rights, record rules, companies and
+field groups decide what they return, as they do on screen, then the AI deny
+list takes away what the assistant must not read. ``find_models`` reads the
+model and field lists (``ir.model``, ``ir.model.fields``) as superuser, then
+keeps only the models the employee's access rights let them read and the
+fields their field groups let them see, less the deny list.
+``find_menus`` reads the menus, their actions, the access rights and the
+roles as superuser and returns only names from them; whether the employee can
+open a menu is decided as the employee. ``find_models``, ``find_menus`` and
+``module_docs`` read the installed modules behind a model as superuser too.
+Each call runs in a savepoint that is always rolled back, under a statement
+timeout of ``tool_seconds`` (15).
+
+* ``search_read``: the records matching a domain with the fields asked for
+  (none asked: the stored fields that are not binary, HTML or x2many), at
+  most ``max_rows`` (200); it says when more match.
+* ``read``: records by id, archived ones too, at most ``max_rows``; it lists
+  the ids that do not exist or that the employee may not see.
+* ``read_group``: totals by group. Group keys are fields of the model itself,
+  a date by day, week, month, quarter or year; measures are
+  ``field:function`` or ``name:function(field)`` with sum, avg, min, max,
+  count or count_distinct of a stored field; every group has ``__count``; at
+  most ``max_rows`` groups.
+* ``find_models``: where a kind of data is kept, for a query of a few words,
+  such as *leave credit*. The query is split at spaces, commas, semicolons
+  and ``/``, and each word loses the punctuation at its ends (an inner ``.``
+  or ``_`` stays, as in ``hr.employee.credits``). Single characters and
+  common question words, such as how, many or left, are not looked for.
+  ``no`` is looked for only right after a word that is, as in *serial no*,
+  not in *why is there no attendance*. A note names the words not looked for
+  (*Not looked for: why, is, there, no.*); of more than 10 words, only the
+  first 10 are looked for, and a note says so.
+
+  A model matches when its technical name, its description or the label of
+  one of its fields holds a word of the query, ignoring case. A word of two
+  letters, such as OT or SL, matches only a whole word; a longer one matches
+  only where a word starts (after anything but a letter or a digit), so
+  *tag* finds *Tags* but not *Stage*. A word of four letters or more that
+  ends in s is also looked for as a singular: *-ies* becomes *-y* from five
+  letters on, *-sses*, *-xes*, *-ches* and *-shes* lose *es*, any other *-s*
+  but *-ss* loses its *s*. ``_`` and ``%`` are plain characters. The fields
+  every model has (``id``, ``create_uid``, ``create_date``, ``write_uid``,
+  ``write_date``, ``display_name``, ``__last_update``) are never matched by
+  label, and a model that only ``no`` matches is left out.
+
+  It returns at most 15 models: those matching more of the words other than
+  ``no`` first, then those whose name or description holds more of them as
+  typed, then those whose name or description holds any of them, then those
+  with a label holding ``no``, then those with more matching fields, then by
+  technical name. Each comes with its description, up to 10 matching fields
+  (technical name and label, those matching more words first) with the
+  count of the others, and the installed modules that define or
+  extend it and have a README, which ``module_docs`` reads. Left out: models
+  the employee's access rights do not let them read, models on the AI deny
+  list, transient and abstract models, and fields outside the employee's
+  field groups or on the deny list. A note also gives the count of matching
+  models past 15, or, when none matches, suggests another word, a synonym or
+  the singular.
+* ``find_menus``: where a screen, menu or report is, for a query of a few
+  words, such as *inventory analysis*. The query is read and its words match
+  as for ``find_models``, against the menu's name, its action's name and the
+  names of the menus above it, in the employee's language; a menu that only
+  ``no`` matches is left out.
+
+  It looks at the active menus whose action exists. Left out: menus without
+  an action and menus under an archived one; developer mode menus (whose
+  only group is ``base.group_no_one``) and the menus Odoo keeps out of the
+  employee's web client whatever their access, with the menus under them.
+
+  It returns at most 10 menus: those matching more of the words other than
+  ``no`` first, then those matching more of them in their own or action
+  name, then by path; a note gives the count past 10, or, when none matches,
+  suggests another word, a synonym or the singular. Each comes with:
+
+  * ``path``: the menu names from the app down, joined by ``>``;
+  * ``model``: the model its window, server, report or client action opens,
+    when that model is installed; a URL action has none;
+  * ``modules``: as for ``find_models``; or instead ``denied``, when the
+    model is on the AI deny list or a wizard's, whose data and documentation
+    the assistant does not read;
+  * ``can_open``: whether the employee can open the menu and every menu above
+    it outside developer mode: their groups, and read access to the model of
+    each window, server or report action on the path.
+
+  A menu the employee cannot open also has ``needs``, lists of group full
+  names such as *Invoicing / Billing*: every list is required, one group of
+  a list is enough. A list holds the groups of a menu on the path the
+  employee has none of, or the groups whose access rights read the model of
+  a window, server or report action on the path that the employee may not
+  read; a list holding every group of another is left out. ``needs`` is
+  absent when no group opens the menu, as when no access right lets anyone
+  read such a model. With base_user_role installed, ``roles`` lists up to 5
+  roles, by name, that each grant a group of every list on their own, and
+  ``more_roles`` counts the others.
+* ``fields``: the fields the employee may see and the deny list leaves, with
+  label, type, related model, help, selection values and whether they can be
+  searched, sorted and grouped.
+* ``record_history``: a record's chatter, newest first, without user
+  notifications: author, date, type, subtype, text (each cut at 2,000
+  characters), attachment names and tracked changes, at most ``max_rows``
+  messages, marked as untrusted data.
+* ``module_docs``: the READMEs of the installed modules that define or
+  extend a model, by name; a module may read others, or fewer, through
+  ``ai.assistant.tools._module_docs_modules``. Each README
+  is the running module's rendered one, as plain text, without its table of
+  contents, changelog, bug tracker, credits, link targets and media.
+* ``report_run``, ``report_save`` and ``report_get`` (app only): see *AI
+  reports*.
+
+A tool result holds at most 60,000 characters: ``search_read``, ``read``,
+``read_group``, ``find_models`` and ``find_menus`` drop rows from the end,
+``fields`` drops fields and ``record_history`` the oldest messages, each
+with a note saying so. HTML comes as plain text, datetimes in UTC. ``module_docs`` shares one
+result among a model's READMEs as evenly as their lengths allow; the module that
+defines the model, and those ``_docs_floor_module_names`` adds, keep at least
+a quarter each. A README cut to fit ends at a paragraph with ``[cut at X of
+its Y characters]``, a closing note names the modules cut or left out, and
+the tool with a ``module`` and an ``offset`` reads that README alone from X
+on.
+
+The model reads errors as text written for it, never Odoo's own message,
+which may name records read as superuser: a refused access is *Not
+available: the employee may not read this*, a query past the timeout asks to
+narrow it, an unexpected failure names only its type.
+
+A model that is not installed is not a refusal: the error says it is not
+installed here and that the data may be kept in a model of a custom module,
+to look for with ``find_models``. The system prompt says so too; a module may
+say more there through ``ai.assistant.engine._system_prompt_parts``. An
+abstract model gets an error that it holds no records, also pointing to
+``find_models``. Both errors are logged as *Error*, not *Denied*.
+
+The system prompt also tells the model never to guess a model: it finds one
+with ``find_models``, or with ``find_menus`` when the question is where
+something is in Odoo, before it reads that model's documentation or data.
+
+**Domains**
+
+A domain is a JSON array of ``[field, operator, value]`` terms and the prefix
+operators ``&``, ``|`` and ``!``. Every field of a path must be one the
+employee may read and the deny list leaves. Refused, with a reason the model
+can act on:
+
+* ``=?``, and ``in`` or ``not in`` without a list (one id on a link is taken
+  as a list of it);
+* a computed field Odoo cannot search;
+* ``child_of`` and ``parent_of`` on anything but ids, or on a link Odoo
+  cannot walk. They take ``id`` or a stored, non-related link of the model's
+  own, or one inherited from a parent that stores it, to its own model or to
+  a model whose hierarchy is stored or held by a plain link to itself; never
+  messages. They start only from roots the employee may read and the deny
+  list leaves, and Odoo resolves them with its own rules; a private address
+  under a public contact never matches a ``child_of``;
+* a path through a link to messages that Odoo does not join in SQL, or such a
+  link compared with a name: Odoo would check every message one by one;
+* sorting by a contact or a copy of a contact's data, grouping by a path,
+  grouping or aggregating (other than counting) a copy of a contact's data,
+  and sorting, grouping or aggregating a message's text, or a timesheet's
+  amount or margin or an analytic total where the rows hold or sum a
+  timesheet;
+* reading a field by a dotted name, and reading a binary field.
+
+Without an order, a search keeps the model's own, less the terms that sort by
+a contact, then by id: users by login and id rather than by name, a
+contact's; companies by sequence and id; contacts by id, the newest first.
+
+One exception follows Odoo's own search: on a path through an
+``auto_join`` link (a record's messages or activities, a user's contact), and
+on a term that compares a link the deny list filters with ids, a range, a
+name search's result or nothing, the linked rows are matched in SQL without
+their record rules, as Odoo joins them or compares a many2one's column. The
+deny list's row filter and the link's own domain still apply, and every
+later step of the path is resolved with the employee's rights and rules.
+
+**AI deny list**
+
+What the assistant never reads, even when the employee may: an Ask AI answer
+is seen by everyone who can see the record, not only by the asker.
+
+* **Models** (fnmatch patterns): ``hr.payslip*``, ``hr.payroll.*``,
+  ``hr.contract*``, ``hr.appraisal*``, ``res.partner.bank``, ``res.bank``,
+  ``ir.config_parameter``, ``ir.mail_server``, ``fetchmail.server``,
+  ``res.users.apikeys*``, ``auth_totp.device``, ``payment.provider``,
+  ``payment.token``, ``mail.ice.server``, ``mail.guest``,
+  ``sign.request.item.value``, ``sign.log`` and ``ai.*``; and every
+  transient model, since settings and wizard rows hold what was typed in
+  them.
+* **Fields**: the hourly ``cost`` and ``display_cost`` of a project's
+  employee mapping; ``account_number`` of bank statement lines; the task
+  brief (``brief`` of tasks, from ``project_ai_driven``), the whole task in
+  one text, its notes, their authors and its attachments included, past the
+  masks applied value by value: the assistant reads a task field by field;
+  ``can_open_last_appraisal`` on any model (``hr_appraisal_oca``'s flag on
+  employees and their public profiles), a bit derived from the appraisals, a
+  denied model; the website's Plausible and Google Maps keys, a signature
+  request's share link and a Discuss channel's ``uuid`` and invitation URL;
+  and on every model, the fields named like a token, secret, password, API
+  key or credential (``access_token``, ``signup_token``, ``signup_url``,
+  ``invite_token``, ``*_token``, ``*secret*``, ``*password*``, ``*passwd*``,
+  ``*api_key*``, ``credential*``, ``callback_hash``, ``visibility_password*``).
+* **Employees**: every field of ``hr.employee`` that ``hr.employee.public``
+  does not have, but those ``ai.assistant.tools._employee_work_fields``
+  names, and every ``hr.employee`` field restricted to a group of ``hr`` or
+  of an ``hr_*`` module.
+* **Employee requests**, the models ``ai.assistant.tools._request_models``
+  names (none here): readable, but none of their attachments, those posted
+  in their chatter included, and none of their mails, which print the
+  reason. Notes, tracked changes and comments without a file stay readable;
+  their reason fields go on the deny list with them.
+* **Private addresses**: contacts of type *Private*, employees' home
+  addresses that are not a user's own contact, and every contact under
+  either. They are left out of every read; a link to one reads *a private
+  address, on the AI deny list*, and so does a copy of its data: a related
+  field through it, a stored text computed from it, a name taken from it, a
+  message's sender address, a mail's recipients.
+* **Timesheet costs**: the ``amount`` of an analytic line that names an
+  employee, its hours times the employee's hourly cost, reads *an employee's
+  cost, on the AI deny list* and matches no filter, negated or not; it is
+  never a sort key, group or total over rows that hold such a line. Analytic
+  lines without an employee (accounting) keep their amount. A row of the
+  *Timesheets Analysis* report (``timesheets.analysis.report``) that names an
+  employee is masked the same, its ``amount`` and, with ``sale_timesheet``,
+  its ``margin``, the revenue plus that cost. The totals of an analytic
+  account with at least one line that names an employee, even a line the
+  asker may not read, read the same: the account's ``balance``, ``debit``
+  and ``credit`` and a project's ``analytic_account_balance``, which beside
+  the hours would give the rate. They are computed, so no filter, group or
+  aggregate takes them, and a sort by one over such an account is refused.
+  An account without such a line keeps its totals.
+* **Links** into a denied model, and related fields whose path crosses a
+  denied field.
+* **Rows of a denied record** or a private address: its messages, mails,
+  tracking values, notifications, reactions, followers, activities,
+  attachments and calendar events. Also left out: the tracked changes of a
+  denied field or of a field the employee may not read, and attachments that
+  hold a denied binary field or whose ``res_model`` names no model. A message
+  that carries a refused attachment loses its text, and a link to a refused
+  attachment reads *an attachment on the AI deny list*.
+
+``deny_models_extra`` and ``deny_fields_extra`` add patterns, and so may a
+module through ``_deny_list_models`` and ``_deny_list_fields``; narrowing
+the list is a code change. A refused call is logged as *Denied*, and the model is
+told the data is not available and not to reach it another way.
+
+**AI reports**
+
+In the app, a request for a report, a chart or a table to keep gets an AI
+report (``ai.report``). ``readme/ai_report_flow.puml`` draws its life. The
+model writes:
+
+* the **specification**: up to 8 datasets, each grouped (group keys and
+  measures, as ``read_group``) or a list of records (fields, as
+  ``search_read``) over a model and a domain, with an order and a limit; up to
+  20 formula columns per dataset or merge, over numbers, the columns before
+  it, ``+ - * / %``, comparisons and ``abs``, ``round``, ``min``, ``max`` and
+  ``coalesce`` (parsed and walked, never run as code; a null operand or a
+  division by zero gives null); and up to 4 merges of two grouped datasets on
+  their group keys (``inner``, ``left`` or ``full``), whose keys must be of
+  the same kind;
+* the **page**: HTML and CSS with its written conclusions, and bindings that
+  tie page elements, by id, to the data: single figures (the first, last,
+  sum, average, minimum, maximum or count of a column, optionally of the rows
+  matching a value), tables (columns, a limit, a total row) and Chart.js
+  2.9.4 charts (bar, horizontal bar, line, pie, doughnut, stacked or not).
+
+``report_run`` runs the specification as the employee through the same tools
+and returns all its data; past ``report_max_tokens`` (about two characters of
+JSON a token) it refuses and asks to aggregate further, as it does when a
+dataset without a limit matches more than ``max_rows``. ``report_save`` runs
+it again and keeps the data with the page and bindings. The model types no
+figure into the page except in the conclusions, which quote what
+``report_run`` returned. When a model saved a report and the next model
+starts over, that model's first save replaces it. ``report_get`` returns a
+report the employee may open, as untrusted data, to save a revised version as
+a new report; a report a colleague shared comes without its specification.
+
+The page keeps only its layout and text: headings, paragraphs, sections,
+lists, tables and inline formatting, ``<style>`` at the top of the page, and
+the attributes ``id``, ``class``, ``style``, ``title``, ``lang``, ``dir``,
+``align``, ``width``, ``aria-*`` and, on cells, ``colspan`` and ``rowspan``.
+Scripts, event handlers, images, SVG, forms and every link's ``href`` are
+removed; a style sheet or style attribute whose CSS loads a file or a font or
+runs script (``url()``, ``image-set()``, ``@import``, ``@font-face``,
+``expression()``, ``-moz-binding``, ``behavior``) is removed whole. A tag
+removed leaves its content in place; the cleaning runs again on its own
+output until its parser (libxml2) gives it back unchanged, three passes at
+most. A page that is mostly script is refused. A title has up to 120
+characters, a page up to 100,000.
+
+The app shows the page in a sandboxed frame that holds a second sandboxed
+frame with the page, both under a content security policy that refuses every
+request and lets only Chart.js and the module's renderer
+(``static/report_frame/report_renderer.js``) run, by their hashes. The
+renderer fills the bindings from the stored data. A figure over a dataset
+whose limit left rows out is marked *(partial)*, a table or chart over one
+says it holds the first rows, in the reader's language: the server sends
+these notes translated with the data.
+
+The data is a snapshot taken when the report was saved. *Refresh*, for the
+owner only, reruns the specification as the owner, without the model, in the
+report's companies the owner still works in, the current one first; the page
+and its conclusions stay as written, and the report then says they were
+written on older data. A refresh that fails says why as the tools tell the
+model: their own reasons as written, a refused access, a timeout or an
+unexpected error by kind only (logged as a warning), never Odoo's message. A
+model the report reads that is no longer installed is told in plain words:
+*the model X it reads is not installed any more*. A failed refresh keeps
+the report's data. *Export* downloads an xlsx file: a sheet of the report's facts, then a sheet
+per dataset and merge.
+
+*Share* lets the owner choose colleagues who use the AI Assistant. They get
+the report itself, the owner's snapshot: title, owner, dates, page and data,
+which they may export, but neither refresh nor share. The conversation and
+answer it came from, whom it is shared with, its specification and its
+companies are for administrators only, and nobody else filters, sorts or
+groups reports by them; the owner sees whom it is shared with in the app, and
+the AI Assistant reads the specification for them with ``report_get``. Each
+share and unshare is logged (by whom, with whom, when, and the report's
+title), and the log outlives the report. The owner and administrators may
+delete a report; it is then gone for everyone it was shared with.
+
+**Administration**
+
+For Settings administrators the app has two more menus. Each window is
+titled as its menu.
+
+*Review*:
+
+* *To Review*: the answers to review, Ask AI and app alike (see To
+  Review);
+* *Conversations*: the conversations of every assistant (filters *Ask AI*,
+  *AI Assistant*): one Ask AI conversation per record,
+  shared by its askers, and one per app conversation. Each shows its
+  transcript, its answers with their cost and attempts, and a chatter of
+  deviations: a fallback to the next model, a question no Claude model
+  answered, a spend limit. *Not helpful*, the stored count of answers their
+  askers rated down, is a column of the list, a figure on an AI Assistant
+  conversation's form and a filter; with *With fallbacks* also on, the list
+  holds the conversations that are both;
+* *Assistant Answers*: every question with its kind (*Ask AI* or *AI
+  Assistant*), employee, record or screen, companies, state (*Pending*,
+  *Answered*, *Unavailable*), feedback, *Not covered*, review (*Fixed*,
+  *Dismissed*), model, tokens, cost, latency, attempts and the AI reports
+  it saved;
+* *Tool Calls*: every tool call with its employee, AI conversation, tool,
+  model, arguments, rows returned, the modules whose README text
+  ``module_docs`` returned, outcome (*OK*, *Denied*, *Error*), error and
+  latency, never the data it read. A row is written in a transaction of its
+  own, so it outlives a failed answer, and is deleted after 12 months;
+* *Reports*: every AI report, with its share log.
+
+*Configuration*:
+
+* *Settings*: the parameters of the AI Assistant, but the runtime state
+  (see Configuration).
+
+A module of another assistant may add its own screens to these menus.
+
+The cron *AI Assistant: watch for Claude going quiet*, every 15 minutes,
+runs the Claude incident check of ``ai_claude`` for the AI Assistant: when
+Claude answered none of at least 3 questions in 30 minutes, it mails the
+incident recipients, and again when Claude answers. A question that ran out
+of tool rounds or time counts for neither: Claude answered, the question
+needed more lookups. The AI Assistant has a Claude circuit breaker of its
+own.
+
+**To Review**
+
+An answer is to review while its asker rated it down, it is flagged *Not
+covered* or it was not answered (*Unavailable*), and no administrator has
+closed it. *Review > To Review* lists these answers, the newest first;
+*Assistant Answers* has the same filter, *To Review*, next to *Fixed* and
+*Dismissed*. An answer's form shows *To Review*, *Review*, *Reviewed by*
+and *Reviewed on*, the answer it is a new answer to, and the new answers
+sent to it.
+
+The review buttons are for Settings administrators. *Fixed* and *Dismiss*,
+on the form of an answer to review or on a selection in the list, close
+the selected answers still to review as *Fixed* or *Dismissed*, keeping who
+and when; the others are left as they are. Nothing reopens a closed
+answer.
+
+*Send new answer*, on the form of an answer with a thumbs-down, *Not
+covered* or not answered, to review or closed, asks the AI Assistant the
+question again after a confirmation. It is refused with the reason, and
+nothing changes, while a new answer to the question is still being
+written, or when the asker is archived, no longer has the *AI Assistant*
+group, no longer has any of the companies the question was asked in or,
+for Ask AI, may no longer Ask AI on the record (it was deleted, they may no
+longer read it, or the AI deny list holds it). Otherwise the answer is
+marked *Fixed* if it is still to review (a *Dismissed* one stays so), and
+the new answer is queued to run as the asker: in their language and
+timezone, with their rights, on the same record or screen, in the
+companies of the question they still have, with the history from before
+the question.
+
+The new answer replies to the question:
+
+* Ask AI: a note by *AI Assistant* in reply to the question note, opening
+  with *New answer to the question of*, the asker and the start of the
+  question;
+* app: an answer in the conversation, without the question repeated,
+  opening with *New answer to your question of*, the date it was asked and
+  the start of the question. The conversation's transcript marks it *New
+  answer to the question of* that date.
+
+Once it is answered, the asker alone is notified, in their Inbox or by
+email: for Ask AI by the note itself, for the app by a note of *AI
+Assistant* on the conversation with the link *Open it in the AI
+Assistant*. The *View* button of that mail and its Inbox entry open the
+app on the conversation too; should its owner open the conversation's
+form, it shows neither its figures nor its transcript and answers. A new
+answer that is not answered notifies nobody and shows as any unanswered
+question does; one refused, however it is closed, posts nothing and tells
+nobody. Either way it is to review.
+
+A new answer is an answer like any other: it may be rated, reviewed and
+answered again; a new answer to a new answer quotes the question the asker
+asked. Later questions carry the new answer in their history, not the
+answer it replaced.
+
+The cron *AI Assistant: weekly digest of answers to review* mails
+``digest_recipients`` every answer to review, whatever its age, at most 50,
+the newest first. Those created in the last 7 days are marked *New*; the
+mail counts them, the answers to review and the questions asked in those 7
+days, where a new answer an administrator sent never counts as a question
+asked. Each row gives the date, the asker, the kind (for a new answer, with
+the date of the question it answers), why it is to review, the record or
+screen, the modules whose documentation the answer read, links to the
+answer (*Review*) and to its AI conversation, then the question and the
+answer or the error. Nothing is sent while no answer is to review and no
+question was asked in the last 7 days; without recipients the digest is
+only logged.
+
+**A module of the organisation's own**
+
+What an organisation changes is in methods its module overrides, calling
+``super()``:
+
+* ``ai.assistant.tools``: ``_deny_list_models`` and ``_deny_list_fields``
+  (``with_patterns_after`` puts a pattern right after the shipped one it
+  follows), ``_employee_work_fields``, ``_request_models``, ``_tool_texts``
+  (who keeps and documents the data, in the tools' descriptions and
+  errors), ``_model_modules`` (the modules whose READMEs may document a
+  model), ``_module_docs_modules`` and ``_docs_floor_module_names``;
+* ``ai.assistant.engine``: ``_system_prompt_parts`` (the organisation, the
+  paragraph on models that are not installed, whom to ask) and
+  ``_default_claude_key_env`` (see Configuration);
+* ``ai.assistant.exchange``: ``_incident_recipients``.
+
+The shipped words name no organisation: *our* Odoo, *an administrator*,
+*Odoo*, *modules*.
