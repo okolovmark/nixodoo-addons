@@ -28,13 +28,12 @@ NESTED_ITEM_CLASS = "oe-nested"
 CELL_TAGS = ("td", "th")
 # blocks written in a form of their own; any other block only holds what it holds
 FORMED_BLOCK_TAGS = tuple(HEADING_LEVELS) + LIST_TAGS + ("table", "pre", "blockquote", "hr")
-TABLE_PART_TAGS = ("thead", "tbody", "tfoot", "tr")
+ROW_GROUP_TAGS = ("thead", "tbody", "tfoot")
 LINK_SCHEMES = ("", "http", "https", "mailto")
 IMAGE_SCHEMES = ("", "http", "https")
 DEFAULT_PORTS = {"http": 80, "https": 443}
-# merged cells pad a table with empty ones: a colspan is capped, so that a few bytes of HTML cannot make megabytes;
-# a rowspan fills only the rows its row group has
-MAX_SPAN = 100
+# a colspan pads its row with empty cells: capped, so that a few bytes of HTML cannot make megabytes; a rowspan
+# pads only the rows its row group has
 MAX_TABLE_COLUMNS = 100
 NOT_MOVED_IMAGE = "[image not yet moved to an attachment]"
 WHITESPACE = re.compile(r"\s+")
@@ -68,6 +67,9 @@ BLOCK_MARKUP = re.compile(
     r"|[\s:-]*-[\s:-]*\|[\s|:-]*$"
 )
 ORDERED_LIST_NUMBER = re.compile(r"[0-9]{1,9}(?=[.)](?:\s|$))")
+# The label at the start of a paragraph, which may run over lines: group 1 is "]:" where it opens a link reference
+# definition, which CommonMark shows nothing of, and "" or "\" where it is still open at the end of the text.
+LINK_LABEL = re.compile(r"\[(?:[^\[\]\\]|\\.)*(\]:|\\?\Z)?", re.DOTALL)
 URL_TAB_OR_NEWLINE = re.compile(r"[\t\n\r]")
 URL_EDGE_CHARACTERS = "".join(map(chr, range(0x21)))
 URL_CONTROL_CHARACTERS = re.compile(r"[\x00-\x20\x7f]")
@@ -292,32 +294,32 @@ def _is_nested_list(element):
     return element.tag != "blockquote" and _is_list_only(element)
 
 
-def _iter_list_items(element):
-    """The items under element, in a list or the list itself, outside the lists nested in it and in its items: those
-    a browser numbers in that list.
+def _iter_list_items(element, skipped_elements):
+    """The items under element, in a list or the list itself, outside the lists nested in it, its items and
+    skipped_elements: those of that list.
     """
     descendants = list(element)
     while descendants:
         descendant = descendants.pop()
         if descendant.tag == "li":
             yield descendant
-        elif descendant.tag not in LIST_TAGS:
+        elif descendant.tag not in LIST_TAGS and descendant not in skipped_elements:
             descendants.extend(descendant)
 
 
-def _holds_list_item(element):
-    """Whether element, right in a list, holds an item of that list, one outside the lists nested in it, which
-    a browser numbers in it as in its list.
+def _holds_list_item(element, skipped_elements):
+    """Whether element, right in a list, holds an item of that list (_iter_list_items), which a browser numbers in
+    it as in its list (_is_list_item).
     """
-    return next(_iter_list_items(element), None) is not None
+    return any(_is_list_item(item, skipped_elements) for item in _iter_list_items(element, skipped_elements))
 
 
-def _get_item_holders(element):
-    """The elements between the list element and its items (_iter_list_items) holding an item of it
-    (_holds_list_item), found in one walk of it.
+def _get_item_holders(element, skipped_elements):
+    """The elements between the list element and its items (_iter_list_items) holding an item of it, found in one
+    walk of it.
     """
     item_holders = set()
-    for item in _iter_list_items(element):
+    for item in _iter_list_items(element, skipped_elements):
         # the ancestors above one already found are found already
         for ancestor in item.iterancestors():
             if ancestor is element or ancestor in item_holders:
@@ -326,11 +328,20 @@ def _get_item_holders(element):
     return item_holders
 
 
-def _is_list_item(element):
+def _is_list_item(element, skipped_elements):
     """Whether the block element, right in a list and nesting no list in it (_is_nested_list), is numbered in it: an
-    item, or a block holding one.
+    item other than an unmarked one (_is_unmarked_item), or a block holding an item (_holds_list_item).
     """
-    return element.tag == "li" or _holds_list_item(element)
+    if element.tag == "li":
+        return not _has_class(element, NESTED_ITEM_CLASS)
+    return _holds_list_item(element, skipped_elements)
+
+
+def _is_unmarked_item(element):
+    """Whether element, right in a list and nesting no list in it (_is_nested_list), is an oe-nested item: the editor
+    shows it as a block, with no marker, and a browser gives it no number.
+    """
+    return element.tag == "li" and _has_class(element, NESTED_ITEM_CLASS)
 
 
 def _is_stray_item(element):
@@ -350,6 +361,26 @@ def _escape_brackets(text):
 
 def _escape_label(text):
     return _escape_brackets(" ".join(_strip_tokens_in_text(text).split()))
+
+
+def _escape_line_starts(lines, is_followed_on=False):
+    """lines, those of a paragraph, each with what would open a Markdown block at its start escaped. A link
+    reference definition opens one only where a CommonMark paragraph starts, on the first line or after an empty
+    one; elsewhere an escaped bracket would be read on in a label left open above it. Where is_followed_on, text
+    joined onto the last line may close a label left open at the end, which is escaped too.
+    """
+    text = "\n".join(lines)
+    escaped_lines = []
+    line_start = 0
+    is_paragraph_start = True
+    for line in lines:
+        label = LINK_LABEL.match(text, line_start) if is_paragraph_start else None
+        label_end = label and label.group(1)
+        is_definition = label_end == "]:" or (is_followed_on and label_end is not None)
+        escaped_lines.append("\\" + line if is_definition else _escape_line_start(line))
+        is_paragraph_start = not line
+        line_start += len(line) + 1
+    return escaped_lines
 
 
 def _escape_line_start(line):
@@ -386,11 +417,25 @@ def _get_code_span(text):
     return fence + padding + code_text + padding + fence
 
 
-def _get_preformatted_text(element):
+def _get_text_content(element, skipped_elements):
+    """The text of element as text_content() gives it, a space where one of skipped_elements stands."""
     parts = [element.text or ""]
     for child in element:
         if isinstance(child.tag, str):
-            parts.append("\n" if child.tag == "br" else _get_preformatted_text(child))
+            parts.append(" " if child in skipped_elements else _get_text_content(child, skipped_elements))
+        parts.append(child.tail or "")
+    return "".join(parts)
+
+
+def _get_preformatted_text(element, skipped_elements):
+    """The text of element with its line breaks; one of skipped_elements, blocks, only breaks its line."""
+    parts = [element.text or ""]
+    for child in element:
+        if isinstance(child.tag, str):
+            if child.tag == "br":
+                parts.append("\n")
+            elif child not in skipped_elements:
+                parts.append(_get_preformatted_text(child, skipped_elements))
             if _is_block(child):
                 parts.append("\n")
         parts.append(child.tail or "")
@@ -425,10 +470,16 @@ def _ends_in_paragraph(block):
     """Whether block ends in a paragraph, at its least indentation: a list does where loose text of a list nested
     at its level ends it.
     """
-    last_line = _get_last_line((block or "").split("\n"))
-    return bool(last_line) and not (
-        LIST_START.match(last_line) or OTHER_BLOCK_LINE.match(last_line) or last_line == THEMATIC_BREAK
-    )
+    return _is_paragraph_line(_get_last_line((block or "").split("\n")))
+
+
+def _is_paragraph_line(line):
+    return bool(line) and not (LIST_START.match(line) or OTHER_BLOCK_LINE.match(line) or line == THEMATIC_BREAK)
+
+
+def _escape_task_box(line):
+    """line, the first of a list item's text, with a box GFM would read in it escaped."""
+    return "\\" + line if TASK_LIST_BOX.match(line) else line
 
 
 def _cannot_interrupt_paragraph(block):
@@ -496,7 +547,7 @@ def _get_list_number(value):
     return None if number is None or abs(number) == math.inf else max(number, 0)
 
 
-def _get_first_number(element, children):
+def _get_first_number(element, children, skipped_elements):
     """The number a browser gives the first item of the ordered list: its start, else the count of its items where
     it is reversed, its children as _iter_list_children gives them, else 1.
     """
@@ -504,18 +555,75 @@ def _get_first_number(element, children):
     if start is not None:
         return start
     if "reversed" in element.attrib:
-        return sum(not _is_nested_list(child) and _is_list_item(child) for _paragraphs, child in children)
+        return sum(
+            not _is_nested_list(child) and _is_list_item(child, skipped_elements) for _paragraphs, child in children
+        )
     return 1
 
 
-def _get_span(cell, attribute, max_span, zero_span=1):
-    """The span attribute of cell gives as HTML reads it, at most max_span: 1 where it gives none or one below 0,
-    zero_span where it gives 0.
+def _get_span(cell, attribute, maximum):
+    """The span the attribute of cell gives as HTML reads it, at most maximum: 1 where it gives none or one
+    below 0, 0 where it gives 0.
     """
     span = _get_html_integer(cell.get(attribute))
     if span is None or span < 0:
         return 1
-    return min(span, max_span) or zero_span
+    return min(span, maximum)
+
+
+def _read_table(table):
+    """(rows, captions, end table) of the table as a browser builds it, outside the tables in its cells and what
+    it hides: each row as (row group, cells), where a browser moves a row, a cell or a caption out of the blocks
+    around it into the table; a cell outside a row in a row it implies, up to the next row, row group or caption;
+    a caption ends the row and the row group it stands in. The end table is the first table outside its cells and
+    captions, where a browser ends the table: what follows it is no part of it. Limits, where a browser ends what
+    holds it: a row in a row keeps the later cells of that row in it, a cell or a caption in a cell, or a cell in a
+    caption, is part of its text, and the text after a row in a cell stays in the cell.
+    """
+    rows = []
+    captions = []
+    # the cells of each row that has not ended
+    row_cells = {}
+    implied_row = None
+    caption_count = 0
+    # (element, the row it is in: the table outside the rows, None in a cell or a caption; its row group)
+    descendants = [(child, table, table) for child in reversed(table)]
+    while descendants:
+        element, row, row_group = descendants.pop()
+        tag = element.tag
+        if not isinstance(tag, str) or tag in SKIPPED_TAGS:
+            continue
+        if tag == "table":
+            if row is None:
+                continue
+            return rows, captions, element
+        if tag == "tr":
+            implied_row = None
+            row_cells[element] = []
+            rows.append(((row_group, caption_count), row_cells[element]))
+            row = element
+        elif tag in ROW_GROUP_TAGS:
+            if row is table:
+                implied_row = None
+            row_group = element
+        elif row is None:
+            pass
+        elif tag == "caption":
+            captions.append(element)
+            caption_count += 1
+            row_cells.pop(row, None)
+            row = None
+        elif tag in CELL_TAGS:
+            cells = row_cells.get(row)
+            if cells is None:
+                if implied_row is None or implied_row[0] != (row_group, caption_count):
+                    implied_row = ((row_group, caption_count), [])
+                    rows.append(implied_row)
+                cells = implied_row[1]
+            cells.append(element)
+            row = None
+        descendants.extend((child, row, row_group) for child in reversed(element))
+    return rows, captions, None
 
 
 def _get_table_row(cells):
@@ -530,6 +638,12 @@ class _MarkdownWriter:
         self.link_depth = 0
         self.cell_depth = 0
         self.is_in_opening_list = False
+        # whether an unmarked item's text may be joined onto the last paragraph written (_get_list)
+        self.is_followed_on = False
+        # the cells and captions of the table whose loose blocks are written: they stand in the table (_read_table)
+        self.table_parts = set()
+        # {end table: the blocks of the table it ends (_read_table), written right before it}
+        self.ended_table_blocks = {}
 
     def get_blocks(self, element, get_child_blocks=None, previous_block=None):
         """The Markdown blocks of what element holds: a paragraph for each run
@@ -571,7 +685,7 @@ class _MarkdownWriter:
         lines = [REPEATED_SPACES.sub(" ", line).strip() for line in "".join(inline_parts).split("\n")]
         # a cell is one line inside its row, where nothing opens a block
         if not self.cell_depth:
-            lines = [_escape_line_start(line) for line in lines]
+            lines = _escape_line_starts(lines, self.is_followed_on)
         # a run of line breaks shows as one empty line
         paragraph = LINE_BREAK_RUN.sub("\n\n", "\n".join(lines)).strip("\n")
         return [paragraph] if paragraph else []
@@ -596,18 +710,23 @@ class _MarkdownWriter:
             return ["\n".join(("> " + line).rstrip() for line in quoted_text.split("\n"))] if quoted_text else []
         if tag == "hr":
             return [THEMATIC_BREAK]
+        if element in self.table_parts:
+            return []
         return self.get_blocks(element, previous_block=previous_block)
 
     def _get_inline(self, element):
         tag = element.tag
         if not isinstance(tag, str) or tag in SKIPPED_TAGS:
             return ""
+        # a part of a table, a block, still keeps the words around it apart
+        if element in self.table_parts:
+            return " "
         if tag == "br":
             return "\n"
         if tag == "img":
             return self._get_image(element)
         if tag == "code":
-            return _get_code_span(element.text_content())
+            return _get_code_span(_get_text_content(element, self.table_parts))
         if tag == "a":
             return self._get_link(element)
         content = self._get_inline_content(element)
@@ -656,8 +775,14 @@ class _MarkdownWriter:
         url = normalise_url(element.get("href"))
         if not url or _get_scheme(url) not in LINK_SCHEMES:
             return content
+        # the outer spaces of its text stay outside the link, keeping it apart from the words around it, as that of a
+        # part of a table in it does
+        leading_space = content[: len(content) - len(content.lstrip())]
+        trailing_space = content[len(content.rstrip()) :]
+        return leading_space + self._get_link_markup(element, url, content.strip()) + trailing_space
+
+    def _get_link_markup(self, element, url, link_text):
         clean_url = strip_url_tokens(url)
-        link_text = content.strip()
         is_bare = not link_text or link_text in (url, clean_url)
         attachment_id = self._get_local_attachment_id(url)
         if attachment_id:
@@ -685,17 +810,23 @@ class _MarkdownWriter:
         one after the item above, which CommonMark would give, the item opens a
         list of the other delimiter. An empty ordered item is its number alone
         where an item or nested lines follow it in its part, which CommonMark
-        would number otherwise; one ending a part, or an empty bullet item,
-        changes no number and is left out. Nested lines before its first item
-        stand two spaces in, which CommonMark reads at its level; none where it
-        opens a list (is_opening) or an item (ITEM_START), or stands in a block
-        between the parts of such a list, which indents them, or follows a list,
-        under whose last item they would go.
+        would number otherwise; one ending a part changes no number and is left
+        out. An empty bullet item is its marker, and its box in a checklist,
+        where an unmarked item (_is_unmarked_item) right after it goes on under
+        it, and else left out. An unmarked item goes on under the item before it
+        in its part, its text on that item's last paragraph, or on the line of
+        its box, as GFM draws a box only before text on its line, and stands
+        between the parts where it has no item before it. A box before any other
+        block stands alone above it, a task in the raw text only. Nested lines
+        before its first item stand two spaces in, which CommonMark reads at its
+        level; none where it opens a list (is_opening) or an item (ITEM_START),
+        or stands in a block between the parts of such a list, which indents
+        them, or follows a list, under whose last item they would go.
         """
         is_ordered = element.tag == "ol"
-        is_checklist = _has_class(element, CHECKLIST_CLASS)
+        is_checklist = element.tag == "ul" and _has_class(element, CHECKLIST_CLASS)
         *children, (trailing_blocks, _end) = children or self._iter_list_children(element)
-        number = _get_first_number(element, children) if is_ordered else None
+        number = _get_first_number(element, children, self.table_parts) if is_ordered else None
         step = -1 if "reversed" in element.attrib else 1
         # the number CommonMark gives the last item of the run of lines it numbers on
         shown_number = None
@@ -712,12 +843,24 @@ class _MarkdownWriter:
         # the marker character of lines and whether they go on from a list, read from the block before them as they
         # start: a list writing nothing reads nothing of it, or empty lists after a long block take quadratic time
         marker_character = is_after_list = None
-        # the numbers of the empty items after lines, written only where a line follows them in the part
-        empty_item_numbers = []
-        for loose_blocks, child in children:
+        # (number, lines, last block) of the empty items after lines, written only where a line follows them in the
+        # part: of a bullet list, the last only, where an unmarked item follows it
+        empty_items = []
+        was_followed_on = self.is_followed_on
+        followed_on_flags = self._get_followed_on_flags(children, was_followed_on and not trailing_blocks)
+        for (loose_blocks, child), is_followed_on in zip(children, followed_on_flags):
+            self.is_followed_on = is_followed_on
             is_nested_list = _is_nested_list(child)
-            is_item = not is_nested_list and _is_list_item(child)
-            if not (is_nested_list or is_item):
+            is_item = not is_nested_list and _is_list_item(child, self.table_parts)
+            # an empty item waiting to be written is an item before it
+            is_follow_on = (
+                not (is_nested_list or is_item or loose_blocks)
+                and _is_unmarked_item(child)
+                and (indent is not None or bool(empty_items))
+            )
+            if not (is_ordered or is_follow_on):
+                empty_items = []
+            if not (is_nested_list or is_item or is_follow_on):
                 # a browser numbers items only: another block stands between the list's parts, as loose text does;
                 # what follows a block reads only its last line at its level, so the lines are not joined for it
                 if loose_blocks:
@@ -736,12 +879,12 @@ class _MarkdownWriter:
                 lines = []
                 last_line, read_line_count = "", 0
                 indent = item_last_block = shown_number = None
-                empty_item_numbers = []
+                empty_items = []
             # (number, lines, last block) of the items to write, the empty items waiting put before this one only once
             # it writes: made at every block after a run of them, they would cost its length squared
             new_items = []
             if is_nested_list:
-                if empty_item_numbers:
+                if empty_items:
                     nested_previous_block = ITEM_START
                 else:
                     nested_previous_block = item_last_block if lines else previous_block
@@ -758,34 +901,40 @@ class _MarkdownWriter:
                     number = number if value is None else value
                     item_number = max(number, 0)
                     number += step
-                item_blocks = self._get_element_blocks(child, ITEM_START)
-                if not item_blocks:
-                    if is_ordered:
-                        empty_item_numbers.append(item_number)
-                    continue
-                item_lines = _join_item_blocks(item_blocks).split("\n")
                 # the box is part of the item's text: its nested lists stay under the list marker; the editor draws
-                # it on an item right in the checklist only
+                # it on an item right in a bullet checklist only
+                box = None
                 if is_checklist and child.tag == "li" and child.getparent() is element:
                     box = "[x]" if _has_class(child, CHECKED_ITEM_CLASS) else "[ ]"
+                item_blocks = self._get_element_blocks(child, ITEM_START)
+                if not item_blocks:
+                    empty_items.append((item_number, [box or ""], box or ITEM_START))
+                    continue
+                item_lines = _join_item_blocks(item_blocks).split("\n")
+                if box:
                     if BLOCK_MARKUP.match(item_lines[0]) or LIST_START.match(item_lines[0]):
                         # a blank line ends the box's paragraph: a rule would underline it, a list join it
                         item_lines[0:0] = [box, ""]
                     else:
+                        # cmark-gfm ticks a box whose line holds [x]: the text stays as written, the brief is read raw
                         item_lines[0] = "%s %s" % (box, item_lines[0])
-                elif TASK_LIST_BOX.match(item_lines[0]):
-                    item_lines[0] = "\\" + item_lines[0]
                 elif not is_ordered and item_lines[0] == THEMATIC_BREAK:
                     item_lines[0] = BULLET_ITEM_BREAK
+                else:
+                    item_lines[0] = _escape_task_box(item_lines[0])
                 new_items.append((item_number, item_lines, item_blocks[-1]))
+            elif is_follow_on:
+                follow_blocks = self._get_element_blocks(child, empty_items[-1][2] if empty_items else item_last_block)
+                if not follow_blocks:
+                    continue
             else:
                 continue
-            new_items[0:0] = [(empty_number, [""], ITEM_START) for empty_number in empty_item_numbers]
+            new_items[0:0] = empty_items
             if not lines:
                 previous_marker = _get_last_list_marker((previous_block or "").split("\n"))
                 marker_character = _get_list_marker(element.tag, previous_marker)
                 is_after_list = previous_marker is not None
-            empty_item_numbers = []
+            empty_items = []
             for item_number, item_lines, last_block in new_items:
                 if is_ordered:
                     is_new_run = shown_number is None or item_number != shown_number + 1
@@ -806,7 +955,10 @@ class _MarkdownWriter:
                 lines.extend(_indent_lines(item_lines[1:], indent))
             if is_nested_list:
                 nested_lines = _join_item_blocks(nested_blocks).split("\n")
-                if lines and not _is_under(nested_lines[0], item_last_block):
+                # right under an empty item's number, the first line is that item's text
+                if item_last_block == ITEM_START:
+                    nested_lines[0] = _escape_task_box(nested_lines[0])
+                elif lines and not _is_under(nested_lines[0], item_last_block):
                     lines.append("")
                 if indent is not None:
                     nested_lines = _indent_lines(nested_lines, indent)
@@ -814,13 +966,47 @@ class _MarkdownWriter:
                     nested_lines = _indent_lines(nested_lines, "  ")
                 lines.extend(nested_lines)
                 item_last_block = nested_blocks[-1]
+            elif is_follow_on:
+                follow_lines = _join_item_blocks(follow_blocks).split("\n")
+                # text goes on the item's last paragraph, as after a line break in it
+                is_on_paragraph = _ends_in_paragraph(item_last_block) and _is_paragraph_line(follow_lines[0])
+                if item_last_block == ITEM_START:
+                    follow_lines[0] = _escape_task_box(follow_lines[0])
+                elif new_items and is_on_paragraph:
+                    # an empty item's box: GFM reads it as a task's only with text after it on its line
+                    lines[-1] += " " + follow_lines.pop(0)
+                elif not (is_on_paragraph or _is_under(follow_lines[0], item_last_block)):
+                    lines.append("")
+                lines.extend(_indent_lines(follow_lines, indent))
+                item_last_block = follow_blocks[-1]
+        self.is_followed_on = was_followed_on
         return blocks + _join_lines(lines) + trailing_blocks
+
+    def _get_followed_on_flags(self, children, is_list_followed_on):
+        """Whether an unmarked item may go on the last paragraph of each of children, (loose blocks, child) of a
+        list: one after it does past the children that may write nothing (an item with no text of its own, a nested
+        list, a block holding nothing), and so does the list's own follow-on (is_list_followed_on) past the last. Text before a
+        child, or an item's own text, stands between them.
+        """
+        flags = []
+        is_followed_on = is_list_followed_on
+        for loose_blocks, child in reversed(children):
+            flags.append(is_followed_on)
+            if loose_blocks:
+                is_followed_on = False
+            elif _is_unmarked_item(child) and not _is_nested_list(child):
+                is_followed_on = True
+            elif is_followed_on and child.tag == "li" and self._get_text(child.text).strip():
+                is_followed_on = False
+        flags.reverse()
+        return flags
 
     def _iter_list_children(self, element):
         """(paragraphs, child) for each block right in the list element, paragraphs those of the text before it,
-        then (paragraphs, None) for the text after the last. A block holding an item (_holds_list_item), other than
-        an item or one of FORMED_BLOCK_TAGS, stands for what it holds, its text paragraphs apart: a browser numbers
-        the item in the list and shows the text as text right in the list.
+        then (paragraphs, None) for the text after the last. A block holding an item (_get_item_holders), other than
+        an item or one of FORMED_BLOCK_TAGS, stands for what it holds, its text paragraphs apart: a browser shows
+        the item in the list and the text as text right in the list. A part of the table whose blocks are written
+        (table_parts) is left out: a browser moves it out of the list into the table.
         """
         item_holders = None
         paragraphs = []
@@ -834,11 +1020,14 @@ class _MarkdownWriter:
                     inline_parts.extend((self._get_inline(child), self._get_text(child.tail)))
                     continue
                 paragraphs += self._get_paragraph(inline_parts)
+                if child in self.table_parts:
+                    inline_parts = [self._get_text(child.tail)]
+                    continue
                 if child.tag != "li" and child.tag not in FORMED_BLOCK_TAGS:
                     # the list walked once, at the first such block: searched block by block, a chain of blocks
                     # costs its length times what it holds
                     if item_holders is None:
-                        item_holders = _get_item_holders(element)
+                        item_holders = _get_item_holders(element, self.table_parts)
                     if child in item_holders:
                         containers.append((child, iter(child)))
                         inline_parts = [self._get_text(child.text)]
@@ -853,60 +1042,61 @@ class _MarkdownWriter:
         yield paragraphs, None
 
     def _get_table(self, element, previous_block=None):
-        """What the table holds outside its cells, its caption, then the table."""
-        blocks = self.get_blocks(element, self._get_loose_table_blocks, previous_block)
-        caption = next((child for child in element if child.tag == "caption"), None)
-        caption_line = self._get_line(caption) if caption is not None else ""
-        if caption_line:
-            blocks.append(caption_line)
-        rows = self._get_table_rows(element)
+        """What the table holds outside its parts, which a browser shows before it, its captions, then the table
+        (_read_table); these go right before the table that ends it, if any, after which the rest of what it holds is
+        no part of it. A limit: an item or a quote that table stands in, which a browser closes there, keeps the rest
+        of what it holds.
+        """
+        blocks = self.ended_table_blocks.pop(element, [])
+        table_rows, captions, end_table = _read_table(element)
+        outer_table_parts = self.table_parts
+        self.table_parts = set(captions).union(*(cells for _row_group, cells in table_rows))
+        table_blocks = list(filter(None, map(self._get_line, captions)))
+        rows = self._get_table_rows(table_rows)
         if rows:
             width = max(len(cells) for cells in rows)
             rows = [cells + [""] * (width - len(cells)) for cells in rows]
             lines = [_get_table_row(rows[0]), _get_table_row(["---"] * width)]
             lines.extend(_get_table_row(cells) for cells in rows[1:])
-            blocks.append("\n".join(lines))
+            table_blocks.append("\n".join(lines))
+        if end_table is not None:
+            self.ended_table_blocks[end_table] = table_blocks
+        blocks += self.get_blocks(element, previous_block=(blocks or [previous_block])[-1])
+        # an end table in an inline element or code writes no blocks of its own: the table goes after the rest
+        blocks += self.ended_table_blocks.pop(end_table, []) if end_table is not None else table_blocks
+        self.table_parts = outer_table_parts
         return blocks
 
-    def _get_loose_table_blocks(self, element, previous_block=None):
-        """The blocks of what a table holds outside its caption and cells, which a browser shows before it."""
-        if element.tag in TABLE_PART_TAGS:
-            return self.get_blocks(element, self._get_loose_table_blocks, previous_block)
-        if element.tag in CELL_TAGS or element.tag == "caption":
-            return []
-        return self._get_element_blocks(element, previous_block)
-
-    def _get_table_rows(self, element):
-        """The cells of each row of the table, a cell that spans columns or rows
-        followed or underlaid by empty ones, so that every row keeps its columns.
-        A cell spans rows to the end of its row group at most (its thead, tbody
-        or tfoot), to that end with a rowspan of zero, as a browser shows it.
-        The table is at most MAX_TABLE_COLUMNS wide: the text of a cell beyond
-        joins the last column.
+    def _get_table_rows(self, table_rows):
+        """The cells of each row of table_rows (_read_table), a cell that
+        spans columns or rows followed or underlaid by empty ones, so that every
+        row keeps its columns. The table is at most MAX_TABLE_COLUMNS wide: the
+        text of a cell beyond joins the last column. A limit: a span over rows
+        right in the table runs on past an empty row group between them, where a
+        browser ends it.
         """
         rows = []
         spanned_rows = {}
-        row_group = None
-        for row in element.iter("tr"):
-            if next(row.iterancestors("table"), None) is not element:
-                continue
-            if row.getparent() is not row_group:
-                row_group = row.getparent()
+        previous_row_group = None
+        for row_group, row_cells in table_rows:
+            # HTML ends a row span with its row group: a thead, tbody or tfoot, or a run of rows right in the table,
+            # which a caption ends too
+            if row_group != previous_row_group:
                 spanned_rows = {}
+            previous_row_group = row_group
             covered_columns = set(spanned_rows)
             new_spans = {}
             cells = []
-            for cell in row:
-                if not (isinstance(cell.tag, str) and cell.tag in CELL_TAGS):
-                    continue
+            for cell in row_cells:
                 while len(cells) in covered_columns:
                     cells.append("")
-                rowspan = _get_span(cell, "rowspan", math.inf, zero_span=math.inf)
+                # rowspan="0" spans the rest of the row group, as HTML reads it
+                rowspan = _get_span(cell, "rowspan", math.inf) or math.inf
                 cell_text = self._get_cell(cell)
                 if len(cells) >= MAX_TABLE_COLUMNS:
                     cells[-1] = " ".join(filter(None, (cells[-1], cell_text)))
                     continue
-                for offset in range(min(_get_span(cell, "colspan", MAX_SPAN), MAX_TABLE_COLUMNS - len(cells))):
+                for offset in range(_get_span(cell, "colspan", MAX_TABLE_COLUMNS - len(cells)) or 1):
                     if rowspan > 1:
                         new_spans[len(cells)] = rowspan - 1
                     cells.append("" if offset else cell_text)
@@ -924,7 +1114,7 @@ class _MarkdownWriter:
         return cell_line.replace("|", "\\|")
 
     def _get_code_block(self, element):
-        code_text = _strip_tokens_in_text(_get_preformatted_text(element)).strip("\n")
+        code_text = _strip_tokens_in_text(_get_preformatted_text(element, self.table_parts)).strip("\n")
         if not code_text.strip():
             return []
         fence = _get_fence(code_text, 3)

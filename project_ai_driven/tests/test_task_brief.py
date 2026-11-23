@@ -116,6 +116,74 @@ class TestHtmlToMarkdown(TransactionCase):
         )
         self.assertMarkdown('<ul class="o_checklist"><div><li>[ ] b</li></div></ul>', "- \\[ ] b")
 
+    def test_an_ordered_list_of_the_checklist_class_keeps_its_numbers_without_a_box(self):
+        """The editor draws the box in a bullet list only."""
+        self.assertMarkdown(
+            '<ol class="o_checklist"><li>a</li><li class="o_checked">b</li><li>[ ] c</li></ol>',
+            "1. a\n2. b\n3. \\[ ] c",
+        )
+        self.assertMarkdown(
+            '<ul class="o_checklist"><li>a<ol class="o_checklist"><li class="o_checked">x</li></ol></li></ul>',
+            "- [ ] a\n  1. x",
+        )
+
+    def test_an_oe_nested_item_holding_text_goes_on_under_the_item_before_it(self):
+        """The editor shows it as a block, with no marker, and a browser gives it no number."""
+        self.assertMarkdown(
+            '<ol><li>alpha</li><li class="oe-nested">bravo</li><li>charlie</li></ol>', "1. alpha\n   bravo\n2. charlie"
+        )
+        self.assertMarkdown(
+            '<ol reversed><li>a</li><li class="oe-nested" value="7">b</li><li>c</li><li class="oe-nested"></li></ol>',
+            "2. a\n   b\n1) c",
+        )
+        self.assertMarkdown(
+            '<ol><li>a<ul><li>x</li></ul></li><li class="oe-nested">b</li><li class="oe-nested"><h3>h</h3></li>'
+            "<li>c</li></ol>",
+            "1. a\n   - x\n\n   b\n\n   ### h\n2. c",
+        )
+        self.assertMarkdown('<ol><li><br></li><li class="oe-nested">[x] t</li><li>c</li></ol>', "1.\n   \\[x] t\n2. c")
+
+    def test_an_oe_nested_item_holding_text_in_a_checklist_goes_on_without_a_box(self):
+        self.assertMarkdown(
+            '<ul class="o_checklist"><li>a</li><li class="oe-nested o_checked">t</li><li class="oe-nested">[x] u</li>'
+            '<li class="oe-nested">v<ul class="o_checklist"><li class="o_checked">w</li></ul></li><li>b</li></ul>',
+            "- [ ] a\n  t\n  [x] u\n  v\n  - [x] w\n- [ ] b",
+        )
+
+    def test_an_oe_nested_item_holding_text_with_no_item_before_it_stands_between_the_parts_of_its_list(self):
+        self.assertMarkdown('<ol><li class="oe-nested">bravo</li><li>charlie</li></ol>', "bravo\n\n1. charlie")
+        self.assertMarkdown(
+            '<ol><li>a</li><pre>c</pre><li class="oe-nested">b</li><li>d</li></ol>', "1. a\n\n```\nc\n```\n\nb\n\n2. d"
+        )
+        self.assertMarkdown('<ul class="o_checklist"><li class="oe-nested">t</li><li>b</li></ul>', "t\n\n- [ ] b")
+        self.assertMarkdown('<ol><blockquote><li class="oe-nested">t</li></blockquote><li>b</li></ol>', "> t\n\n1. b")
+        self.assertMarkdown('<ol><li>a</li>t<li class="oe-nested">b</li><li>c</li></ol>', "1. a\n\nt\n\nb\n\n2. c")
+
+    def test_an_empty_bullet_item_keeps_its_marker_for_the_oe_nested_item_holding_text_right_after_it(self):
+        """The browser shows the text under the item's bullet, and under its box in a checklist: the text goes on
+        the box's line, as GFM draws a box only before text on its line, a heading under it, the box then a task in
+        the raw text only; another empty bullet item is left out.
+        """
+        for html_content, markdown in (
+            ('<ul><li>a</li><li></li><li class="oe-nested">t</li></ul>', "- a\n-\n  t"),
+            ('<ul><li><br></li><li><br></li><li class="oe-nested">[x] t</li><li>b</li></ul>', "-\n  \\[x] t\n- b"),
+            ('<p>p</p><ul><li></li><li class="oe-nested">t</li></ul>', "p\n\n-\n  t"),
+            (
+                '<ul class="o_checklist"><li></li><li class="oe-nested">[x] t</li><li>b</li></ul>',
+                "- [ ] [x] t\n- [ ] b",
+            ),
+            (
+                '<ul class="o_checklist"><li class="o_checked"></li><li class="oe-nested"><h3>h</h3></li></ul>',
+                "- [x]\n\n  ### h",
+            ),
+            (
+                '<ul><li>a</li><li></li><li class="oe-nested"><ul><li>x</li></ul></li><li></li><li>b</li></ul>',
+                "- a\n  - x\n- b",
+            ),
+        ):
+            with self.subTest(html_content=html_content):
+                self.assertMarkdown(html_content, markdown)
+
     def test_a_list_right_after_a_list_of_its_marker_takes_the_other_one(self):
         self.assertMarkdown(
             "<ul><li>a</li></ul><p><br></p><ul><li>b</li></ul><div><ul><li>c</li></ul></div>"
@@ -369,7 +437,7 @@ class TestHtmlToMarkdown(TransactionCase):
         ):
             block = etree.fromstring(list_html, parser).find("body/ul/div")
             created_elements.clear()
-            self.assertEqual(html_markdown._holds_list_item(block), holds_item)
+            self.assertEqual(html_markdown._holds_list_item(block, ()), holds_item)
             self.assertLess(len(created_elements), 10, "the items of the nested list are not searched")
 
     def test_blocks_right_in_a_list_read_the_last_line_of_the_lines_before_them(self):
@@ -705,6 +773,11 @@ class TestHtmlToMarkdown(TransactionCase):
             "1. a\n2.\n   1. y\n   1) x",
         )
 
+    def test_loose_text_right_under_an_empty_item_is_escaped_as_the_text_of_an_item(self):
+        """GFM reads a box at the start of the item's text, where the browser shows text."""
+        self.assertMarkdown("<ol><li><br></li><ol>[x] loose</ol><li>b</li></ol>", "1.\n   \\[x] loose\n2. b")
+        self.assertMarkdown("<ol><li></li><ol><ol>[ ] deep</ol></ol><li>b</li></ol>", "1.\n   \\[ ] deep\n2. b")
+
     def test_a_list_opening_with_an_empty_item_is_a_paragraph_apart_from_the_text_above_it(self):
         """CommonMark lets no empty item interrupt a paragraph: it would be text of it."""
         self.assertMarkdown("<ul><li>t<ol><li><br></li><li>b</li></ol></li></ul>", "- t\n\n  1.\n  2. b")
@@ -751,6 +824,14 @@ class TestHtmlToMarkdown(TransactionCase):
             "<ul><li>[x] not ticked</li><li>[ ] not open</li><li>[X]</li><li>[link] kept</li></ul>"
             '<ol><li>[ ] numbered</li></ol><ul class="o_checklist"><li>[x] typed</li></ul>',
             "- \\[x] not ticked\n- \\[ ] not open\n- \\[X]\n- [link] kept\n\n1. \\[ ] numbered\n\n- [ ] [x] typed",
+        )
+
+    def test_x_in_brackets_on_the_line_of_a_box_is_written_as_it_is(self):
+        """cmark-gfm ticks a box whose line holds [x] or [X]; the brief is read raw, so the text is kept as written."""
+        self.assertMarkdown(
+            '<ul class="o_checklist"><li>a [x] b [X] c<br>[x] d</li><li><a href="https://e.com/">X</a> [x]</li>'
+            '<li class="o_checked"></li><li class="oe-nested">[X] e</li></ul>',
+            "- [ ] a [x] b [X] c\n  [x] d\n- [ ] [X](https://e.com/) [x]\n- [x] [X] e",
         )
 
     def test_table_is_a_pipe_table(self):
@@ -1071,6 +1152,105 @@ class TestHtmlToMarkdown(TransactionCase):
             "a <b> stays, 1 < 2 stays\n\n< 2 stays",
         )
 
+    def test_text_that_would_open_a_link_reference_definition_is_escaped(self):
+        """CommonMark shows nothing of a definition, which a paragraph or an item opening with [label]: is, its
+        label on more lines too; a table cell or a heading holds none.
+        """
+        self.assertMarkdown(
+            '<p>[x]: http://e.com</p><ol><li>[y]: http://e.com "t"</li></ol><blockquote><p>[z]:<br>http://e.com</p>'
+            "</blockquote><p>a<br><br>[w]:<br>http://e.com</p><p>[a<br>b]: http://e.com</p><p>[^1]: note</p>"
+            '<ul class="o_checklist"><li>[v]: http://e.com</li></ul><p>[x] stays, and so does [x]: after text</p>'
+            "<h3>[h]: stays</h3><table><tr><td>[c]: stays</td></tr></table>",
+            '\\[x]: http://e.com\n\n1. \\[y]: http://e.com "t"\n\n> \\[z]:\n> http://e.com\n\na\n\n\\[w]:\nhttp://e.com'
+            "\n\n\\[a\nb]: http://e.com\n\n\\[^1]: note\n\n- [ ] \\[v]: http://e.com\n\n"
+            "[x] stays, and so does [x]: after text\n\n### [h]: stays\n\n| [c]: stays |\n| --- |",
+        )
+
+    def test_a_definition_is_escaped_only_where_a_paragraph_starts(self):
+        """An escaped bracket, or a line break after a backslash, is part of a label: escaped further down a
+        paragraph, a definition would close a label left open at its start and the paragraph would show nothing. An
+        unmarked item's text goes on the paragraph above it, which can close such a label: that label is escaped.
+        """
+        for html_content, markdown in (
+            ("<p>[Draft<br>[1]: https://e.com/spec</p>", "[Draft\n[1]: https://e.com/spec"),
+            ("<ol><li>[a<br>[b]: https://e.com/</li></ol>", "1. [a\n   [b]: https://e.com/"),
+            ("<p>[a\\[b]: https://e.com/</p>", "\\[a\\[b]: https://e.com/"),
+            ("<p>[a\\<br>b]: https://e.com/</p>", "\\[a\\\nb]: https://e.com/"),
+            (
+                '<ul><li>[Draft</li><li class="oe-nested">[1]: https://e.com/spec</li></ul>',
+                "- \\[Draft\n  \\[1]: https://e.com/spec",
+            ),
+            (
+                '<ul><li>[a</li><li class="oe-nested">b</li><li class="oe-nested">c]: https://e.com/</li></ul>',
+                "- \\[a\n  b\n  c]: https://e.com/",
+            ),
+            (
+                '<ul><li>[a\\</li><li class="oe-nested">b]: https://e.com/</li></ul>',
+                "- \\[a\\\n  b]: https://e.com/",
+            ),
+            (
+                '<ul><li>x</li><ul><li>y</li><div>[a</div></ul><li class="oe-nested">b]: https://e.com/</li></ul>',
+                "- x\n  - y\n\n  \\[a\n  b]: https://e.com/",
+            ),
+            ("<ul><li>[a</li><li>b]: https://e.com/</li></ul>", "- [a\n- b]: https://e.com/"),
+            (
+                '<ul><li>[a</li><li class="oe-nested"><ul><li>b]: https://e.com/</li></ul></li></ul>',
+                "- [a\n  - b]: https://e.com/",
+            ),
+        ):
+            with self.subTest(html_content=html_content):
+                self.assertMarkdown(html_content, markdown)
+
+    def test_an_unmarked_item_goes_on_the_paragraph_before_the_children_writing_nothing(self):
+        """An empty item or nested list, an item holding a token only, which is left out, or a block holding
+        nothing writes nothing: the unmarked item after it goes on the paragraph before it, as one after a list
+        goes on its last, and can close a label left open there.
+        """
+        follow_on = '<li class="oe-nested">see]: https://e.com/spec</li>'
+        for empty_child in (
+            '<li class="oe-nested"><ul><li><br></li></ul></li>',
+            "<p><br></p>",
+            "<div></div>",
+            "<ul></ul>",
+            "<li> </li><div></div>",
+            "<li>?token=x&amp;secret=y</li><div></div>",
+        ):
+            with self.subTest(empty_child=empty_child):
+                self.assertMarkdown(
+                    "<ul><li>[Draft</li>%s%s</ul>" % (empty_child, follow_on), "- \\[Draft\n  see]: https://e.com/spec"
+                )
+        for html_content, markdown in (
+            (
+                '<ul><li>x<ul><li class="oe-nested">[a</li><li></li></ul></li>%s</ul>' % follow_on,
+                "- x\n\n  \\[a\n  see]: https://e.com/spec",
+            ),
+            (
+                '<ol><li>x<ol><li class="oe-nested">[a</li><li></li></ol></li>%s</ol>' % follow_on,
+                "1. x\n\n   \\[a\n   see]: https://e.com/spec",
+            ),
+            (
+                "<ul><li>x<ul><li>y</li>t</ul>[a</li>%s</ul>" % follow_on,
+                "- x\n  - y\n\n  t\n\n  \\[a\n  see]: https://e.com/spec",
+            ),
+        ):
+            with self.subTest(html_content=html_content):
+                self.assertMarkdown(html_content, markdown)
+
+    def test_a_label_left_open_before_text_or_at_the_end_of_the_text_stays_as_it_is(self):
+        follow_on = '<li class="oe-nested">see]: https://e.com/spec</li>'
+        for html_content, markdown in (
+            ("<ul><li>[a</li></ul>", "- [a"),
+            ("<ul><li>x<ul><li>[a</li></ul></li><li>b</li></ul>", "- x\n  - [a\n- b"),
+            ("<ul><li>[a</li><li>b</li><ul></ul>%s</ul>" % follow_on, "- [a\n- b\n  see]: https://e.com/spec"),
+            ("<ul><li>[a</li>t%s</ul>" % follow_on, "- [a\n\nt\n\nsee]: https://e.com/spec"),
+            (
+                "<ul><li>x<ul><li>[a</li>t</ul></li>%s</ul>" % follow_on,
+                "- x\n  - [a\n\n  t\n  see]: https://e.com/spec",
+            ),
+        ):
+            with self.subTest(html_content=html_content):
+                self.assertMarkdown(html_content, markdown)
+
     def test_merged_cells_cannot_blow_a_table_up(self):
         markdown = html_to_markdown(
             "<table><tr>%s</tr>%s</table>" % ("<td colspan='1000' rowspan='1000'>x</td>" * 20, "<tr></tr>" * 200)
@@ -1100,6 +1280,120 @@ class TestHtmlToMarkdown(TransactionCase):
             "<tbody><tr><td rowspan='0'>1</td><td>2</td></tr><tr><td>3</td></tr><tr><td>4</td></tr></tbody>"
             "<tfoot><tr><td>5</td><td>6</td></tr></tfoot></table>",
             "| A | B |\n| --- | --- |\n| 1 | 2 |\n|  | 3 |\n|  | 4 |\n| 5 | 6 |",
+        )
+
+    def test_a_row_or_a_cell_in_a_block_in_a_table_is_written_in_the_table_only(self):
+        """A browser moves it out of the block, which keeps the rest, into the table and the row group around it."""
+        self.assertMarkdown(
+            '<table><tbody><div><tr><td rowspan="2">a</td></tr></div><tr><td>b</td></tr></tbody></table>',
+            "| a |  |\n| --- | --- |\n|  | b |",
+        )
+        self.assertMarkdown(
+            "<table><tbody><div>x<tr><td>a</td></tr>y</div><div><span>s<tr><td>b</td></tr></span></div></tbody>"
+            "</table><table><tr><div><td>c</td></div><td>d</td></tr></table>"
+            "<table><tr><td>e</td><div><tr><td>f</td></tr></div></tr></table>",
+            "x\n\ny\n\ns\n\n| a |\n| --- |\n| b |\n\n| c | d |\n| --- | --- |\n\n| e |\n| --- |\n| f |",
+        )
+
+    def test_the_outer_spaces_of_the_text_of_a_link_stay_outside_it(self):
+        """They keep the link apart from the words around it, those a part of a table in it leaves too."""
+        self.assertMarkdown(
+            '<p>see<a href="https://e.com/a"> the spec </a>now<a href="https://e.com/b"> </a>or</p>'
+            '<table><tr><th>w<a href="https://e.com/c"><tr><td>c</td></tr></a></th></tr></table>',
+            "see [the spec](https://e.com/a) now https://e.com/b or\n\n| w https://e.com/c |\n| --- |\n| c |",
+        )
+
+    def test_a_cell_in_inline_text_preformatted_text_or_code_in_a_table_is_written_in_the_table_only(self):
+        """The words around it stay apart, in the heading, preformatted text or code: a limit, as a browser ends that
+        at the cell.
+        """
+        self.assertMarkdown(
+            "<table><tr><h3>Total<td>5</td>due</h3></tr></table><table><tr><pre>a<td>b</td>c</pre></tr></table>"
+            "<table><tbody><pre>x<tr><td>d</td></tr>y</pre></tbody></table>"
+            "<table><tr><td>z</td><div><code>e<td>f</td>g</code></div></tr></table>",
+            "### Total due\n\n| 5 |\n| --- |\n\n```\na\nc\n```\n\n| b |\n| --- |\n\n```\nx\n\ny\n```\n\n| d |\n| --- |"
+            "\n\n`e g`\n\n| z | f |\n| --- | --- |",
+        )
+
+    def test_a_row_in_a_cell_or_the_caption_of_its_table_is_written_as_a_row_only(self):
+        """A browser ends the cell or the caption at the row."""
+        self.assertMarkdown(
+            "<table><tr><td>a<div><tr><div><td>b</td></div></tr></div></td></tr></table>"
+            "<table><caption>k<div><tr><div><td>c</td></div></tr></div></caption></table>",
+            "| a |\n| --- |\n| b |\n\nk\n\n| c |\n| --- |",
+        )
+
+    def test_rows_nested_in_cells_are_written_once_whatever_their_depth(self):
+        depth = 12
+        markdown = html_to_markdown(
+            "<table><tr><td><div>x<tr><td>y" * depth + "</td></tr></div></td></tr></table>" * depth
+        )
+        self.assertEqual((markdown.count("x"), markdown.count("y")), (depth, depth), "no row written twice")
+
+    def test_the_parts_of_a_table_after_a_table_in_its_cell_are_written_in_the_table_only(self):
+        self.assertMarkdown(
+            "<table><tr><td><table><tr><td>i</td></tr></table></td></tr><div><tr><div><td>o</td></div></tr></div>"
+            "</table>",
+            "| \\| i \\| \\| --- \\| |\n| --- |\n| o |",
+        )
+
+    def test_cells_outside_a_row_are_in_a_row_a_browser_implies_up_to_the_next_row_or_row_group(self):
+        self.assertMarkdown(
+            "<table><tbody><td>z</td></tbody></table>"
+            "<table><td>a</td><td>b</td><tr><td>c</td></tr><td>d</td><div>x</div><td>e</td></table>"
+            "<table><tr><td>f</td></tr><tbody><td>g</td></tbody><div><td>h</td></div></table>"
+            "<table><td>i</td><tbody></tbody><td>j</td></table>",
+            "| z |\n| --- |\n\nx\n\n| a | b |\n| --- | --- |\n| c |  |\n| d | e |\n\n| f |\n| --- |\n| g |\n| h |\n\n"
+            "| i |\n| --- |\n| j |",
+        )
+
+    def test_a_caption_anywhere_in_a_table_is_its_caption_ending_the_row_and_the_row_group_it_stands_in(self):
+        self.assertMarkdown(
+            "<table><tbody><tr><td>a</td><caption>k</caption><td>b</td></tr></tbody></table>"
+            "<table><caption>k1</caption><tr><td rowspan='2'>c</td><td>1</td></tr><div><caption>k2</caption></div>"
+            "<tr><td>2</td></tr></table>",
+            "k\n\n| a |\n| --- |\n| b |\n\nk1\n\nk2\n\n| c | 1 |\n| --- | --- |\n| 2 |  |",
+        )
+
+    def test_a_table_outside_the_cells_of_a_table_ends_it_and_what_follows_is_no_part_of_it(self):
+        """A browser closes the table at the start of the other one, which follows it; written as text, in an inline
+        element, that one goes before the table.
+        """
+        self.assertMarkdown(
+            "<table><tr><td>a</td></tr><span><table><tr><td>i</td></tr></table></span><tr><td>b</td></tr></table>",
+            "i\n\nb\n\n| a |\n| --- |",
+        )
+        self.assertMarkdown(
+            "<table><tr><td>a</td></tr><div>x<table><tr><td>i</td></tr></table>y</div><tr><td>b</td></tr>"
+            "<caption>k</caption></table>"
+            "<table><tr><td>c</td><div><table><tr><td>j</td></tr></table></div><td>d</td></tr></table>"
+            "<table><tbody><div><table><tr><td>l</td></tr></table></div><div><tr><div><td>o</td></div></tr></div>"
+            "</tbody></table>",
+            "x\n\n| a |\n| --- |\n\n| i |\n| --- |\n\ny\n\nb\n\nk\n\n| c |\n| --- |\n\n| j |\n| --- |\n\nd\n\n"
+            "| l |\n| --- |\n\no",
+        )
+
+    def test_a_cell_or_a_caption_in_a_list_in_a_table_is_written_in_the_table_only(self):
+        """A browser moves it out of the list into the table, with the items it holds."""
+        self.assertMarkdown("<table><ul><li>a</li><td>c</td></ul></table>", "- a\n\n| c |\n| --- |")
+        self.assertMarkdown("<table><ul><li>a</li><th><ul><li>x</li></ul></th></ul></table>", "- a\n\n| - x |\n| --- |")
+        self.assertMarkdown("<table><ul><li>a</li><caption>t<li>x</li></caption></ul></table>", "- a\n\nt x")
+        self.assertMarkdown(
+            "<table><ol><li>a</li><h2>h<td><li>x</li></td></h2></ol></table>", "1. a\n\n## h\n\n| x |\n| --- |"
+        )
+        self.assertMarkdown(
+            "<table><ol reversed><li>a</li><li>b</li><h2><td><li>x</li></td></h2></ol></table>",
+            "2. a\n1) b\n\n| x |\n| --- |",
+        )
+        self.assertMarkdown(
+            "<table><ol><li>a</li><div>t<ul><li>n</li></ul><td><li>x</li></td></div></ol></table>",
+            "1. a\n\nt\n\n- n\n\n| x |\n| --- |",
+        )
+
+    def test_what_a_template_holds_in_a_table_is_no_part_of_it(self):
+        self.assertMarkdown(
+            "<table><tr><td>z</td><template><td>a</td></template></tr><template><tr><td>b</td></tr></template></table>",
+            "| z |\n| --- |",
         )
 
     def test_a_span_is_read_as_html_reads_it_up_to_its_first_other_character(self):
