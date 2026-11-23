@@ -1,0 +1,4 @@
+// The answer's HTML comes from the server: no utility class reaches its last paragraph.
+.o_ai_assistant_thread .o_ai_assistant_answer_body > :last-child {
+    margin-bottom: 0;
+}

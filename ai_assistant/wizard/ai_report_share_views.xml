@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="ai_report_share_view_form" model="ir.ui.view">
+        <field name="name">ai.report.share.view.form</field>
+        <field name="model">ai.report.share</field>
+        <field name="arch" type="xml">
+            <form>
+                <div class="alert alert-info" role="status">
+                    They see your snapshot: the data and conclusions as you have them, read with your access rights.
+                    They may export it, but only you refresh, share or delete it.
+                </div>
+                <group>
+                    <field name="report_id"/>
+                    <field name="user_ids" widget="many2many_tags" options="{'no_create': True}"/>
+                </group>
+                <footer>
+                    <button name="action_share" type="object" string="Share" class="btn-primary"/>
+                    <button special="cancel" string="Cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

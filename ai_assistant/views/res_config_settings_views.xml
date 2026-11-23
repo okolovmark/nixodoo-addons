@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.ai_assistant</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="AI Assistant" string="AI Assistant" name="ai_assistant" groups="base.group_system">
+                    <block title="AI Assistant" name="ai_assistant_settings"
+                           help="An emptied field, or 0, removes its parameter: the built-in default applies.">
+                        <setting id="ai_assistant_claude_setting" string="Claude" help="The only model; without models or the key, the AI Assistant does not answer.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="ai_assistant_claude_models" string="Models" class="col-lg-4 o_light_label"/>
+                                    <field name="ai_assistant_claude_models" class="w-auto flex-grow-1"/>
+                                </div>
+                                <div class="row">
+                                    <label for="ai_assistant_claude_effort" string="Effort" class="col-lg-4 o_light_label"/>
+                                    <field name="ai_assistant_claude_effort" class="w-auto flex-grow-1"/>
+                                </div>
+                                <div class="row">
+                                    <label for="ai_assistant_claude_max_tokens" string="Answer tokens" class="col-lg-4 o_light_label"/>
+                                    <field name="ai_assistant_claude_max_tokens" class="w-auto flex-grow-1"/>
+                                </div>
+                                <div class="row">
+                                    <label for="ai_assistant_claude_timeout_seconds" string="Timeout (s)" class="col-lg-4 o_light_label"/>
+                                    <field name="ai_assistant_claude_timeout_seconds" class="w-auto flex-grow-1"/>
+                                </div>
+                                <div class="row">
+                                    <label for="ai_assistant_claude_key_env" string="API key variable" class="col-lg-4 o_light_label"/>
+                                    <field name="ai_assistant_claude_key_env" class="w-auto flex-grow-1"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting id="ai_assistant_tool_setting" string="Tools" help="Limits of the read-only tools the model calls.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="ai_assistant_claude_max_tool_rounds" string="Rounds" class="col-lg-4 o_light_label"/>
+                                    <field name="ai_assistant_claude_max_tool_rounds" class="w-auto flex-grow-1"/>
+                                </div>
+                                <div class="row">
+                                    <label for="ai_assistant_claude_tool_budget_seconds" string="Loop budget (s)" class="col-lg-4 o_light_label"/>
+                                    <field name="ai_assistant_claude_tool_budget_seconds" class="w-auto flex-grow-1"/>
+                                </div>
+                                <div class="row">
+                                    <label for="ai_assistant_tool_seconds" string="Call timeout (s)" class="col-lg-4 o_light_label"/>
+                                    <field name="ai_assistant_tool_seconds" class="w-auto flex-grow-1"/>
+                                </div>
+                                <div class="row">
+                                    <label for="ai_assistant_max_rows" string="Rows per call" class="col-lg-4 o_light_label"/>
+                                    <field name="ai_assistant_max_rows" class="w-auto flex-grow-1"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting id="ai_assistant_breaker_setting" string="Circuit breaker" help="Stops calling Claude while it keeps failing.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="ai_assistant_circuit_threshold" string="Threshold" class="col-lg-4 o_light_label"/>
+                                    <field name="ai_assistant_circuit_threshold" class="w-auto flex-grow-1"/>
+                                </div>
+                                <div class="row">
+                                    <label for="ai_assistant_circuit_cooldown_seconds" string="Cooldown (s)" class="col-lg-4 o_light_label"/>
+                                    <field name="ai_assistant_circuit_cooldown_seconds" class="w-auto flex-grow-1"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting id="ai_assistant_answer_setting" string="Answers and AI reports" help="How long a question may wait, how much data a report reads.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="ai_assistant_pending_stale_seconds" string="Pending timeout (s)" class="col-lg-4 o_light_label"/>
+                                    <field name="ai_assistant_pending_stale_seconds" class="w-auto flex-grow-1"/>
+                                </div>
+                                <div class="row">
+                                    <label for="ai_assistant_report_max_tokens" string="Report data (tokens)" class="col-lg-4 o_light_label"/>
+                                    <field name="ai_assistant_report_max_tokens" class="w-auto flex-grow-1"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting id="ai_assistant_deny_list_setting" string="AI deny list" help="Patterns added to the built-in list, comma-separated.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="ai_assistant_deny_models_extra" string="Extra models" class="col-lg-4 o_light_label"/>
+                                    <field name="ai_assistant_deny_models_extra" class="w-auto flex-grow-1"/>
+                                </div>
+                                <div class="row">
+                                    <label for="ai_assistant_deny_fields_extra" string="Extra fields" class="col-lg-4 o_light_label"/>
+                                    <field name="ai_assistant_deny_fields_extra" class="w-auto flex-grow-1"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting id="ai_assistant_notification_setting" string="Notifications" help="Comma-separated addresses.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="ai_assistant_incident_emails" string="Incidents" class="col-lg-4 o_light_label"/>
+                                    <field name="ai_assistant_incident_emails" class="w-auto flex-grow-1"/>
+                                </div>
+                                <div class="row">
+                                    <label for="ai_assistant_digest_recipients" string="Weekly digest" class="col-lg-4 o_light_label"/>
+                                    <field name="ai_assistant_digest_recipients" class="w-auto flex-grow-1"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="res_config_settings_action_ai_assistant" model="ir.actions.act_window">
+        <field name="name">Settings</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="context">{'module': 'ai_assistant'}</field>
+    </record>
+</odoo>

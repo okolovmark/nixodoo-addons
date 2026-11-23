@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AI Assistant answers run on a channel of their own, so questions waiting on
+     Claude never take every root slot. Its capacity is the runner's `channels`
+     line in odoo.conf (root.ai_assistant:N), set at deploy. -->
+<odoo noupdate="1">
+    <record id="queue_job_channel_ai_assistant" model="queue.job.channel">
+        <field name="name">ai_assistant</field>
+        <field name="parent_id" ref="queue_job.channel_root"/>
+    </record>
+
+    <record id="queue_job_function_ask_ai_answer" model="queue.job.function">
+        <field name="model_id" ref="model_ai_assistant_exchange"/>
+        <field name="method">_ask_ai_answer</field>
+        <field name="channel_id" ref="queue_job_channel_ai_assistant"/>
+    </record>
+
+    <record id="queue_job_function_app_answer" model="queue.job.function">
+        <field name="model_id" ref="model_ai_assistant_exchange"/>
+        <field name="method">_app_answer</field>
+        <field name="channel_id" ref="queue_job_channel_ai_assistant"/>
+    </record>
+</odoo>

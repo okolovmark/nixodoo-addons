@@ -1,0 +1,10 @@
+id,name,model_id,group_id/id,operation,domain
+access_ai_assistant_tool_call_system,ai.assistant.tool.call system,ai.assistant.tool.call,base.group_system,rd,
+access_ai_assistant_exchange_system,ai.assistant.exchange system,ai.assistant.exchange,base.group_system,rd,
+access_ai_conversation_ai_assistant,"AI conversation: own AI Assistant conversations",ai.conversation,ai_assistant.group_ai_assistant,rd,"[('assistant', '=', 'app'), ('user_id', '=', user.id)]"
+access_ai_report_ai_assistant_read,"AI report: own and shared with me",ai.report,ai_assistant.group_ai_assistant,r,"['|', ('user_id', '=', user.id), ('shared_user_ids', 'in', user.id)]"
+access_ai_report_ai_assistant_unlink,"AI report: only the owner deletes",ai.report,ai_assistant.group_ai_assistant,d,"[('user_id', '=', user.id)]"
+access_ai_report_system,ai.report system,ai.report,base.group_system,rd,
+access_ai_report_share_log_ai_assistant,"AI report share log: of my own reports",ai.report.share.log,ai_assistant.group_ai_assistant,r,"[('report_id.user_id', '=', user.id)]"
+access_ai_report_share_log_system,ai.report.share.log system,ai.report.share.log,base.group_system,r,
+access_ai_report_share_ai_assistant,"Share an AI report: own dialogs",ai.report.share,ai_assistant.group_ai_assistant,cru,"[('create_uid', '=', user.id)]"

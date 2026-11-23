@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="ai_assistant.AiAssistantSystray">
+        <button class="o_ai_assistant_systray o_nav_entry"
+                type="button"
+                title="AI Assistant"
+                t-att-class="{ active: this.panel.state.isOpen }"
+                t-on-click="this.onClick">
+            <i class="oi" data-icon="wand_stars" role="img" aria-label="AI Assistant"/>
+        </button>
+    </t>
+
+</templates>
