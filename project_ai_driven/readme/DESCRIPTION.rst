@@ -686,7 +686,16 @@ it (``2px`` spans 2).
   ``hash`` and ``pid`` that sign a portal link. That holds for the url of a
   link or an image, and on a best-effort basis for a url that stands as a
   word in a text or in code. A token written loose, outside a url, stays.
-* A link of a scheme other than http(s) or mailto keeps only its text.
+* A link of a scheme other than http(s) or mailto keeps only its text. A
+  link with no text to show (none, or only a ``script``, ``style``,
+  ``template`` or ``noscript`` element) is written bare, as its url or its
+  attachment's pointer, a word apart from the words around it.
+* In the url of a link or an image, a space, a parenthesis, ``<``, ``>`` and
+  a backslash are percent-encoded, a backslash as ``%5C``.
+* Inline code is written on one line: a line break in it is a space, and so
+  is the break on each side of a block in it. Code, inline or preformatted,
+  leaves out what a ``script``, ``style``, ``template`` or ``noscript``
+  element holds, as the rest of a text does.
 * User text that would open a Markdown heading, list, quote, code fence (of
   three backticks or more), table row or HTML block at the start of a line is
   escaped, a table delimiter row too, and names are put on one line, so a text
@@ -694,7 +703,17 @@ it (``2px`` spans 2).
   paragraph, its label over more lines too, which Markdown would read as a
   link reference definition and show nothing of; and a label that opens a
   paragraph and is still open at its end, where the text of an editor's
-  nested item going on after it could close it.
+  nested item going on after it could close it. A table's caption is written
+  on one line, and a ``[label]:`` at its start is escaped too, after the
+  quote and list markers and the box the caption opens with as well.
+* A ``!`` right before a link is escaped (``\![text](url)``), so that the
+  link does not read as an image, unless an odd run of backslashes right
+  before it escapes it already; the backslashes typed before it count across
+  inline elements. A backslash typed in a text stays as written, the brief
+  being read raw, but for one that ends a line of a paragraph with another
+  line of it after: it gets a space after it, as CommonMark would read it as
+  a line break and show no backslash. In the text of a link or an image a
+  backslash is escaped, as a bracket is.
 
 A reader who cannot read the task is refused, as a read of it is. What the
 reader may not read is left out: the lines (question rows, checklist items,

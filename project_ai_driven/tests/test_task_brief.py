@@ -508,6 +508,16 @@ class TestHtmlToMarkdown(TransactionCase):
                 )
                 self.assertLess(self._count_lines_run(long_chain), 1.5 * self._count_lines_run(short_chain))
 
+    def test_backslashes_before_a_bang_deep_in_elements_are_walked_once(self):
+        """The "!" waits for the backslashes before it up to its paragraph, each element walking back only those
+        before its own, or a long run deep in nested elements takes its length times their depth.
+        """
+        short_nesting, long_nesting = (
+            '<p>%s%s!<a href="https://e.com/">u</a>%s</p>' % ("<span>" * depth, "\\" * 5000, "</span>" * depth)
+            for depth in (10, 40)
+        )
+        self.assertLess(self._count_lines_run(long_nesting), 1.5 * self._count_lines_run(short_nesting))
+
     def test_empty_blocks_right_in_a_list_read_its_nested_lines_once(self):
         """Each block between the parts of a list reads the last line of the list at its level: on from the lines
         read for the block before, or a run of empty blocks after many nested lines takes quadratic time.
@@ -873,6 +883,22 @@ class TestHtmlToMarkdown(TransactionCase):
             "````\ndef f():\n    return 1\n```\n````\n\n> said\n>\n> twice\n\n---",
         )
 
+    def test_a_line_break_or_a_block_in_code_is_a_space(self):
+        """A browser breaks the line, on each side of a block too, which a code span cannot hold: the words on each
+        side stay apart.
+        """
+        self.assertMarkdown(
+            "<p><code>[a<br>b]: https://e.com/</code> <code>a<b>x<br>y</b></code> <code>c<div>d</div>e</code></p>",
+            "`[a b]: https://e.com/` `ax y` `c d e`",
+        )
+
+    def test_what_a_template_a_script_or_a_style_holds_in_code_is_not_written(self):
+        self.assertMarkdown(
+            "<pre>a<template>t</template>b<script>s()</script><style>p {}</style>c<br>d</pre>"
+            "<p><code>e <template>t</template>f<noscript>n</noscript></code></p>",
+            "```\nabc\nd\n```\n\n`e f`",
+        )
+
     def test_images(self):
         self.assertMarkdown(
             '<p><img src="/web/image/12?access_token=abc"> <img src="/web/image/13-a1b2c3/name.png">'
@@ -1201,7 +1227,7 @@ class TestHtmlToMarkdown(TransactionCase):
             ("<p>[Draft<br>[1]: https://e.com/spec</p>", "[Draft\n[1]: https://e.com/spec"),
             ("<ol><li>[a<br>[b]: https://e.com/</li></ol>", "1. [a\n   [b]: https://e.com/"),
             ("<p>[a\\[b]: https://e.com/</p>", "\\[a\\[b]: https://e.com/"),
-            ("<p>[a\\<br>b]: https://e.com/</p>", "\\[a\\\nb]: https://e.com/"),
+            ("<p>[a\\<br>b]: https://e.com/</p>", "\\[a\\ \nb]: https://e.com/"),
             (
                 '<ul><li>[Draft</li><li class="oe-nested">[1]: https://e.com/spec</li></ul>',
                 "- \\[Draft\n  \\[1]: https://e.com/spec",
@@ -1212,7 +1238,7 @@ class TestHtmlToMarkdown(TransactionCase):
             ),
             (
                 '<ul><li>[a\\</li><li class="oe-nested">b]: https://e.com/</li></ul>',
-                "- \\[a\\\n  b]: https://e.com/",
+                "- \\[a\\ \n  b]: https://e.com/",
             ),
             (
                 '<ul><li>x</li><ul><li>y</li><div>[a</div></ul><li class="oe-nested">b]: https://e.com/</li></ul>',
@@ -1226,6 +1252,21 @@ class TestHtmlToMarkdown(TransactionCase):
         ):
             with self.subTest(html_content=html_content):
                 self.assertMarkdown(html_content, markdown)
+
+    def test_a_backslash_in_text_is_written_as_it_is(self):
+        """The brief is read raw, as the [x] of a box line is."""
+        self.assertMarkdown(r"<p>C:\path \[draft\]</p>", r"C:\path \[draft\]")
+
+    def test_a_backslash_ending_a_line_shows_before_the_line_break(self):
+        """CommonMark reads one as a hard line break and shows no backslash: a space after it keeps it, in a quote, an
+        item and before the text of an unmarked item too. Of a run, each pair is one backslash; at the end of a
+        paragraph it shows.
+        """
+        self.assertMarkdown(
+            r"<p>a\<br>b\\<br>c\\\<br>d\<br><br>e\</p><blockquote>q\<br>r</blockquote><ol><li>i\<br>j</li></ol>"
+            r'<ul><li>k\</li><li class="oe-nested">l</li></ul>',
+            "a\\ \nb\\\\\nc\\\\\\ \nd\\\n\ne\\\n\n> q\\ \n> r\n\n1. i\\ \n   j\n\n- k\\ \n  l",
+        )
 
     def test_an_unmarked_item_goes_on_the_paragraph_before_the_children_writing_nothing(self):
         """An empty item or nested list, an item holding a token only, which is left out, or a block holding
@@ -1331,6 +1372,62 @@ class TestHtmlToMarkdown(TransactionCase):
             "see [the spec](https://e.com/a) now https://e.com/b or\n\n| w https://e.com/c |\n| --- |\n| c |",
         )
 
+    def test_a_link_with_no_text_writes_its_url_apart_from_the_words_around_it(self):
+        """A browser shows nothing of it: its url, which the reader may want, is written as a word of its own."""
+        self.assertMarkdown(
+            '<p>w29<a href="https://e.com/"></a> <a href="https://e.com/a"></a>next, '
+            '<a href="https://e.com/b"><template>t</template></a>.</p>'
+            '<p><a href="https://e.com/c"></a></p><p>see<a href="/web/content/12"></a>here</p>',
+            "w29 https://e.com/ https://e.com/a next, https://e.com/b .\n\nhttps://e.com/c\n\n"
+            "see [file](attachment 12) here",
+        )
+
+    def test_a_bang_right_before_a_link_is_escaped(self):
+        """It would make the link an image, hiding its text, and a file's pointer read as an image's. Before a space,
+        other markup or text, and after an odd run of backslashes, which escapes it, of its own text or not, it
+        stays as it is.
+        """
+        for html_content, markdown in (
+            ('<p>Wow!<a href="https://e.com/">see</a></p>', "Wow\\![see](https://e.com/)"),
+            ('<p><span>so!</span><span><a href="/web/content/12">f</a></span></p>', "so\\![f](attachment 12)"),
+            ('<p>r<span>!<a href="https://e.com/">s</a></span></p>', "r\\![s](https://e.com/)"),
+            (
+                '<p>a!<a href="https://e.com/"> b</a> c!<b>d</b> h!<span>[i](j)</span>'
+                ' k!<a href="https://e.com/">https://e.com/</a></p>',
+                "a! [b](https://e.com/) c!**d** h![i](j) k!https://e.com/",
+            ),
+            (
+                '<p>e\\!<a href="https://e.com/">g</a> m\\<b></b>!<a href="https://e.com/">n</a></p>',
+                "e\\![g](https://e.com/) m\\![n](https://e.com/)",
+            ),
+            ('<p>t\\<span><span>!<a href="https://e.com/">u</a></span></span></p>', "t\\![u](https://e.com/)"),
+            ('<p>p\\<span>\\</span>!<a href="https://e.com/">q</a></p>', "p\\\\\\![q](https://e.com/)"),
+            ('<p>t\\<span>\\!<a href="https://e.com/">u</a></span></p>', "t\\\\\\![u](https://e.com/)"),
+            ('<p>t\\<span>\\!<a href="/web/content/12">f</a></span></p>', "t\\\\\\![f](attachment 12)"),
+            ('<p>x\\<span>\\<span>!<a href="https://e.com/">u</a></span></span></p>', "x\\\\\\![u](https://e.com/)"),
+            ('<p>x<a name="n"><span>!<a href="https://e.com/">j</a></span></a></p>', "x\\![j](https://e.com/)"),
+            ('<p>t\\<span>\\!<a href="https://e.com/">u!</a></span></p>', "t\\\\\\![u!](https://e.com/)"),
+            (
+                '<p><span>!<a href="https://e.com/">a</a></span></p><h2><span>!<a href="https://e.com/">b</a></span></h2>'
+                '<div>c<b><span>!<a href="https://e.com/">d</a></span></b>'
+                ' e<span><div><span>!<a href="https://e.com/">f</a></span></div></span>'
+                ' g<a href="https://e.com/g"><span>!<a href="https://e.com/">h</a></span></a>'
+                ' i\\<a name="i"><span>!<a href="https://e.com/">j</a></span></a></div>',
+                "\\![a](https://e.com/)\n\n## \\![b](https://e.com/)\n\nc**\\![d](https://e.com/)** e \\![f](https://e.com/)"
+                " g[\\![h](https://e.com/)](https://e.com/g) i\\![j](https://e.com/)",
+            ),
+        ):
+            with self.subTest(html_content=html_content):
+                self.assertMarkdown(html_content, markdown)
+
+    def test_a_backslash_in_a_url_is_encoded(self):
+        """CommonMark would read it as escaping the character after it, the closing parenthesis too."""
+        self.assertMarkdown(
+            '<p><a href="https://e.com/x\\">t</a> <a href="https://e.com/a\\.b">u</a>'
+            ' <img src="https://e.com/i\\.png"></p>',
+            "[t](https://e.com/x%5C) [u](https://e.com/a%5C.b) ![](https://e.com/i%5C.png)",
+        )
+
     def test_a_cell_in_inline_text_preformatted_text_or_code_in_a_table_is_written_in_the_table_only(self):
         """The words around it stay apart, in the heading, preformatted text or code: a limit, as a browser ends that
         at the cell.
@@ -1382,6 +1479,25 @@ class TestHtmlToMarkdown(TransactionCase):
             "<tr><td>2</td></tr></table>",
             "k\n\n| a |\n| --- |\n| b |\n\nk1\n\nk2\n\n| c | 1 |\n| --- | --- |\n| 2 |  |",
         )
+
+    def test_a_definition_the_blocks_of_a_caption_open_together_is_escaped(self):
+        """The caption is one line: a label its first block leaves open, after the markers of a list or a quote too, is
+        closed by the blocks after it. A heading holds no definition, and one a block opens itself is escaped once.
+        """
+        self.assertMarkdown(
+            "<table><caption><div>[k</div><div>m]: https://e.com/</div></caption><tr><td>a</td></tr></table>",
+            "\\[k m]: https://e.com/\n\n| a |\n| --- |",
+        )
+        for caption, line in (
+            ("<ul><li>[k</li></ul><p>m]: https://e.com/</p>", "- \\[k m]: https://e.com/"),
+            ('<ul class="o_checklist"><li>[k</li></ul><p>m]: https://e.com/</p>', "- [ ] \\[k m]: https://e.com/"),
+            ("<blockquote><ol><li>[k</li></ol></blockquote><p>m]: https://e.com/</p>", "> 1. \\[k m]: https://e.com/"),
+            ("<h3>[k</h3><p>m]: https://e.com/</p>", "### [k m]: https://e.com/"),
+            ("<p>[k]: https://e.com/</p><p>m</p>", "\\[k]: https://e.com/ m"),
+            ("<p>[k</p><p>m] : https://e.com/</p>", "[k m] : https://e.com/"),
+        ):
+            with self.subTest(caption=caption):
+                self.assertMarkdown("<table><caption>%s</caption></table>" % caption, line)
 
     def test_a_table_outside_the_cells_of_a_table_ends_it_and_what_follows_is_no_part_of_it(self):
         """A browser closes the table at the start of the other one, which follows it; written as text, in an inline

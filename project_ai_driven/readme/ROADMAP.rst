@@ -109,6 +109,21 @@
   or holding a brace, ``<`` or ``>``, or a bracket or a quote in its query,
   may keep its token. A token written loose, outside a url, stays as
   written.
+* A few table shapes come out otherwise than a browser shows them: a
+  browser ends what holds a part of the table there, the brief does not.
+
+  * A row inside a row: the cells after it stay in the outer row.
+  * A cell or a caption inside a cell, or a cell inside a caption: it is
+    part of their text.
+  * Text after a row inside a cell stays in the cell.
+  * A table inside a list item or a quote that stands loose in another
+    table ends that table, but the item or the quote, which a browser
+    closes there, keeps the rest of what it holds.
+  * A rowspan over rows that stand right in the table runs on past an empty
+    row group between them.
+  * A cell inside a heading, preformatted text or code loose in the table:
+    the words on both sides of it stay in one heading, code block or code
+    span.
 * The brief is computed on each read that names it, for each task of the
   read: a read of many tasks naming ``brief`` costs one brief per task.
 * The brief holds the last 10 internal notes of the task; older ones are
