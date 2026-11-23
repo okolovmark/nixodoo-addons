@@ -70,6 +70,8 @@ ORDERED_LIST_NUMBER = re.compile(r"[0-9]{1,9}(?=[.)](?:\s|$))")
 # The label at the start of a paragraph, which may run over lines: group 1 is "]:" where it opens a link reference
 # definition, which CommonMark shows nothing of, and "" or "\" where it is still open at the end of the text.
 LINK_LABEL = re.compile(r"\[(?:[^\[\]\\]|\\.)*(\]:|\\?\Z)?", re.DOTALL)
+# the quote and list markers, and a checklist box, before the paragraph a block of a caption line opens with
+CAPTION_CONTAINER_MARKERS = re.compile(r"(?:(?:>|[-+](?: \[[ x]\])?|[0-9]{1,9}[.)]) )*")
 URL_TAB_OR_NEWLINE = re.compile(r"[\t\n\r]")
 URL_EDGE_CHARACTERS = "".join(map(chr, range(0x21)))
 URL_CONTROL_CHARACTERS = re.compile(r"[\x00-\x20\x7f]")
@@ -78,7 +80,8 @@ URL_PARTS = re.compile(r"(?:(https?):)?(?://([^/?#]*))?([^?#]*)(?:\?([^#]*))?", 
 URL_USERINFO = re.compile(r"((?:(?<![\w+.-])[a-z][a-z0-9+.-]*:)?//)[^/?#\s]*@", re.IGNORECASE)
 # In text only an http(s) url, git+https too, loses its user: "//@ts-ignore" or "ssh://git@host" are no secret.
 HTTP_USERINFO = re.compile(r"((?<![\w+.-])(?:[a-z][a-z0-9.-]*\+)?https?://)[^/?#\s]*@", re.IGNORECASE)
-LINK_TARGET_UNSAFE = re.compile(r"[\x00-\x20\x7f()<>]")
+# what ends a link destination, or escapes the character after it there
+LINK_TARGET_UNSAFE = re.compile(r"[\x00-\x20\x7f()<>\\]")
 ATTACHMENT_PATH = re.compile(r"/web/(?:image|content)/(?:ir\.attachment/)?([0-9]{1,10})(?:[-/].*)?", re.DOTALL)
 ATTACHMENT_ROUTE = re.compile(r"/web/(?:image|content)/?")
 TOKEN_NAME = re.compile(r"token|secret|signature|passw|credential|api_?key|^(?:key|sig|auth)$")
@@ -106,9 +109,12 @@ def html_to_markdown(html_content, attachment_names=None, heading_level=1, base_
     the text, keeps all but its query and fragment parameters named like a token
     and its user and password, in the text those of an http(s) url only; a token
     written loose in text or code stays as it is written. A link of a scheme
-    other than http(s) or mailto keeps only its text. Text that would open a
-    Markdown block at the start of a line is escaped. heading_level is the
-    level an <h1> takes, so that a text sits under the headings around it.
+    other than http(s) or mailto keeps only its text; one with no text writes
+    its url as a word of its own. Text that would open a Markdown block at the
+    start of a line is escaped, and so is a "!" that would make the link
+    after it an image; a backslash stays as it is written, the brief being
+    read raw. heading_level is the level an <h1> takes, so that a text sits
+    under the headings around it.
     """
     if not html_content or not str(html_content).strip():
         return ""
@@ -359,6 +365,68 @@ def _escape_brackets(text):
     return text.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
 
 
+def _get_backslash_run_start(text, index):
+    """The start of the run of backslashes right before index in text, walked back: slicing the text before each of
+    many indexes would copy it each time.
+    """
+    run_start = index
+    while run_start and text[run_start - 1] == "\\":
+        run_start -= 1
+    return run_start
+
+
+def _is_escaped(text, index):
+    """Whether a backslash escapes the character of text at index: an odd run of them stands right before it."""
+    return (index - _get_backslash_run_start(text, index)) % 2 == 1
+
+
+class _LinkMarkup(str):
+    """Markdown opening with the markup of a link, which a "!" right before it would make an image."""
+
+    __slots__ = ()
+
+
+class _BangLinkMarkup(str):
+    """Markdown opening with backslashes if any, a "!" and the markup of a link, the "!" left as written: backslashes
+    written before the text would join its run. None of the run was put in for the "!", so its escape goes in once,
+    where the run is complete (_join_inline), and none is ever taken out.
+    """
+
+    __slots__ = ()
+
+
+def _join_inline(parts, is_complete=False):
+    """The inline parts, text and markup, joined, a "!" right before a _LinkMarkup, or opening a _BangLinkMarkup,
+    escaped unless backslashes escape it already. Where nothing but backslashes stands before that "!" in the text,
+    those before the text count too: it is left as written and the text marked a _BangLinkMarkup, as a text opening
+    with a link's markup is a _LinkMarkup, unless is_complete, only markup or a line start coming before the text.
+    """
+    joined_text = "".join(parts)
+    pieces = []
+    opening_type = str
+    piece_start = part_start = 0
+    for part in filter(None, parts):
+        bang = None
+        if isinstance(part, _BangLinkMarkup):
+            # its own backslashes are not walked again: a run deep in nested elements would be walked at each level
+            bang, run_end = part_start + part.index("!"), part_start
+        elif isinstance(part, _LinkMarkup):
+            if not part_start:
+                opening_type = _LinkMarkup
+            elif joined_text[part_start - 1] == "!":
+                bang = run_end = part_start - 1
+        if bang is not None:
+            run_start = _get_backslash_run_start(joined_text, run_end)
+            if not (run_start or is_complete):
+                opening_type = _BangLinkMarkup
+            elif (bang - run_start) % 2 == 0:
+                pieces += (joined_text[piece_start:bang], "\\")
+                piece_start = bang
+        part_start += len(part)
+    pieces.append(joined_text[piece_start:])
+    return opening_type("".join(pieces))
+
+
 def _escape_label(text):
     return _escape_brackets(" ".join(_strip_tokens_in_text(text).split()))
 
@@ -390,6 +458,20 @@ def _escape_line_start(line):
     return "\\" + line if BLOCK_MARKUP.match(line) else line
 
 
+def _escape_line_end(line):
+    """line, one of its paragraph's but the last, with a space after a backslash it ends in: CommonMark reads that
+    one as a hard line break and shows no backslash.
+    """
+    is_hard_break = line.endswith("\\") and not _is_escaped(line, len(line) - 1)
+    return line + " " if is_hard_break else line
+
+
+def _quote_line(line):
+    """line in a quote, its end stripped but for the space _escape_line_end put after a backslash."""
+    quoted_line = "> " + line
+    return quoted_line if line.endswith("\\ ") else quoted_line.rstrip()
+
+
 def _get_link_target(url):
     return LINK_TARGET_UNSAFE.sub(lambda character: "%%%02X" % ord(character.group()), url)
 
@@ -418,20 +500,27 @@ def _get_code_span(text):
 
 
 def _get_text_content(element, skipped_elements):
-    """The text of element as text_content() gives it, a space where one of skipped_elements stands."""
+    """The text of element on one line as a browser shows it, a space where a line break or one of skipped_elements
+    stands and on each side of a block, which breaks the line around it.
+    """
     parts = [element.text or ""]
     for child in element:
-        if isinstance(child.tag, str):
-            parts.append(" " if child in skipped_elements else _get_text_content(child, skipped_elements))
+        if child.tag == "br" or child in skipped_elements:
+            parts.append(" ")
+        elif isinstance(child.tag, str) and child.tag not in SKIPPED_TAGS:
+            child_text = _get_text_content(child, skipped_elements)
+            parts.append(" %s " % child_text if _is_block(child) else child_text)
         parts.append(child.tail or "")
     return "".join(parts)
 
 
 def _get_preformatted_text(element, skipped_elements):
-    """The text of element with its line breaks; one of skipped_elements, blocks, only breaks its line."""
+    """The text of element with its line breaks as a browser shows it; one of skipped_elements, blocks, only breaks
+    its line.
+    """
     parts = [element.text or ""]
     for child in element:
-        if isinstance(child.tag, str):
+        if isinstance(child.tag, str) and child.tag not in SKIPPED_TAGS:
             if child.tag == "br":
                 parts.append("\n")
             elif child not in skipped_elements:
@@ -682,10 +771,12 @@ class _MarkdownWriter:
         return _escape_brackets(clean_text) if self.link_depth else clean_text
 
     def _get_paragraph(self, inline_parts):
-        lines = [REPEATED_SPACES.sub(" ", line).strip() for line in "".join(inline_parts).split("\n")]
+        inline_text = _join_inline(inline_parts, is_complete=True)
+        lines = [REPEATED_SPACES.sub(" ", line).strip() for line in inline_text.split("\n")]
         # a cell is one line inside its row, where nothing opens a block
         if not self.cell_depth:
             lines = _escape_line_starts(lines, self.is_followed_on)
+            lines = [_escape_line_end(line) if next_line else line for line, next_line in zip(lines, lines[1:] + [""])]
         # a run of line breaks shows as one empty line
         paragraph = LINE_BREAK_RUN.sub("\n\n", "\n".join(lines)).strip("\n")
         return [paragraph] if paragraph else []
@@ -693,10 +784,21 @@ class _MarkdownWriter:
     def _get_line(self, element):
         return " ".join(" ".join(self.get_blocks(element)).split())
 
+    def _get_caption(self, caption):
+        """The caption as one line (_get_line), escaped where it opens a definition after the markers of its first
+        block: each block escapes one it opens itself, not a label it leaves open which the blocks after it close.
+        """
+        caption_line = self._get_line(caption)
+        paragraph_start = CAPTION_CONTAINER_MARKERS.match(caption_line).end()
+        label = LINK_LABEL.match(caption_line, paragraph_start)
+        if label and label.group(1) == "]:":
+            return caption_line[:paragraph_start] + "\\" + caption_line[paragraph_start:]
+        return caption_line
+
     def _get_element_blocks(self, element, previous_block=None):
         tag = element.tag
         if tag in HEADING_LEVELS:
-            heading_text = " ".join(self._get_inline_content(element).split())
+            heading_text = " ".join(self._get_inline_content(element, is_complete=True).split())
             level = min(HEADING_LEVELS[tag] + self.heading_level - 1, 6)
             return ["#" * level + " " + heading_text] if heading_text else []
         if tag in LIST_TAGS:
@@ -707,7 +809,7 @@ class _MarkdownWriter:
             return self._get_code_block(element)
         if tag == "blockquote":
             quoted_text = "\n\n".join(self.get_blocks(element))
-            return ["\n".join(("> " + line).rstrip() for line in quoted_text.split("\n"))] if quoted_text else []
+            return ["\n".join(map(_quote_line, quoted_text.split("\n")))] if quoted_text else []
         if tag == "hr":
             return [THEMATIC_BREAK]
         if element in self.table_parts:
@@ -729,18 +831,19 @@ class _MarkdownWriter:
             return _get_code_span(_get_text_content(element, self.table_parts))
         if tag == "a":
             return self._get_link(element)
-        content = self._get_inline_content(element)
         if tag in EMPHASIS_MARKS:
-            return _emphasize(content, EMPHASIS_MARKS[tag])
+            return _emphasize(self._get_inline_content(element, is_complete=True), EMPHASIS_MARKS[tag])
         # a block inside an inline element still keeps its words apart from those around it
-        return " %s " % content if tag in BLOCK_TAGS else content
+        if tag in BLOCK_TAGS:
+            return " %s " % self._get_inline_content(element, is_complete=True)
+        return self._get_inline_content(element)
 
-    def _get_inline_content(self, element):
+    def _get_inline_content(self, element, is_complete=False):
         parts = [self._get_text(element.text)]
         for child in element:
             parts.append(self._get_inline(child))
             parts.append(self._get_text(child.tail))
-        return "".join(parts)
+        return _join_inline(parts, is_complete)
 
     def _get_local_attachment_id(self, url):
         """The id of the attachment url names in this database: by a relative url or one on the host of base_url."""
@@ -769,17 +872,22 @@ class _MarkdownWriter:
         return "![%s](%s)" % (_escape_label(alt_text), _get_link_target(strip_url_tokens(source)))
 
     def _get_link(self, element):
-        self.link_depth += 1
-        content = self._get_inline_content(element)
-        self.link_depth -= 1
         url = normalise_url(element.get("href"))
-        if not url or _get_scheme(url) not in LINK_SCHEMES:
+        is_link = bool(url) and _get_scheme(url) in LINK_SCHEMES
+        self.link_depth += 1
+        content = self._get_inline_content(element, is_complete=is_link)
+        self.link_depth -= 1
+        if not is_link:
             return content
+        if not content:
+            # a browser shows nothing of it: its url, which the reader may want, stands apart from the words around it
+            return " %s " % self._get_link_markup(element, url, content)
         # the outer spaces of its text stay outside the link, keeping it apart from the words around it, as that of a
         # part of a table in it does
         leading_space = content[: len(content) - len(content.lstrip())]
         trailing_space = content[len(content.rstrip()) :]
-        return leading_space + self._get_link_markup(element, url, content.strip()) + trailing_space
+        link = leading_space + self._get_link_markup(element, url, content.strip()) + trailing_space
+        return _LinkMarkup(link) if link.startswith("[") else link
 
     def _get_link_markup(self, element, url, link_text):
         clean_url = strip_url_tokens(url)
@@ -975,7 +1083,9 @@ class _MarkdownWriter:
                 elif new_items and is_on_paragraph:
                     # an empty item's box: GFM reads it as a task's only with text after it on its line
                     lines[-1] += " " + follow_lines.pop(0)
-                elif not (is_on_paragraph or _is_under(follow_lines[0], item_last_block)):
+                elif is_on_paragraph:
+                    lines[-1] = _escape_line_end(lines[-1])
+                elif not _is_under(follow_lines[0], item_last_block):
                     lines.append("")
                 lines.extend(_indent_lines(follow_lines, indent))
                 item_last_block = follow_blocks[-1]
@@ -1051,7 +1161,7 @@ class _MarkdownWriter:
         table_rows, captions, end_table = _read_table(element)
         outer_table_parts = self.table_parts
         self.table_parts = set(captions).union(*(cells for _row_group, cells in table_rows))
-        table_blocks = list(filter(None, map(self._get_line, captions)))
+        table_blocks = list(filter(None, map(self._get_caption, captions)))
         rows = self._get_table_rows(table_rows)
         if rows:
             width = max(len(cells) for cells in rows)
