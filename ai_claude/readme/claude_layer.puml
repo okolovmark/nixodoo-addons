@@ -1,0 +1,74 @@
+@startuml claude_layer
+' Odoo 16 - the Claude layer (ai_claude) and what an assistant module adds to it.
+' Every gateway method takes the assistant's prefix and reads <prefix>.<name>.
+' Preview: Alt+D (PlantUML extension)
+
+skinparam shadowing false
+skinparam defaultFontName Helvetica
+hide empty members
+
+title ai_claude: the Claude layer and an assistant on it
+
+package "ai_claude" {
+  abstract class "ai.claude.gateway" as Gateway {
+    _claude_chain(prefix, system, turns,
+      tools, tool_executor, on_fallback, ...)
+    _breaker_write("_claude_record", prefix, outcome)
+    _claude_deviations(outcome, fallback)
+    _claude_not_answered_sentence(fallback)
+    _strip_media(raw_html)
+  }
+
+  class "ClaudeOutcome" as Outcome {
+    answer, model, prompt_chars
+    attempts: one Attempt per model
+    log_values(), billing_values(), trace()
+  }
+
+  abstract class "ai.exchange.mixin" as Mixin {
+    conversation_id, provider, model
+    input / output / cache tokens, cost
+    attempts
+    --
+    _visitor_questions()
+    _claude_trace_skip_prefixes()
+    _claude_incident_body()
+    _claude_incident_check(prefix, exchanges,
+      assistant_name, recipients)
+  }
+
+  class "ai.conversation" as Conversation <<mail.thread>> {
+    name, assistant (selection, empty here)
+    date_last, question_count, fallback_count,
+    model_names, cost (stored), transcript
+    --
+    _conversation_exchanges()
+    _transcript_messages()
+    _post_deviations(lines)
+  }
+}
+
+package "an assistant module" {
+  class "its answer code" as Asker
+  class "its exchange log" as Exchange
+  class "its cron" as Cron
+  class "its value of assistant" as Value
+}
+
+Gateway ..> Outcome : returns
+Exchange --|> Mixin : _inherit
+Mixin "*" --> "0..1" Conversation : conversation_id
+Value ..> Conversation : selection_add
+Conversation ..> Exchange : _conversation_exchanges()\nof its conversations
+Cron ..> Mixin : _claude_incident_check\n(last 30 minutes)
+Asker ..> Gateway : _claude_chain,\nthen _breaker_write
+Asker ..> Exchange : log_values()\nor billing_values()
+
+note bottom of Gateway
+  Never raises; the chain writes nothing.
+  Kinds: answered, refusal, empty, truncated,
+  unavailable, config, bad_request, spend_limit,
+  tool_limit, circuit_open, skipped.
+end note
+
+@enduml

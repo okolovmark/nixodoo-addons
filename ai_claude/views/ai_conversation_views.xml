@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="ai_conversation_view_form" model="ir.ui.view">
+        <field name="name">ai.conversation.view.form</field>
+        <field name="model">ai.conversation</field>
+        <field name="arch" type="xml">
+            <form create="false" edit="false">
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name"/></h1>
+                    </div>
+                    <group>
+                        <group name="who">
+                            <field name="assistant"/>
+                            <field name="create_date" string="Started"/>
+                            <field name="date_last"/>
+                        </group>
+                        <group name="figures">
+                            <field name="question_count"/>
+                            <field name="fallback_count"/>
+                            <field name="model_names"/>
+                            <field name="cost"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Conversation" name="conversation">
+                            <field name="transcript"/>
+                        </page>
+                        <page string="Answers" name="answers"/>
+                    </notebook>
+                </sheet>
+                <div class="oe_chatter">
+                    <field name="message_follower_ids"/>
+                    <field name="message_ids"/>
+                </div>
+            </form>
+        </field>
+    </record>
+
+    <record id="ai_conversation_view_tree" model="ir.ui.view">
+        <field name="name">ai.conversation.view.tree</field>
+        <field name="model">ai.conversation</field>
+        <field name="arch" type="xml">
+            <tree create="false" edit="false" decoration-warning="fallback_count &gt; 0">
+                <field name="date_last"/>
+                <field name="name"/>
+                <field name="assistant"/>
+                <field name="question_count"/>
+                <field name="fallback_count"/>
+                <field name="model_names"/>
+                <field name="cost" sum="Total"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Each assistant's filter goes before the separator, so that they all make one group. -->
+    <record id="ai_conversation_view_search" model="ir.ui.view">
+        <field name="name">ai.conversation.view.search</field>
+        <field name="model">ai.conversation</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="model_names"/>
+                <separator/>
+                <filter string="With fallbacks" name="with_fallbacks" domain="[('fallback_count', '&gt;', 0)]"/>
+                <group expand="0" string="Group By">
+                    <filter string="Assistant" name="group_assistant" context="{'group_by': 'assistant'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="ai_conversation_action" model="ir.actions.act_window">
+        <field name="name">Conversations</field>
+        <field name="res_model">ai.conversation</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+</odoo>
