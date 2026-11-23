@@ -255,8 +255,8 @@ The rows of the brief carry the ids a tool acts on:
 ``### Question <id> (<status>)`` for a question row,
 ``- <id> <state>: <description>`` for a checklist item,
 ``### Test case <id>: <name> (<status>)`` for a test case, and
-``(attachment <id>, ...)`` in the attachments list. A pointer in a text names an ``ir.attachment``, of
-the task or of the row whose text shows it:
+``(attachment <id>, ...)`` in the attachments list. A pointer in a text
+names an ``ir.attachment``, of the task or of the row whose text shows it:
 
 * ``![image: <name>](attachment <id>)``, or ``![image](attachment <id>)``,
   an image;
