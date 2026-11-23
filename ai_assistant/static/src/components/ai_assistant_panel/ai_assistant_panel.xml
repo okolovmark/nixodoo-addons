@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="ai_assistant.AiAssistantPanel">
+        <div class="offcanvas-backdrop fade show" t-on-click="this.props.close"/>
+        <div t-ref="this.panelRef" class="o_ai_assistant_panel offcanvas offcanvas-end show visible" role="dialog" aria-label="AI Assistant">
+            <div class="offcanvas-header align-items-start gap-2 border-bottom">
+                <div class="min-w-0">
+                    <h5 class="offcanvas-title">AI Assistant</h5>
+                    <div t-if="this.state.screenName" class="o_ai_assistant_screen small text-muted text-truncate">
+                        <i class="oi me-1" data-icon="recenter" aria-hidden="true"/>
+                        <t t-out="this.state.screenName"/>
+                    </div>
+                </div>
+                <div class="d-flex align-items-center gap-1 flex-shrink-0">
+                    <button class="o_ai_assistant_panel_new_chat btn btn-secondary btn-sm" type="button" t-on-click="this.newChat">New chat</button>
+                    <button class="o_ai_assistant_open_app btn btn-secondary btn-sm"
+                            type="button"
+                            title="Open in the AI Assistant app"
+                            aria-label="Open in the AI Assistant app"
+                            t-on-click="this.openApp">
+                        <i class="oi" data-icon="fullscreen" aria-hidden="true"/>
+                    </button>
+                    <button class="btn-close ms-1" type="button" aria-label="Close" t-on-click="this.props.close"/>
+                </div>
+            </div>
+            <AiAssistantThread conversationId="this.state.conversationId"
+                               screen="this.props.screen"
+                               onAsked.bind="this.onAsked"
+                               onOpenReport.bind="this.openReport"/>
+        </div>
+    </t>
+
+    <t t-name="ai_assistant.AiAssistantPanelContainer">
+        <AiAssistantPanel t-if="this.panel.state.isOpen" screen="this.panel.state.screen" close="() => this.panel.close()"/>
+    </t>
+
+</templates>

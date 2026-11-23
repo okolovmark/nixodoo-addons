@@ -1,0 +1,5 @@
+openpyxl
+odoo-addon-queue_job>=20.0dev,<20.1dev
+odoo-addon-report_xlsx>=20.0dev,<20.1dev
+anthropic==1.11.0
+httpx2==2.3.0

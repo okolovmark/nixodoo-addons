@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The author of the Ask AI answers. Archived, like OdooBot's partner, so it
+     is never offered as a contact or a follower. -->
+<odoo noupdate="1">
+    <record id="partner_ai_assistant" model="res.partner">
+        <field name="name">AI Assistant</field>
+        <field name="active" eval="False"/>
+    </record>
+</odoo>

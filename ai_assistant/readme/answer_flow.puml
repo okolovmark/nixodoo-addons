@@ -1,0 +1,139 @@
+@startuml answer_flow
+' Odoo 20 - how the AI Assistant answers one question:
+' Ask AI: ai.assistant.exchange.ask_ai -> _ask_ai_enqueue -> queue job _ask_ai_answer;
+' app: ai.conversation.app_ask -> _app_enqueue -> queue job _app_answer;
+' new answer: ai.assistant.exchange.action_send_new_answer -> either job, as the asker;
+' all -> ai.assistant.engine._answer -> ai.claude.gateway._claude_chain
+' (tool loop, ai_claude) -> ai.assistant.tools._execute per tool call
+' -> _ask_ai_finish / _app_finish through _in_own_cursor;
+' a refusal -> _close_unanswered through _close_in_own_cursor.
+' Preview: Alt+D (PlantUML extension)
+
+skinparam shadowing false
+skinparam defaultFontName Helvetica
+
+title One question: queue job -> Claude tool loop -> answer
+
+start
+
+if (Ask AI?) then (yes)
+  :check: AI Assistant group, a record with a chatter,
+  not a Discuss channel nor an ai.* record,
+  readable by the employee, not on the AI deny list;
+  :the record's AI conversation, one for every asker,
+  created with its first question;
+  note right
+    A first question that loses the conversation to a
+    concurrent one is posted in a new transaction,
+    which sees the winner's conversation.
+  end note
+  :question posted at once as an internal note
+  by the employee, subtype Ask AI (notifies nobody);
+else (app)
+  :question added to the employee's conversation,
+  which keeps the screen it was asked from;
+endif
+:ai.assistant.exchange row, pending, with the
+companies selected when it was asked;
+note right
+  Send new answer (administrator, on an answer with a
+  thumbs-down, not covered or not answered): a new row
+  replying to it, same question, record or conversation,
+  in the question's companies the asker still has; the
+  answer, if to review, marked Fixed. Refused while a new
+  answer to the question is pending, or when the asker
+  could not ask it again.
+end note
+:queue job on root.ai_assistant
+(one per question; a new answer's runs as the asker);
+
+partition "queue job" {
+  if (checks again: group;\nfor Ask AI the record) then (refused)
+    :closed as Unavailable and refused,
+    in a short transaction of its own,
+    without asking Claude;
+    if (new answer?) then (yes)
+      :nothing posted, nobody told;
+    elseif (Ask AI?) then (yes)
+      :nothing on the record; a notification
+      to the asker alone, quoting the question;
+    else (app)
+      :bus message carrying the refusal,
+      shown in place of the answer;
+    endif
+    stop
+  else (allowed)
+  endif
+  :system prompt + history (last 10 answered questions
+  before the question, each with its latest answer)
+  + context block (employee, now, companies,
+  record or screen) + question;
+  :_claude_chain: claude_models in order;
+  repeat
+    :Claude call (system prompt, tools and latest
+    tool results marked for prompt caching);
+    if (tool use?) then (yes)
+      :each tool runs as the employee, in a savepoint
+      rolled back, under tool_seconds; logged in
+      ai.assistant.tool.call without the data read;
+      note right
+        Access (ir.access), companies, field groups,
+        then the AI deny list.
+        Errors are results the model reads.
+      end note
+    else (no)
+    endif
+  repeat while (tool use, within claude_max_tool_rounds\nand claude_tool_budget_seconds?) is (yes)
+  -> no;
+  note right
+    tool_limit: no later model is asked.
+    No answer from this model (refusal, empty, cut,
+    unavailable...): the next model starts over.
+  end note
+}
+
+partition "short transaction of its own" {
+  if (still pending?) then (yes)
+    if (answered?) then (yes)
+      :state Answered, Not covered flag,
+      model, tokens, cost, attempts;
+    else (no)
+      :state Unavailable: tool limit
+      ("narrow it") or no Claude answer;
+    endif
+    if (Ask AI?) then (yes)
+      :answer note by AI Assistant, subtype Ask AI,
+      in reply to the question note, opening with
+      a line quoting the asker and the question;
+    else (app)
+      :bus message carrying the answer
+      to the asker's app or panel;
+    endif
+    if (new answer, answered?) then (yes)
+      :asker alone notified (in Odoo or by email): Ask AI
+      by the answer note, the app by a note on the
+      AI conversation linking to the app;
+    else (no)
+    endif
+    :deviations noted on the AI conversation;
+  else (no)
+    :nothing: answered or closed meanwhile;
+  endif
+}
+note right
+  Tried 3 times on concurrent updates; then one
+  more transaction closes the question as
+  Unavailable and tells the asker, without a
+  second Claude call. A conflict there too
+  leaves it pending for the cron.
+end note
+
+stop
+
+legend right
+  A job that fails or is cancelled closes its question at once.
+  The cron (every 5 minutes) closes questions still pending
+  pending_stale_seconds after their job started or was enqueued.
+  An app asker who lost the AI Assistant since gets the refusal.
+endlegend
+@enduml
