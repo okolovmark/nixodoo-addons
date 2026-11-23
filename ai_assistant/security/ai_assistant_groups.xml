@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="group_ai_assistant" model="res.groups">
+        <field name="name">AI Assistant</field>
+        <field name="category_id" ref="base.module_category_hidden"/>
+    </record>
+
+    <record id="base.group_user" model="res.groups">
+        <field name="implied_ids" eval="[Command.link(ref('group_ai_assistant'))]"/>
+    </record>
+</odoo>

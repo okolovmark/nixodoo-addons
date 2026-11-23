@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="ai_assistant.AiAssistantPanel" owl="1">
+        <div class="offcanvas-backdrop fade show" t-on-click="props.close"/>
+        <div t-ref="panel" class="o_ai_assistant_panel offcanvas offcanvas-end show visible" role="dialog" aria-label="AI Assistant">
+            <div class="offcanvas-header align-items-start gap-2 border-bottom">
+                <div class="min-w-0">
+                    <h5 class="offcanvas-title">AI Assistant</h5>
+                    <div t-if="state.screenName" class="o_ai_assistant_screen small text-muted text-truncate">
+                        <i class="fa fa-crosshairs me-1" aria-hidden="true"/>
+                        <t t-esc="state.screenName"/>
+                    </div>
+                </div>
+                <div class="d-flex align-items-center gap-1 flex-shrink-0">
+                    <button class="o_ai_assistant_panel_new_chat btn btn-light btn-sm" type="button" t-on-click="newChat">New chat</button>
+                    <button class="o_ai_assistant_open_app btn btn-light btn-sm"
+                            type="button"
+                            title="Open in the AI Assistant app"
+                            aria-label="Open in the AI Assistant app"
+                            t-on-click="openApp">
+                        <i class="fa fa-expand" aria-hidden="true"/>
+                    </button>
+                    <button class="btn-close ms-1" type="button" aria-label="Close" t-on-click="props.close"/>
+                </div>
+            </div>
+            <AiAssistantThread conversationId="state.conversationId" screen="props.screen" onAsked.bind="onAsked" onOpenReport.bind="openReport"/>
+        </div>
+    </t>
+
+    <t t-name="ai_assistant.AiAssistantPanelContainer" owl="1">
+        <AiAssistantPanel t-if="state.isOpen" screen="state.screen" close="() => panel.close()"/>
+    </t>
+
+</templates>

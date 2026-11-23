@@ -1,0 +1,9 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_ai_assistant_tool_call_system,ai.assistant.tool.call system,model_ai_assistant_tool_call,base.group_system,1,0,0,1
+access_ai_assistant_exchange_system,ai.assistant.exchange system,model_ai_assistant_exchange,base.group_system,1,0,0,1
+access_ai_conversation_ai_assistant,ai.conversation AI Assistant,ai_claude.model_ai_conversation,group_ai_assistant,1,0,0,1
+access_ai_report_ai_assistant,ai.report AI Assistant,model_ai_report,group_ai_assistant,1,0,0,1
+access_ai_report_system,ai.report system,model_ai_report,base.group_system,1,0,0,1
+access_ai_report_share_log_ai_assistant,ai.report.share.log AI Assistant,model_ai_report_share_log,group_ai_assistant,1,0,0,0
+access_ai_report_share_log_system,ai.report.share.log system,model_ai_report_share_log,base.group_system,1,0,0,0
+access_ai_report_share_ai_assistant,ai.report.share AI Assistant,model_ai_report_share,group_ai_assistant,1,1,1,0

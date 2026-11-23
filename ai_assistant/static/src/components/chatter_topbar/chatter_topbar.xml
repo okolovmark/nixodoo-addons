@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-inherit="mail.ChatterTopbar" t-inherit-mode="extension">
+        <!-- An icon on a phone, like Send message and Log note there, so the topbar keeps its room. -->
+        <xpath expr="//button[hasclass('o_ChatterTopbar_buttonLogNote')]" position="after">
+            <button t-if="chatterTopbar.chatter.hasAskAi"
+                class="o_ChatterTopbar_button o_ChatterTopbar_buttonAskAi btn btn-light text-nowrap ms-2"
+                type="button"
+                title="Ask AI"
+                t-on-click="chatterTopbar.chatter.onClickAskAi"
+            >
+                <i class="fa fa-magic d-md-none" role="img" aria-label="Ask AI"/>
+                <span class="d-none d-md-inline">Ask AI</span>
+            </button>
+        </xpath>
+    </t>
+
+</templates>

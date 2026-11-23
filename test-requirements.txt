@@ -2,3 +2,7 @@ odoo-addon-web_responsive>=16.0dev,<16.1dev
 odoo-addon-project_timeline>=16.0dev,<16.1dev
 odoo-addon-project_timesheet_time_control>=16.0dev,<16.1dev
 openpyxl
+odoo-addon-queue_job>=16.0dev,<16.1dev
+odoo-addon-report_xlsx>=16.0dev,<16.1dev
+anthropic==1.11.0
+httpx2==2.3.0

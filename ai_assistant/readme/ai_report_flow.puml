@@ -1,0 +1,57 @@
+@startuml ai_report_flow
+' Odoo 16 - the life of an AI report (ai.report):
+' report_run / report_save / report_get are tools of the AI Assistant app
+' (ai.assistant.tools); action_refresh, _share_with and the xlsx export
+' (report.ai_assistant.ai_report_xlsx) run without the model.
+' Preview: Alt+D (PlantUML extension)
+
+skinparam shadowing false
+skinparam defaultFontName Helvetica
+
+title An AI report: built by the model, computed by Odoo
+
+actor Employee as owner
+participant "Claude" as model
+participant "AI Assistant tools\n(as the owner)" as tools
+database "ai.report" as report
+participant "App frame\n(sandboxed, CSP)" as frame
+actor Colleague as colleague
+
+owner -> model : asks for a report in the app
+model -> tools : report_run(spec)
+tools -> tools : datasets through read_group / search_read,\nformulas, merges; deny list applies
+tools --> model : all the data, or "aggregate further"\n(past report_max_tokens or max_rows)
+model -> tools : report_save(title, spec, page, bindings)
+tools -> tools : page cleaned (no script, no href,\nno CSS loader); bindings checked;\nspec run again
+tools -> report : spec, data, page, bindings,\ncompanies, data date
+tools --> model : saved; the answer shows its card
+
+owner -> frame : opens the report
+report -> frame : page + data + Chart.js + renderer,\nonly the two scripts allowed by hash,\nnotes in the reader's language
+frame -> frame : renderer fills figures, tables, charts;\n(partial) where a limit left rows out
+
+== Revise ==
+owner -> model : asks for a change in the conversation
+model -> tools : report_get(report id)
+tools --> model : title, page, bindings as untrusted data;\nthe spec for the owner or an administrator only
+model -> tools : report_save(...): a new report
+
+== Refresh (owner only, no model) ==
+owner -> report : Refresh
+report -> tools : spec run again as the owner, in the\nreport's companies they still work in
+tools -> report : new data and data date;\npage and conclusions unchanged
+note right of report
+  A failure says why as the tools tell the
+  model: their own texts as written, Odoo's
+  errors by kind only, a model no longer
+  installed in plain words. The data stays.
+end note
+
+== Share ==
+owner -> report : Share with colleagues\n(share log keeps the report's title)
+colleague -> frame : sees the owner's snapshot: title, owner,\ndates, page and data; may export it to xlsx
+note right of colleague
+  Its source conversation, recipients,
+  spec and companies: administrators only.
+end note
+@enduml

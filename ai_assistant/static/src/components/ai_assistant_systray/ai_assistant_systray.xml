@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="ai_assistant.AiAssistantSystray" owl="1">
+        <div class="o_ai_assistant_systray dropdown">
+            <a class="dropdown-toggle o-no-caret o-dropdown--narrow" href="#" role="button"
+               title="AI Assistant" t-on-click.prevent="onClick">
+                <i class="fa fa-lg fa-magic" role="img" aria-label="AI Assistant"/>
+            </a>
+        </div>
+    </t>
+
+</templates>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Ask AI question and answer notes. Internal, off by default and hidden
+     from the follower options, so no follower ever gets one: Ask AI notifies
+     nobody. -->
+<odoo noupdate="1">
+    <record id="mt_ask_ai" model="mail.message.subtype">
+        <field name="name">Ask AI</field>
+        <field name="internal" eval="True"/>
+        <field name="default" eval="False"/>
+        <field name="hidden" eval="True"/>
+        <field name="sequence">200</field>
+    </record>
+</odoo>
