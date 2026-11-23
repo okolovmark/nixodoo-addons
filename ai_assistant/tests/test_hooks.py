@@ -1,8 +1,11 @@
+from unittest.mock import patch
+
 from psycopg2 import sql
 
 from odoo.tests.common import TransactionCase, tagged
 from odoo.tools.convert import convert_file
 
+from .. import hooks
 from ..hooks import (
     ADOPTED_FOREIGN_KEYS,
     ADOPTED_RECORDS,
@@ -13,6 +16,7 @@ from ..hooks import (
     OWN_MODELS,
     REPORT_MODEL,
     SETTINGS_FILE,
+    _keep_noupdate_rows,
     post_init_hook,
     pre_init_hook,
 )
@@ -387,6 +391,20 @@ class TestAdoptRecords(AdoptRecordsCase):
 
         self.assertEqual([self._setting(name).value for name in BREAKER_SEEDS], ["0", "0"])
 
+    def test_the_log_names_the_holder_that_handed_its_records_over(self):
+        self._hand_over_to_holder()
+
+        with patch.object(hooks._logger, "info") as log_info:
+            pre_init_hook(self.env.cr)
+
+        log_info.assert_called_once_with("%s adopted the records of %s", MODULE, HOLDER)
+
+    def test_no_removed_setting_to_look_for_is_no_error(self):
+        _keep_noupdate_rows(self.env.cr, [])
+
+        self.env.cr.execute("SELECT count(*) FROM ai_assistant_absent_parameters")
+        self.assertEqual(self.env.cr.fetchone()[0], 0)
+
     def test_second_run_changes_nothing(self):
         self._hand_over_to_holder()
         pre_init_hook(self.env.cr)
@@ -432,6 +450,14 @@ class TestExtenders(AdoptRecordsCase):
 
         self.assertEqual(set(self._parameters(EXTENDER)), {"own_setting"})
         self.assertNotIn("own_setting", self._parameters(MODULE))
+
+    def test_a_module_that_hands_nothing_over_is_not_named(self):
+        self._extend_report_model()
+
+        with patch.object(hooks._logger, "info") as log_info:
+            pre_init_hook(self.env.cr)
+
+        log_info.assert_not_called()
 
 
 @tagged("post_install", "-at_install")

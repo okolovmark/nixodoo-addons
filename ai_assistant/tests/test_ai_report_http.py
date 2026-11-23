@@ -221,7 +221,7 @@ class TestAiReportHttp(HttpCase):
         self.assertEqual(self._rpc("ai.report", "search_read", [[["id", "=", report_id]], ["name"]])["result"], [])
         self.assertEqual(self._rpc("ai.report", "app_reports", [])["result"], [])
         response = self._xlsx()
-        self.assertNotEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 403, "refused, not failed")
         self.assertFalse(response.content.startswith(b"PK"), "no workbook")
 
     @mute_logger("odoo.http")
