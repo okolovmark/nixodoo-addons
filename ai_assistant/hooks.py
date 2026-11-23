@@ -32,6 +32,19 @@ EXTENDED_MODEL_RECORDS = tuple(
 # Of the Many2one fields this module adds to models of other modules: Odoo registers a foreign key only when
 # it creates it.
 ADOPTED_FOREIGN_KEYS = ("ai_conversation_user_id_fkey",)
+SETTINGS_FILE = "data/ir_config_parameter_data.xml"
+
+
+def data_settings():
+    """Return {external id name: (key, forcecreate)} of the settings the data file declares."""
+    with file_open(f"{MODULE}/{SETTINGS_FILE}", "rb") as settings_file:
+        root = etree.parse(settings_file).getroot()
+    return {
+        record.get("id"): (record.findtext("field[@name='key']"), nodeattr2bool(record, "forcecreate", True))
+        for record in root.iter("record")
+    }
+
+
 ADOPTED_RECORDS = (
     ("res.groups", "group_ai_assistant"),
     ("ir.model.access", "access_ai_assistant_tool_call_system"),
@@ -50,23 +63,6 @@ ADOPTED_RECORDS = (
     ("ir.rule", "ai_report_share_log_rule_user"),
     ("ir.rule", "ai_report_share_log_rule_system"),
     ("ir.rule", "ai_report_share_rule_user"),
-    ("ir.config_parameter", "config_claude_models"),
-    ("ir.config_parameter", "config_claude_effort"),
-    ("ir.config_parameter", "config_claude_max_tokens"),
-    ("ir.config_parameter", "config_claude_timeout"),
-    ("ir.config_parameter", "config_claude_key_env"),
-    ("ir.config_parameter", "config_claude_max_tool_rounds"),
-    ("ir.config_parameter", "config_claude_tool_budget"),
-    ("ir.config_parameter", "config_max_rows"),
-    ("ir.config_parameter", "config_tool_seconds"),
-    ("ir.config_parameter", "config_deny_models_extra"),
-    ("ir.config_parameter", "config_deny_fields_extra"),
-    ("ir.config_parameter", "config_report_max_tokens"),
-    ("ir.config_parameter", "config_incident_emails"),
-    ("ir.config_parameter", "config_digest_recipients"),
-    ("ir.config_parameter", "config_pending_stale"),
-    ("ir.config_parameter", "config_claude_consecutive_failures"),
-    ("ir.config_parameter", "config_claude_circuit_open_until"),
     ("mail.message.subtype", "mt_ask_ai"),
     ("res.partner", "partner_ai_assistant"),
     ("queue.job.channel", "queue_job_channel_ai_assistant"),
@@ -112,7 +108,7 @@ ADOPTED_RECORDS = (
     ("ir.ui.menu", "ai_assistant_app_menu_reports"),
     ("ir.ui.menu", "ai_assistant_app_menu_configuration"),
     ("ir.ui.menu", "ai_assistant_app_menu_settings"),
-)
+) + tuple(("ir.config_parameter", name) for name in data_settings())
 
 # The settings of the AI Assistant are named by the module that holds it: those of a holder take this
 # module's name, unless the name is taken already.
@@ -125,7 +121,6 @@ RENAME_PARAMETERS = """
             WHERE taken.key = %(module)s || substr(param.key, length(%(holder)s) + 1)
        )
 """
-SETTINGS_FILE = "data/ir_config_parameter_data.xml"
 # The data file loaded at install creates the key of a setting that has no external id here: a row that has
 # the key already takes the external id, which the holder's row may have lost when it was emptied.
 ATTACH_SETTING = """
@@ -168,7 +163,7 @@ CREATE_ABSENT_PARAMETERS = (
 )
 KEEP_ABSENT_PARAMETERS = """
     INSERT INTO {absent}
-    SELECT adopted.name FROM unnest(%(names)s) adopted(name)
+    SELECT adopted.name FROM unnest(%(names)s::varchar[]) adopted(name)
      WHERE NOT EXISTS (
            SELECT 1 FROM ir_model_data imd
             WHERE imd.module = %(module)s AND imd.model = 'ir.config_parameter' AND imd.name = adopted.name
@@ -209,7 +204,7 @@ def pre_init_hook(cr):
     cr.execute(OWN_MODEL_FIELDS, {"models": OWN_MODELS})
     fields = tuple({*declared_fields(MODULE), *cr.fetchall()})
     selections = declared_selections(MODULE)
-    owners = []
+    owners, givers = [], []
     for holder in holders:
         adopted = adopt_records(
             cr,
@@ -221,6 +216,8 @@ def pre_init_hook(cr):
             model_names=OWN_MODELS,
             foreign_keys=ADOPTED_FOREIGN_KEYS,
         )
+        if adopted:
+            givers.append(holder)
         if adopted & set(ADOPTED_RECORDS):
             owners.append(holder)
             cr.execute(RENAME_PARAMETERS, {"module": MODULE, "holder": holder})
@@ -230,19 +227,10 @@ def pre_init_hook(cr):
         for name, (key, _is_forcecreate) in settings.items():
             cr.execute(ATTACH_SETTING, {"module": MODULE, "name": name, "key": key})
         _keep_noupdate_rows(cr, [name for name, (_key, is_forcecreate) in settings.items() if not is_forcecreate])
-    _logger.info("%s adopted the records of %s", MODULE, ", ".join(holders))
+    if givers:
+        _logger.info("%s adopted the records of %s", MODULE, ", ".join(givers))
     # external ids and parameters are cached per registry, and these changed behind the ORM
     api.Environment(cr, SUPERUSER_ID, {}).registry.clear_caches()
-
-
-def data_settings():
-    """Return {external id name: (key, forcecreate)} of the settings the data file declares."""
-    with file_open(f"{MODULE}/{SETTINGS_FILE}", "rb") as settings_file:
-        root = etree.parse(settings_file).getroot()
-    return {
-        record.get("id"): (record.findtext("field[@name='key']"), nodeattr2bool(record, "forcecreate", True))
-        for record in root.iter("record")
-    }
 
 
 def post_init_hook(cr, registry):
