@@ -3980,7 +3980,9 @@ class TestAiDenyListEmployeeCosts(AssistantCase):
         self.assertEqual(tools._tool_read_fields(Report._name, hours), ["display_name", *hours])
 
     def test_a_sale_margin_a_timesheet_costs_is_masked_and_another_kept(self):
-        if not {"timesheet_ids", "purchase_price"} <= set(self.env["sale.order.line"]._fields):
+        if "sale.order.line" not in self.env or not {"timesheet_ids", "purchase_price"} <= set(
+            self.env["sale.order.line"]._fields
+        ):
             self.skipTest("sale_timesheet and sale_margin are not installed")
         salesman = new_test_user(
             self.env,
