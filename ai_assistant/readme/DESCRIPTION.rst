@@ -295,6 +295,9 @@ can act on:
   it cannot group, aggregating one it does not store; and sorting, grouping
   or aggregating (other than counting) a message's text, or an employee's
   cost or a total of it where a row holds one (see AI deny list);
+* comparing a message's text with ``<``, ``>``, ``<=`` or ``>=``, any
+  filter on a mail's own copy of its text, and a name filter on a model
+  whose name search reaches a hidden field (see AI deny list);
 * reading a field by a dotted name, and reading a binary field.
 
 Without an order, a search keeps the model's own. A path through a one2many
@@ -336,9 +339,16 @@ is seen by everyone who can see the record, not only by the asker.
   denied model; the website's Plausible and Google Maps keys, a signature
   request's share link, a Discuss channel's ``uuid`` and invitation URL, an
   automation rule's webhook URL (``base.automation.url``) and a server
-  action's (``ir.actions.server.webhook_url``); and on every model, the
-  fields named like a token, secret, password, API key or credential
-  (``access_token``, ``signup_token``, ``signup_url``, ``invite_token``,
+  action's (``ir.actions.server.webhook_url``); a calendar event's meeting
+  URL (``videocall_location``), which ends with the event's access token; a
+  mail's ``headers`` (a digest's unsubscribe link) and a link preview's
+  ``source_url``, URLs kept outside a message's text; a company's
+  ``attendance_kiosk_key`` and ``attendance_kiosk_url``, which open the
+  attendance kiosk without a login; the URLs that hold their record's
+  access token: a shared dashboard's ``full_url``, a product feed's ``url``
+  and the ``background_image_url`` of surveys and survey questions; and on
+  every model, the fields named like a token, secret, password, API key or
+  credential (``access_token``, ``signup_token``, ``signup_url``, ``invite_token``,
   ``*_token``, ``*secret*``, ``*password*``, ``*passwd*``, ``*api_key*``,
   ``credential*``, ``callback_hash``, ``webhook_uuid``,
   ``visibility_password*``).
@@ -384,29 +394,87 @@ is seen by everyone who can see the record, not only by the asker.
     is masked.
 * **Links** into a denied model, and the fields that copy a denied field: a
   related field whose path crosses one, and a computed field that shows a
-  namesake field one link away. A contact's ``routing_endpoint``
-  (``account_edi_ubl_cii``), its VAT number unless another identifier, and
-  its ``routing_identifier`` go with the VAT number: denied with it, and
-  hidden from an employee who may not read it.
+  namesake field one link away. Copies of the VAT number go with it, denied
+  with it and hidden from an employee who may not read it: a contact's
+  ``routing_endpoint`` (``account_edi_ubl_cii``), the VAT number unless
+  another identifier, and its ``routing_identifier``; and every text field a
+  model computes from its own ``vat``, as a localization shows the number
+  under names of its own (``l10n_ar_formatted_vat``, ``org_number`` of
+  ``l10n_se``, ``l10n_in``'s GST state warning, whose state the number
+  codes). The display name and the kinds of identification number
+  (``l10n_ar_afip_code``, ``l10n_pe_sunat_id_code``,
+  ``l10n_co_dian_id_code``) show no number and stay.
+* **Names**: a model whose record name (``_rec_name``) is a denied field,
+  as a link preview's URL, shows *a name on the AI deny list* as the display
+  name of its records and of every link to them, the record line of a
+  question's context included, and refuses a filter on that name or on a
+  link to it compared with a name. A model whose name search
+  (``_rec_name``, ``_rec_names_search``, and the name searches of the links
+  among them) reaches a field the deny list hides or the employee may not
+  read refuses such a filter too: with ``res.partner.vat`` hidden, a name
+  filter on contacts, or on a link to a contact, is refused, since Odoo
+  matches a contact's name with its VAT number. The refusal names
+  ``complete_name`` and ``name`` to filter on instead; ids still compare,
+  and the names still show.
 * **Rows of a denied record**: its messages, posted or scheduled (with the
   files Odoo keeps under a scheduled one until it posts it), their
-  translations and link previews, its mails, tracking values,
-  notifications, reactions, followers, activities, attachments and calendar
-  events. Also left out: attachments that hold a denied binary field or
-  whose ``res_model`` names no model. A message that carries a refused
-  attachment loses its text, and a link to a refused attachment reads *an
+  translations and SMS, its mails, tracking values, notifications,
+  reactions, followers, activities, attachments and calendar events. Also
+  left out: attachments that hold a denied binary field or whose
+  ``res_model`` names no model; a link to a refused attachment reads *an
   attachment on the AI deny list*.
+* **Message text**: a message, posted or scheduled, loses its text, which
+  then matches no filter, when it carries a refused attachment, when its
+  body links to a record of a denied model (account's note on a contact
+  that one of its bank accounts was created), when it holds a Discuss
+  meeting's URL (*Contact Attendees* posts it on the event) or when it
+  shows the number, as stored or sanitized, of a bank account its own
+  record links to (an invoice's mail prints the number of the invoice's
+  bank account). The copies of its text lose theirs with it: its mails,
+  translations and SMS, a mail group message's body, a rating's feedback, a
+  visitor's answer to a chatbot (``chatbot.message``), and a record's
+  ``rating_last_feedback``, masked when any of the record's ratings is. An
+  SMS, a rating or a chatbot answer without a message goes by its own
+  text: a link to a denied record or a meeting's URL.
+* **URL tokens**: in every other message's text and its copies, the value
+  of each token in a URL reads ``[token-on-the-AI-deny-list]``: of a
+  parameter whose name ends in ``token`` (``access_token``, ``token``), and
+  the rest of a URL past a path that carries one, a record id before the
+  token included (a Discuss meeting's, an event's calendar file's, a
+  survey's, a rating's, a Discuss invitation's, an automation's webhook,
+  the attendance kiosk's, a shared dashboard's, or one a module adds
+  through ``_url_token_paths``). ``record_history`` redacts the old and new
+  values of tracked changes too. A text filter matches the text as shown: a
+  text that holds a token matches with the placeholder in its place,
+  whatever the token holds. No filter compares a message's text with
+  ``<``, ``>``, ``<=`` or ``>=``, which would sort the texts, and none reads
+  a mail's own copy of its text (``body_html`` and ``body_content`` of
+  ``mail.mail``), which would scan the whole HTML of every mail: the
+  refusal points to ``body``, the text of the mail's message, or to the
+  mail's subject, recipients, state and dates.
+* **Link previews**: Odoo keeps one link preview (``mail.link.preview``)
+  per URL, tied to each message that holds it by a
+  ``mail.message.link.preview`` row, and lets an ERP manager read them all.
+  The tools return a preview and such a row only for the messages the
+  employee may read and whose text they show; a link to another reads *a
+  link preview of a message the AI deny list leaves out*, and a list of
+  them leaves it out. They look among the newest 10,000 messages with a
+  link, as Odoo checks one by one which messages the employee may read:
+  past them, a result that used these rows says that older messages'
+  previews are left out (in an AI report, only the dataset that used them).
 * **Tracked changes**: Odoo writes them into the message's text, each field
   named by its label. Hidden are the changes of a denied field, of a field
-  the employee may not read, and of any field of a denied model, which Odoo
-  may log on another record too, as a bank account's changes on its
-  holder. ``record_history`` leaves out those change lines, and a tracking
-  message that names such a field, by its label in any installed language,
-  loses its text (of the message, its mails and its translations), unless
-  the model of the record it is on tracks a readable field of that label
-  and no hidden one. A VAT number goes by every country's label of it, as
-  Odoo names it after its company's country. With ``mail_tracking``
-  installed, its tracking values of these fields stay out too.
+  the employee may not read, and of any field of a denied model. Such a
+  field's label, in any installed language, hides a change on the messages
+  of its own model, on those of every model linked with it by a relational
+  field either way that tracks no readable field of that label (Odoo logs a
+  record's changes on a linked one, as a bank account's on its holder), and
+  on a message without a model. ``record_history`` leaves out those change
+  lines, and a tracking message that names such a label loses its text (of
+  the message, its mails and its translations). A VAT number goes by every
+  country's label of it, as Odoo names it after its company's country.
+  With ``mail_tracking`` installed, its tracking values of these fields stay
+  out too.
 
 ``deny_models_extra`` and ``deny_fields_extra`` add patterns, and so may a
 module through ``_deny_list_models`` and ``_deny_list_fields``; narrowing
@@ -614,7 +682,9 @@ What an organisation changes is in methods its module overrides, calling
 
 * ``ai.assistant.tools``: ``_deny_list_models`` and ``_deny_list_fields``
   (``with_patterns_after`` puts a pattern right after the shipped one it
-  follows), ``_employee_work_fields``, ``_request_models``, ``_tool_texts``
+  follows), ``_employee_work_fields``, ``_request_models``,
+  ``_url_token_paths`` (the URL paths whose rest holds a token),
+  ``_tool_texts``
   (who keeps and documents the data, in the tools' descriptions and
   errors), ``_model_modules`` (the modules whose READMEs may document a
   model), ``_module_docs_modules`` and ``_docs_floor_module_names``;
