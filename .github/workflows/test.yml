@@ -63,3 +63,49 @@ jobs:
       - name: Run tests
         if: steps.addons.outputs.found == 'true'
         run: oca_run_tests
+
+  test-accounting:
+    runs-on: ubuntu-22.04
+    container:
+      image: ghcr.io/oca/oca-ci/py3.12-odoo20.0:latest
+      # an init as PID 1 reaps the processes a closed browser leaves behind: without one
+      # they stay zombies, and Odoo 20 logs a WARNING after every browser test
+      options: --init
+    name: test with Odoo 20.0, accounting and timesheet costs
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_PASSWORD: odoo
+          POSTGRES_DB: odoo
+        ports:
+          - 5432:5432
+    env:
+      OCA_ENABLE_CHECKLOG_ODOO: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Any module to test yet?
+        id: addons
+        run: |
+          if ls */__manifest__.py >/dev/null 2>&1; then echo "found=true" >> "$GITHUB_OUTPUT"; else echo "found=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Install addons and dependencies
+        if: steps.addons.outputs.found == 'true'
+        run: oca_install_addons
+      - name: Initialize test db
+        if: steps.addons.outputs.found == 'true'
+        run: oca_init_test_database
+      # The employee-cost guards of ai_assistant mask fields these modules add; the modules' own dependencies
+      # leave them out. Installed as oca_init_test_database installs, without the tests oca_run_tests runs.
+      - name: Install accounting and the timesheet cost modules
+        if: steps.addons.outputs.found == 'true'
+        shell: bash
+        run: |
+          unbuffer "$(which odoo)" -d "$PGDATABASE" \
+            -i account,sale_timesheet_margin,sale_project_margin,hr_timesheet_attendance \
+            --http-interface=127.0.0.1 --stop-after-init --skip-auto-install | oca_checklog_odoo
+      - name: Run tests
+        if: steps.addons.outputs.found == 'true'
+        run: oca_run_tests
