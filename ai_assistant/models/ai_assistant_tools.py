@@ -102,6 +102,16 @@ AI_DENY_LIST_FIELDS = (
     "sign.request.share_link",
     "mail.channel.uuid",
     "mail.channel.invitation_url",
+    # A Discuss meeting's URL ends with the event's access token.
+    "calendar.event.videocall_location",
+    # URLs kept outside a message's text, whose tokens nothing redacts: a mail's headers (a digest's unsubscribe
+    # link) and a link preview's URL.
+    "mail.mail.headers",
+    "mail.link.preview.source_url",
+    # Hours times an employee's hourly cost on every row, which names no employee (a user at most): denied, not masked.
+    "hr.timesheet.attendance.report.timesheets_cost",
+    "hr.timesheet.attendance.report.attendance_cost",
+    "hr.timesheet.attendance.report.cost_difference",
 )
 # Rows that belong to another record, by the paths naming that record's model
 # and id: a denied record's chatter, mails, followers, activities and attachments
@@ -131,22 +141,44 @@ PARTNER_COPY_FIELDS = {
 COPY_FIELD_TYPES = ("char", "text", "html")
 PRIVATE_ADDRESS_LABEL = "a private address, on the AI deny list"
 REFUSED_ATTACHMENT_LABEL = "an attachment on the AI deny list"
-# A message's text, by the model that shows it and the link to the message: left out where the
-# message carries an attachment on the AI deny list, whose name it may quote.
+# A message's text, by the model that shows it and the link to the message: left out where the message carries a
+# refused attachment, links to a record of a denied model or holds a URL of REFUSED_MESSAGE_URLS.
 MESSAGE_TEXT_FIELDS = {
     "mail.message": ("id", ("body", "description", "preview")),
     "mail.mail": ("mail_message_id", ("body", "body_html", "body_content", "description", "preview")),
 }
-REFUSED_MESSAGE_TEXT = "Left out: the message carries an attachment on the AI deny list."
+REFUSED_MESSAGE_TEXT = "Left out: the message carries an attachment, a record or a URL on the AI deny list."
+# A record's link in a message's body (_get_html_link), followed by its model in double quotes, as the HTML sanitizer
+# stores it.
+MESSAGE_RECORD_LINK = "data-oe-model="
+# Where a message's text may copy a denied field: a Discuss meeting's URL, sent to the attendees, ends with the
+# event's access token.
+REFUSED_MESSAGE_URLS = ("/calendar/join_videocall/",)
+# A secret in a URL of a message's text, as *.*_token is on the deny list: a token parameter's value, or the path past
+# a route of `_url_token_paths`. ASCII classes, which a C database reads as Python does.
+URL_TOKEN_PARAMETER = r"[?&;][A-Za-z0-9_]*token="
+URL_TOKEN_VALUE = r"""[^ \t\n\r\f\v&#"'<>]+"""
+REDACTED_TOKEN = "[token-on-the-AI-deny-list]"
 # Amounts that are hours times an employee's hourly cost (timesheets), and the totals that sum them, by the model
 # that holds them and the path to the employee: masked on the rows that reach one, kept on the others (accounting).
 EMPLOYEE_COST_FIELDS = {
     "account.analytic.line": ("employee_id", ("amount",)),
     "account.analytic.account": ("line_ids.employee_id", ("balance", "debit", "credit")),
     "project.project": ("analytic_account_id.line_ids.employee_id", ("analytic_account_balance",)),
+    # sale_timesheet_margin sets a timesheet-delivered line's purchase_price to its timesheets' hourly cost, which
+    # sale_margin's margins give back; with sale_timesheet, analytic_line_ids leaves timesheets out.
+    "sale.order.line": ("timesheet_ids.employee_id", ("purchase_price", "margin", "margin_percent")),
+    "sale.order": ("order_line.timesheet_ids.employee_id", ("margin", "margin_percent")),
+    # A row sums lines of one order that look alike, any of them costed: masked by its order (REPORT_ROW_MODELS).
+    "sale.report": ("order_id.order_line.timesheet_ids.employee_id", ("margin",)),
     # margin, the revenue plus the cost, comes with sale_timesheet; without it the name matches no field.
     "timesheets.analysis.report": ("employee_id", ("amount", "margin")),
 }
+# The module whose field of an EMPLOYEE_COST_FIELDS name is that cost, by model: another module's field of the same
+# name computes something else (a margin over a bill of materials' cost), and is never masked.
+EMPLOYEE_COST_MODULES = dict.fromkeys(("sale.order.line", "sale.order", "sale.report"), "sale_margin")
+# Reports whose row id is that of one of the rows it sums, by their model: its path of EMPLOYEE_COST_FIELDS starts there.
+REPORT_ROW_MODELS = {"sale.report": "sale.order.line"}
 EMPLOYEE_COST_LABEL = "an employee's cost, on the AI deny list"
 # What every term and row of one tool call asks again; see `_call_cache`.
 CALL_CACHE_KEY = "ai_assistant.tool_call_cache"
@@ -774,6 +806,11 @@ def json_value(value):
     return str(value)
 
 
+def like_pattern(text):
+    """The LIKE pattern of a text that contains `text`."""
+    return "%%%s%%" % escape_psql(text)
+
+
 def is_hr_only(groups):
     """Whether a field's groups name a group of the hr module or of an hr_* module."""
     modules = [xmlid.strip().lstrip("!").split(".")[0] for xmlid in (groups or "").split(",")]
@@ -987,6 +1024,35 @@ class AiAssistantTools(models.AbstractModel):
         return ()
 
     @api.model
+    def _url_token_paths(self):
+        """The URL paths whose next segments are a token: a Discuss meeting's, a survey's, a rating's and a Discuss
+        channel's invitation. In a message's text, the rest of such a URL reads REDACTED_TOKEN and is matched so."""
+        return ("/calendar/join_videocall/", "/survey/", "/rate/", "/chat/", "/meet/")
+
+    @api.model
+    def _url_token_regex(self):
+        """A URL token in a message's text, group 1 what precedes its value; its `pattern` is PostgreSQL's too."""
+        return self._url_token_regex_for(self._url_token_paths())
+
+    @tools.ormcache("paths")
+    def _url_token_regex_for(self, paths):
+        # Longest first: where one path starts another, Python takes the first listed, PostgreSQL the longest.
+        escaped_paths = [re.escape(path) for path in sorted(paths, key=len, reverse=True)]
+        return re.compile(
+            "(%s)%s" % ("|".join([URL_TOKEN_PARAMETER, *escaped_paths]), URL_TOKEN_VALUE), re.IGNORECASE | re.ASCII
+        )
+
+    @api.model
+    def _url_token_markers(self):
+        """The texts one of which a message's text holds when it holds a URL token."""
+        return ("token=", *self._url_token_paths())
+
+    @api.model
+    def _without_url_tokens(self, text):
+        """`text` with the value of each URL token in it (`_url_token_regex`) replaced by REDACTED_TOKEN."""
+        return self._url_token_regex().sub(lambda match: match.group(1) + REDACTED_TOKEN, text)
+
+    @api.model
     def _denied_model(self, model_name):
         return any(fnmatchcase(model_name, pattern) for pattern in self._deny_patterns())
 
@@ -1123,9 +1189,9 @@ class AiAssistantTools(models.AbstractModel):
     def _deny_row_domain(self, model_name):
         """The rows of a model the AI deny list leaves, as a normalized domain: no private address, nothing
         that belongs to a denied record or a private address, no mail of a request and nothing on it, no row of a
-        private address's own, no tracking of a denied field or of one the employee may not read, no attachment
-        that holds a denied field, is a request's, names a model that does not exist or hangs on a message left
-        out or on a request's."""
+        private address's own, no tracking of a denied field, of a denied model's, of an employee's cost or of one
+        the employee may not read, no attachment that holds a denied field, is a request's, names a model that does
+        not exist or hangs on a message left out or on a request's."""
         if model_name == "res.partner":
             return [("id", "not in", self._private_address_ids())]
         domains = []
@@ -1159,7 +1225,7 @@ class AiAssistantTools(models.AbstractModel):
         if model_name in PARTNER_ROW_LINKS:
             domains.append([(PARTNER_ROW_LINKS[model_name], "not in", self._private_address_ids())])
         if model_name == "mail.tracking.value":
-            domains.append([("field", "not in", self._hidden_tracking_field_ids())])
+            domains.append(self._hidden_tracking_domain())
         if model_name == "ir.attachment":
             domains += [
                 self._denied_field_attachment_domain(),
@@ -1172,17 +1238,45 @@ class AiAssistantTools(models.AbstractModel):
         return expression.AND(domains) if domains else []
 
     @api.model
-    def _hidden_tracking_field_ids(self):
-        """The ir.model.fields ids whose tracked changes stay out: the denied fields, and those the employee may
-        not read, as the chatter hides them by mail.tracking.value's field_groups."""
-        return self._call_cached(
-            ("hidden_tracking_field_ids", self.env.uid),
-            lambda: self._denied_field_ids(list(self.env.registry)) + self._group_hidden_field_ids(),
+    def _hidden_tracking_domain(self):
+        """The tracked changes that stay out, on whichever record they are posted, as a domain on
+        mail.tracking.value: those of every field of a denied model, whose changes Odoo posts on another record too
+        (a bank account's on its holder), and of `_hidden_tracking_field_ids`."""
+        denied_model_fields = self._rows_query(
+            self.env["ir.model.fields"], [("model", "in", sorted(self._denied_model_names()))]
+        )
+        return expression.AND(
+            [[("field", "not in", denied_model_fields)], [("field", "not in", self._hidden_tracking_field_ids())]]
         )
 
     @api.model
-    def _group_hidden_field_ids(self):
-        """The ir.model.fields ids of the fields whose groups the employee is not in."""
+    def _hidden_tracking_field_ids(self):
+        """The ir.model.fields ids, of models the AI deny list reads, whose tracked changes stay out: the denied
+        fields, those the employee may not read, as the chatter hides them by mail.tracking.value's field_groups,
+        and every employee's cost (EMPLOYEE_COST_FIELDS), whichever row its change is of."""
+
+        def find_ids():
+            denied_models = self._denied_model_names()
+            model_names = [name for name in self.env.registry if name not in denied_models]
+            cost_pairs = [
+                (model_name, name)
+                for model_name, (_path, names) in EMPLOYEE_COST_FIELDS.items()
+                if model_name in self.env
+                for name in names
+                if self._employee_cost_path(model_name, name)
+            ]
+            field_ids = {
+                *self._denied_field_ids(model_names),
+                *self._group_hidden_field_ids(model_names),
+                *self._field_ids(cost_pairs),
+            }
+            return sorted(field_ids)
+
+        return self._call_cached(("hidden_tracking_field_ids", self.env.uid), find_ids)
+
+    @api.model
+    def _group_hidden_field_ids(self, model_names):
+        """The ir.model.fields ids of the fields of these models whose groups the employee is not in."""
         verdicts = {}
 
         def is_hidden(groups):
@@ -1192,7 +1286,7 @@ class AiAssistantTools(models.AbstractModel):
 
         return self._field_ids(
             (model_name, name)
-            for model_name in self.env.registry
+            for model_name in model_names
             for name, field in self.env[model_name]._fields.items()
             if field.groups and is_hidden(field.groups)
         )
@@ -1277,7 +1371,8 @@ class AiAssistantTools(models.AbstractModel):
         A related field is followed along its path, so a contact's data it
         shows is guarded on the contact. A value the rows mask
         (`_value_guard`) matches only where it is not masked, resolved within
-        the model that holds it.
+        the model that holds it, and a message's text as the rows show it,
+        its URL tokens redacted (`_shown_text_term`).
         """
         if private_ids is None:
             private_ids = self._private_address_ids()
@@ -1293,16 +1388,17 @@ class AiAssistantTools(models.AbstractModel):
                 held_domain = self._held_domain(model_name, steps[:index], link_domain, root_context)
                 return ["!", *held_domain] if negated else held_domain
             if not field.relational:
+                step_term = self._shown_text_term(Model._name, step, operator, value)
                 guard = self._value_guard(Model._name, step, private_ids)
                 if guard and index:
                     # As the link branch: a masked linked row counts as no match, under the "!" too.
                     held_domain = self._held_domain(
-                        model_name, steps[:index], expression.AND([[(step, operator, value)], guard]), root_context
+                        model_name, steps[:index], expression.AND([step_term, guard]), root_context
                     )
                     return ["!", *held_domain] if negated else held_domain
                 if guard:
                     # A masked value matches neither the term nor its negation.
-                    term = ["!", (step, operator, value)] if negated else [(step, operator, value)]
+                    term = ["!", *step_term] if negated else step_term
                     return expression.AND([term, guard])
                 break
             # The context the next model is searched in past this link, as Odoo builds it hop by hop.
@@ -1344,12 +1440,12 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _value_guard(self, model_name, name, private_ids):
         """Where a field's value is shown as it is, as a domain on its model's rows; [] when it always is. A copy
-        of a contact's data shows beside no private address, a message's text on a message without an attachment
-        the deny list refuses, an employee's cost or a total of it on a row that reaches no employee."""
+        of a contact's data shows beside no private address, a message's text on a message whose text the deny
+        list leaves (MESSAGE_TEXT_FIELDS), an employee's cost or a total of it on a row that reaches no employee."""
         domains = [[(link, "not in", private_ids)] for link in self._partner_value_paths(model_name, name)]
         message_link, text_names = MESSAGE_TEXT_FIELDS.get(model_name, ("", ()))
         if name in text_names:
-            domains.append([(message_link, "not in", self._refused_attachment_message_query())])
+            domains.append([(message_link, "not in", self._refused_text_message_ids())])
         cost_path = self._employee_cost_path(model_name, name)
         if "." in cost_path:
             domains.append([("id", "not in", self._employee_cost_rows(model_name, cost_path))])
@@ -1358,12 +1454,111 @@ class AiAssistantTools(models.AbstractModel):
         return expression.AND(domains) if domains else []
 
     @api.model
-    def _refused_attachment_message_query(self):
-        """The messages that carry an attachment the AI deny list refuses, as a query."""
-        refused_attachments = self._rows_query(
-            self.env["ir.attachment"], ["!", *self._deny_row_domain("ir.attachment")]
+    def _refused_text_message_ids(self):
+        """The ids of every message whose text the AI deny list leaves out (MESSAGE_TEXT_FIELDS), once per tool call:
+        each text filter of the call is compared with them, not with a scan of every body of its own."""
+
+        def find_ids():
+            refused_attachments = self._rows_query(
+                self.env["ir.attachment"], ["!", *self._deny_row_domain("ir.attachment")]
+            )
+            query = self._rows_query(self.env["mail.message"], [("attachment_ids", "in", refused_attachments)])
+            self.env.cr.execute(*query.select())
+            message_ids = {message_id for (message_id,) in self.env.cr.fetchall()}
+            return sorted(message_ids.union(self._scanned_text_ids()[0]))
+
+        return self._call_cached("refused_text_message_ids", find_ids)
+
+    @api.model
+    def _refused_body_sql(self):
+        """(SQL, parameters) that hold on a mail_message row whose body links to a record of a denied model or holds a
+        URL of REFUSED_MESSAGE_URLS. One pass over the body names the models it links to, where a domain, or a
+        pattern per model, would read it once per denied model."""
+        self.env["mail.message"].flush_model(["body"])
+        return (
+            '(EXISTS(SELECT FROM regexp_matches("mail_message"."body", %s, \'g\') AS link WHERE link[1] = ANY(%s))'
+            ' OR "mail_message"."body" LIKE ANY(%s))',
+            [
+                '%s"([^"]*)"' % MESSAGE_RECORD_LINK,
+                sorted(self._denied_model_names()),
+                [like_pattern(url) for url in REFUSED_MESSAGE_URLS],
+            ],
         )
-        return self._rows_query(self.env["mail.message"], [("attachment_ids", "in", refused_attachments)])
+
+    @api.model
+    def _scanned_text_ids(self):
+        """(ids of the messages whose body `_refused_body_sql` refuses, ids of those whose body holds one of
+        `_url_token_markers`), from one scan of the bodies per tool call."""
+
+        def scan():
+            refused_sql, refused_params = self._refused_body_sql()
+            token_markers = self._url_token_markers()
+            candidate_markers = tuple(dict.fromkeys((*token_markers, MESSAGE_RECORD_LINK, *REFUSED_MESSAGE_URLS)))
+            # One lowercased pass, each marker once, finds the rows either test may hold on. On message bodies
+            # LIKE ANY runs faster than one ~* alternation of the markers.
+            self.env.cr.execute(
+                'SELECT "id", %s, lower("mail_message"."body") LIKE ANY(%%s) FROM "mail_message"'
+                ' WHERE lower("mail_message"."body") LIKE ANY(%%s)' % refused_sql,
+                [
+                    *refused_params,
+                    [like_pattern(marker.lower()) for marker in token_markers],
+                    [like_pattern(marker.lower()) for marker in candidate_markers],
+                ],
+            )
+            rows = self.env.cr.fetchall()
+            return (
+                [row_id for row_id, is_refused, _has_token in rows if is_refused],
+                [row_id for row_id, _is_refused, has_token in rows if has_token],
+            )
+
+        return self._call_cached("scanned_text_ids", scan)
+
+    @api.model
+    def _shown_text_term(self, model_name, name, operator, value):
+        """The term as a domain, matched on a message's body as the tools show it: a message whose body holds a URL
+        token is decided on its body with the tokens redacted alone, so that no filter tells a token's value. A
+        range operator is refused, as a sort by the text is, and so is any filter on a mail's own copy of its text,
+        which would read the whole HTML of every mail."""
+        term = (name, operator, value)
+        if name not in MESSAGE_TEXT_FIELDS.get(model_name, ("", ()))[1]:
+            return [term]
+        if model_name == "mail.mail":
+            raise AiDenyListError(
+                "%s.%s is a mail's own copy of its text: the AI deny list refuses a filter on it. To find mails by"
+                " their text, filter on body, the text of the mail's message, on mail.mail or mail.message; or filter"
+                " the mails on their subject, recipients, state or dates. A mail sent without a message text, as many"
+                " system mails are, has an empty body: find such mails by their subject, recipients, state or dates."
+                % (model_name, name)
+            )
+        if operator in ("<", ">", "<=", ">="):
+            raise AiDenyListError(
+                "%s.%s is a message's text: the AI deny list refuses %s on it, which compares the texts as a sort"
+                " does; filter with ilike or =like." % (model_name, name, operator)
+            )
+        # Checked before the full-table scan, so an employee without read access fails fast.
+        self.env[model_name].check_access_rights("read")
+        token_ids = self._scanned_text_ids()[1]
+        if not token_ids:
+            return [term]
+        return expression.OR(
+            [
+                expression.AND([[term], [("id", "not in", token_ids)]]),
+                [("id", "in", self._redacted_text_match_ids(term, token_ids))],
+            ]
+        )
+
+    @api.model
+    def _redacted_text_match_ids(self, term, message_ids):
+        """The ids among `message_ids` whose body, its URL tokens redacted in SQL, matches `term`."""
+        Message = self.env["mail.message"]
+        # Odoo's SQL of the term names the column by the table: under that name, the query reads the redacted body.
+        _from_clause, where_clause, where_params = self._rows_query(Message, [term]).get_sql()
+        self.env.cr.execute(
+            'SELECT "id" FROM (SELECT "id", regexp_replace("body", %%s, %%s, \'gi\') AS "body" FROM "%s"'
+            ' WHERE "id" = ANY(%%s)) AS "%s" WHERE %s' % (Message._table, Message._table, where_clause or "TRUE"),
+            [self._url_token_regex().pattern, "\\1" + REDACTED_TOKEN, message_ids, *where_params],
+        )
+        return [row_id for (row_id,) in self.env.cr.fetchall()]
 
     @api.model
     def _rows_query(self, Model, domain, active_test=True):
@@ -1655,8 +1850,8 @@ class AiAssistantTools(models.AbstractModel):
 
     @api.model
     def _without_refused_message_text(self, records, rows):
-        """The rows of messages, or of mails, whose message carries an attachment the AI deny list refuses, their
-        text replaced by REFUSED_MESSAGE_TEXT."""
+        """The rows of messages, or of mails, whose message's text the AI deny list leaves out (MESSAGE_TEXT_FIELDS),
+        their text replaced by REFUSED_MESSAGE_TEXT."""
         message_link, text_names = MESSAGE_TEXT_FIELDS.get(records._name, ("", ()))
         names = set(text_names) & {name for row in rows for name in row}
         if not names:
@@ -1666,13 +1861,41 @@ class AiAssistantTools(models.AbstractModel):
         def message(record):
             return record if message_link == "id" else record[message_link]
 
-        refused_ids = self._refused_attachment_ids(set(message(sudo_records).attachment_ids.ids))
-        carrying_ids = {
-            record.id for record in sudo_records if refused_ids.intersection(message(record).attachment_ids.ids)
-        }
+        messages = message(sudo_records)
+        refused_message_ids = self._refused_text_ids_among(
+            messages, self._refused_attachment_ids(set(messages.attachment_ids.ids))
+        )
+        refused_ids = {record.id for record in sudo_records if message(record).id in refused_message_ids}
         for row in rows:
-            if row["id"] in carrying_ids:
+            if row["id"] in refused_ids:
                 row.update({name: REFUSED_MESSAGE_TEXT for name in names & set(row) if row[name]})
+        return rows
+
+    @api.model
+    def _refused_text_ids_among(self, messages, refused_attachment_ids):
+        """The ids of the messages among `messages` whose text the AI deny list leaves out (MESSAGE_TEXT_FIELDS),
+        `refused_attachment_ids` holding those of their attachments it refuses."""
+        messages = messages.sudo().with_context(active_test=False)
+        refused_ids = {
+            message.id for message in messages if refused_attachment_ids.intersection(message.attachment_ids.ids)
+        }
+        if messages:
+            refused_sql, refused_params = self._refused_body_sql()
+            self.env.cr.execute(
+                'SELECT "id" FROM "mail_message" WHERE "id" = ANY(%%s) AND %s' % refused_sql,
+                [messages.ids, *refused_params],
+            )
+            refused_ids.update(message_id for (message_id,) in self.env.cr.fetchall())
+        return refused_ids
+
+    @api.model
+    def _without_message_tokens(self, records, rows):
+        """The rows of messages, or of mails, with the URL tokens in their text (`_url_token_regex`) redacted."""
+        text_names = MESSAGE_TEXT_FIELDS.get(records._name, ("", ()))[1]
+        for row in rows:
+            for name in set(text_names) & set(row):
+                if isinstance(row[name], str):
+                    row[name] = self._without_url_tokens(row[name])
         return rows
 
     @api.model
@@ -1680,8 +1903,9 @@ class AiAssistantTools(models.AbstractModel):
         """The rows with each employee's cost or total of it (EMPLOYEE_COST_FIELDS) replaced by EMPLOYEE_COST_LABEL,
         a zero too."""
         path, cost_names = EMPLOYEE_COST_FIELDS.get(records._name, ("", ()))
-        names = set(cost_names) & {name for row in rows for name in row}
-        if not names or not self._employee_cost_path(records._name, next(iter(names))):
+        shown_names = {name for row in rows for name in row if name in cost_names}
+        names = {name for name in shown_names if self._employee_cost_path(records._name, name)}
+        if not names:
             return rows
         costed_ids = set(
             records.sudo()
@@ -1966,8 +2190,9 @@ class AiAssistantTools(models.AbstractModel):
         """Refuse a message's text as a sort or group key or an aggregate: it would show where the rows mask it."""
         if name in MESSAGE_TEXT_FIELDS.get(model_name, ("", ()))[1]:
             raise AiDenyListError(
-                "%s.%s is a message's text, which the AI deny list leaves out where the message carries an attachment"
-                " it refuses: sort, group or aggregate by another field." % (model_name, name)
+                "%s.%s is a message's text, which the AI deny list leaves out where the message carries an"
+                " attachment, a record or a URL it refuses: sort, group or aggregate by another field."
+                % (model_name, name)
             )
 
     @api.model
@@ -1993,11 +2218,14 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _employee_cost_path(self, model_name, name):
         """The path to the employee from whose rows the AI deny list masks `name`, an employee's cost or a total of
-        it; "" for a field it never masks, or when a step of the path is not installed."""
+        it, from the rows of REPORT_ROW_MODELS for a report; "" for a field it never masks, one of that name that
+        another module than EMPLOYEE_COST_MODULES' defines, or when a step of the path is not installed."""
         path, names = EMPLOYEE_COST_FIELDS.get(model_name, ("", ()))
-        if name not in names:
+        cost_field = self.env[model_name]._fields.get(name)
+        cost_module = EMPLOYEE_COST_MODULES.get(model_name)
+        if name not in names or cost_field is None or (cost_module and cost_module not in cost_field._modules):
             return ""
-        Model = self.env[model_name]
+        Model = self.env[REPORT_ROW_MODELS.get(model_name, model_name)]
         for step in path.split("."):
             field = Model._fields.get(step)
             if field is None:
@@ -2008,14 +2236,16 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _employee_cost_rows(self, model_name, path):
         """The rows of `model_name` whose `path` reaches an employee, as a query read past the employee's rules:
-        a total is computed over lines they may not read too."""
-        return self._rows_query(self.env[model_name].sudo(), [(path, "!=", False)], active_test=False)
+        a total is computed over lines they may not read too. For a report of REPORT_ROW_MODELS, the rows it sums,
+        whose ids its own rows take."""
+        Model = self.env[REPORT_ROW_MODELS.get(model_name, model_name)].sudo()
+        return self._rows_query(Model, [(path, "!=", False)], active_test=False)
 
     @api.model
     def _tool_rows(self, records, field_names):
         """`read` of the records, HTML as plain text, with what the AI deny list masks taken out: links into
-        private addresses and copies of their data, links into refused attachments and the text of the messages
-        that carry one."""
+        private addresses and copies of their data, links into refused attachments, the text of the messages it
+        leaves out (MESSAGE_TEXT_FIELDS), the URL tokens in the others' and employees' costs."""
         rows = records.read(field_names)
         html_names = [name for name in field_names if records._fields[name].type == "html"]
         for row in rows:
@@ -2023,7 +2253,7 @@ class AiAssistantTools(models.AbstractModel):
                 row[name] = row[name] and html2plaintext(row[name])
         rows = self._without_private_copies(records, self._without_private_addresses(records._name, rows))
         rows = self._without_refused_message_text(records, self._without_refused_attachments(records._name, rows))
-        return self._without_employee_costs(records, rows)
+        return self._without_employee_costs(records, self._without_message_tokens(records, rows))
 
     @api.model
     def _tool_search_read(self, model, domain, fields, limit, order):
@@ -2513,14 +2743,12 @@ class AiAssistantTools(models.AbstractModel):
             self.env["mail.tracking.value"]
             .sudo()
             .search(
-                [
-                    ("mail_message_id", "in", messages[:max_rows].ids),
-                    ("field", "not in", self._hidden_tracking_field_ids()),
-                ]
+                expression.AND([[("mail_message_id", "in", messages[:max_rows].ids)], self._hidden_tracking_domain()])
             )
         )
         private_ids = set(self._private_address_ids())
         refused_attachment_ids = self._refused_attachment_ids(set(messages[:max_rows].sudo().attachment_ids.ids))
+        refused_text_ids = self._refused_text_ids_among(messages[:max_rows], refused_attachment_ids)
         entries = []
         for message in messages[:max_rows].sudo():
             message_trackings = trackings.filtered(
@@ -2534,9 +2762,7 @@ class AiAssistantTools(models.AbstractModel):
                     "date": json_value(message.date),
                     "type": message.message_type,
                     "subtype": message.subtype_id.name or "",
-                    "text": REFUSED_MESSAGE_TEXT
-                    if refused_attachment_ids.intersection(message.attachment_ids.ids)
-                    else self._message_text(message),
+                    "text": REFUSED_MESSAGE_TEXT if message.id in refused_text_ids else self._message_text(message),
                     "attachments": [
                         attachment.name
                         for attachment in message.attachment_ids
@@ -2567,8 +2793,8 @@ class AiAssistantTools(models.AbstractModel):
 
     @api.model
     def _message_text(self, message):
-        """A message's body as plain text, cut at MESSAGE_MAX_CHARS."""
-        text = html2plaintext(message.body or "")
+        """A message's body as plain text, its URL tokens redacted, cut at MESSAGE_MAX_CHARS."""
+        text = self._without_url_tokens(html2plaintext(message.body or ""))
         return text if len(text) <= MESSAGE_MAX_CHARS else "%s [cut]" % text[:MESSAGE_MAX_CHARS]
 
     @api.model

@@ -55,5 +55,6 @@ Then `nix run .#update-repos`, and install the module.
 
 ## License
 
-LGPL-3.0-or-later, see [LICENSE](LICENSE), except `project_timesheet_systray`: AGPL-3.0-or-later,
-like the OCA module it depends on, see [project_timesheet_systray/LICENSE](project_timesheet_systray/LICENSE).
+LGPL-3.0-or-later, see [LICENSE](LICENSE), except `project_timesheet_systray` and `ai_assistant`:
+AGPL-3.0-or-later, like the OCA modules they depend on, see
+[project_timesheet_systray/LICENSE](project_timesheet_systray/LICENSE) and [ai_assistant/LICENSE](ai_assistant/LICENSE).
