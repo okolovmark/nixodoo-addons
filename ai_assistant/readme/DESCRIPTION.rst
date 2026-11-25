@@ -139,8 +139,9 @@ Each call runs in a savepoint that is always rolled back, under a statement
 timeout of ``tool_seconds`` (15).
 
 * ``search_read``: the records matching a domain with the fields asked for
-  (none asked: the stored fields that are not binary, HTML or x2many), at
-  most ``max_rows`` (200); it says when more match.
+  (none asked: the stored fields that are not binary, HTML, JSON,
+  properties or x2many), at most ``max_rows`` (200); it says when more
+  match.
 * ``read``: records by id, archived ones too, at most ``max_rows``; it lists
   the ids that do not exist or that the employee may not see.
 * ``read_group``: totals by group. Group keys are fields of the model itself,
@@ -282,9 +283,26 @@ can act on:
   link compared with a name: Odoo would check every message one by one;
 * sorting by a contact or a copy of a contact's data, grouping by a path,
   grouping or aggregating (other than counting) a copy of a contact's data,
-  and sorting, grouping or aggregating a message's text, or a timesheet's
-  amount or margin, a sale margin or an analytic total where the rows hold
-  or sum a timesheet;
+  and sorting, grouping or aggregating a message's text or another HTML
+  text, or a timesheet's amount or margin, a sale margin or an analytic
+  total where the rows hold or sum a timesheet;
+* filtering, sorting, grouping or aggregating (other than counting) by
+  structured data: a JSON, properties or properties definition field
+  (``task_properties``), which Odoo would compare as stored while the tools
+  show its URL tokens redacted (see AI deny list). A JSON or properties
+  definition value may be tested set or not (``=`` or ``!=`` false), and an
+  ``analytic_distribution`` is filtered by its analytic accounts as Odoo 16
+  does: by an account's name with ``=``, ``!=``, ``ilike`` or ``not
+  ilike``, by account ids with ``in``; to count by analytic account, the
+  refusal points to the analytic lines' ``account_id``;
+* comparing a stored text (a char, text or HTML field) or a message's text
+  with ``<``, ``>``, ``<=`` or ``>=``, any filter on a mail's own copy of
+  its text, and a name filter on a model whose name search reaches a hidden
+  field, or searches in its own code a text the tools show otherwise than
+  stored, or in code the deny list does not know (see AI deny list);
+* a link compared with a list that holds a name beside ids, or with a list
+  of names on a one2many or many2many, on which PostgreSQL fails in Odoo 16:
+  one name per term, joined with ``|``;
 * reading a field by a dotted name, and reading a binary field.
 
 Without an order, a search keeps the model's own, less the terms that sort by
@@ -320,9 +338,11 @@ is seen by everyone who can see the record, not only by the asker.
   ``can_open_last_appraisal`` on any model (``hr_appraisal_oca``'s flag on
   employees and their public profiles), a bit derived from the appraisals, a
   denied model; the website's Plausible and Google Maps keys, a signature
-  request's share link, a Discuss channel's ``uuid`` and invitation URL and
-  a calendar event's meeting URL (``videocall_location``), which ends with
-  its access token; a mail's ``headers`` (a digest's unsubscribe link holds
+  request's share link, a Discuss channel's ``uuid`` (and the live chat
+  report's copy of it) and invitation URL, a calendar event's meeting URL
+  (``videocall_location``), which ends with its access token, and the
+  ``background_image_url`` of surveys and survey questions, which holds the
+  survey's; a mail's ``headers`` (a digest's unsubscribe link holds
   a token) and a link preview's ``source_url``, a message's URLs kept
   outside its text; the costs of the *Timesheet Attendance* report
   (``hr.timesheet.attendance.report``: ``timesheets_cost``,
@@ -374,32 +394,141 @@ is seen by everyone who can see the record, not only by the asker.
   logged; a change written into a message's text instead, as
   ``tracking_manager`` logs a one2many line's change on its owner, is not
   masked.
-* **Links** into a denied model, and related fields whose path crosses a
-  denied field.
-* **Rows of a denied record** or a private address: its messages, mails,
-  tracking values, notifications, reactions, followers, activities,
-  attachments and calendar events. Also left out: the tracked changes of a
-  denied field, of any field of a denied model on whichever record Odoo
-  logs them (a bank account's number on its holder's chatter), or of a
-  field the employee may not read, and attachments that hold a denied
-  binary field or whose ``res_model`` names no model. A message loses its
-  text, which then matches no filter, when it carries a refused attachment,
-  when its body links to a record of a denied model (the note Odoo leaves on
-  a contact when one of its bank accounts is deleted quotes the number) or
-  when it holds a Discuss meeting's URL (*Contact Attendees* sends it as a
-  comment on the event); a link to a refused attachment reads *an attachment
-  on the AI deny list*. In the text of the other messages and of mails, the
-  value of each token in a URL (an ``access_token``, ``token`` or other
-  ``*_token`` parameter, the end of a Discuss meeting's, a survey's, a
-  rating's or a Discuss invitation's URL, or of a URL whose path a module
-  adds through ``_url_token_paths``) reads ``[token-on-the-AI-deny-list]``,
-  and a text filter matches the text as shown: a text that holds a token is
-  matched with that placeholder in its place, whatever the token holds. No
-  filter compares a message's text with ``<``, ``>``, ``<=`` or ``>=``,
-  which would sort the texts, and none reads a mail's own copy of its text
-  (``body_html`` and ``body_content`` of ``mail.mail``), which would scan
-  the whole HTML of every mail: the refusal points to ``body``, the text of
-  the mail's message, or to the mail's subject, recipients, state and dates.
+* **Links** into a denied model, and the fields that copy a denied field: a
+  related field whose path crosses one and, with a contact's ``vat`` on the
+  list (``deny_fields_extra``), every char or text field a model computes
+  from its own ``vat``, or from a text computed so, as a localization shows
+  the number under a name of its own (``l10n_ph``'s ``branch_code``, cut
+  from it). The display name stays.
+* **Names**: a model whose record name (``_rec_name``) is a denied field
+  shows *a name on the AI deny list* as the display name of its records and
+  of every link to them, the record line of a question's context included,
+  and as a ``read_group`` key by a many2one or a many2many, in an AI report
+  too. So does a record whose display name Odoo builds from a record
+  of a denied model, and one whose display name is built from such a
+  record: a Discuss channel member of a guest. A record whose display name
+  Odoo builds from a denied plain field, and that shows the field's value,
+  shows its record name instead, its URL tokens redacted: with
+  ``default_code`` on the list, a product reads its name without
+  ``[CODE]``, and with its record name denied, missing or empty, or holding
+  the value in any case, reads *a name on the AI deny list*. A record
+  whose display name does not show the value keeps it: one without a value,
+  or a contact whose name shows its VAT number only under a context key. A
+  properties field's link to any of these reads the same. The fields a
+  display name is built from are ``_rec_name`` and those
+  ``NAME_GET_SOURCES`` declares for a model whose ``name_get`` reads more.
+
+  A filter on such a name, or on a link to such a record compared with a
+  name, is refused. So is a name filter on a model whose name search
+  reaches a field the deny list hides or the employee may not read: with a
+  contact's ``ref`` hidden, a name filter on a link to a contact, since Odoo
+  matches a contact's name with its reference, or with ``default_code`` on
+  the list, one on a link to a product. The fields a name search reads are
+  ``_rec_names_search`` or ``_rec_name``, the name searches of the links
+  among them, and for a model that searches names in its own code, those
+  ``NAME_SEARCH_FIELDS`` declares for it: a user's login, a product's code
+  and barcode (a product template's, its variants'), an account's code.
+  Such a model also refuses a name filter while one of these texts, in any
+  of its rows, is shown otherwise than stored (a URL token, a masked HTML
+  text), since its code matches the stored text, and a model whose own
+  name search the list does not declare refuses it always. The refusal
+  names ``complete_name`` and ``name`` to filter on instead, through the
+  link the filter crosses (``partner_id.name``); ids still compare, and the
+  names still show. A name filter on a model that searches names as Odoo's
+  base does matches each of its fields as the tools show it. An analytic
+  distribution filtered by an account's name goes by Odoo's own name
+  search of the accounts, and is refused alike.
+* **Rows of a denied record** or a private address: its messages, their
+  SMS, its mails, tracking values, notifications, reactions, followers,
+  activities, attachments, calendar events and ratings, and the ratings of
+  a record under it (a task's under its project). Also left out: the
+  tracked changes of a denied field, of any field of a denied model on
+  whichever record Odoo logs them (a bank account's number on its holder's
+  chatter), or of a field the employee may not read, and attachments that
+  hold a denied binary field or whose ``res_model`` names no model; a link
+  to a refused attachment reads *an attachment on the AI deny list*.
+* **Message text**: a message loses its text, which then matches no
+  filter, when it carries a refused attachment, when its body links to a
+  record of a denied model (the note Odoo leaves on a contact when one of
+  its bank accounts is deleted quotes the number), in double or single
+  quotes, or when it holds a Discuss meeting's URL (*Contact Attendees*
+  sends it as a comment on the event). The copies of its text lose theirs
+  with it: its mails, its SMS, a mail group message's body, a rating's
+  feedback, a visitor's answer to a chatbot (``chatbot.message``), and a
+  record's ``rating_last_feedback``, masked when any of the record's
+  ratings is. An SMS or a rating without a message goes by its own text: a
+  link to a denied record or a meeting's URL.
+* **HTML text**: any other HTML field (a task's description, an activity's
+  note, a contact's notes) that links to a record of a denied model or
+  holds a Discuss meeting's URL reads *Left out: the text links a record or
+  holds a URL on the AI deny list.* and matches no filter. No HTML field is
+  a sort or group key, nor aggregated other than counted.
+* **URL tokens**: in every text the tools show, the value of each token in
+  a URL reads ``[token-on-the-AI-deny-list]``: in a message's text and its
+  copies, in a record's own char, text and HTML fields and the names of its
+  links (a task's description copied from the email that created it, an
+  activity's note, a lead's name), in ``read_group`` keys, in every text a
+  properties or JSON value holds, in ``record_history`` (the old and new
+  values of tracked changes, the author, the subtype, the attachments'
+  names) and in a question's context. A token is the value of a parameter
+  whose name ends in ``token`` (``access_token``, ``token``) after ``?``,
+  ``&``, ``;`` or ``#``, with its separator and ``=`` percent-encoded or
+  not (``%3Faccess_token%3D``); the rest of a URL past a path that
+  carries one (a Discuss meeting's, a survey's, a rating's, a Discuss
+  invitation's, or one a module adds through ``_url_token_paths``); and a
+  portal link's signature, its ``hash`` in a URL that carries the partner's
+  ``pid``, percent-encoded or not (a ``hash`` without ``pid``, as in an
+  asset's URL, stays). A parameter's name, a path and a value run on across
+  inline tags, ``<wbr>`` and comments, as a browser shows them
+  (``?access_<b>token</b>=``); a value ends at any space, a no-break space
+  included, and at ``&``. In an HTML text, as a browser reads it, each
+  character of ``token`` ending a parameter's name, of the separator before
+  ``pid`` or ``hash`` (``&#38pid``, ``&#37;26hash``), of ``=`` or ``%3D``,
+  of ``pid``, ``hash`` or a path may be a character reference, decimal or
+  hexadecimal, with leading zeros or none and ``;`` or none, or a named
+  one, in any case (``access_tok&#101;n=``, ``/survey&#47;``, ``&#0061``,
+  ``&equals;``); a digit after a reference makes it another character
+  (``&#610;`` is no ``=``). A value runs on across a character reference
+  but one to a character that ends it: ``&``, ``#``, ``<``, ``>``, ``"``,
+  ``'``, a space, a tab, a line feed or a Unicode space (``&amp;``,
+  ``&#38;``, ``&#35;``, ``&#32;``, ``&nbsp;``, ``&ensp;``). It runs on
+  across a ``?`` (``&#63;``) and a reference to a carriage return, a form
+  feed or a vertical tab (``&#13;``, ``&#12;``, ``&#11;``), which
+  ``html2plaintext`` drops. A char or text field is read as it is.
+
+  A text filter matches the text with each token's value taken out,
+  whatever the token holds but on a row where an inline tag splits a
+  token's mark (see *Known issues / Roadmap*): the words on either side
+  of a token match, never joined across it, and a word of the placeholder
+  (*on-the-AI*) matches nothing; a value that holds the whole placeholder
+  meets a token there. A filter's value is read as Odoo compares it, an
+  HTML one as Odoo's sanitizer writes it unless compared with ``like``,
+  ``ilike`` or their negations; a value that, as Odoo compares it, holds
+  the control character U+0001, which a filter reads in place of a token's
+  value, is refused. In an HTML value compared with any other operator
+  (``=``, ``!=``, ``in``, ``not in``, ``=like``, ``=ilike``), the
+  placeholder with its brackets
+  percent-encoded, as the sanitizer writes it in a link's address, meets a
+  token too, wherever it stands. A
+  translated text matches as Odoo reads it, in the employee's language. No
+  filter compares a stored
+  text that may hold a token (a char, text or HTML field) with ``<``,
+  ``>``, ``<=`` or ``>=``, which would sort the texts, and none reads a
+  mail's own copy of its text (``body_html`` and ``body_content`` of
+  ``mail.mail``), which would scan the whole HTML of every mail: the
+  refusal points to ``body``, the text of the mail's message, or to the
+  mail's subject, recipients, state and dates. Structured data (a JSON,
+  properties or properties definition field) is read only: no filter, sort
+  key, group or aggregate but a count, which Odoo would compare as stored,
+  tokens included; a filter only tests a JSON or properties definition
+  value set or not, and an analytic distribution is filtered by its
+  accounts. The ``fields`` tool marks such a field neither sortable nor
+  groupable, nor searchable but an analytic distribution.
+* **Link previews**: Odoo 16 keeps a link preview (``mail.link.preview``)
+  per message and URL, and lets an ERP manager read them all. The tools
+  return a preview only for a message the employee may read and whose text
+  they show; a link to another reads *a link preview of a message the AI
+  deny list leaves out*, and a list of them leaves it out.
 
 ``deny_models_extra`` and ``deny_fields_extra`` add patterns, and so may a
 module through ``_deny_list_models`` and ``_deny_list_fields``; narrowing
@@ -603,7 +732,10 @@ What an organisation changes is in methods its module overrides, calling
 
 * ``ai.assistant.tools``: ``_deny_list_models`` and ``_deny_list_fields``
   (``with_patterns_after`` puts a pattern right after the shipped one it
-  follows), ``_employee_work_fields``, ``_request_models``, ``_tool_texts``
+  follows), ``_employee_work_fields``, ``_request_models``,
+  ``_url_token_paths`` (the URL paths whose rest holds a token),
+  ``_name_search_fields`` and ``_name_get_sources`` (the fields a model's
+  own name search or display name reads, see AI deny list), ``_tool_texts``
   (who keeps and documents the data, in the tools' descriptions and
   errors), ``_model_modules`` (the modules whose READMEs may document a
   model), ``_module_docs_modules`` and ``_docs_floor_module_names``;
