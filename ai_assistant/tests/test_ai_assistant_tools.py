@@ -1,18 +1,23 @@
 import base64
+import inspect
 import json
 import os
+import random
 import re
+import time
 from contextlib import suppress
 from datetime import date, datetime
 from unittest.mock import patch
 
+import psycopg2
 from markupsafe import Markup
 
 from odoo import Command
 from odoo.exceptions import AccessError, UserError
 from odoo.fields import Domain
+from odoo.orm.registry import _unaccent
 from odoo.tests import TransactionCase, new_test_user, tagged
-from odoo.tools import mute_logger
+from odoo.tools import SQL, mute_logger, remove_accents
 
 from odoo.addons.ai_assistant.models.ai_assistant_tools import (
     ACCESS_DENIED_TEXT,
@@ -24,12 +29,15 @@ from odoo.addons.ai_assistant.models.ai_assistant_tools import (
     FIND_MODELS_MAX_FIELDS,
     FIND_MODELS_MAX_MODELS,
     FIND_MODELS_MAX_WORDS,
+    MASKED_HTML_TEXT,
     MASKED_MESSAGE_TEXT,
     MESSAGE_MAX_CHARS,
+    NAME_SEARCH_FIELDS,
     RECORD_UNAVAILABLE_TEXT,
     REDACTED_TOKEN,
     TOOL_DEFINITIONS,
     TOOL_NAMES,
+    URL_INLINE_TAGS,
     VAT_FREE_FIELDS,
     AiAssistantTools,
     AiDenyListError,
@@ -46,6 +54,11 @@ from odoo.addons.mail.models.mail_message import MAX_COMODELS_FOR_DOMAIN
 
 ASSISTANT_KEY_ENV = "ANTHROPIC_API_KEY"
 TOOLS_MODULE = "odoo.addons.ai_assistant.models.ai_assistant_tools"
+
+
+def like_regex(value):
+    """The regex of what an ilike `value` finds in a text, Odoo's wildcards % and _ read as such."""
+    return "".join({"%": ".*", "_": "."}.get(char, re.escape(char)) for char in remove_accents(value))
 
 
 class AssistantCase(TransactionCase):
@@ -3183,6 +3196,42 @@ class TestAiDenyListSecretsAndReviews(AssistantCase):
             self.skipTest("l10n_in is not installed")
         self.assertEqual(self._tools(self.administrator)._copied_fields().get(key), "vat")
 
+    def test_a_json_computed_from_the_vat_number_goes_by_it(self):
+        Partner = self.env["res.partner"]
+        registry = self.env.registry
+        metadata = Partner._fields["available_additional_identifiers_metadata"]
+        self.assertEqual((metadata.type, bool(metadata.compute)), ("json", True))
+        self.addCleanup(self.env.transaction.invalidate_ormcache)
+        with patch.dict(registry.field_depends, {metadata: (*registry.field_depends.get(metadata, ()), "vat")}):
+            self.env.transaction.invalidate_ormcache()
+            copied_fields = self._tools(self.administrator)._copied_fields()
+            self.assertEqual(copied_fields.get("res.partner.%s" % metadata.name), "vat")
+            with patch.object(Partner._fields["vat"], "groups", "base.group_portal"):
+                content, is_error = self._search_read(
+                    self.administrator, "res.partner", [["id", "=", self.partner.id]], [metadata.name]
+                )
+                self.assertEqual(
+                    (content, is_error),
+                    ("Not available: The employee may not read the field res.partner.%s." % metadata.name, True),
+                )
+            self._set_param("deny_fields_extra", "res.partner.vat")
+            tools = self._tools(self.administrator)
+            for model_name in ("res.partner", "res.company"):
+                self.assertTrue(tools._denied_field(self.env[model_name]._fields[metadata.name]), model_name)
+
+    def test_the_dutch_identifiers_metadata_goes_by_the_vat_number(self):
+        Partner = self.env["res.partner"]
+        if "l10n_nl_sbr_ob_nummer" not in Partner._fields:
+            self.skipTest("l10n_nl is not installed")
+        dutch = Partner.create({"name": "AI Dutch", "country_id": self.env.ref("base.nl").id, "vat": "NL004495445B01"})
+        self.assertIn("004495445B01", json.dumps(dutch.available_additional_identifiers_metadata), "Odoo's own")
+        self._set_param("deny_fields_extra", "res.partner.vat")
+        content, is_error = self._search_read(
+            self.administrator, "res.partner", [["id", "=", dutch.id]], ["available_additional_identifiers_metadata"]
+        )
+        self.assertTrue(is_error, content)
+        self.assertIn("res.partner.available_additional_identifiers_metadata is on the AI deny list", content)
+
     def _assert_change_left_out(self, user, message, values):
         """`message`, a tracking message on a record `user` reads, shows none of `values` through the tools: not in
         its record's history, its body or its preview, nor matched by a filter on its body."""
@@ -3915,6 +3964,50 @@ class TestAiDenyListSecretsAndReviews(AssistantCase):
             "AI rated",
         )
 
+    def test_the_ratings_of_a_denied_record_or_under_one_stay_out(self):
+        self._skip_without("rating.rating", "parent_res_model")
+        self._set_param("deny_models_extra", "res.partner.category")
+        bank = self.env["res.partner.bank"].create(
+            {"account_number": "BE71096123456769", "partner_id": self.partner.id}
+        )
+        category = self.env["res.partner.category"].create({"name": "AI Rated Tag"})
+        model_id = self.env["ir.model"]._get_id
+        ratings = self.env["rating.rating"].create(
+            [
+                {"res_model_id": model_id(model_name), "res_id": record.id, "rating": 5, "feedback": "AI %s" % label}
+                for model_name, record, label in (
+                    ("res.partner.bank", bank, "rated a bank account"),
+                    ("res.partner", self.partner, "rated under a bank account"),
+                    ("res.partner.category", category, "rated an extra denied tag"),
+                    ("res.partner", self.partner, "rated a contact"),
+                )
+            ]
+        )
+        ratings[1].write({"parent_res_model_id": model_id("res.partner.bank"), "parent_res_id": bank.id})
+        shown = ratings[3]
+        payload, is_error = self._search_read(self.employee, "rating.rating", [["id", "in", ratings.ids]], ["res_name"])
+        self.assertFalse(is_error, payload)
+        self.assertEqual([row["id"] for row in payload["records"]], shown.ids)
+        payload, is_error = self._call(self.employee, "read", model="rating.rating", ids=ratings.ids, fields=["rating"])
+        self.assertEqual((payload["not_found"], is_error), (ratings[:3].ids, False))
+        payload, is_error = self._call(
+            self.employee,
+            "read_group",
+            model="rating.rating",
+            domain=json.dumps([["id", "in", ratings.ids]]),
+            groupby=["res_model"],
+            measures=[],
+            orderby="",
+            limit=0,
+        )
+        self.assertFalse(is_error, payload)
+        self.assertEqual([(group["res_model"], group["__count"]) for group in payload["groups"]], [("res.partner", 1)])
+        for feedback, expected in (("AI rated under a bank account", []), ("AI rated a contact", self.partner.ids)):
+            payload, is_error = self._search_read(
+                self.employee, "res.partner", [["id", "=", self.partner.id], ["rating_ids.feedback", "=", feedback]]
+            )
+            self.assertEqual(([row["id"] for row in payload["records"]], is_error), (expected, False), feedback)
+
     def test_a_chatbot_answer_goes_by_its_message_or_by_its_own(self):
         self._skip_without("chatbot.message", "user_raw_answer")
         _bank, token, (with_token, linking_bank, _on_bank) = self._copy_sources()
@@ -4164,6 +4257,91 @@ class TestAiDenyListSecretsAndReviews(AssistantCase):
         payload, is_error = self._search_read(self.administrator, "mail.link.preview", these, ["id"])
         self.assertEqual(([row["id"] for row in payload["records"]], is_error), (previews.ids, False))
         self.assertNotIn("truncated", payload)
+
+    def _messages_with_link_rows(self, count, **preview_values):
+        """`count` messages on the partner, oldest first, each with a link preview of its own."""
+        values = {"model": "res.partner", "res_id": self.partner.id, "message_type": "comment", "body": "AI link"}
+        messages = self.env["mail.message"].create([values] * count)
+        previews = self.env["mail.link.preview"].create(
+            [
+                {
+                    "source_url": "https://example.com/ai-scan-%s" % index,
+                    "og_title": "AI scan %s" % index,
+                    **preview_values,
+                }
+                for index in range(count)
+            ]
+        )
+        links = self.env["mail.message.link.preview"].create(
+            [{"message_id": message.id, "link_preview_id": preview.id} for message, preview in zip(messages, previews)]
+        )
+        return messages, previews, links
+
+    def test_a_link_rows_scan_cut_short_marks_only_a_result_it_left_rows_out_of(self):
+        messages, previews, links = self._messages_with_link_rows(2)
+        on_partner = [["model", "=", "res.partner"], ["id", "in", messages.ids]]
+        searches = (
+            ("mail.link.preview", [["id", "in", previews.ids]], previews[1:], True),
+            ("mail.link.preview", [["id", "=", previews[1].id]], previews[1:], False),
+            ("mail.message.link.preview", [["id", "in", links.ids]], links[1:], True),
+            ("mail.message.link.preview", [["message_id", "=", messages[1].id]], links[1:], False),
+            ("mail.message", [*on_partner, ["message_link_preview_ids", "!=", False]], messages[1:], True),
+            ("mail.message", [*on_partner, ["message_link_preview_ids", "=", False]], messages[:1], True),
+            (
+                "mail.message",
+                [*on_partner, ["message_link_preview_ids.link_preview_id.og_title", "=", "AI scan 1"]],
+                messages[1:],
+                False,
+            ),
+        )
+        reads = ((messages[1], links[1:].ids, False), (messages[0], [], True))
+        with patch(f"{TOOLS_MODULE}.IN_MAX", 1), patch(f"{TOOLS_MODULE}.MAX_SEARCH_LIMIT", 1):
+            for model_name, domain, expected, is_cut in searches:
+                payload, is_error = self._search_read(self.administrator, model_name, domain, ["id"])
+                self.assertFalse(is_error, payload)
+                self.assertEqual([row["id"] for row in payload["records"]], expected.ids, domain)
+                self.assertEqual(payload.get("truncated", False), is_cut, domain)
+                self.assertEqual("Only the link previews of the newest 1 messages" in payload.get("note", ""), is_cut)
+            for message, link_ids, is_cut in reads:
+                payload, is_error = self._call(
+                    self.administrator,
+                    "read",
+                    model="mail.message",
+                    ids=message.ids,
+                    fields=["message_link_preview_ids"],
+                )
+                self.assertFalse(is_error, payload)
+                self.assertEqual(payload["records"][0]["message_link_preview_ids"], link_ids)
+                self.assertEqual(payload.get("truncated", False), is_cut, message)
+            payload, is_error = self._call(
+                self.administrator,
+                "read_group",
+                model="mail.message.link.preview",
+                domain=json.dumps([["id", "in", links.ids]]),
+                groupby=["message_id"],
+                measures=[],
+                orderby="",
+                limit=0,
+            )
+        self.assertFalse(is_error, payload)
+        self.assertEqual([group["message_id"][0] for group in payload["groups"]], messages[1:].ids)
+        self.assertTrue(payload["truncated"])
+
+    def test_the_result_cap_keeps_the_link_rows_note(self):
+        _messages, previews, _links = self._messages_with_link_rows(3, og_description="AI words " * 250)
+        with (
+            patch(f"{TOOLS_MODULE}.IN_MAX", 1),
+            patch(f"{TOOLS_MODULE}.MAX_SEARCH_LIMIT", 2),
+            patch(f"{TOOLS_MODULE}.RESULT_MAX_CHARS", 3000),
+        ):
+            payload, is_error = self._search_read(
+                self.administrator, "mail.link.preview", [["id", "in", previews.ids]], ["og_description"]
+            )
+        self.assertFalse(is_error, payload)
+        self.assertEqual([row["id"] for row in payload["records"]], previews[1:2].ids)
+        self.assertTrue(payload["truncated"])
+        self.assertIn("Only the link previews of the newest 2 messages", payload["note"])
+        self.assertIn("Only the first 1 rows fit in one result", payload["note"])
 
     def test_the_link_rows_are_not_looked_for_when_the_employee_may_not_read_them(self):
         tools = self._tools(self.employee)
@@ -4642,6 +4820,10 @@ class TestAiDenyListEmployeeCosts(AssistantCase):
                 True,
             ),
         )
+        named = [["line_ids", "ilike", "AI plain line"]]
+        content, is_error = self._search_read(self.accountant, "account.analytic.account", named)
+        self.assertTrue(is_error, content)
+        self.assertIn("account.analytic.account.line_ids cannot be compared as a whole", content)
         empty_account = self.env["account.analytic.account"].create(
             {"name": "AI Empty Account", "plan_id": self.account.plan_id.id}
         )
@@ -5026,3 +5208,1160 @@ class TestAiDenyListEmployeeCosts(AssistantCase):
             self.assertTrue(is_error, field_name)
             self.assertIn("is on the AI deny list", content)
         self.assertFalse({"cost", "display_cost"} & set(tools._tool_read_fields(Map._name, [])))
+
+
+@tagged("post_install", "-at_install")
+class TestAiDenyListRecordTexts(AssistantCase):
+    """URL tokens and links to denied records in any record's own texts, as code copies them from mails and chats."""
+
+    def _skip_without(self, model_name, field_name=None):
+        if model_name not in self.env or (field_name and field_name not in self.env[model_name]._fields):
+            self.skipTest("%s.%s is not installed" % (model_name, field_name or ""))
+
+    def _shown(self, user, model_name, record, names, base_domain=()):
+        payload, is_error = self._search_read(user, model_name, [*base_domain, ["id", "=", record.id]], names)
+        self.assertFalse(is_error, payload)
+        self.assertEqual(len(payload["records"]), 1, payload)
+        return payload["records"][0]
+
+    def _assert_filtered_as_shown(self, user, model_name, record, name, values, base_domain=()):
+        """A filter on `name` with each of `values` finds `record` where its shown text holds the value, and its
+        negation where it does not; the shown text."""
+        shown = self._shown(user, model_name, record, [name], base_domain)[name] or ""
+        this = [*base_domain, ["id", "=", record.id]]
+        for value in values:
+            is_shown = value.lower() in shown.lower()
+            for operator, expected in (("ilike", is_shown), ("not ilike", not is_shown)):
+                payload, is_error = self._search_read(user, model_name, [*this, [name, operator, value]], ["id"])
+                self.assertFalse(is_error, payload)
+                self.assertEqual(bool(payload["records"]), expected, (name, operator, value, shown))
+        return shown
+
+    def _bank_link(self):
+        bank = self.env["res.partner.bank"].create(
+            {"account_number": "BE71096123456769", "partner_id": self.partner.id}
+        )
+        return bank._get_html_link()
+
+    def test_url_tokens_in_a_record_s_own_text_are_redacted_wherever_the_tools_show_it(self):
+        token = "made-up-name-token-1a2b"
+        Partner = self.env["res.partner"]
+        pasted = Partner.create({"name": "AI Pasted /my/orders/7?access_token=%s" % token})
+        child = Partner.create({"name": "AI Pasted Child", "parent_id": pasted.id})
+        shown_name = "AI Pasted /my/orders/7?access_token=%s" % REDACTED_TOKEN
+        row = self._shown(self.employee, "res.partner", pasted, ["name", "display_name"])
+        self.assertEqual((row["name"], row["display_name"]), (shown_name, shown_name))
+
+        payload, is_error = self._call(
+            self.employee, "read", model="res.partner", ids=child.ids, fields=["parent_id", "commercial_partner_id"]
+        )
+        self.assertFalse(is_error, payload)
+        self.assertEqual(payload["records"][0]["parent_id"], [pasted.id, shown_name])
+        self.assertIn(shown_name, payload["records"][0]["display_name"])
+        self.assertNotIn(token, json.dumps(payload))
+        for groupby, measures in ((["name"], []), (["parent_id"], ["name:max"])):
+            payload, is_error = self._call(
+                self.employee,
+                "read_group",
+                model="res.partner",
+                domain=json.dumps([["id", "in", (pasted | child).ids]]),
+                groupby=groupby,
+                measures=measures,
+                orderby="",
+                limit=0,
+            )
+            self.assertFalse(is_error, payload)
+            self.assertIn(shown_name, json.dumps(payload), groupby)
+            self.assertNotIn(token, json.dumps(payload), groupby)
+
+        self.partner.message_post(body="AI hello", author_id=pasted.id, message_type="comment")
+        content, is_error = self._tools(self.employee)._execute(
+            "record_history", {"model": "res.partner", "res_id": self.partner.id}
+        )
+        self.assertFalse(is_error, content)
+        self.assertIn(shown_name, content)
+        self.assertNotIn(token, content)
+        context = self._tools(self.employee)._question_context("res.partner", pasted.id)
+        self.assertIn(shown_name, context)
+        self.assertNotIn(token, context)
+
+    def test_a_filter_on_a_record_s_own_text_matches_it_as_shown(self):
+        token = "made-up-filter-token-3c4d"
+        Partner = self.env["res.partner"]
+        raw_name = "AI Filtered /my/orders/7?access_token=%s" % token
+        pasted = Partner.create(
+            {
+                "name": raw_name,
+                "ref": "AI ref /survey/%s/start" % token,
+                "comment": Markup("<p>AI note /chat/5/%s</p>") % token,
+            }
+        )
+        child = Partner.create({"name": "AI Filtered Child", "parent_id": pasted.id})
+        probes = (token, token[:12], "made-up", REDACTED_TOKEN, "/my/orders/7?access_token=", "AI")
+        for name in ("name", "ref", "comment"):
+            shown = self._assert_filtered_as_shown(self.employee, "res.partner", pasted, name, probes)
+            self.assertNotIn(token, shown, name)
+        shown_name = "AI Filtered /my/orders/7?access_token=%s" % REDACTED_TOKEN
+        family = [["id", "in", (pasted | child).ids]]
+        for terms, expected in (
+            ([["parent_id.name", "ilike", token]], []),
+            ([["parent_id.name", "ilike", "AI Filtered /my"]], child.ids),
+            ([["name", "=", raw_name]], []),
+            ([["name", "=", shown_name]], pasted.ids),
+            ([["name", "in", [raw_name, "AI Filtered Child"]]], child.ids),
+            ([["name", "!=", raw_name]], sorted((pasted | child).ids)),
+            ([["ref", "not ilike", token]], sorted((pasted | child).ids)),
+            ([["ref", "not ilike", "AI"]], child.ids),
+            ([["comment", "not ilike", token]], sorted((pasted | child).ids)),
+            ([["ref", "=", False]], child.ids),
+            (["!", ["name", "ilike", token]], sorted((pasted | child).ids)),
+        ):
+            payload, is_error = self._search_read(self.employee, "res.partner", [*family, *terms], ["id"])
+            self.assertFalse(is_error, payload)
+            self.assertEqual(sorted(row["id"] for row in payload["records"]), expected, terms)
+        for name in ("name", "ref", "comment"):
+            for operator in ("<", ">=", "<=", ">"):
+                content, is_error = self._search_read(self.employee, "res.partner", [[name, operator, "AI"]], ["id"])
+                self.assertTrue(is_error, (name, operator))
+                self.assertIn("res.partner.%s is a text that may hold a URL token" % name, content)
+
+    def test_a_display_name_and_a_link_s_name_are_filtered_as_shown(self):
+        token = "made-up-name-token-5e6f"
+        Partner = self.env["res.partner"]
+        raw_name = "AI Named /my/orders/7?access_token=%s" % token
+        shown_name = "AI Named /my/orders/7?access_token=%s" % REDACTED_TOKEN
+        pasted = Partner.create({"name": raw_name})
+        child = Partner.create({"name": "AI Named Child", "parent_id": pasted.id})
+        pasted.activity_schedule(
+            "mail.mail_activity_data_todo", summary="AI call /survey/%s/start" % token, user_id=self.employee.id
+        )
+        probes = (token, token[:12], REDACTED_TOKEN, "AI Named /my")
+        shown = self._assert_filtered_as_shown(self.employee, "res.partner", pasted, "display_name", probes)
+        self.assertEqual(shown, shown_name)
+        family = [["id", "in", (pasted | child).ids]]
+        for terms, expected in (
+            ([["parent_id", "ilike", token]], []),
+            ([["parent_id", "ilike", "AI Named /my"]], child.ids),
+            ([["parent_id", "not ilike", token]], sorted((pasted | child).ids)),
+            ([["parent_id", "not ilike", "AI Named /my"]], pasted.ids),
+            ([["parent_id", "=", raw_name]], []),
+            ([["parent_id", "=", shown_name]], child.ids),
+            ([["parent_id.display_name", "ilike", token]], []),
+            ([["parent_id.display_name", "ilike", REDACTED_TOKEN]], child.ids),
+            ([["activity_ids", "ilike", token]], []),
+            ([["activity_ids", "ilike", "AI call /survey/"]], pasted.ids),
+        ):
+            payload, is_error = self._search_read(self.employee, "res.partner", [*family, *terms], ["id"])
+            self.assertFalse(is_error, payload)
+            self.assertEqual(sorted(row["id"] for row in payload["records"]), expected, terms)
+
+    def test_a_name_search_of_a_model_s_own_code_is_matched_as_odoo_matches_it(self):
+        # res.partner.category's name search adds the subtags, and leaves a negative operator to Odoo.
+        Category = self.env["res.partner.category"]
+        parent = Category.create({"name": "AI Parent Tag"})
+        child = Category.create({"name": "AI Child Tag", "parent_id": parent.id})
+        tagged = self.env["res.partner"].create({"name": "AI Tagged", "category_id": [Command.set(child.ids)]})
+        untagged = self.env["res.partner"].create({"name": "AI Untagged"})
+        for model_name, terms, expected in (
+            ("res.partner.category", [["display_name", "ilike", "AI Parent Tag"]], (parent | child).ids),
+            ("res.partner.category", [["display_name", "not ilike", "AI Parent Tag"]], []),
+            ("res.partner", [["category_id", "ilike", "AI Parent Tag"]], tagged.ids),
+            ("res.partner", [["category_id", "not ilike", "AI Parent Tag"]], untagged.ids),
+        ):
+            records = (parent | child) if model_name == "res.partner.category" else (tagged | untagged)
+            domain = [["id", "in", records.ids], *terms]
+            payload, is_error = self._search_read(self.employee, model_name, domain, ["id"])
+            self.assertFalse(is_error, payload)
+            self.assertEqual(sorted(row["id"] for row in payload["records"]), sorted(expected), terms)
+
+    def test_token_forms_are_redacted_and_filtered_as_shown(self):
+        forms = {
+            "made-up-fragment-1e2f": "/my/orders/7#access_token={}",
+            "made-up-encoded-3a4b": "/web/login?redirect=%2Fmy%2Forders%2F7%3Faccess_token%3D{}",
+            "made-up-lower-5c6d": "/web/login?redirect=/my/orders/8%3ftoken%3d{}",
+            "made-up-signed-7e8f": "/mail/view?model=res.partner&amp;res_id=5&amp;pid=5&amp;hash={}",
+            "made-up-signed-first-9a0b": "/my/orders/9?hash={}&amp;pid=5",
+            "made-up-bold-1c2d": "/survey/<b>{}</b>/start",
+            "made-up-span-3e4f": "/survey/<span>{}</span>/start",
+        }
+        kept = "made-up-file-hash-5a6b"
+        html = Markup(
+            "".join("<p>AI form %s</p>" % url.replace("{}", value) for value, url in forms.items())
+            + "<p>AI file /web/content/42?download=true&amp;hash=%s</p>" % kept
+        )
+        partner = self.env["res.partner"].create({"name": "AI Forms", "comment": html})
+        message = self.partner.message_post(body=html, message_type="comment")
+        for model_name, record, name in (("res.partner", partner, "comment"), ("mail.message", message, "body")):
+            shown = self._assert_filtered_as_shown(self.employee, model_name, record, name, (*forms, kept, "AI form"))
+            for value in forms:
+                self.assertNotIn(value, shown, (model_name, value))
+            self.assertIn("/web/content/42?download=true&hash=%s" % kept, shown, model_name)
+            self.assertEqual(shown.count(REDACTED_TOKEN), len(forms), shown)
+        content, is_error = self._tools(self.employee)._execute(
+            "record_history", {"model": "res.partner", "res_id": self.partner.id}
+        )
+        self.assertFalse(is_error, content)
+        for value in forms:
+            self.assertNotIn(value, content)
+        self.assertIn(kept, content)
+
+    def test_a_token_split_by_inline_tags_is_redacted_and_filtered_as_shown(self):
+        # Mail clients break a long URL with <wbr>; an editor wraps part of one in an inline tag.
+        forms = {
+            "made-up-wbr-1a2b": "/my/orders/7?<wbr>access_token=<wbr>made-up-wbr-1a2b",
+            "made-up-span-3c4d": "/my/orders/7?<span>access_token=made-up-span-3c4d</span>",
+            "made-up-bold-5e6f": "/my/orders/7?access_<b>token</b>=made-up-bold-5e6f",
+            "made-up-path-7a8b": "/<span>survey</span>/start/made-up-path-7a8b",
+            "made-up-tail-9c0d": "/my/orders/7?access_token=made-up-<wbr>tail-9c0d",
+            "made-up-closed-1e2f": "/my/orders/7?access_token=made-up-<wbr></wbr>closed-1e2f",
+            "made-up-comment-3a4b": "/my/orders/7?access_token=made-up-<!-- x -->comment-3a4b",
+            "made-up-signed-5c6d": "/mail/view?model=res.partner%26pid%3D5%26hash%3Dmade-up-signed-5c6d",
+        }
+        kept = "AI kept word"
+        for secret, url in forms.items():
+            html = Markup("<p>AI form %s&nbsp;%s</p>" % (url, kept))
+            partner = self.env["res.partner"].create({"name": "AI Split", "comment": html, "ref": "AI %s" % url})
+            message = self.partner.message_post(body=html, message_type="comment")
+            tail = secret.rsplit("-", 2)[-2:]
+            probes = (secret, "-".join(tail), tail[-1], kept, "AI form")
+            for model_name, record, name in (
+                ("res.partner", partner, "comment"),
+                ("res.partner", partner, "ref"),
+                ("mail.message", message, "body"),
+            ):
+                shown = self._assert_filtered_as_shown(self.employee, model_name, record, name, probes)
+                self.assertNotIn(tail[-1], shown, (url, name))
+                self.assertIn(REDACTED_TOKEN, shown, (url, name))
+                if name != "ref":
+                    self.assertIn(kept, shown, "a no-break space ends a token's value: %s" % url)
+
+    def test_redacting_a_long_text_takes_linear_time(self):
+        tools = self._tools(self.employee)
+        units = ("&pid=1", "&hash=1", "%26pid%3D1", "%26hash%3D1", "?access_token", "<!--", "<a ", "&pid=1&hash=2")
+        for unit in units:
+            text = unit * (200000 // len(unit)) + "&pid=5"
+            start = time.perf_counter()
+            tools._without_url_tokens(text)
+            self.assertLess(time.perf_counter() - start, 1.0, unit)
+        partner = self.env["res.partner"].create(
+            {"name": "AI Long", "comment": "<p>%s&pid=5</p>" % ("&hash=1" * 28000)}
+        )
+        start = time.perf_counter()
+        payload, is_error = self._search_read(
+            self.employee, "res.partner", [["id", "=", partner.id], ["comment", "ilike", "zz%z"]], ["id"]
+        )
+        self.assertEqual((payload["records"], is_error), ([], False))
+        self.assertLess(time.perf_counter() - start, 2.0, "a filter redacts the text in SQL as fast")
+
+    def test_a_like_value_that_meets_only_the_shown_text_finds_it(self):
+        # Each value meets the shown text, REDACTED_TOKEN in it, and not the stored one: a wildcard, a bracket, and an
+        # accent Odoo's unaccent takes off.
+        partner = self.env["res.partner"].create(
+            {"name": "AI Probe /my/orders/7?access_token=made-up-probe-token-4e5f"}
+        )
+        unaccented = self.env["res.partner"].create({"name": "AI /chat/5/abc123"})
+        probes = [(partner, "7?access%list"), (partner, "=[t"), (partner, "7?access_token=[")]
+        if self._with_unaccent():
+            probes.append((unaccented, "é"))
+        for record, value in probes:
+            shown = self._shown(self.employee, "res.partner", record, ["name"])["name"]
+            self.assertTrue(re.search(like_regex(value), remove_accents(shown), re.IGNORECASE), (value, shown))
+            self.assertFalse(re.search(like_regex(value), record.name, re.IGNORECASE), (value, record.name))
+            for operator, expected in (("ilike", [record.id]), ("not ilike", [])):
+                payload, is_error = self._search_read(
+                    self.employee, "res.partner", [["id", "=", record.id], ["name", operator, value]], ["id"]
+                )
+                self.assertEqual(([row["id"] for row in payload["records"]], is_error), (expected, False), value)
+
+    def _with_unaccent(self):
+        """Whether Odoo's unaccent is on, switched on for the test where the database offers it."""
+        registry = self.env.registry
+        if registry.has_unaccent:
+            return True
+        try:
+            with self.env.cr.savepoint():
+                self.env.cr.execute("CREATE EXTENSION IF NOT EXISTS unaccent")
+        except psycopg2.Error:
+            return False
+        for name, value in (("has_unaccent", True), ("unaccent", _unaccent), ("unaccent_python", remove_accents)):
+            self.startPatcher(patch.object(registry, name, value))
+        return True
+
+    def test_a_property_and_a_json_value_are_shown_as_a_text_field_is(self):
+        self._skip_without("project.task", "task_properties")
+        token = "made-up-property-token-6a7b"
+        project_user = new_test_user(
+            self.env, login="test_assistant_properties", groups="base.group_user,project.group_project_user"
+        )
+        bank = self.env["res.partner.bank"].create(
+            {"account_number": "BE71096123456769", "partner_id": self.partner.id}
+        )
+        pasted = self.env["res.partner"].create({"name": "AI Property /my/orders/7?access_token=%s" % token})
+        project = self.env["project.project"].create(
+            {
+                "name": "AI Property Project",
+                "task_properties_definition": [
+                    {"name": "ai_char", "type": "char", "string": "AI Char", "default": "AI /survey/%s/start" % token},
+                    {"name": "ai_html", "type": "html", "string": "AI Html"},
+                    {"name": "ai_linking_html", "type": "html", "string": "AI Linking"},
+                    {"name": "ai_bank", "type": "many2one", "string": "AI Bank", "comodel": "res.partner.bank"},
+                    {"name": "ai_partner", "type": "many2one", "string": "AI Partner", "comodel": "res.partner"},
+                    {"name": "ai_partners", "type": "many2many", "string": "AI Partners", "comodel": "res.partner"},
+                ],
+            }
+        )
+        task = self.env["project.task"].create({"name": "AI Property Task", "project_id": project.id})
+        task.task_properties = {
+            "ai_char": "AI /my/orders/7?access_token=%s" % token,
+            "ai_html": "<p>AI see /my/orders/7?<wbr>access_token=%s</p>" % token,
+            "ai_linking_html": "<p>AI paid to %s</p>" % bank._get_html_link(),
+            "ai_bank": bank.id,
+            "ai_partner": pasted.id,
+            "ai_partners": pasted.ids,
+        }
+        shown_name = "AI Property /my/orders/7?access_token=%s" % REDACTED_TOKEN
+        row = self._shown(project_user, "project.task", task, ["task_properties"])
+        values = {prop["name"]: prop.get("value") for prop in row["task_properties"]}
+        self.assertEqual(
+            values,
+            {
+                "ai_char": "AI /my/orders/7?access_token=%s" % REDACTED_TOKEN,
+                "ai_html": "AI see /my/orders/7?access_token=%s" % REDACTED_TOKEN,
+                "ai_linking_html": MASKED_HTML_TEXT,
+                "ai_bank": [bank.id, DENIED_NAME_LABEL],
+                "ai_partner": [pasted.id, shown_name],
+                "ai_partners": [[pasted.id, shown_name]],
+            },
+        )
+        self.assertNotIn(token, json.dumps(row))
+        self.assertNotIn("BE71", json.dumps(row))
+
+        self.env.cr.execute(
+            "UPDATE res_partner SET additional_identifiers = %s WHERE id = %s",
+            [
+                json.dumps({"AI": ["/my/orders/7?access_token=%s" % token, {"AI": "/survey/%s/start" % token}]}),
+                pasted.id,
+            ],
+        )
+        pasted.invalidate_recordset(["additional_identifiers"])
+        row = self._shown(self.employee, "res.partner", pasted, ["additional_identifiers"])
+        self.assertEqual(
+            row["additional_identifiers"],
+            {"AI": ["/my/orders/7?access_token=%s" % REDACTED_TOKEN, {"AI": "/survey/%s" % REDACTED_TOKEN}]},
+        )
+        tools = self._tools(project_user)
+        for model_name in ("project.task", "res.partner"):
+            Model = self.env[model_name]
+            json_names = [
+                name for name in tools._tool_read_fields(model_name, []) if Model._fields[name].type == "json"
+            ]
+            self.assertEqual(json_names, [], model_name)
+
+        task.description = "<p>AI first /my/orders/7?access_token=%s</p>" % token
+        task.description = "<p>AI second</p>"
+        self.assertIn(token, json.dumps(task.html_field_history), "Odoo keeps the old text as a diff")
+        content, is_error = self._search_read(
+            project_user, "project.task", [["id", "=", task.id]], ["html_field_history"]
+        )
+        self.assertTrue(is_error, content)
+        self.assertIn("project.task.html_field_history is on the AI deny list", content)
+
+    def test_a_json_or_properties_value_is_no_filter_sort_key_or_group(self):
+        stored_url = "/survey/made-up-structured-token-8d9e/start"
+        partner = self.env["res.partner"].create({"name": "AI Structured"})
+        child = self.env["res.partner"].create({"name": "AI Structured Child", "parent_id": partner.id})
+        self.env.cr.execute(
+            "UPDATE res_partner SET additional_identifiers = %s WHERE id = %s",
+            [json.dumps({"AI": stored_url}), partner.id],
+        )
+        partner.invalidate_recordset(["additional_identifiers"])
+        structured = [
+            (self.employee, "res.partner", partner, "additional_identifiers"),
+            (self.employee, "res.partner", child, "parent_id.additional_identifiers"),
+        ]
+        if "project.task" in self.env and "task_properties" in self.env["project.task"]._fields:
+            project_user = new_test_user(
+                self.env, login="test_assistant_structured", groups="base.group_user,project.group_project_user"
+            )
+            project = self.env["project.project"].create(
+                {
+                    "name": "AI Structured Project",
+                    "task_properties_definition": [
+                        {"name": "ai_char", "type": "char", "string": "AI Char", "default": stored_url}
+                    ],
+                }
+            )
+            task = self.env["project.task"].create({"name": "AI Structured Task", "project_id": project.id})
+            task.task_properties = {"ai_char": stored_url}
+            structured += [
+                (project_user, "project.project", project, "task_properties_definition"),
+                (project_user, "project.task", task, "task_properties"),
+            ]
+        for user, model_name, record, path in structured:
+            refused = "%s.%s is structured data" % (model_name, path.rpartition(".")[2])
+            if path != "task_properties":
+                self.assertEqual(
+                    self.env[model_name].search([("id", "=", record.id), (path, "ilike", "/survey/m")]),
+                    record,
+                    "Odoo's own matches the token as stored",
+                )
+            this = [["id", "=", record.id]]
+            content, is_error = self._search_read(user, model_name, [*this, [path, "ilike", "/survey/m"]], ["id"])
+            self.assertEqual((is_error, refused in content), (True, True), (path, content))
+            if "." in path:
+                continue
+            content, is_error = self._search_read(user, model_name, this, ["id"], order=path)
+            self.assertEqual((is_error, refused in content), (True, True), (path, content))
+            content, is_error = self._call(
+                user,
+                "read_group",
+                model=model_name,
+                domain=json.dumps(this),
+                groupby=[path],
+                measures=[],
+                orderby="",
+                limit=0,
+            )
+            self.assertEqual((is_error, refused in content), (True, True), (path, content))
+
+    def test_a_json_value_is_tested_set_or_not_and_counted_only(self):
+        identified = self.env["res.partner"].create({"name": "AI Identified"})
+        bare = self.env["res.partner"].create({"name": "AI Unidentified"})
+        self.env.cr.execute(
+            "UPDATE res_partner SET additional_identifiers = %s WHERE id = %s",
+            [json.dumps({"AI": "/survey/made-up-null-test-1a2b/start"}), identified.id],
+        )
+        identified.invalidate_recordset(["additional_identifiers"])
+        both = [["id", "in", (identified | bare).ids]]
+        for operator, expected in (("=", bare), ("!=", identified)):
+            payload, is_error = self._search_read(
+                self.employee, "res.partner", [*both, ["additional_identifiers", operator, False]], ["id"]
+            )
+            self.assertFalse(is_error, (operator, payload))
+            self.assertEqual([row["id"] for row in payload["records"]], expected.ids, operator)
+        payload, is_error = self._call(self.employee, "fields", model="res.partner")
+        flags = {
+            key: payload["fields"]["additional_identifiers"][key] for key in ("searchable", "sortable", "groupable")
+        }
+        self.assertEqual(flags, {"searchable": False, "sortable": False, "groupable": False})
+        refused = "res.partner.additional_identifiers is structured data"
+
+        def aggregate(function):
+            return self._call(
+                self.employee,
+                "read_group",
+                model="res.partner",
+                domain=json.dumps(both),
+                groupby=[],
+                measures=["additional_identifiers:%s" % function],
+                orderby="",
+                limit=0,
+            )
+
+        for function in ("count_distinct", "max", "sum"):
+            content, is_error = aggregate(function)
+            self.assertEqual((is_error, refused in content), (True, True), (function, content))
+        payload, is_error = aggregate("count")
+        self.assertEqual((payload["groups"][0]["additional_identifiers"], is_error), (1, False), payload)
+        if "project.task" in self.env and "task_properties" in self.env["project.task"]._fields:
+            content, is_error = self._search_read(self.employee, "project.task", [["task_properties", "=", False]])
+            self.assertEqual(
+                (is_error, "project.task.task_properties is structured data" in content),
+                (True, True),
+                "Odoo has no test of a whole properties value: it raises",
+            )
+
+    def test_an_analytic_distribution_is_filtered_by_its_accounts_and_never_grouped(self):
+        self._skip_without("account.analytic.distribution.model", "distribution_analytic_account_ids")
+        plan = self.env["account.analytic.plan"].search([], limit=1)
+        if not plan:
+            self.skipTest("no analytic plan")
+        accountant = new_test_user(
+            self.env, login="test_assistant_distribution", groups="base.group_user,analytic.group_analytic_accounting"
+        )
+        north, south = self.env["account.analytic.account"].create(
+            [{"name": "AI North", "plan_id": plan.id}, {"name": "AI South", "plan_id": plan.id}]
+        )
+        Model = self.env["account.analytic.distribution.model"]
+        to_north, to_both, to_south = Model.create(
+            [
+                {"analytic_distribution": {str(north.id): 100}},
+                {"analytic_distribution": {str(north.id): 50, str(south.id): 50}},
+                {"analytic_distribution": {str(south.id): 100}},
+            ]
+        )
+        rows = [["id", "in", (to_north | to_both | to_south).ids]]
+        cases = [
+            ([["analytic_distribution", "in", [north.id]]], to_north | to_both),
+            ([["analytic_distribution", "not in", [south.id]]], to_north),
+            ([["analytic_distribution", "ilike", "AI North"]], to_north | to_both),
+            ([["analytic_distribution", "not ilike", "AI North"]], to_south),
+        ]
+        for terms, expected in cases:
+            self.assertEqual(Model.search([tuple(term) for term in rows + terms]), expected, "Odoo's own: %s" % terms)
+        cases += [
+            ([["analytic_distribution", "=", south.id]], to_both | to_south),
+            ([["analytic_distribution", "in", ["AI South"]]], to_both | to_south),
+            (["!", ["analytic_distribution", "in", [north.id]]], to_south),
+            ([["analytic_distribution", "!=", False]], to_north | to_both | to_south),
+            ([["analytic_distribution", "=", False]], Model),
+        ]
+        for terms, expected in cases:
+            payload, is_error = self._search_read(accountant, Model._name, rows + terms, ["id"])
+            self.assertFalse(is_error, (terms, payload))
+            self.assertEqual(sorted(row["id"] for row in payload["records"]), sorted(expected.ids), terms)
+        content, is_error = self._call(
+            accountant,
+            "read_group",
+            model=Model._name,
+            domain=json.dumps(rows),
+            groupby=["analytic_distribution"],
+            measures=[],
+            orderby="",
+            limit=0,
+        )
+        self.assertTrue(is_error, content)
+        self.assertIn("group account.analytic.line by account_id", content)
+        payload, is_error = self._call(accountant, "fields", model=Model._name)
+        flags = {
+            key: payload["fields"]["analytic_distribution"][key] for key in ("searchable", "sortable", "groupable")
+        }
+        self.assertEqual(flags, {"searchable": True, "sortable": False, "groupable": False})
+
+    def test_a_like_on_a_stored_text_keeps_its_trigram_index(self):
+        self._skip_without("project.task", "name")
+        self.env.cr.execute(
+            "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'project_task' AND indexdef LIKE %s",
+            ["%name%gin_trgm_ops%"],
+        )
+        indexes = self.env.cr.fetchall()
+        if not indexes:
+            self.skipTest("project_task.name has no trigram index: pg_trgm is not installed")
+        index_name, index_definition = indexes[0]
+        tools = self._tools(self.employee)
+        # An unaccented index serves ilike only, as for Odoo's own condition.
+        operators = ("ilike",) if "unaccent" in index_definition else ("ilike", "like")
+        self.env.cr.execute("SELECT set_config('enable_seqscan', 'off', true)")
+        self.addCleanup(self.env.cr.execute, "SELECT set_config('enable_seqscan', 'on', true)")
+        for operator in operators:
+            query = self.env["project.task"]._search(tools._guarded_term("project.task", "name", operator, "AI probe"))
+            self.env.cr.execute(SQL("EXPLAIN %s", query.select()))
+            plan = "\n".join(row[0] for row in self.env.cr.fetchall())
+            self.assertIn("Bitmap Index Scan on %s" % index_name, plan, operator)
+
+    def test_a_text_is_redacted_alike_in_python_and_in_sql(self):
+        tools = self._tools(self.employee)
+        # A tag before, inside or after a parameter's name, in a signature's run, or inside a comment or a "<" that
+        # it makes a tag of once taken out: only the strip shows the token.
+        cases = [
+            "<p>/my/orders/7?access_<b>token=made-up-before-1a2b</b> x</p>",
+            "<p>/my/orders/7?acc<b>ess_token=made-up-inside-3c4d</b> x</p>",
+            "<p>/mail/view?model=x&amp;pid=5<b>9</b>&amp;hash=made-up-pid-run-5e6f x</p>",
+            "<p>/mail/view?hash=made-up-lookahead-7a8b<b>&amp;pid=5</b> x</p>",
+            "<p>/<span>survey</span>/start/made-up-path-9c0d x</p>",
+            "<p>/survey/start/<!-- <b>v2</b> -->made-up-comment-2e3f x</p>",
+            "<p>/survey/x<b<b>>made-up-completed-tag-4a5b x</p>",
+            "<p>/survey/x<sp<b></b>an>made-up-joined-tag-6c7d x</p>",
+        ]
+        for text in cases:
+            secret = re.search(r"made-up-[a-z-]+-\w{4}", text).group()
+            self.assertNotIn(secret, tools._without_url_tokens(text), text)
+        units = (
+            *("?", "&", "&amp;", ";", "#", "%3F", "%26", "%3D", "=", "/", "%", "_", "access_", "token", "token="),
+            *("pid=", "hash=", "<b>", "</b>", "<span>", "<wbr>", "<!-- x -->", "<p>", "<br>", "abc", "5", " "),
+            *(" ", "survey", "/survey/", "/rate/", REDACTED_TOKEN),
+            *("<!--", "-->", "<", "<b", "<sp", "an>", ">"),
+        )
+        rng = random.Random(7)
+        texts = cases + ["".join(rng.choice(units) for _ in range(rng.randint(2, 14))) for _ in range(3000)]
+
+        def stripped_always(text):
+            text = tools._without_url_tokens_once(text)
+            untagged_text = URL_INLINE_TAGS.sub("", text)
+            redacted_text = tools._without_url_tokens_once(untagged_text)
+            return redacted_text if redacted_text != untagged_text else text
+
+        expected = [stripped_always(text) for text in texts]
+        self.assertEqual([tools._without_url_tokens(text) for text in texts], expected)
+        self.env.cr.execute(
+            SQL(
+                "SELECT %s FROM unnest(%s::text[]) WITH ORDINALITY AS ai_case(text, position) ORDER BY position",
+                tools._redacted_text_sql(SQL("ai_case.text")),
+                texts,
+            )
+        )
+        self.assertEqual([row[0] for row in self.env.cr.fetchall()], expected)
+
+    def test_a_like_value_that_meets_a_token_its_tags_split_finds_the_text_as_shown(self):
+        partner = self.env["res.partner"].create(
+            {"name": "AI Split Probe", "ref": "AI /my/orders/7?<b>access</b>_token=made-up-split-probe-6a7b"}
+        )
+        shown = self._shown(self.employee, "res.partner", partner, ["ref"])["ref"]
+        self.assertEqual(shown, "AI /my/orders/7?access_token=%s" % REDACTED_TOKEN)
+        for value in ("7?access", "orders/7?access"):
+            self.assertNotIn(value, partner.ref)
+            for operator, expected in (("ilike", partner.ids), ("not ilike", [])):
+                payload, is_error = self._search_read(
+                    self.employee, "res.partner", [["id", "=", partner.id], ["ref", operator, value]], ["id"]
+                )
+                self.assertEqual(
+                    ([row["id"] for row in payload["records"]], is_error), (expected, False), (operator, value)
+                )
+        unreferenced = self.env["res.partner"].create({"name": "AI Unreferenced"})
+        for terms in (
+            [["ref", "ilike", "7?access"]],
+            [["ref", "not ilike", "7?access"]],
+            ["!", ["ref", "ilike", "7?access"]],
+            ["!", ["ref", "not ilike", "7?access"]],
+        ):
+            this = [["id", "=", unreferenced.id], *terms]
+            payload, is_error = self._search_read(self.employee, "res.partner", this, ["id"])
+            own = self.env["res.partner"].search([term if isinstance(term, str) else tuple(term) for term in this])
+            self.assertEqual(
+                ([row["id"] for row in payload["records"]], is_error), (own.ids, False), "an empty text: %s" % terms
+            )
+
+    def test_an_html_text_keeps_its_links_beside_a_token_its_tags_split(self):
+        link = '<a href="https://example.com/ai-doc">the doc</a>'
+        texts = {
+            "made-up-anchored-8c9d": "/my/orders/7?access_<b>token</b>=made-up-anchored-8c9d",
+            "made-up-anchor-split-1e2f": '/my/orders/7?access_<a href="https://example.com/x">token</a>=made-up-anchor-split-1e2f',
+        }
+        for secret, url in texts.items():
+            partner = self.env["res.partner"].create(
+                {"name": "AI Anchored", "comment": Markup("<p>AI see %s and %s</p>" % (link, url))}
+            )
+            shown = self._shown(self.employee, "res.partner", partner, ["comment"])["comment"]
+            self.assertNotIn(secret, shown)
+            self.assertIn(REDACTED_TOKEN, shown)
+            if secret == "made-up-anchored-8c9d":
+                self.assertIn("https://example.com/ai-doc", shown, "html2plaintext lists the link's URL")
+
+    def test_a_deep_json_value_and_keys_that_redact_alike_are_shown_whole(self):
+        nested = "AI /survey/made-up-deep-token-3a4b/start"
+        for _depth in range(5000):
+            nested = [{"AI": nested}]
+        leaf = self._tools(self.employee)._without_url_tokens_in(nested)
+        while not isinstance(leaf, str):
+            leaf = leaf[0]["AI"]
+        self.assertEqual(leaf, "AI /survey/%s" % REDACTED_TOKEN)
+        partner = self.env["res.partner"].create({"name": "AI Keyed"})
+        identifiers = {
+            "/survey/made-up-key-5c6d/start": "AI first",
+            "/survey/made-up-key-7e8f/start": "AI second",
+            "AI": ["/rate/made-up-rate-9a0b"],
+        }
+        self.env.cr.execute(
+            "UPDATE res_partner SET additional_identifiers = %s WHERE id = %s", [json.dumps(identifiers), partner.id]
+        )
+        partner.invalidate_recordset(["additional_identifiers"])
+        shown = self._shown(self.employee, "res.partner", partner, ["additional_identifiers"])["additional_identifiers"]
+        self.assertEqual(
+            shown, {"/survey/%s" % REDACTED_TOKEN: ["AI first", "AI second"], "AI": ["/rate/%s" % REDACTED_TOKEN]}
+        )
+
+    def test_the_names_of_property_links_are_looked_up_once_per_model(self):
+        self._skip_without("project.task", "task_properties")
+        project_user = new_test_user(
+            self.env, login="test_assistant_property_names", groups="base.group_user,project.group_project_user"
+        )
+        project = self.env["project.project"].create(
+            {
+                "name": "AI Property Names",
+                "task_properties_definition": [
+                    {"name": "ai_partner", "type": "many2one", "string": "AI Partner", "comodel": "res.partner"},
+                    {"name": "ai_partners", "type": "many2many", "string": "AI Partners", "comodel": "res.partner"},
+                ],
+            }
+        )
+        tasks = self.env["project.task"].create(
+            [{"name": "AI Property Names %s" % index, "project_id": project.id} for index in range(3)]
+        )
+        for task in tasks:
+            task.task_properties = {"ai_partner": self.partner.id, "ai_partners": self.partner.ids}
+        tools_class = type(self.env["ai.assistant.tools"])
+        looked_up = []
+        denied_name_ids = tools_class._denied_name_ids
+
+        def counted(tools, model_name, ids):
+            looked_up.append(model_name)
+            return denied_name_ids(tools, model_name, ids)
+
+        with patch.object(tools_class, "_denied_name_ids", counted):
+            payload, is_error = self._search_read(
+                project_user, "project.task", [["id", "in", tasks.ids]], ["task_properties"]
+            )
+        self.assertFalse(is_error, payload)
+        self.assertEqual(
+            [prop["value"] for row in payload["records"] for prop in row["task_properties"]],
+            [[self.partner.id, self.partner.name], [[self.partner.id, self.partner.name]]] * 3,
+        )
+        self.assertEqual(looked_up, ["res.partner"])
+
+    def test_an_html_text_that_links_a_denied_record_is_masked_whole(self):
+        Partner = self.env["res.partner"]
+        meeting = "https://example.com/calendar/join_videocall/made-up-note-meeting"
+        linking, meeting_note, plain, empty = Partner.create(
+            [
+                {"name": "AI Linking Note", "comment": Markup("<p>AI note paid to %s</p>") % self._bank_link()},
+                {"name": "AI Meeting Note", "comment": "<p>AI note join %s</p>" % meeting},
+                {"name": "AI Plain Note", "comment": "<p>AI note paid by cash</p>"},
+                {"name": "AI Empty Note"},
+            ]
+        )
+        these = [["id", "in", (linking | meeting_note | plain | empty).ids]]
+        for tool, arguments in (
+            ("search_read", {"domain": json.dumps(these), "limit": 0, "order": ""}),
+            ("read", {"ids": (linking | meeting_note | plain).ids}),
+        ):
+            payload, is_error = self._call(self.employee, tool, model="res.partner", fields=["comment"], **arguments)
+            self.assertFalse(is_error, payload)
+            comments = {row["id"]: row["comment"] for row in payload["records"]}
+            self.assertEqual(
+                (comments[linking.id], comments[meeting_note.id], comments[plain.id]),
+                (MASKED_HTML_TEXT, MASKED_HTML_TEXT, "AI note paid by cash"),
+                tool,
+            )
+        for terms, expected in (
+            ([["comment", "ilike", "AI note"]], plain.ids),
+            ([["comment", "not ilike", "made-up-absent"]], sorted((plain | empty).ids)),
+            ([["comment", "ilike", "BE71"]], []),
+            ([["comment", "=", False]], empty.ids),
+            (["!", ["comment", "=", False]], plain.ids),
+        ):
+            payload, is_error = self._search_read(self.employee, "res.partner", [*these, *terms], ["id"])
+            self.assertFalse(is_error, payload)
+            self.assertEqual(sorted(row["id"] for row in payload["records"]), expected, terms)
+        content, is_error = self._search_read(self.employee, "res.partner", these, ["id"], order="comment")
+        self.assertTrue(is_error, content)
+        self.assertIn("res.partner.comment is an HTML text", content)
+        for groupby, measures in ((["comment"], []), ([], ["comment:max"])):
+            content, is_error = self._call(
+                self.employee,
+                "read_group",
+                model="res.partner",
+                domain=json.dumps(these),
+                groupby=groupby,
+                measures=measures,
+                orderby="",
+                limit=0,
+            )
+            self.assertTrue(is_error, (groupby, measures))
+            self.assertIn("res.partner.comment is an HTML text", content)
+
+    def test_a_translated_and_a_company_dependent_text_are_filtered_as_shown(self):
+        token = "made-up-jsonb-token-7c8d"
+        category = self.env["res.partner.category"].create({"name": "AI Tag /survey/%s/start" % token})
+        partner = self.env["res.partner"].create(
+            {"name": "AI Barcode", "barcode": "AI-/my/7?token=%s" % token, "category_id": [Command.link(category.id)]}
+        )
+        self.assertEqual(category._fields["name"].column_type[0], "jsonb")
+        self.assertEqual(partner._fields["barcode"].column_type[0], "jsonb")
+        for model_name, record, name in (
+            ("res.partner.category", category, "name"),
+            ("res.partner", partner, "barcode"),
+        ):
+            shown = self._assert_filtered_as_shown(
+                self.employee, model_name, record, name, (token, "made-up", "AI", REDACTED_TOKEN)
+            )
+            self.assertNotIn(token, shown, name)
+        payload, is_error = self._search_read(
+            self.employee, "res.partner", [["id", "=", partner.id], ["category_id.name", "ilike", token]], ["id"]
+        )
+        self.assertEqual((payload["records"], is_error), ([], False))
+
+        self.env["res.lang"]._activate_lang("fr_FR")
+        french_token = "made-up-french-token-9e0f"
+        category.with_context(lang="fr_FR").name = "AI Étiquette /my/orders/7?access_token=%s" % french_token
+        french_user = new_test_user(self.env, login="test_assistant_french", lang="fr_FR")
+        for user, kept_token, hidden_token in (
+            (self.employee, token, french_token),
+            (french_user, french_token, token),
+        ):
+            shown = self._assert_filtered_as_shown(
+                user, "res.partner.category", category, "name", (kept_token, hidden_token, "AI", REDACTED_TOKEN)
+            )
+            self.assertNotIn(kept_token, shown, user.lang)
+        self.assertIn("AI Étiquette", self._shown(french_user, "res.partner.category", category, ["name"])["name"])
+
+    def test_a_task_created_from_an_incoming_email_shows_its_description_redacted(self):
+        self._skip_without("project.task", "description")
+        token = "made-up-email-token-9e0f"
+        project_user = new_test_user(
+            self.env, login="test_assistant_task_mail", groups="base.group_user,project.group_project_user"
+        )
+        project = self.env["project.project"].create({"name": "AI Mailed Project"})
+        raw_email = (
+            "From: AI Sender <ai.sender@example.com>\r\n"
+            "To: ai-tasks@example.com\r\n"
+            "Subject: AI emailed task /my/orders/7?access_token=%s\r\n"
+            "Message-ID: <made-up-task-email@example.com>\r\n"
+            "Content-Type: text/html; charset=utf-8\r\n\r\n"
+            "<p>AI please check /my/orders/7?access_token=%s</p>\r\n" % (token, token)
+        )
+        task = self.env["mail.thread"].message_process(
+            "project.task", raw_email, custom_values={"project_id": project.id}
+        )
+        self.assertEqual(task._name, "project.task")
+        self.assertIn(token, task.description, "the task copies the email's body")
+        self.assertIn(token, task.name, "the task is named by the email's subject")
+        for name in ("description", "name"):
+            shown = self._assert_filtered_as_shown(
+                project_user, "project.task", task, name, (token, "AI", "made-up", REDACTED_TOKEN)
+            )
+            self.assertNotIn(token, shown, name)
+
+    def test_a_task_description_copied_from_a_message_that_links_a_denied_record_is_masked(self):
+        self._skip_without("project.task", "description")
+        project_user = new_test_user(
+            self.env, login="test_assistant_task_hook", groups="base.group_user,project.group_project_user"
+        )
+        project = self.env["project.project"].create({"name": "AI Hooked Project"})
+        task = self.env["project.task"].create(
+            {"name": "AI Hooked Task", "project_id": project.id, "partner_id": self.partner.id}
+        )
+        task.message_post(
+            body=Markup("<p>AI paid to %s</p>") % self._bank_link(),
+            message_type="email",
+            subtype_id=task._creation_subtype().id,
+            author_id=self.partner.id,
+        )
+        self.assertIn("data-oe-model", task.description, "the task copies the message's body")
+        self.assertEqual(
+            self._shown(project_user, "project.task", task, ["description"])["description"], MASKED_HTML_TEXT
+        )
+        for term in (["description", "ilike", "AI paid"], ["description", "not ilike", "made-up-absent"]):
+            payload, is_error = self._search_read(project_user, "project.task", [["id", "=", task.id], term], ["id"])
+            self.assertEqual((payload["records"], is_error), ([], False), term)
+
+    def test_an_activity_s_note_and_feedback_are_redacted_once_it_is_done(self):
+        token = "made-up-activity-token-1f2e"
+        activity = self.partner.activity_schedule(
+            "mail.mail_activity_data_todo",
+            note=Markup("<p>AI call /my/orders/7?access_token=%s</p>") % token,
+            user_id=self.employee.id,
+        )
+        activity.action_feedback(feedback="AI called /survey/%s/start" % token)
+        self.assertFalse(activity.active)
+        self.assertIn(token, activity.feedback)
+        archived = [["active", "=", False]]
+        for name in ("note", "feedback"):
+            shown = self._assert_filtered_as_shown(
+                self.employee, "mail.activity", activity, name, (token, "AI call", "made-up", REDACTED_TOKEN), archived
+            )
+            self.assertNotIn(token, shown, name)
+        linking = self.partner.activity_schedule(
+            "mail.mail_activity_data_todo",
+            note=Markup("<p>AI pay %s</p>") % self._bank_link(),
+            user_id=self.employee.id,
+        )
+        self.assertEqual(self._shown(self.employee, "mail.activity", linking, ["note"])["note"], MASKED_HTML_TEXT)
+
+    def test_a_lead_created_from_a_chat_shows_its_name_and_history_redacted(self):
+        self._skip_without("crm.lead", "origin_channel_id")
+        token = "made-up-chat-token-3d4c"
+        salesman = new_test_user(
+            self.env, login="test_assistant_sales", groups="base.group_user,sales_team.group_sale_salesman_all_leads"
+        )
+        channel = self.env["discuss.channel"].create({"name": "AI chat", "channel_type": "channel"})
+        channel.message_post(
+            body=Markup("<p>AI visitor asks about /survey/%s/start</p>") % token, message_type="comment"
+        )
+        lead = channel._convert_visitor_to_lead(self.partner, "/lead AI lead /my/orders/7?access_token=%s" % token)
+        self.assertIn(token, lead.name)
+        self.assertIn(token, lead.description)
+        for name in ("name", "description"):
+            shown = self._assert_filtered_as_shown(salesman, "crm.lead", lead, name, (token, "AI", REDACTED_TOKEN))
+            self.assertNotIn(token, shown, name)
+
+
+@tagged("post_install", "-at_install")
+class TestAiDenyListNames(AssistantCase):
+    """Names Odoo builds from a denied record, and name searches of a model's own code."""
+
+    def _assert_refused(self, user, model_name, term, message):
+        content, is_error = self._search_read(user, model_name, [term], ["id"])
+        self.assertTrue(is_error, (model_name, term))
+        self.assertIn(message, content)
+
+    def test_a_display_name_odoo_builds_from_a_guest_s_name_is_masked(self):
+        guest = self.env["mail.guest"].create({"name": "AI Secret Guest"})
+        Channel = self.env["discuss.channel"]
+        named = Channel.create({"name": "AI Guest Channel", "channel_type": "channel"})
+        group = Channel.create({"name": "", "channel_type": "group"})
+        partner = self.employee.partner_id
+        members = self.env["discuss.channel.member"].create(
+            [
+                {"channel_id": channel.id, **member}
+                for channel in (named, group)
+                for member in ({"guest_id": guest.id}, {"partner_id": partner.id})
+            ]
+        )
+        self.assertIn(guest.name, members[0].display_name, "Odoo's own names a guest's member by the guest")
+        self.assertIn(guest.name, group.display_name, "and a group chat by its members")
+        payload, is_error = self._search_read(
+            self.administrator, "discuss.channel.member", [["id", "in", members.ids]], ["channel_id"]
+        )
+        self.assertFalse(is_error, payload)
+        self.assertEqual(
+            [(row["display_name"], row["channel_id"][1]) for row in payload["records"]],
+            [
+                (DENIED_NAME_LABEL, named.name),
+                (members[1].display_name, named.name),
+                (DENIED_NAME_LABEL, DENIED_NAME_LABEL),
+                (DENIED_NAME_LABEL, DENIED_NAME_LABEL),
+            ],
+        )
+        payload, is_error = self._call(
+            self.administrator,
+            "read_group",
+            model="discuss.channel.member",
+            domain=json.dumps([["id", "in", members.ids]]),
+            groupby=["channel_id"],
+            measures=[],
+            orderby="",
+            limit=0,
+        )
+        self.assertFalse(is_error, payload)
+        self.assertEqual(
+            sorted(tuple(group_row["channel_id"]) for group_row in payload["groups"]),
+            sorted([(named.id, named.name), (group.id, DENIED_NAME_LABEL)]),
+        )
+        payload, is_error = self._call(
+            self.administrator,
+            "read_group",
+            model="discuss.channel",
+            domain=json.dumps([["id", "in", (named | group).ids]]),
+            groupby=["id"],
+            measures=[],
+            orderby="",
+            limit=0,
+        )
+        self.assertFalse(is_error, payload)
+        self.assertEqual(
+            sorted(tuple(group_row["id"]) for group_row in payload["groups"]),
+            sorted([(named.id, named.name), (group.id, DENIED_NAME_LABEL)]),
+        )
+        self.assertNotIn(guest.name, json.dumps(payload))
+        session = self.env["discuss.channel.rtc.session"].create({"channel_member_id": members[0].id})
+        payload, is_error = self._call(
+            self.administrator,
+            "read",
+            model="discuss.channel.rtc.session",
+            ids=session.ids,
+            fields=["channel_member_id"],
+        )
+        self.assertFalse(is_error, payload)
+        self.assertEqual(
+            (payload["records"][0]["display_name"], payload["records"][0]["channel_member_id"]),
+            (DENIED_NAME_LABEL, [members[0].id, DENIED_NAME_LABEL]),
+        )
+        for model_name, record in (("discuss.channel.member", members[0]), ("discuss.channel", group)):
+            self._assert_name_denied(model_name, record, guest)
+
+    def _assert_name_denied(self, model_name, record, guest):
+        payload, is_error = self._call(self.administrator, "read", model=model_name, ids=record.ids, fields=[])
+        self.assertFalse(is_error, payload)
+        self.assertEqual(payload["records"][0]["display_name"], DENIED_NAME_LABEL, model_name)
+        context = self._tools(self.administrator)._question_context(model_name, record.id)
+        self.assertIn("id %s: %s" % (record.id, DENIED_NAME_LABEL), context)
+        self.assertNotIn(guest.name, context)
+
+    def test_a_live_chat_history_named_after_its_guest_is_masked(self):
+        if "im_livechat.channel.member.history" not in self.env:
+            self.skipTest("im_livechat is not installed")
+        guest = self.env["mail.guest"].create({"name": "AI Chatting Guest"})
+        live_chat = self.env["discuss.channel"].create({"name": "AI Live Chat", "channel_type": "livechat"})
+        live_member = self.env["discuss.channel.member"].create({"channel_id": live_chat.id, "guest_id": guest.id})
+        history = live_member.livechat_member_history_ids
+        self.assertEqual(history.display_name, guest.name, "Odoo's own names the history by its guest")
+        livechat_user = self.env.ref("im_livechat.im_livechat_group_user")
+        self.administrator.write({"group_ids": [Command.link(livechat_user.id)]})
+        self._assert_name_denied("im_livechat.channel.member.history", history, guest)
+
+    def test_a_name_search_of_its_own_code_is_refused_where_it_reaches_a_hidden_field(self):
+        searched = [("res.users", "login", new_test_user(self.env, login="ai-secret-login", name="AI Logged"))]
+        if "product.product" in self.env:
+            product = self.env["product.product"].create({"name": "AI Coded", "default_code": "AI-SECRET-77"})
+            searched.append(("product.product", "default_code", product))
+        if "account.account" in self.env:
+            account = self.env["account.account"].create(
+                {"name": "AI Noted", "code": "999771", "account_type": "asset_current", "description": "AI-SECRET-NOTE"}
+            )
+            searched.append(("account.account", "description", account))
+        for model_name, name, record in searched:
+            value = record[name]
+            payload, is_error = self._search_read(
+                self.administrator, model_name, [["display_name", "ilike", value], ["id", "=", record.id]]
+            )
+            self.assertEqual(([row["id"] for row in payload["records"]], is_error), (record.ids, False), "Odoo's own")
+            self._set_param("deny_fields_extra", "%s.%s" % (model_name, name))
+            message = "%s's name search also matches %s" % (model_name, name)
+            self._assert_refused(self.administrator, model_name, ["display_name", "ilike", value], message)
+            self._set_param("deny_fields_extra", "")
+        self._set_param("deny_fields_extra", "res.users.login")
+        self._assert_refused(
+            self.administrator, "res.partner", ["user_ids", "ilike", "ai-secret-login"], "name search also matches"
+        )
+        if "product.product" in self.env:
+            self._set_param("deny_fields_extra", "product.product.default_code")
+            for model_name, term in (
+                ("product.template", ["display_name", "ilike", "AI-SECRET"]),
+                ("product.supplierinfo", ["product_id", "ilike", "AI-SECRET"]),
+            ):
+                self._assert_refused(self.administrator, model_name, term, "name search also matches")
+
+    def test_a_name_search_of_its_own_code_is_refused_while_a_text_it_reads_holds_a_token(self):
+        token = "made-up-override-token-7a8b"
+        Category = self.env["res.partner.category"]
+        parent = Category.create({"name": "AI Tokened Tag"})
+        child = Category.create({"name": "AI Tokened Child", "parent_id": parent.id})
+        tagged_partner = self.env["res.partner"].create({"name": "AI Tokened", "category_id": [Command.set(child.ids)]})
+        searches = (
+            ("res.partner.category", ["display_name", "ilike", "AI Tokened"], (parent | child).ids),
+            ("res.partner", ["category_id", "ilike", "AI Tokened"], tagged_partner.ids),
+            ("res.partner", ["category_id.display_name", "ilike", "AI Tokened"], tagged_partner.ids),
+        )
+        for model_name, term, expected in searches:
+            payload, is_error = self._search_read(self.employee, model_name, [term, ["id", "in", expected]], ["id"])
+            self.assertEqual((sorted(row["id"] for row in payload["records"]), is_error), (expected, False), term)
+        parent.name = "AI Tokened Tag /survey/%s/start" % token
+        self.assertEqual(
+            Category.search([("display_name", "ilike", token)]),
+            parent | child,
+            "Odoo's own finds the child by its parent",
+        )
+        for model_name, term, _expected in (*searches, ("res.partner.category", ["display_name", "ilike", token], [])):
+            self._assert_refused(
+                self.employee, model_name, term, "res.partner.category's name search, in its own code, reads a text"
+            )
+        for value, expected in ((token, []), ("AI Tokened", (parent | child).ids)):
+            payload, is_error = self._search_read(
+                self.employee, "res.partner.category", [["name", "ilike", value], ["id", "in", (parent | child).ids]]
+            )
+            self.assertEqual((sorted(row["id"] for row in payload["records"]), is_error), (expected, False), value)
+
+    def test_a_list_of_ids_and_names_on_a_link_matches_its_names_as_shown(self):
+        token = "made-up-mixed-token-2b3c"
+        Partner = self.env["res.partner"]
+        raw_name = "AI Mixed /my/orders/7?access_token=%s" % token
+        shown_name = "AI Mixed /my/orders/7?access_token=%s" % REDACTED_TOKEN
+        vat_holder, tokened, other = Partner.create(
+            [{"name": "AI Mixed VAT", "vat": "BE0477472701"}, {"name": raw_name}, {"name": "AI Mixed Other"}]
+        )
+        children = Partner.create(
+            [{"name": "AI Mixed Child", "parent_id": parent.id} for parent in (vat_holder, tokened, other)]
+        )
+        family = [["id", "in", children.ids]]
+        for terms, expected in (
+            ([["parent_id", "in", [other.id, "AI Mixed VAT"]]], children[0] | children[2]),
+            ([["parent_id", "=", [other.id, shown_name]]], children[1] | children[2]),
+            ([["parent_id", "in", [0, raw_name]]], Partner),
+            ([["parent_id", "not in", [other.id, raw_name]]], children[0] | children[1]),
+            (["!", ["parent_id", "in", [other.id, "AI Mixed VAT"]]], children[1]),
+        ):
+            payload, is_error = self._search_read(self.employee, "res.partner", [*family, *terms], ["id"])
+            self.assertEqual((sorted(row["id"] for row in payload["records"]), is_error), (expected.ids, False), terms)
+        self._set_param("deny_fields_extra", "res.partner.vat")
+        for operator in ("in", "=", "not in"):
+            self._assert_refused(
+                self.employee,
+                "res.partner",
+                ["parent_id", operator, [0, "BE0477472701"]],
+                "res.partner's name search also matches vat",
+            )
+        self._set_param("deny_fields_extra", "")
+        parent = self.env["res.partner.category"].create({"name": "AI Mixed Tag /survey/%s/start" % token})
+        self.env["res.partner.category"].create({"name": "AI Mixed Child Tag", "parent_id": parent.id})
+        self._assert_refused(
+            self.employee,
+            "res.partner",
+            ["category_id", "in", [0, "AI Mixed Child Tag"]],
+            "res.partner.category's name search, in its own code, reads a text",
+        )
+
+    def test_a_group_by_id_or_by_a_many2many_masks_the_names_the_deny_list_hides(self):
+        guest = self.env["mail.guest"].create({"name": "AI Grouped Guest"})
+        group = self.env["discuss.channel"].create({"name": "", "channel_type": "group"})
+        partner = self.env["res.partner"].create({"name": "AI Grouped Member"})
+        members = self.env["discuss.channel.member"].create(
+            [{"channel_id": group.id, "guest_id": guest.id}, {"channel_id": group.id, "partner_id": partner.id}]
+        )
+        self.assertIn(guest.name, group.display_name)
+        self.assertEqual(partner.channel_ids, group)
+        message = self.partner.message_post(body="AI link", message_type="comment")
+        preview = self.env["mail.link.preview"].create(
+            {"source_url": "https://example.com/made-up-grouped-preview", "og_title": "AI grouped"}
+        )
+        self.env["mail.message.link.preview"].create({"message_id": message.id, "link_preview_id": preview.id})
+        for model_name, records, groupby, expected in (
+            ("res.partner", partner, "channel_ids", [[group.id, DENIED_NAME_LABEL]]),
+            ("discuss.channel.member", members, "id", [[member.id, DENIED_NAME_LABEL] for member in members]),
+            ("mail.link.preview", preview, "id", [[preview.id, DENIED_NAME_LABEL]]),
+        ):
+            payload, is_error = self._call(
+                self.administrator,
+                "read_group",
+                model=model_name,
+                domain=json.dumps([["id", "in", records.ids]]),
+                groupby=[groupby],
+                measures=[],
+                orderby="",
+                limit=0,
+            )
+            self.assertFalse(is_error, payload)
+            self.assertEqual(sorted(row[groupby] for row in payload["groups"]), expected, model_name)
+            self.assertNotIn(guest.name, json.dumps(payload))
+            self.assertNotIn("made-up-grouped-preview", json.dumps(payload))
+        dataset = {
+            "name": "members",
+            "model": "discuss.channel.member",
+            "domain": json.dumps([["id", "in", members.ids]]),
+            "groupby": ["id"],
+            "measures": ["__count"],
+            "fields": [],
+            "order": "",
+            "limit": 0,
+            "formulas": [],
+        }
+        tools = self._tools(self.administrator)
+        with tools._tool_scope():
+            data = tools._report_data({"datasets": [dataset], "merges": []})
+        self.assertEqual(
+            sorted(row["id"] for row in data["members"]["rows"]), [[member.id, DENIED_NAME_LABEL] for member in members]
+        )
+
+    def test_a_refused_name_search_through_a_link_names_the_link_s_fields(self):
+        token = "made-up-hint-token-8c9d"
+        parent = self.env["res.partner.category"].create({"name": "AI Hint Tag /survey/%s/start" % token})
+        self.env["res.partner.category"].create({"name": "AI Hint Child", "parent_id": parent.id})
+        self._assert_refused(
+            self.employee,
+            "res.partner",
+            ["category_id", "ilike", "AI Hint"],
+            "compare res.partner.category_id with ids, or filter on res.partner.category_id.name, which the tools",
+        )
+
+    def test_a_text_that_only_looks_like_a_url_part_keeps_a_model_s_name_filters(self):
+        Category = self.env["res.partner.category"]
+        tags = Category.create([{"name": "AI Lookalike rapid=5"}, {"name": "AI Lookalike see the /rate/ page"}])
+        for term in (["display_name", "ilike", "AI Lookalike"], ["display_name", "ilike", "rapid="]):
+            payload, is_error = self._search_read(self.employee, "res.partner.category", [term], ["id"])
+            self.assertFalse(is_error, payload)
+            self.assertTrue({row["id"] for row in payload["records"]} & set(tags.ids), term)
+
+    def test_every_name_search_of_a_model_s_own_code_declares_the_fields_it_reads(self):
+        tools = self._tools(self.administrator)
+        undeclared = {}
+        for model_name in self.env.registry:
+            Model = self.env[model_name]
+            if Model._abstract or Model._transient or tools._is_base_name_search(model_name):
+                continue
+            if model_name not in NAME_SEARCH_FIELDS:
+                method = type(Model)._search_display_name
+                undeclared[model_name] = "%s:%s" % (inspect.getsourcefile(method), inspect.getsourcelines(method)[1])
+        self.assertEqual(undeclared, {})
+        for model_name, paths in NAME_SEARCH_FIELDS.items():
+            if model_name in self.env:
+                for path in paths:
+                    self.assertTrue(tools._path_hops(model_name, path), "%s.%s" % (model_name, path))

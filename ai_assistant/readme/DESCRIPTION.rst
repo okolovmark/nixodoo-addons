@@ -139,7 +139,8 @@ Each call runs in a savepoint that is always rolled back, under a statement
 timeout of ``tool_seconds`` (15).
 
 * ``search_read``: the records matching a domain with the fields asked for
-  (none asked: the stored fields that are not binary, HTML or x2many), at
+  (none asked: the stored fields that are not binary, HTML, JSON,
+  properties or x2many), at
   most ``max_rows`` (200); it says when more match.
 * ``read``: records by id, archived ones too, at most ``max_rows``; it lists
   the ids that do not exist or that the employee may not see.
@@ -293,11 +294,23 @@ can act on:
   inverse Odoo computes rather than stores, as an analytic account's lines;
 * grouping by a path; sorting by a field Odoo cannot sort, grouping by one
   it cannot group, aggregating one it does not store; and sorting, grouping
-  or aggregating (other than counting) a message's text, or an employee's
-  cost or a total of it where a row holds one (see AI deny list);
-* comparing a message's text with ``<``, ``>``, ``<=`` or ``>=``, any
-  filter on a mail's own copy of its text, and a name filter on a model
-  whose name search reaches a hidden field (see AI deny list);
+  or aggregating (other than counting) a message's text or another HTML
+  text, or an employee's cost or a total of it where a row holds one (see
+  AI deny list);
+* filtering, sorting, grouping or aggregating (other than with ``count``) by
+  structured data: a JSON, properties or properties definition field
+  (``additional_identifiers`` of a contact, ``task_properties``), which
+  Odoo would compare as stored while the tools show its URL tokens redacted
+  (see AI deny list). A JSON or properties definition value may be tested
+  set or not (``=`` or ``!=`` false), and an ``analytic_distribution`` is
+  filtered by its analytic accounts, their ids or names, as Odoo does; to
+  count by analytic account, the refusal points to the analytic lines'
+  ``account_id``;
+* comparing a stored text (a char, text or HTML field) or a message's text
+  with ``<``, ``>``, ``<=`` or ``>=``, any filter on a mail's own copy of
+  its text, and a name filter on a model whose name search reaches a hidden
+  field, or searches in its own code a text the tools show otherwise than
+  stored, or in code the deny list does not know (see AI deny list);
 * reading a field by a dotted name, and reading a binary field.
 
 Without an order, a search keeps the model's own. A path through a one2many
@@ -351,7 +364,8 @@ is seen by everyone who can see the record, not only by the asker.
   credential (``access_token``, ``signup_token``, ``signup_url``, ``invite_token``,
   ``*_token``, ``*secret*``, ``*password*``, ``*passwd*``, ``*api_key*``,
   ``credential*``, ``callback_hash``, ``webhook_uuid``,
-  ``visibility_password*``).
+  ``visibility_password*``), and ``html_field_history``, the old versions of
+  an HTML text kept as diffs, which no mask of the current text reaches.
 * **Employees**: every field of ``hr.employee`` that ``hr.employee.public``
   does not have, but those ``ai.assistant.tools._employee_work_fields``
   names, and every ``hr.employee`` field restricted to a group of ``hr`` or
@@ -397,29 +411,50 @@ is seen by everyone who can see the record, not only by the asker.
   namesake field one link away. Copies of the VAT number go with it, denied
   with it and hidden from an employee who may not read it: a contact's
   ``routing_endpoint`` (``account_edi_ubl_cii``), the VAT number unless
-  another identifier, and its ``routing_identifier``; and every text field a
-  model computes from its own ``vat``, as a localization shows the number
-  under names of its own (``l10n_ar_formatted_vat``, ``org_number`` of
-  ``l10n_se``, ``l10n_in``'s GST state warning, whose state the number
-  codes). The display name and the kinds of identification number
+  another identifier, and its ``routing_identifier``; and every text or JSON
+  field a model computes from its own ``vat``, as a localization shows the
+  number under names of its own (``l10n_ar_formatted_vat``, ``org_number``
+  of ``l10n_se``, ``l10n_in``'s GST state warning, whose state the number
+  codes, ``l10n_nl``'s ``available_additional_identifiers_metadata``,
+  whose placeholder for the OB number is cut from it). The display name and
+  the kinds of identification number
   (``l10n_ar_afip_code``, ``l10n_pe_sunat_id_code``,
   ``l10n_co_dian_id_code``) show no number and stay.
 * **Names**: a model whose record name (``_rec_name``) is a denied field,
   as a link preview's URL, shows *a name on the AI deny list* as the display
   name of its records and of every link to them, the record line of a
-  question's context included, and refuses a filter on that name or on a
-  link to it compared with a name. A model whose name search
-  (``_rec_name``, ``_rec_names_search``, and the name searches of the links
-  among them) reaches a field the deny list hides or the employee may not
-  read refuses such a filter too: with ``res.partner.vat`` hidden, a name
-  filter on contacts, or on a link to a contact, is refused, since Odoo
-  matches a contact's name with its VAT number. The refusal names
-  ``complete_name`` and ``name`` to filter on instead; ids still compare,
-  and the names still show.
+  question's context included, and a ``read_group`` key by ``id`` or by a
+  many2many, in an AI report too; it refuses a filter on that name or on a
+  link to it compared with a name, a list of ids and names by its names,
+  as Odoo splits it. So does a record whose display name
+  Odoo builds from a record of a denied model, by the fields its display
+  name depends on, and a record whose display name is built from such a
+  one: a Discuss channel member of a guest, a live chat history of a guest,
+  a call session of such a member, and a group chat that has a guest among
+  the members Odoo names it by. A properties field's link to such a record
+  reads the same. A name Odoo copies as text, as a live chat's name, is
+  not masked (see Roadmap). A model whose name search reaches a field
+  the deny list hides or the employee may not read refuses such a filter
+  too: with ``res.partner.vat`` hidden, a name filter on contacts, or on a
+  link to a contact, is refused, since Odoo matches a contact's name with
+  its VAT number. The fields a name search reads are ``_rec_name``,
+  ``_rec_names_search`` and the name searches of the links among them, and
+  for a model that searches names in its own code, those
+  ``NAME_SEARCH_FIELDS`` declares for it: a user's login, a product's code
+  and barcode, an account's code and description, a contact tag's parent
+  (the search adds its subtags). Such a model also refuses a name filter
+  while one of these texts, in any of its rows, is shown otherwise than
+  stored (a URL token, a masked HTML text), since its code matches the
+  stored text, and a model whose own name search the list does not declare
+  refuses it always. The refusal names ``complete_name`` and ``name`` to
+  filter on instead, through the link the filter crosses
+  (``partner_id.name``); ids still compare, and the names still show.
 * **Rows of a denied record**: its messages, posted or scheduled (with the
   files Odoo keeps under a scheduled one until it posts it), their
   translations and SMS, its mails, tracking values, notifications,
-  reactions, followers, activities, attachments and calendar events. Also
+  reactions, followers, activities, attachments, calendar events and
+  ratings, and the ratings of a record under it (a task's under its
+  project). Also
   left out: attachments that hold a denied binary field or whose
   ``res_model`` names no model; a link to a refused attachment reads *an
   attachment on the AI deny list*.
@@ -436,22 +471,53 @@ is seen by everyone who can see the record, not only by the asker.
   ``rating_last_feedback``, masked when any of the record's ratings is. An
   SMS, a rating or a chatbot answer without a message goes by its own
   text: a link to a denied record or a meeting's URL.
-* **URL tokens**: in every other message's text and its copies, the value
-  of each token in a URL reads ``[token-on-the-AI-deny-list]``: of a
-  parameter whose name ends in ``token`` (``access_token``, ``token``), and
-  the rest of a URL past a path that carries one, a record id before the
-  token included (a Discuss meeting's, an event's calendar file's, a
-  survey's, a rating's, a Discuss invitation's, an automation's webhook,
-  the attendance kiosk's, a shared dashboard's, or one a module adds
-  through ``_url_token_paths``). ``record_history`` redacts the old and new
-  values of tracked changes too. A text filter matches the text as shown: a
+* **HTML text**: any other HTML field (a task's description, an
+  activity's note, a contact's notes) that links to a record of a denied
+  model or holds a Discuss meeting's URL reads *Left out: the text links a
+  record or holds a URL on the AI deny list.* and matches no filter, and
+  so does such an HTML value of a properties field. No HTML field is a sort
+  or group key, nor aggregated other than counted.
+* **URL tokens**: in every text the tools show, the value of each token in
+  a URL reads ``[token-on-the-AI-deny-list]``: in a message's text and its
+  copies, in a record's own text fields and the names of its links (a
+  task's description copied from the email that created it, an activity's
+  note and feedback, a lead's name and chat history), in ``read_group``
+  keys, in every text a properties or JSON value holds, in
+  ``record_history`` (the old and new values of tracked changes, the
+  author, the subtype, the attachments' names) and in a question's
+  context. A token is the value of a parameter whose name ends in
+  ``token`` (``access_token``, ``token``) after ``?``, ``&``, ``;`` or
+  ``#``, with its separator and ``=`` percent-encoded or not
+  (``%3Faccess_token%3D``); the rest of a URL past a path that carries
+  one, a record id before the token included (a Discuss meeting's, an
+  event's calendar file's, a survey's, a rating's, a Discuss invitation's,
+  an automation's webhook, the attendance kiosk's, a shared dashboard's,
+  or one a module adds through ``_url_token_paths``); and a portal link's
+  signature, its ``hash`` in a URL that carries the partner's ``pid``,
+  percent-encoded or not (``%26pid%3D5%26hash%3D``; a ``hash`` without
+  ``pid``, as in a file's or an asset's URL, stays). A parameter's name, a
+  path and a value run on across inline tags, ``<wbr>`` and comments, as
+  a browser shows them (``?access_<b>token</b>=``,
+  ``/survey/<b>…</b>/start``); a value ends at any space, a no-break
+  space included. A text filter matches the text as shown: a
   text that holds a token matches with the placeholder in its place,
-  whatever the token holds. No filter compares a message's text with
-  ``<``, ``>``, ``<=`` or ``>=``, which would sort the texts, and none reads
-  a mail's own copy of its text (``body_html`` and ``body_content`` of
-  ``mail.mail``), which would scan the whole HTML of every mail: the
-  refusal points to ``body``, the text of the mail's message, or to the
-  mail's subject, recipients, state and dates.
+  whatever the token holds. So does a filter on a display name, or on a
+  link compared with a name, of a model that searches names by its
+  ``_rec_names_search`` or ``_rec_name``; one that searches names in its
+  own code is refused while a text it reads is shown redacted (see Names). No
+  filter compares a stored text
+  that may hold a token (a char, text or HTML field) with ``<``, ``>``,
+  ``<=`` or ``>=``, which would sort the texts, and none reads a mail's own
+  copy of its text (``body_html`` and ``body_content`` of ``mail.mail``),
+  which would scan the whole HTML of every mail: the refusal points to
+  ``body``, the text of the mail's message, or to the mail's subject,
+  recipients, state and dates. Structured data (a JSON, properties or
+  properties definition field) is read only: no filter, sort key, group or
+  aggregate but a count, which Odoo would compare as stored, tokens
+  included; a filter only tests a JSON or properties definition value set
+  or not, and an analytic distribution is filtered by its accounts. The
+  ``fields`` tool marks such a field neither sortable nor groupable, nor
+  searchable but an analytic distribution.
 * **Link previews**: Odoo keeps one link preview (``mail.link.preview``)
   per URL, tied to each message that holds it by a
   ``mail.message.link.preview`` row, and lets an ERP manager read them all.
@@ -460,8 +526,9 @@ is seen by everyone who can see the record, not only by the asker.
   link preview of a message the AI deny list leaves out*, and a list of
   them leaves it out. They look among the newest 10,000 messages with a
   link, as Odoo checks one by one which messages the employee may read:
-  past them, a result that used these rows says that older messages'
-  previews are left out (in an AI report, only the dataset that used them).
+  past them, a result that left out a preview of an older message, or a
+  row of one, says so; in an AI report, only the dataset that left one out
+  says it has more, and a dataset without a limit still runs.
 * **Tracked changes**: Odoo writes them into the message's text, each field
   named by its label. Hidden are the changes of a denied field, of a field
   the employee may not read, and of any field of a denied model. Such a

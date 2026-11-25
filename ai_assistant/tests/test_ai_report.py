@@ -319,6 +319,45 @@ class TestAiReportTools(ReportCase):
             (False, 3, False),
         )
 
+    def test_a_dataset_of_every_link_row_runs_when_their_scan_is_cut_short(self):
+        partner = self.env["res.partner"].search([("name", "=like", PARTNER_PREFIX + "%")], limit=1)
+        values = {"model": "res.partner", "res_id": partner.id, "message_type": "comment", "body": "AI link"}
+        messages = self.env["mail.message"].create([values, values])
+        previews = self.env["mail.link.preview"].create(
+            [{"source_url": "https://example.com/ai-report-all-%s" % index} for index in range(2)]
+        )
+        links = self.env["mail.message.link.preview"].create(
+            [{"message_id": message.id, "link_preview_id": preview.id} for message, preview in zip(messages, previews)]
+        )
+        listed = {"model": "mail.link.preview", "groupby": [], "measures": [], "fields": ["og_title"], "formulas": []}
+        spec = report_spec(
+            partner_dataset("every", domain=json.dumps([["id", "in", previews.ids]]), **listed),
+            partner_dataset("newest", domain=json.dumps([["id", "=", previews[1].id]]), **listed),
+            partner_dataset(
+                "links",
+                model="mail.message.link.preview",
+                domain=json.dumps([["id", "in", links.ids]]),
+                groupby=["link_preview_id"],
+                measures=["__count"],
+                formulas=[],
+            ),
+        )
+        with patch(f"{TOOLS_MODULE}.IN_MAX", 1), patch(f"{TOOLS_MODULE}.MAX_SEARCH_LIMIT", 1):
+            payload, is_error = self._run(spec, user=self.administrator)
+        self.assertFalse(is_error, payload)
+        datasets = payload["datasets"]
+        self.assertEqual(
+            {
+                name: ([row["id"] for row in datasets[name]["rows"]], datasets[name]["has_more"])
+                for name in ("every", "newest")
+            },
+            {"every": (previews[1:].ids, True), "newest": (previews[1:].ids, False)},
+        )
+        self.assertEqual(
+            ([row["link_preview_id"][0] for row in datasets["links"]["rows"]], datasets["links"]["has_more"]),
+            (previews[1:].ids, True),
+        )
+
     def test_report_run_refuses_data_past_the_token_ceiling(self):
         self._set_param("report_max_tokens", "50")
         content, is_error = self._run()
