@@ -239,7 +239,7 @@ class TestProjectMembers(MemberAccessCommon):
 
     def test_the_form_shows_the_mode_and_the_members(self):
         arch = self.env.ref("project.edit_project")._get_combined_arch()
-        visibility = arch.xpath("//field[@name='privacy_visibility']")[0]
+        visibility = arch.xpath("//group[@name='visibility']/field[@name='privacy_visibility']")[0]
         self.assertIn("access_mode", [node.get("name") for node in visibility.itersiblings(preceding=True)])
         self.assertEqual(visibility.get("invisible"), SHOWN_IN_STANDARD_ONLY)
         members_page = arch.xpath("//page[@name='members']")[0]
@@ -255,6 +255,21 @@ class TestProjectMembers(MemberAccessCommon):
         card_user = members_page.xpath("./field[@name='member_ids']/kanban//field[@name='user_id']")
         self.assertTrue(card_user, "cards on a phone")
         self.assertEqual(card_user[0].get("options"), "{'display_avatar_name': True}", "the card names the user")
+
+    def test_a_hidden_privacy_field_applied_earlier_is_left_alone(self):
+        form_arch = self._arch_with_this_module(
+            "project.edit_project",
+            "project_project_view_form_inherit_member_access",
+            earlier_spec="""<xpath expr="//div[@name='button_box']" position="inside">
+                <field name="privacy_visibility" invisible="1"/>
+            </xpath>""",
+        )
+        button_box = form_arch.xpath("//div[@name='button_box']")[0]
+        self.assertEqual(button_box.xpath("./field[@name='privacy_visibility']")[0].get("invisible"), "1")
+        self.assertFalse(button_box.xpath("./field[@name='access_mode']"))
+        shown = form_arch.xpath("//group[@name='visibility']/field[@name='privacy_visibility']")[0]
+        self.assertEqual(shown.getprevious().get("name"), "access_mode")
+        self.assertEqual(shown.get("invisible"), SHOWN_IN_STANDARD_ONLY)
 
     def test_sharing_and_team_members_are_hidden_inside(self):
         form_arch = self._arch_with_this_module(
@@ -291,13 +306,16 @@ class TestProjectMembers(MemberAccessCommon):
         self.assertFalse(self.standard_project.with_user(self.outsider).has_access("read"))
         self.assertEqual(task.project_access_mode, "standard")
 
-    def _arch_with_this_module(self, view_xmlid, inheriting_view_name):
-        """The core view with the view of this module alone applied: other modules may
-        rebuild the parts it changes.
+    def _arch_with_this_module(self, view_xmlid, inheriting_view_name, earlier_spec=None):
+        """The core view with the view of this module alone applied, after `earlier_spec` if given:
+        other modules may rebuild the parts it changes.
         """
-        return self.env["ir.ui.view"].apply_inheritance_specs(
-            etree.fromstring(self.env.ref(view_xmlid).arch),
-            etree.fromstring(self.env.ref("%s.%s" % (MODULE, inheriting_view_name)).arch),
+        View = self.env["ir.ui.view"]
+        source = etree.fromstring(self.env.ref(view_xmlid).arch)
+        if earlier_spec:
+            source = View.apply_inheritance_specs(source, etree.fromstring(earlier_spec))
+        return View.apply_inheritance_specs(
+            source, etree.fromstring(self.env.ref("%s.%s" % (MODULE, inheriting_view_name)).arch)
         )
 
     def test_the_form_loads_with_its_members(self):

@@ -784,7 +784,27 @@ class TestInlineImages(InlineImagesCase):
 
     def test_write_to_no_record_passes(self):
         no_task = self.env["project.task"].browse()
-        self.assertTrue(no_task.write({"x_not_a_field": 1, "description": image_html(image_tag(data_uri(RED)))}))
+        with self._count_attachment_calls() as calls:
+            self.assertTrue(no_task.write({"description": image_html(image_tag(data_uri(RED)))}))
+        self.assertNotIn("create", calls, "no attachment is created")
+
+    def test_write_to_no_record_skips_keys_that_are_no_field(self):
+        # a test case has no core mixin over base write, which takes any key on no record
+        no_testcase = self.env["project.task.testcase"].browse()
+        vals = {"x_not_a_field": 1, "steps_to_execute": image_html(image_tag(data_uri(RED)))}
+        with self._count_attachment_calls() as calls:
+            self.assertTrue(no_testcase.write(vals))
+        self.assertNotIn("create", calls, "no attachment is created")
+
+    def test_written_keys_that_are_no_field_are_skipped(self):
+        # a task's write() cannot carry the key: newer core's mail.activity.mixin looks written keys up after super()
+        vals = {
+            "x_not_a_field": 1,
+            "description": image_html(image_tag(data_uri(RED))),
+            "project_id": self.other_project.id,
+        }
+        self.assertEqual(self.task._get_written_image_fnames(vals), ["description"])
+        self.assertEqual(self.task._get_container_records(vals), self.task, "a task moved to another project")
 
     def test_recurrence_gives_each_task_its_own_attachments(self):
         self.project.allow_recurring_tasks = True

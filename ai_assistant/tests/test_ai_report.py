@@ -286,6 +286,39 @@ class TestAiReportTools(ReportCase):
         self.assertFalse(is_error)
         self.assertTrue(payload["datasets"]["partners"]["has_more"])
 
+    def test_link_previews_cut_short_leave_the_other_datasets_whole(self):
+        partner = self.env["res.partner"].search([("name", "=like", PARTNER_PREFIX + "%")], limit=1)
+        values = {"model": "res.partner", "res_id": partner.id, "message_type": "comment", "body": "AI link"}
+        messages = self.env["mail.message"].create([values, values])
+        previews = self.env["mail.link.preview"].create(
+            [{"source_url": "https://example.com/ai-report-cut-%s" % index} for index in range(2)]
+        )
+        self.env["mail.message.link.preview"].create(
+            [{"message_id": message.id, "link_preview_id": preview.id} for message, preview in zip(messages, previews)]
+        )
+        listed_previews = partner_dataset(
+            "previews",
+            model="mail.link.preview",
+            domain=json.dumps([["id", "in", previews.ids]]),
+            groupby=[],
+            measures=[],
+            fields=["og_title"],
+            formulas=[],
+            limit=2,
+        )
+        listed_partners = partner_dataset("listed", groupby=[], measures=[], fields=["name"], formulas=[])
+        spec = report_spec(listed_previews, partner_dataset(), listed_partners)
+        with patch(f"{TOOLS_MODULE}.IN_MAX", 1), patch(f"{TOOLS_MODULE}.MAX_SEARCH_LIMIT", 1):
+            payload, is_error = self._run(spec, user=self.administrator)
+        self.assertFalse(is_error, payload)
+        datasets = payload["datasets"]
+        self.assertEqual([row["id"] for row in datasets["previews"]["rows"]], previews[1:].ids)
+        self.assertTrue(datasets["previews"]["has_more"])
+        self.assertEqual(
+            (datasets["partners"]["has_more"], len(datasets["listed"]["rows"]), datasets["listed"]["has_more"]),
+            (False, 3, False),
+        )
+
     def test_report_run_refuses_data_past_the_token_ceiling(self):
         self._set_param("report_max_tokens", "50")
         content, is_error = self._run()

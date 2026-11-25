@@ -24,6 +24,17 @@ class TestAiConversation(TransactionCase):
 
     def test_without_exchanges_or_messages_there_is_nothing_to_count_or_show(self):
         conversation = self.conversation
+        # Figures left by exchanges since gone: the stored defaults alone would read as nothing counted.
+        conversation.write(
+            {
+                "question_count": 2,
+                "fallback_count": 1,
+                "cost": 0.25,
+                "model_names": "claude-haiku-5-5",
+                "date_last": "2026-01-05 09:00:00",
+            }
+        )
+        conversation._compute_stats()
         self.assertEqual((conversation.question_count, conversation.fallback_count, conversation.cost), (0, 0, 0))
         self.assertFalse(conversation.model_names)
         self.assertFalse(conversation.date_last)

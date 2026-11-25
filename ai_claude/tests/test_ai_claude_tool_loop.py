@@ -20,6 +20,7 @@ from .common import (
     usage,
 )
 from odoo.addons.ai_claude.models.ai_claude_gateway import (
+    CIRCUIT_THRESHOLD,
     NOT_COVERED,
     REACTION_FEEDBACK,
     Attempt,
@@ -380,7 +381,9 @@ class TestClaudeToolLoop(AiClaudeCase):
     def test_a_tool_limit_after_a_failed_model_is_no_breaker_failure(self):
         """Haiku ran out of tool rounds: Claude answered its calls, whatever Sonnet did before."""
         icp = self.env["ir.config_parameter"].sudo()
-        icp.set_str(f"{PREFIX}.claude_consecutive_failures", "2")
+        # The breaker opened at its threshold of failures, and its cooldown is over.
+        icp.set_str(f"{PREFIX}.claude_consecutive_failures", str(CIRCUIT_THRESHOLD))
+        icp.set_str(f"{PREFIX}.claude_circuit_open_until", str(time.time() - 1))
         sonnet_down = Attempt("claude-sonnet-5-5", "unavailable", 10, "overloaded")
         limited = ClaudeOutcome(attempts=[sonnet_down, Attempt("claude-haiku-5-5", "tool_limit", 20)])
         self.gateway._claude_record(PREFIX, limited)

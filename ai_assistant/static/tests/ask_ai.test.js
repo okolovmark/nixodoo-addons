@@ -47,6 +47,8 @@ async function openPartner({ canAskAi = true } = {}) {
     await start();
     await openFormView("res.partner", partnerId);
     await waitFor(".o-mail-Chatter-topbar .o-mail-Chatter-logNote");
+    // A note posted while the chatter's first fetch is pending would come back with it, unasked.
+    await waitFor(".o-mail-Chatter .o-mail-Thread:has(:text('No messages yet.'))");
     return { pyEnv, partnerId };
 }
 
