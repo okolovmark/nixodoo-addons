@@ -29,12 +29,14 @@ from odoo.addons.ai_assistant.models.ai_assistant_tools import (
     FIND_MODELS_MAX_FIELDS,
     FIND_MODELS_MAX_MODELS,
     FIND_MODELS_MAX_WORDS,
+    LIKE_PATTERN_MAX_CHARS,
     MASKED_HTML_TEXT,
     MASKED_MESSAGE_TEXT,
     MESSAGE_MAX_CHARS,
     NAME_SEARCH_FIELDS,
     RECORD_UNAVAILABLE_TEXT,
     REDACTED_TOKEN,
+    TOKEN_GAP,
     TOOL_DEFINITIONS,
     TOOL_NAMES,
     URL_INLINE_TAGS,
@@ -44,8 +46,10 @@ from odoo.addons.ai_assistant.models.ai_assistant_tools import (
     _input_schema,
     cut_at_paragraph,
     find_models_forms,
+    gap_spanning_like_value,
     is_hr_only,
     json_value,
+    placeholder_gap_value,
     water_fill,
     with_patterns_after,
 )
@@ -3075,6 +3079,28 @@ class TestAiDenyListSecretsAndReviews(AssistantCase):
             self.assertTrue(is_error, field_name)
             self.assertIn("%s.%s is on the AI deny list" % (model_name, field_name), content)
 
+    def test_the_live_chat_report_s_copy_of_a_channel_uuid_is_denied(self):
+        self._skip_without("im_livechat.report.channel", "uuid")
+        livechat_manager = new_test_user(
+            self.env,
+            login="test_assistant_livechat_report",
+            groups="base.group_user,im_livechat.im_livechat_group_manager",
+        )
+        live_chat = self.env["discuss.channel"].create({"name": "AI Reported Chat", "channel_type": "livechat"})
+        self.env.flush_all()
+        report = self.env["im_livechat.report.channel"].search([("channel_id", "=", live_chat.id)])
+        self.assertEqual(report.uuid, live_chat.uuid, "the report copies the channel's uuid")
+        self.assertTrue(self._tools(livechat_manager)._denied_field(report._fields["uuid"]))
+        this_chat = [["channel_id", "=", live_chat.id]]
+        for domain, fields in ((this_chat, ["uuid"]), ([*this_chat, ["uuid", "=", live_chat.uuid]], ["id"])):
+            content, is_error = self._search_read(livechat_manager, "im_livechat.report.channel", domain, fields)
+            self.assertTrue(is_error, (domain, fields))
+            self.assertIn("im_livechat.report.channel.uuid is on the AI deny list", content)
+        payload, is_error = self._search_read(livechat_manager, "im_livechat.report.channel", this_chat)
+        self.assertFalse(is_error, payload)
+        self.assertEqual([row["id"] for row in payload["records"]], report.ids)
+        self.assertNotIn(live_chat.uuid, json.dumps(payload))
+
     def test_the_shared_list_alone_denies_the_call_servers_and_the_guests(self):
         tools = self._tools(self.administrator)
         with patch.object(type(tools), "_deny_list_models", AiAssistantTools._deny_list_models):
@@ -3673,13 +3699,18 @@ class TestAiDenyListSecretsAndReviews(AssistantCase):
                 message_type="comment",
             )
         these_notes = [["id", "in", notes.ids]]
-        # The placeholder holds a "y": the shown text always meets the wildcard, the first token only.
+        shown_body = "<p>AI receipt /my/orders/7?access_token=%s&amp;report_type=pdf</p>" % REDACTED_TOKEN
+        # The first token holds a "y", and so does the placeholder: no compared text meets the wildcard.
         wildcard = "access_token=%y%&amp;report"
         for terms, expected in (
-            ([["body", "ilike", wildcard]], notes.ids),
-            ([["body", "not ilike", wildcard]], []),
-            (["!", ["body", "=ilike", "%%%s%%" % wildcard]], []),
+            ([["body", "ilike", wildcard]], []),
+            ([["body", "not ilike", wildcard]], notes.ids),
+            (["!", ["body", "=ilike", "%%%s%%" % wildcard]], notes.ids),
+            ([["body", "ilike", "access_token=%&amp;report"]], notes.ids),
             ([["body", "ilike", REDACTED_TOKEN]], notes.ids),
+            ([["body", "ilike", "-AI-deny"]], []),
+            ([["body", "=", shown_body]], notes.ids),
+            ([["body", "!=", shown_body]], []),
         ):
             payload, is_error = self._search_read(self.employee, "mail.message", [*these_notes, *terms], ["id"])
             self.assertEqual((sorted(row["id"] for row in payload["records"]), is_error), (expected, False), terms)
@@ -4069,11 +4100,16 @@ class TestAiDenyListSecretsAndReviews(AssistantCase):
             self.assertFalse(is_error, payload)
             body = payload["records"][0]["body"]
             self.assertIn(shown_url, body)
-            for value in (pass_token, "/made-up-pass/%s" % REDACTED_TOKEN, "deeper/%s" % REDACTED_TOKEN):
+            for value, is_found in (
+                (pass_token, False),
+                ("/made-up-pass/%s" % REDACTED_TOKEN, False),
+                ("deeper/%s" % REDACTED_TOKEN, True),
+                ("AI pass /made-up-pass/deeper/", True),
+            ):
                 term = ["body", "ilike", value]
                 payload, is_error = self._search_read(self.employee, "mail.message", [*this_message, term], ["id"])
                 self.assertFalse(is_error, payload)
-                self.assertEqual(bool(payload["records"]), value in body, "%s is matched as it is shown" % value)
+                self.assertEqual(bool(payload["records"]), is_found, "%s is matched as the text shown" % value)
 
     def test_a_mail_s_headers_and_a_link_preview_s_url_are_refused(self):
         digest_token = "made-up-digest-token-1a2b"
@@ -5225,12 +5261,13 @@ class TestAiDenyListRecordTexts(AssistantCase):
         return payload["records"][0]
 
     def _assert_filtered_as_shown(self, user, model_name, record, name, values, base_domain=()):
-        """A filter on `name` with each of `values` finds `record` where its shown text holds the value, and its
-        negation where it does not; the shown text."""
+        """A filter on `name` with each of `values` finds `record` where its shown text holds the value, each
+        REDACTED_TOKEN in both as one TOKEN_GAP, and its negation where it does not; the shown text."""
         shown = self._shown(user, model_name, record, [name], base_domain)[name] or ""
+        compared = shown.replace(REDACTED_TOKEN, TOKEN_GAP).lower()
         this = [*base_domain, ["id", "=", record.id]]
         for value in values:
-            is_shown = value.lower() in shown.lower()
+            is_shown = value.lower().replace(REDACTED_TOKEN.lower(), TOKEN_GAP) in compared
             for operator, expected in (("ilike", is_shown), ("not ilike", not is_shown)):
                 payload, is_error = self._search_read(user, model_name, [*this, [name, operator, value]], ["id"])
                 self.assertFalse(is_error, payload)
@@ -5302,12 +5339,23 @@ class TestAiDenyListRecordTexts(AssistantCase):
             shown = self._assert_filtered_as_shown(self.employee, "res.partner", pasted, name, probes)
             self.assertNotIn(token, shown, name)
         shown_name = "AI Filtered /my/orders/7?access_token=%s" % REDACTED_TOKEN
+        shown_ref = "AI ref /survey/%s" % REDACTED_TOKEN
+        self.assertEqual(self._shown(self.employee, "res.partner", pasted, ["ref"])["ref"], shown_ref)
         family = [["id", "in", (pasted | child).ids]]
         for terms, expected in (
             ([["parent_id.name", "ilike", token]], []),
             ([["parent_id.name", "ilike", "AI Filtered /my"]], child.ids),
             ([["name", "=", raw_name]], []),
             ([["name", "=", shown_name]], pasted.ids),
+            ([["name", "in", [shown_name, "AI Filtered Child"]]], sorted((pasted | child).ids)),
+            ([["name", "!=", shown_name]], child.ids),
+            ([["name", "not in", [shown_name, raw_name]]], child.ids),
+            ([["name", "=", shown_name.replace("AI Filtered", "ai filtered")]], []),
+            ([["ref", "=", shown_ref]], pasted.ids),
+            ([["ref", "!=", shown_ref]], child.ids),
+            ([["ref", "=", "AI ref /survey/%s/start" % REDACTED_TOKEN]], []),
+            ([["comment", "=", "<p>AI note /chat/%s</p>" % REDACTED_TOKEN]], pasted.ids),
+            ([["comment", "=", "<p>AI note /chat/5/%s</p>" % REDACTED_TOKEN]], []),
             ([["name", "in", [raw_name, "AI Filtered Child"]]], child.ids),
             ([["name", "!=", raw_name]], sorted((pasted | child).ids)),
             ([["ref", "not ilike", token]], sorted((pasted | child).ids)),
@@ -5346,10 +5394,15 @@ class TestAiDenyListRecordTexts(AssistantCase):
             ([["parent_id", "not ilike", "AI Named /my"]], pasted.ids),
             ([["parent_id", "=", raw_name]], []),
             ([["parent_id", "=", shown_name]], child.ids),
+            ([["parent_id", "!=", shown_name]], pasted.ids),
+            ([["parent_id", "ilike", "access_token=" + REDACTED_TOKEN]], child.ids),
             ([["parent_id.display_name", "ilike", token]], []),
             ([["parent_id.display_name", "ilike", REDACTED_TOKEN]], child.ids),
+            ([["parent_id.display_name", "ilike", "on-the-AI"]], []),
+            ([["parent_id.display_name", "ilike", "AI Named /my/orders/7?access_token="]], child.ids),
             ([["activity_ids", "ilike", token]], []),
             ([["activity_ids", "ilike", "AI call /survey/"]], pasted.ids),
+            ([["activity_ids", "ilike", "AI call /survey/" + REDACTED_TOKEN]], pasted.ids),
         ):
             payload, is_error = self._search_read(self.employee, "res.partner", [*family, *terms], ["id"])
             self.assertFalse(is_error, payload)
@@ -5435,6 +5488,230 @@ class TestAiDenyListRecordTexts(AssistantCase):
                 if name != "ref":
                     self.assertIn(kept, shown, "a no-break space ends a token's value: %s" % url)
 
+    def test_an_entity_encoded_equals_sign_in_an_html_text_is_redacted_and_filtered_as_shown(self):
+        self._skip_without("digest.tip", "tip_description")
+        self.assertFalse(self.env["digest.tip"]._fields["tip_description"].sanitize, "the text is stored as written")
+        forms = ("&#61;", "&#x3d;", "&#X3D;", "&#061;", "&equals;", "&EQUALS;")
+        tips = self.env["digest.tip"].create(
+            [
+                {
+                    "name": "AI Entity Tip %s" % index,
+                    "tip_description": (
+                        f"<p>AI tip /my/orders/7?<b>access</b>_token{form}made-up-entity-{index}&#45;tail"
+                        f"&amp;report_type=pdf /mail/view?pid{form}5&#45;9&amp;hash{form}made-up-signed-{index}"
+                        " AI after</p>"
+                    ),
+                }
+                for index, form in enumerate(forms)
+            ]
+        )
+        for index, (form, tip) in enumerate(zip(forms, tips)):
+            self.assertIn(form, tip.tip_description)
+            secrets = ("made-up-entity-%s" % index, "made-up-signed-%s" % index)
+            probes = (*secrets, "tail", "7?access", "report_type=pdf", "AI after")
+            shown = self._assert_filtered_as_shown(self.employee, "digest.tip", tip, "tip_description", probes)
+            for secret in (*secrets, "tail"):
+                self.assertNotIn(secret, shown, form)
+            self.assertIn("&report_type=pdf", shown, "&amp; ends a token's value: %s" % form)
+            self.assertEqual(shown.count(REDACTED_TOKEN), 2, shown)
+            payload, is_error = self._search_read(
+                self.employee, "digest.tip", [["tip_description", "=", tip.tip_description]], ["id"]
+            )
+            self.assertEqual((payload["records"], is_error), ([], False), "the text as stored is not the one shown")
+        partner = self.env["res.partner"].create({"name": "AI Entity Note"})
+        # Written past the sanitizer, which decodes references.
+        self.env.cr.execute(
+            SQL(
+                "UPDATE res_partner SET comment = %s WHERE id = %s",
+                "<p>AI note /my/orders/7?access_token&#61;made-up-column-entity x</p>",
+                partner.id,
+            )
+        )
+        partner.invalidate_recordset(["comment"])
+        self.assertIn("&#61;", partner.comment)
+        shown = self._assert_filtered_as_shown(
+            self.employee, "res.partner", partner, "comment", ("made-up-column-entity", "AI note")
+        )
+        self.assertNotIn("made-up-column-entity", shown)
+
+    def test_a_reference_to_a_character_of_a_token_s_mark_in_an_html_text_reads_as_that_character(self):
+        self._skip_without("digest.tip", "tip_description")
+        self.assertEqual(self.env["digest.tip"]._fields["tip_description"].column_type[0], "jsonb")
+        marks = (
+            *("?access_tok&#101;n=", "?access_tok&#x65n=", "?access_tok&#0000101;n=", "?ACCESS_&#X54;OKEN="),
+            *("?access_&#116oken=", "/survey&#47;", "/survey&#x2f", "/survey&#00047", "/survey&#x002F;"),
+            *("/surv&#101;y/", "&#47;survey/", "/survey&sol;", "?access_token&#37;3D", "?access_token%&#51;D"),
+            *("?access_token%3&#68;", "?access_token%3&#x64", "?access_token&#x25;&#x33;&#x44;"),
+            *("?p&#105;d=5&amp;hash=", "?pid=5&amp;h&#x61;sh=", "?x=1&#38pid=5&#38hash=", "?x=1&#x26pid=5&#x26hash="),
+            *("?x=1&#038pid=5&#038hash=", "/x&#63pid=5&amp;hash=", "?x=1&#37;26pid=5&#37;26hash=", "#pid=5&#35hash="),
+        )
+        # References to other characters: "&#1010;" is no "&#101" then "0".
+        kept_marks = ("?access_tok&#610;n=", "?access_tok&#1010;n=", "/survey&#4700;", "?access_token&#37;3&#610;")
+        tips = self.env["digest.tip"].create(
+            [
+                {
+                    "name": "AI Reference Tip",
+                    "tip_description": f"<p>AI tip /my/7{mark}made-up-ref-{index} AI after</p>",
+                }
+                for index, mark in enumerate((*marks, *kept_marks))
+            ]
+        )
+        for index, (mark, tip) in enumerate(zip((*marks, *kept_marks), tips)):
+            self.assertIn(mark, tip.tip_description)
+            secret = "made-up-ref-%s" % index
+            shown = self._assert_filtered_as_shown(
+                self.employee, "digest.tip", tip, "tip_description", (secret, "AI after", "AI tip")
+            )
+            if mark in kept_marks:
+                self.assertIn(secret, shown, mark)
+            else:
+                self.assertEqual((secret in shown, shown.count(REDACTED_TOKEN)), (False, 1), (mark, shown))
+        partner = self.env["res.partner"].create({"name": "AI Reference Note"})
+        # Written past the sanitizer, which decodes references.
+        self.env.cr.execute(
+            SQL(
+                "UPDATE res_partner SET comment = %s WHERE id = %s",
+                "<p>AI note ?access_tok&#101;n=made-up-column-ref x /survey&#x2F;made-up-column-path y</p>",
+                partner.id,
+            )
+        )
+        partner.invalidate_recordset(["comment"])
+        secrets = ("made-up-column-ref", "made-up-column-path")
+        shown = self._assert_filtered_as_shown(self.employee, "res.partner", partner, "comment", (*secrets, "AI note"))
+        self.assertEqual([secret in shown for secret in secrets], [False, False], shown)
+        self.env.cr.execute(
+            SQL(
+                "UPDATE res_partner SET comment = %s WHERE id = %s",
+                "<p>%s&amp;p&#105;d=5</p>" % ("&amp;h&#97;sh&#61;1" * 10000),
+                partner.id,
+            )
+        )
+        partner.invalidate_recordset(["comment"])
+        start = time.perf_counter()
+        payload, is_error = self._search_read(
+            self.employee, "res.partner", [["id", "=", partner.id], ["comment", "ilike", "zz%z"]], ["id"]
+        )
+        self.assertEqual((payload["records"], is_error), ([], False))
+        self.assertLess(time.perf_counter() - start, 2.0, "a filter redacts the text in SQL in linear time")
+
+    def test_a_reference_to_a_space_or_a_hash_ends_a_token_s_value_in_an_html_text(self):
+        self._skip_without("digest.tip", "tip_description")
+        ends = ("&#32;", "&#x20;", "&#9;", "&#10;", "&#35;", "&num;", "&ensp;", "&NonBreakingSpace;", "&#12288;")
+        # A "?" runs on in a value, and so do references to "\r", "\f" and "\v", which html2plaintext drops.
+        runs_on = ("&#63;", "&quest;", "&#13;", "&#12;", "&#11;")
+        references = (*ends, *runs_on)
+        tips = self.env["digest.tip"].create(
+            [
+                {
+                    "name": "AI End Tip",
+                    "tip_description": f"<p>AI tip /my/7?access_token=made-up-end-{index}{reference}ai-tail-{index}</p>",
+                }
+                for index, reference in enumerate(references)
+            ]
+        )
+        for index, (reference, tip) in enumerate(zip(references, tips)):
+            self.assertIn(reference, tip.tip_description)
+            secret, tail = "made-up-end-%s" % index, "ai-tail-%s" % index
+            shown = self._assert_filtered_as_shown(self.employee, "digest.tip", tip, "tip_description", (secret, tail))
+            self.assertEqual((secret in shown, tail in shown), (False, reference in ends), (reference, shown))
+
+    def test_an_entity_encoded_equals_sign_in_a_char_or_text_value_is_shown_as_it_is(self):
+        # Beside a token the text redacts, which a filter reads redacted too.
+        value = "AI /my/orders/7?access_token=made-up-plain-token /x?access_token&#61;made-up-plain-entity-4d5e"
+        template = self.env["mail.template"].create(
+            {"name": "AI Plain Entity", "model_id": self.env.ref("base.model_res_partner").id, "description": value}
+        )
+        partner = self.env["res.partner"].create({"name": "AI Plain Entity", "ref": value})
+        for model_name, record, name in (("mail.template", template, "description"), ("res.partner", partner, "ref")):
+            self.assertIn(record._fields[name].type, ("char", "text"))
+            shown = self._assert_filtered_as_shown(
+                self.administrator, model_name, record, name, ("made-up-plain-entity-4d5e", "made-up-plain-token")
+            )
+            self.assertEqual(shown, value.replace("made-up-plain-token", REDACTED_TOKEN), model_name)
+
+    def test_an_html_text_is_redacted_alike_in_python_and_in_sql(self):
+        tools = self._tools(self.employee)
+        redacted = REDACTED_TOKEN
+        cases = {
+            "?access_token&#61;abc&#45;5&amp;pid=5": "?access_token&#61;%s&amp;pid=5" % redacted,
+            "?access_token&equals;abc&#38;x": "?access_token&equals;%s&#38;x" % redacted,
+            "?access_token=abc&nbsp;x": "?access_token=%s&nbsp;x" % redacted,
+            "?access_token&#61abc": "?access_token&#61%s" % redacted,
+            "?access_token&#610;abc": "?access_token&#610;abc",
+            "?pid&#x3D;5&amp;hash&#61;abc x": "?pid&#x3D;5&amp;hash&#61;%s x" % redacted,
+            "?access_tok&#101;n=abc x": "?access_tok&#101;n=%s x" % redacted,
+            "/survey&#x2Fxyz": "/survey&#x2F%s" % redacted,
+            "/survey&#x2Fabc": "/survey&#x2Fabc",
+            "?token%&#51;Dabc": "?token%%&#51;D%s" % redacted,
+            "?access_tok&#1010;n=abc": "?access_tok&#1010;n=abc",
+            "/survey&#470;abc": "/survey&#470;abc",
+            "?x=1&#38pid=5&#38hash=abc x": "?x=1&#38pid=5&#38hash=%s x" % redacted,
+            "?x=1&#37;26pid=5&#37;26hash=abc x": "?x=1&#37;26pid=5&#37;26hash=%s x" % redacted,
+            "?x=1&#63pid=5&#x26hash=abc x": "?x=1&#63pid=5&#x26hash=%s x" % redacted,
+            "?pid=5&#38;hash=A&#38;hash=B x": "?pid=5&#38;hash=%s&#38;hash=B x" % redacted,
+            "?access_token=abc&#32;x": "?access_token=%s&#32;x" % redacted,
+            "?access_token=abc&#35;x": "?access_token=%s&#35;x" % redacted,
+            "?access_token=abc&ensp;x": "?access_token=%s&ensp;x" % redacted,
+            "?access_token=abc&#63;x": "?access_token=%s" % redacted,
+            "?access_token=abc&#13;x": "?access_token=%s" % redacted,
+        }
+        self.assertEqual({text: tools._without_url_tokens(text, is_html=True) for text in cases}, cases)
+        self.assertEqual(tools._without_url_tokens("?access_token&#61;abc"), "?access_token&#61;abc", "a Char's")
+        units = (
+            *("?", "&", "&amp;", "&#38;", "&#x26;", ";", "#", "%3D", "=", "/", "_", "access_", "token", "pid", "hash"),
+            *("&#61;", "&#061;", "&#61", "&#x3D;", "&equals;", "&#45;", "&#45", "&eacute;", "&nbsp;", "&lt;"),
+            *("&quot;", "&#39;", "&#35;", "&#610;", "<b>", "</b>", "<wbr>", "abc", "5", " ", "/survey/", redacted),
+            *("tok", "en", "&#101;", "&#x65", "&#0101;", "&#116;", "&#47;", "&#x2F", "&#00047;", "&sol;", "survey"),
+            *("&#37;", "&#51;", "&#x44;", "&#68;", "3D", "p", "id", "&#105;", "h", "sh", "&#x61;", "&#1010;", "&#470;"),
+            *("tok&#101;n", "/surv&#101;y/", "p&#105;d", "h&#x61;sh", "&#37;3D", "%&#51;D", "&NonBreakingSpace;"),
+            *("&#38", "&#x26", "&#038", "&#63", "&#63;", "&#37;26", "%26", "&#35", "&num;", "&quest;", "1", ";hash="),
+            *("&#49;", "&#123", "&#32;", "&#9;", "&#10;", "&#13;", "&#x20;", "&ensp;", "&#12288;", TOKEN_GAP),
+        )
+        rng = random.Random(11)
+        texts = [*cases, *("".join(rng.choice(units) for _ in range(rng.randint(2, 14))) for _ in range(6000))]
+        # The text shown, and the text a filter compares.
+        for replacement in (REDACTED_TOKEN, TOKEN_GAP):
+            self.env.cr.execute(
+                SQL(
+                    "SELECT %s FROM unnest(%s::text[]) WITH ORDINALITY AS ai_case(text, position) ORDER BY position",
+                    tools._redacted_text_sql(SQL("ai_case.text"), True, replacement),
+                    texts,
+                )
+            )
+            self.assertEqual(
+                [row[0] for row in self.env.cr.fetchall()],
+                [tools._without_url_tokens(text, is_html=True, replacement=replacement) for text in texts],
+                repr(replacement),
+            )
+
+    def test_redacting_a_long_html_text_takes_linear_time(self):
+        tools = self._tools(self.employee)
+        # Read two or three ways, each reference would double or triple the time: a short text shows it.
+        for count in (12, 16, 20):
+            start = time.perf_counter()
+            tools._without_url_tokens("?pid=5" + "&#49;" * count, is_html=True)
+            self.assertLess(time.perf_counter() - start, 0.5, "a reference's digits are read one way only")
+        units = (
+            *("&#45;", "&#61", "&amp;pid&#61;1", "&amp;hash&#61;1", "?access_token&#61;", "&eacute;<b>", "/survey&#47"),
+            *("&amp;p&#105;d&#61;1", "&amp;h&#x61;sh&#x3d;1", "?access_tok&#101;n", "&#38;pid=1", "&#38;hash=1"),
+            *("&#49;pid=1", "&#49;hash=1", "&#38pid=1", "&#37;26hash=1", "&#32;x", "&hash=1", "&pid=1&hash=2"),
+        )
+        shapes = [
+            *(("", unit, "&pid=5") for unit in units),
+            *((prefix, unit, "") for prefix in ("?pid=5", "?access_token=") for unit in ("&#49;", "&#123", "&#32;x")),
+        ]
+        for prefix, unit, suffix in shapes:
+            text = prefix + unit * (200000 // len(unit)) + suffix
+            start = time.perf_counter()
+            self.env.cr.execute(
+                SQL("SELECT length(%s)", tools._redacted_text_sql(SQL("%s", "<p>%s</p>" % text), True, TOKEN_GAP))
+            )
+            # About 6 times the slowest shape's 0.85 s; a quadratic redaction takes 30 s at a quarter of this length.
+            self.assertLess(time.perf_counter() - start, 5.0, "in SQL: %s%s" % (prefix, unit))
+            start = time.perf_counter()
+            tools._without_url_tokens(text, is_html=True)
+            self.assertLess(time.perf_counter() - start, 1.0, "in Python: %s%s" % (prefix, unit))
+
     def test_redacting_a_long_text_takes_linear_time(self):
         tools = self._tools(self.employee)
         units = ("&pid=1", "&hash=1", "%26pid%3D1", "%26hash%3D1", "?access_token", "<!--", "<a ", "&pid=1&hash=2")
@@ -5443,35 +5720,285 @@ class TestAiDenyListRecordTexts(AssistantCase):
             start = time.perf_counter()
             tools._without_url_tokens(text)
             self.assertLess(time.perf_counter() - start, 1.0, unit)
-        partner = self.env["res.partner"].create(
-            {"name": "AI Long", "comment": "<p>%s&pid=5</p>" % ("&hash=1" * 28000)}
-        )
-        start = time.perf_counter()
-        payload, is_error = self._search_read(
-            self.employee, "res.partner", [["id", "=", partner.id], ["comment", "ilike", "zz%z"]], ["id"]
-        )
-        self.assertEqual((payload["records"], is_error), ([], False))
-        self.assertLess(time.perf_counter() - start, 2.0, "a filter redacts the text in SQL as fast")
+            start = time.perf_counter()
+            self.env.cr.execute(SQL("SELECT length(%s)", tools._redacted_text_sql(SQL("%s", text), False, TOKEN_GAP)))
+            # About 12 times the slowest unit's 0.16 s.
+            self.assertLess(time.perf_counter() - start, 2.0, "in SQL: %s" % unit)
 
-    def test_a_like_value_that_meets_only_the_shown_text_finds_it(self):
-        # Each value meets the shown text, REDACTED_TOKEN in it, and not the stored one: a wildcard, a bracket, and an
-        # accent Odoo's unaccent takes off.
+    def test_a_like_value_that_meets_only_the_placeholder_finds_nothing(self):
+        # Each value meets the shown text, REDACTED_TOKEN in it, and not the stored one: a word of the placeholder, a
+        # wildcard, a bracket, and an accent Odoo's unaccent takes off.
         partner = self.env["res.partner"].create(
             {"name": "AI Probe /my/orders/7?access_token=made-up-probe-token-4e5f"}
         )
         unaccented = self.env["res.partner"].create({"name": "AI /chat/5/abc123"})
-        probes = [(partner, "7?access%list"), (partner, "=[t"), (partner, "7?access_token=[")]
+        values = ("on-the-AI", "deny-list", "token-on", "7?access%list", "=[t", "7?access_token=[")
+        probes = [(partner, value) for value in values]
         if self._with_unaccent():
             probes.append((unaccented, "é"))
         for record, value in probes:
             shown = self._shown(self.employee, "res.partner", record, ["name"])["name"]
             self.assertTrue(re.search(like_regex(value), remove_accents(shown), re.IGNORECASE), (value, shown))
             self.assertFalse(re.search(like_regex(value), record.name, re.IGNORECASE), (value, record.name))
-            for operator, expected in (("ilike", [record.id]), ("not ilike", [])):
+            for operator, expected in (("ilike", []), ("not ilike", [record.id])):
                 payload, is_error = self._search_read(
                     self.employee, "res.partner", [["id", "=", record.id], ["name", operator, value]], ["id"]
                 )
                 self.assertEqual(([row["id"] for row in payload["records"]], is_error), (expected, False), value)
+
+    def test_a_filter_meets_the_words_beside_a_token_and_its_whole_placeholder(self):
+        # The token's value ends in "=", as its mark does: the stored text holds its two sides joined, "= AI after".
+        token = "made-up-padded-token=="
+        partner = self.env["res.partner"].create(
+            {
+                "name": "AI Beside /my/orders/7?access_token=%s AI after" % token,
+                "comment": Markup("<p>AI Beside /my/orders/7?<b>access</b>_token=%s AI after</p>") % token,
+            }
+        )
+        this = [["id", "=", partner.id]]
+        missed = ("on-the-AI", "deny-list", "= AI after", "=[t", REDACTED_TOKEN + "x", REDACTED_TOKEN[:-1])
+        found = (
+            *("7?access_token=", "AI after", "orders/7?access%AI after", "=%s AI after" % TOKEN_GAP, REDACTED_TOKEN),
+            *("7?access_token=%s AI after" % REDACTED_TOKEN, "ACCESS_TOKEN=%s ai" % REDACTED_TOKEN.upper()),
+        )
+        probes = {**dict.fromkeys(missed, False), **dict.fromkeys(found, True)}
+        if self._with_unaccent():
+            probes["orders/7?accéss_token="] = True
+        for name in ("name", "comment"):
+            shown = self._shown(self.employee, "res.partner", partner, [name])[name]
+            self.assertIn("/my/orders/7?access_token=%s AI after" % REDACTED_TOKEN, shown, name)
+            terms = [
+                [name, operator, value, expected]
+                for value, is_found in probes.items()
+                for operator, expected in (("ilike", is_found), ("not ilike", not is_found))
+            ]
+            end = "</p>" if name == "comment" else ""
+            terms += [
+                [name, "=ilike", "%orders/7?access_token=%AI after" + end, True],
+                [name, "=ilike", "%%orders/7?access_token=%s ai after%s" % (REDACTED_TOKEN.upper(), end), True],
+                [name, "=like", "%%orders/7?access_token=%s AI after%s" % (REDACTED_TOKEN, end), True],
+                [name, "like", "=%s AI" % REDACTED_TOKEN, True],
+                [name, "like", "=%s AI" % REDACTED_TOKEN.upper(), False],
+            ]
+            if name == "name":
+                compared = shown.replace(REDACTED_TOKEN, TOKEN_GAP)
+                terms += [
+                    [name, "=", shown, True],
+                    [name, "!=", shown, False],
+                    [name, "=", compared, False],
+                    [name, "in", [shown], True],
+                    [name, "not in", [shown], False],
+                    [name, "=", shown.replace(REDACTED_TOKEN, REDACTED_TOKEN.upper()), False],
+                    [name, "=", shown.replace("AI Beside", "ai beside"), False],
+                    [name, "=", shown.replace("Beside", "B_side"), False],
+                    [name, "=", shown.replace("side", "%"), False],
+                ]
+            for *term, expected in terms:
+                payload, is_error = self._search_read(self.employee, "res.partner", [*this, term], ["id"])
+                self.assertEqual((bool(payload["records"]), is_error), (expected, False), term)
+
+    def test_the_whole_placeholder_meets_every_token_alike(self):
+        self.assertEqual(placeholder_gap_value("a%sb%s" % (REDACTED_TOKEN, REDACTED_TOKEN.upper()), True), "a\vb\v")
+        self.assertEqual(placeholder_gap_value(REDACTED_TOKEN.upper()), REDACTED_TOKEN.upper())
+        # A long s folds to "s" in Python's Unicode case, not in PostgreSQL's ILIKE itself.
+        long_s_token = REDACTED_TOKEN.replace("s", "\u017f")
+        self.assertEqual(placeholder_gap_value(long_s_token, True), long_s_token)
+        # Rows alike but for their token: its tail, its length, a value ending in "=", or the placeholder itself.
+        values = (
+            *("made-up-tail-a1", "made-up-tail-b2", "x", "made-up-ends=", "made-up-ends==", "made-up-AI-after"),
+            *("made-up-a-much-longer-token-value-0123456789abcdef", REDACTED_TOKEN),
+        )
+        name_form = "AI Alike /my/orders/7?access_token=%s AI after"
+        comment_form = "<p>AI Alike /my/orders/7?access_token=%s AI after</p>"
+        partners = self.env["res.partner"].create(
+            [{"name": name_form % value, "comment": Markup(comment_form) % value} for value in values]
+        )
+        shown_name, shown_comment = name_form % REDACTED_TOKEN, comment_form % REDACTED_TOKEN
+        for partner in partners:
+            row = self._shown(self.employee, "res.partner", partner, ["name", "comment"])
+            self.assertEqual((row["name"], row["comment"]), (shown_name, shown_name))
+        terms = [
+            ["name", "=", shown_name, True],
+            ["name", "in", [shown_name, "AI Alike Other"], True],
+            ["name", "!=", shown_name, False],
+            ["name", "not in", [shown_name], False],
+            ["name", "=", name_form % "x", False],
+            ["name", "in", [name_form % value for value in values if value != REDACTED_TOKEN], False],
+            ["name", "ilike", REDACTED_TOKEN, True],
+            ["name", "ilike", "=%s AI after" % REDACTED_TOKEN.upper(), True],
+            ["name", "=ilike", "ai alike %" + REDACTED_TOKEN + " ai after", True],
+            ["name", "=ilike", "%" + REDACTED_TOKEN, False],
+            ["name", "not ilike", REDACTED_TOKEN, False],
+            ["name", "not ilike", "on-the-AI", True],
+            ["name", "not ilike", "= AI after", True],
+            ["name", "ilike", "on-the-AI", False],
+            ["name", "ilike", "= AI after", False],
+            ["name", "ilike", "s= AI", False],
+            ["name", "ilike", "-after AI after", False],
+            ["name", "ilike", "x AI", False],
+            ["comment", "=", shown_comment, True],
+            ["comment", "in", [shown_comment], True],
+            ["comment", "!=", shown_comment, False],
+            ["comment", "not in", [shown_comment], False],
+            ["comment", "ilike", "access_token=%s AI after</p>" % REDACTED_TOKEN, True],
+            ["comment", "=ilike", "%=" + REDACTED_TOKEN + " ai after</p>", True],
+            ["comment", "not ilike", REDACTED_TOKEN, False],
+            ["comment", "ilike", "= AI after", False],
+        ]
+        this = [["id", "in", partners.ids]]
+        for *term, expected in terms:
+            payload, is_error = self._search_read(self.employee, "res.partner", [*this, term], ["id"])
+            self.assertFalse(is_error, payload)
+            self.assertEqual(sorted(row["id"] for row in payload["records"]), partners.ids if expected else [], term)
+
+    def test_the_whole_placeholder_meets_every_token_alike_beside_like_signs(self):
+        # A backslash, a "%" and a "_" before the token: an equality is a =like of its escaped value.
+        form = "AI B\\s %%_ /my/orders/7?access_token=%s AI after"
+        partners = self.env["res.partner"].create([{"name": form % value} for value in ("made-up-c3", "made-up-d4==")])
+        shown = form % REDACTED_TOKEN
+        this = [["id", "in", partners.ids]]
+        for term, expected in ((["name", "=", shown], partners.ids), (["name", "!=", shown], [])):
+            payload, is_error = self._search_read(self.employee, "res.partner", [*this, term], ["id"])
+            self.assertFalse(is_error, payload)
+            self.assertEqual(sorted(row["id"] for row in payload["records"]), sorted(expected), term)
+
+    def test_a_filter_value_too_long_to_match_across_tags_is_refused(self):
+        partner = self.env["res.partner"].create({"name": "AI Long /my/orders/7?access_token=made-up-long-e5"})
+        long_text = "a" * (LIKE_PATTERN_MAX_CHARS + 1)
+        for operator, value in (("ilike", long_text), ("=", REDACTED_TOKEN + long_text)):
+            payload, is_error = self._search_read(
+                self.employee, "res.partner", [["id", "=", partner.id], ["name", operator, value]], ["id"]
+            )
+            self.assertTrue(is_error, operator)
+            self.assertIn("of over %d characters is refused" % LIKE_PATTERN_MAX_CHARS, str(payload), operator)
+        payload, is_error = self._search_read(
+            self.employee, "res.partner", [["id", "=", partner.id], ["name", "ilike", "a" * 50]], ["id"]
+        )
+        self.assertFalse(is_error, payload)
+
+    def test_a_placeholder_a_text_holds_outside_a_token_matches_as_its_words(self):
+        # As an answer quoting a redacted text holds it: no token's place, which the whole placeholder of a value meets.
+        Partner = self.env["res.partner"]
+        quoted_name = "AI Quoted %s AI after" % REDACTED_TOKEN
+        quoting_name = "AI Quoting /my/orders/7?access_token=made-up-quoting %s" % REDACTED_TOKEN
+        quoted, quoting = Partner.create([{"name": quoted_name}, {"name": quoting_name}])
+        shown_quoting = "AI Quoting /my/orders/7?access_token=%s %s" % (REDACTED_TOKEN, REDACTED_TOKEN)
+        self.assertEqual(self._shown(self.employee, "res.partner", quoted, ["name"])["name"], quoted_name)
+        self.assertEqual(self._shown(self.employee, "res.partner", quoting, ["name"])["name"], shown_quoting)
+        this = [["id", "in", (quoted | quoting).ids]]
+        for term, expected in (
+            (["name", "ilike", "on-the-AI"], quoted | quoting),
+            (["name", "ilike", "Quoted [token-on"], quoted),
+            (["name", "ilike", REDACTED_TOKEN], quoting),
+            (["name", "ilike", "%s AI after" % REDACTED_TOKEN], Partner),
+            (["name", "ilike", "=%s %s" % (REDACTED_TOKEN, REDACTED_TOKEN)], Partner),
+            (["name", "ilike", "=%s [token-on-the-AI-deny-list" % REDACTED_TOKEN], quoting),
+            (["name", "=", quoted_name], Partner),
+            (["name", "!=", quoted_name], quoted | quoting),
+            (["name", "=", shown_quoting], Partner),
+            (["name", "!=", shown_quoting], quoted | quoting),
+        ):
+            payload, is_error = self._search_read(self.employee, "res.partner", [*this, term], ["id"])
+            self.assertFalse(is_error, payload)
+            self.assertEqual(sorted(row["id"] for row in payload["records"]), sorted(expected.ids), term)
+
+    def test_a_like_value_tells_nothing_of_a_token_s_last_characters(self):
+        # A "_" or a vertical tab over a token's place meets the stored text inside some of these values only; ref holds
+        # a vertical tab after the value, as a line break pasted from Word does.
+        gap = TOKEN_GAP
+        values = (
+            *("made-up-tail==", "x", "made-up-tail-n=Q", "made-up-tail-en=Q"),
+            *("made-up-tail=QR", "made-up-tail-A=", "made-up-tail-AB"),
+        )
+        partners = self.env["res.partner"].create(
+            [
+                {
+                    "name": "AI Tail /my/orders/7?access_token=%s AI after" % value,
+                    "comment": Markup("<p>AI Tail /my/orders/7?<b>access</b>_token=%s AI after</p>") % value,
+                    "ref": "AI Tail /my/orders/7?access_token=%s%sAI after" % (value, gap),
+                }
+                for value in values
+            ]
+        )
+        # No token's mark: no value meets the text, though some do with their "_" and vertical tabs read as "%".
+        plain = self.env["res.partner"].create(
+            {
+                "name": "AI Plain=QRS AI after",
+                "comment": "<p>AI Plain=QRS AI after</p>",
+                "ref": f"AI Plain=QRS{gap}AI after",
+            }
+        )
+        probes = {
+            "name": {"=_ AI after": True, "en=_ AI after": True, "=__ AI after": False},
+            "comment": {"=_ AI after": True, "en=_ AI after": True, "=__ AI after": False},
+            "ref": {f"={gap}": True, f"n={gap}": True, f"={gap}{gap}AI after": True, f"A={gap}": False},
+        }
+        anchored = {"name": "%=_ AI after", "comment": "%=_ AI after</p>", "ref": f"%={gap}{gap}AI after"}
+        this = [["id", "in", (partners | plain).ids]]
+        for name, found_by_value in probes.items():
+            terms = [[name, "=ilike", anchored[name], True]]
+            terms += [
+                [name, operator, value, expected]
+                for value, is_found in found_by_value.items()
+                for operator, expected in (("ilike", is_found), ("not ilike", not is_found))
+            ]
+            for *term, expected in terms:
+                payload, is_error = self._search_read(self.employee, "res.partner", [*this, term], ["id"])
+                self.assertFalse(is_error, payload)
+                expected_ids = (partners.ids if expected else []) + (plain.ids if term[1] == "not ilike" else [])
+                self.assertEqual(sorted(row["id"] for row in payload["records"]), sorted(expected_ids), term)
+
+    def test_a_like_value_that_is_no_text_tells_nothing_of_a_token_s_last_characters(self):
+        # Odoo matches a list by its text, "['%n=_ AI after']", whose "_" a list's repr in the text meets.
+        values = ("Q", "made-up-tail-n=Q", "made-up-tail-A=", "made-up-longer-tail")
+        partners = self.env["res.partner"].create(
+            [{"name": "x ['a /my/orders/7?access_token=%s AI after'] y" % value} for value in values]
+        )
+        this = [["id", "in", partners.ids]]
+        for value in (["%n=_ AI after"], ["a /my/orders/7?access_token=%s AI after" % REDACTED_TOKEN]):
+            for operator, expected in (("ilike", partners.ids), ("not ilike", [])):
+                payload, is_error = self._search_read(
+                    self.employee, "res.partner", [*this, ["name", operator, value]], ["id"]
+                )
+                self.assertFalse(is_error, payload)
+                self.assertEqual(sorted(row["id"] for row in payload["records"]), sorted(expected), (operator, value))
+
+    def test_a_like_value_of_many_wildcards_in_a_row_is_matched_fast(self):
+        # PostgreSQL compiles 600 runs of any characters in a row in 2 s, and in 34 s with optional tags between them.
+        partner = self.env["res.partner"].create({"name": "AI Wildcards /my/orders/7?access_token=made-up-wildcards"})
+        for value, is_found in (("%" * 600, True), ("é" * 600, False)):
+            start = time.perf_counter()
+            payload, is_error = self._search_read(
+                self.employee, "res.partner", [["id", "=", partner.id], ["name", "=ilike", value]], ["id"]
+            )
+            self.assertFalse(is_error, payload)
+            self.assertEqual(bool(payload["records"]), is_found, value[0])
+            self.assertLess(time.perf_counter() - start, 1.0, value[0])
+
+    def test_a_like_value_s_escapes_meet_a_text_its_tags_split(self):
+        self.assertEqual(gap_spanning_like_value("a_b\\_c\\%d\\\\e\vf\\"), "a%b\\_c\\%d\\\\e%f\\")
+        # An escaped vertical tab meets a token's place as an unescaped one does.
+        self.assertEqual(gap_spanning_like_value("=\\" + TOKEN_GAP), "=%")
+        partner = self.env["res.partner"].create(
+            {
+                "name": "AI Escapes",
+                "comment": Markup(
+                    "<p>AI 50<b>%</b>_<i>\\</i>y /my/orders/7?<b>access</b>_token=made-up-escape-7c8d</p>"
+                ),
+            }
+        )
+        shown = self._shown(self.employee, "res.partner", partner, ["comment"])["comment"]
+        self.assertEqual(shown, "AI 50%_\\y /my/orders/7?access_token=" + REDACTED_TOKEN)
+        self.assertEqual(
+            [pair for pair in ("0%", "%_", "_\\", "\\y") if pair in partner.comment], [], "tags split them"
+        )
+        this = [["id", "=", partner.id]]
+        for value, is_found in (("0\\%\\_", True), ("\\_\\\\y", True), ("0\\%\\_\\\\y", True), ("0\\%\\_\\\\z", False)):
+            for operator, expected in (("ilike", is_found), ("not ilike", not is_found)):
+                payload, is_error = self._search_read(
+                    self.employee, "res.partner", [*this, ["comment", operator, value]], ["id"]
+                )
+                self.assertEqual((bool(payload["records"]), is_error), (expected, False), (operator, value))
 
     def _with_unaccent(self):
         """Whether Odoo's unaccent is on, switched on for the test where the database offers it."""
@@ -5770,27 +6297,33 @@ class TestAiDenyListRecordTexts(AssistantCase):
             *("?", "&", "&amp;", ";", "#", "%3F", "%26", "%3D", "=", "/", "%", "_", "access_", "token", "token="),
             *("pid=", "hash=", "<b>", "</b>", "<span>", "<wbr>", "<!-- x -->", "<p>", "<br>", "abc", "5", " "),
             *(" ", "survey", "/survey/", "/rate/", REDACTED_TOKEN),
-            *("<!--", "-->", "<", "<b", "<sp", "an>", ">"),
+            *("<!--", "-->", "<", "<b", "<sp", "an>", ">", TOKEN_GAP),
         )
         rng = random.Random(7)
         texts = cases + ["".join(rng.choice(units) for _ in range(rng.randint(2, 14))) for _ in range(3000)]
 
-        def stripped_always(text):
-            text = tools._without_url_tokens_once(text)
+        def stripped_always(text, replacement):
+            text = tools._without_url_tokens_once(text, replacement=replacement)
             untagged_text = URL_INLINE_TAGS.sub("", text)
-            redacted_text = tools._without_url_tokens_once(untagged_text)
+            redacted_text = tools._without_url_tokens_once(untagged_text, replacement=replacement)
             return redacted_text if redacted_text != untagged_text else text
 
-        expected = [stripped_always(text) for text in texts]
-        self.assertEqual([tools._without_url_tokens(text) for text in texts], expected)
-        self.env.cr.execute(
-            SQL(
-                "SELECT %s FROM unnest(%s::text[]) WITH ORDINALITY AS ai_case(text, position) ORDER BY position",
-                tools._redacted_text_sql(SQL("ai_case.text")),
-                texts,
+        # The text shown, and the text a filter compares.
+        for replacement in (REDACTED_TOKEN, TOKEN_GAP):
+            expected = [stripped_always(text, replacement) for text in texts]
+            self.assertEqual(
+                [tools._without_url_tokens(text, replacement=replacement) for text in texts],
+                expected,
+                repr(replacement),
             )
-        )
-        self.assertEqual([row[0] for row in self.env.cr.fetchall()], expected)
+            self.env.cr.execute(
+                SQL(
+                    "SELECT %s FROM unnest(%s::text[]) WITH ORDINALITY AS ai_case(text, position) ORDER BY position",
+                    tools._redacted_text_sql(SQL("ai_case.text"), replacement=replacement),
+                    texts,
+                )
+            )
+            self.assertEqual([row[0] for row in self.env.cr.fetchall()], expected, repr(replacement))
 
     def test_a_like_value_that_meets_a_token_its_tags_split_finds_the_text_as_shown(self):
         partner = self.env["res.partner"].create(
@@ -6240,6 +6773,41 @@ class TestAiDenyListNames(AssistantCase):
                 self.employee, "res.partner.category", [["name", "ilike", value], ["id", "in", (parent | child).ids]]
             )
             self.assertEqual((sorted(row["id"] for row in payload["records"]), is_error), (expected, False), value)
+        # Shown as stored, the placeholder as the token's value: the code would still find it by a word of it.
+        parent.name = "AI Tokened Tag /survey/%s" % REDACTED_TOKEN
+        self.assertEqual(self._tools(self.employee)._without_url_tokens(parent.name), parent.name)
+        self._assert_refused(
+            self.employee,
+            "res.partner.category",
+            ["display_name", "ilike", "on-the-AI"],
+            "res.partner.category's name search, in its own code, reads a text",
+        )
+
+    def test_a_name_search_of_its_own_code_reads_an_html_text_s_entity_encoded_token(self):
+        if "chatbot.script.answer" not in self.env:
+            self.skipTest("im_livechat is not installed")
+        livechat_manager = new_test_user(
+            self.env,
+            login="test_assistant_chatbot_names",
+            groups="base.group_user,im_livechat.im_livechat_group_manager",
+        )
+        script = self.env["chatbot.script"].create({"title": "AI Names Bot"})
+        step = self.env["chatbot.script.step"].create(
+            {"chatbot_script_id": script.id, "step_type": "question_selection", "message": "AI pick one"}
+        )
+        self.env["chatbot.script.answer"].create({"name": "AI Named Answer", "script_step_id": step.id})
+        term = ["display_name", "ilike", "AI Named Answer"]
+        payload, is_error = self._search_read(livechat_manager, "chatbot.script.answer", [term], ["id"])
+        self.assertFalse(is_error, payload)
+        # The sanitizer decodes "&#61;" on a write: SQL stores it as a sanitize=False field would.
+        self.env.cr.execute(
+            "UPDATE chatbot_script_step SET message = jsonb_build_object('en_US', %s::text) WHERE id = %s",
+            ["<p>AI pick /my/orders/7?access_token&#61;made-up-step-entity</p>", step.id],
+        )
+        step.invalidate_recordset(["message"])
+        self._assert_refused(
+            livechat_manager, "chatbot.script.answer", term, "chatbot.script.answer's name search, in its own code"
+        )
 
     def test_a_list_of_ids_and_names_on_a_link_matches_its_names_as_shown(self):
         token = "made-up-mixed-token-2b3c"
@@ -6256,6 +6824,7 @@ class TestAiDenyListNames(AssistantCase):
         for terms, expected in (
             ([["parent_id", "in", [other.id, "AI Mixed VAT"]]], children[0] | children[2]),
             ([["parent_id", "=", [other.id, shown_name]]], children[1] | children[2]),
+            ([["parent_id", "not in", [other.id, shown_name]]], children[0]),
             ([["parent_id", "in", [0, raw_name]]], Partner),
             ([["parent_id", "not in", [other.id, raw_name]]], children[0] | children[1]),
             (["!", ["parent_id", "in", [other.id, "AI Mixed VAT"]]], children[1]),
@@ -6349,6 +6918,237 @@ class TestAiDenyListNames(AssistantCase):
             payload, is_error = self._search_read(self.employee, "res.partner.category", [term], ["id"])
             self.assertFalse(is_error, payload)
             self.assertTrue({row["id"] for row in payload["records"]} & set(tags.ids), term)
+
+    def _read_group_keys(self, user, model_name, records, groupby):
+        payload, is_error = self._call(
+            user,
+            "read_group",
+            model=model_name,
+            domain=json.dumps([["id", "in", records.ids]]),
+            groupby=[groupby],
+            measures=[],
+            orderby="",
+            limit=0,
+        )
+        self.assertFalse(is_error, payload)
+        return sorted(tuple(row[groupby]) for row in payload["groups"])
+
+    def test_a_display_name_built_from_a_denied_code_reads_as_the_product_s_name(self):
+        if "product.product" not in self.env:
+            self.skipTest("product is not installed")
+        self._set_param("deny_fields_extra", "product.*.default_code")
+        coded, plain = self.env["product.product"].create(
+            [{"name": "AI Coded Widget", "default_code": "AI-SECRET-CODE-31"}, {"name": "AI Plain Widget"}]
+        )
+        self.assertEqual(coded.display_name, "[AI-SECRET-CODE-31] AI Coded Widget", "Odoo's own")
+        products = coded | plain
+        expected = [(coded.id, "AI Coded Widget"), (plain.id, "AI Plain Widget")]
+        payload, is_error = self._search_read(
+            self.administrator, "product.product", [["id", "in", products.ids]], ["product_tmpl_id"], order="id"
+        )
+        self.assertFalse(is_error, payload)
+        self.assertEqual(
+            [(row["display_name"], row["product_tmpl_id"][1]) for row in payload["records"]],
+            [("AI Coded Widget", "AI Coded Widget"), ("AI Plain Widget", "AI Plain Widget")],
+        )
+        self.assertNotIn("AI-SECRET-CODE", json.dumps(payload))
+        self.assertEqual(self._read_group_keys(self.administrator, "product.product", products, "id"), expected)
+        self.assertEqual(
+            self._read_group_keys(self.administrator, "product.product", products, "product_tmpl_id"),
+            sorted((product.product_tmpl_id.id, name) for product, (_id, name) in zip(products, expected)),
+        )
+        tools = self._tools(self.administrator)
+        link = (coded.id, coded.display_name)
+        properties = [[{"name": "ai_product", "type": "many2one", "comodel": "product.product", "value": link}]]
+        tools._shown_properties(properties)
+        self.assertEqual(properties[0][0]["value"], (coded.id, "AI Coded Widget"))
+        self.assertIn("id %s: AI Coded Widget" % coded.id, tools._question_context("product.product", coded.id))
+        for model_name in ("product.product", "product.template"):
+            self._assert_refused(
+                self.administrator, model_name, ["display_name", "ilike", "AI-SECRET-CODE"], "name search also matches"
+            )
+
+    def test_a_name_shows_a_denied_value_by_its_string_form_and_never_an_empty_one(self):
+        values = [False, None, "", "  ", 0, 0.0, "AI-CODE", 7, 2.5, date(2026, 11, 25)]
+        self.assertEqual(
+            self._tools(self.administrator)._name_value_texts(values), {"AI-CODE", "7", "2.5", "2026-11-25"}
+        )
+
+    def _contact_of_a_company(self):
+        """A company with a VAT number and its contact with an email; Odoo's names show neither."""
+        Partner = self.env["res.partner"]
+        company = Partner.create({"name": "AI Acme", "is_company": True, "vat": "BE0477472701"})
+        contact = Partner.create({"name": "AI Bob", "parent_id": company.id, "email": "ai.bob@example.com"})
+        self.assertEqual((contact.vat, contact.display_name), (company.vat, "AI Acme, AI Bob"), "Odoo's own")
+        return company, contact
+
+    def test_a_contact_keeps_its_name_with_its_vat_and_email_denied(self):
+        company, contact = self._contact_of_a_company()
+        self._set_param("deny_fields_extra", "res.partner.vat, res.partner.email")
+        tools = self._tools(self.administrator)
+        sources = tools._denied_name_sources()["res.partner"]
+        self.assertLessEqual({("vat", None), ("email", None)}, set(sources))
+        self.assertEqual(len(sources), len(set(sources)), "each source once")
+        payload, is_error = self._search_read(
+            self.administrator, "res.partner", [["id", "in", (company | contact).ids]], ["parent_id"], order="id"
+        )
+        self.assertFalse(is_error, payload)
+        self.assertEqual(
+            [(row["display_name"], row["parent_id"]) for row in payload["records"]],
+            [("AI Acme", False), ("AI Acme, AI Bob", [company.id, "AI Acme"])],
+        )
+        link = (contact.id, contact.display_name)
+        properties = [[{"name": "ai_contact", "type": "many2one", "comodel": "res.partner", "value": link}]]
+        tools._shown_properties(properties)
+        self.assertEqual(properties[0][0]["value"], link)
+        self.assertIn("id %s: AI Acme, AI Bob" % contact.id, tools._question_context("res.partner", contact.id))
+
+    def test_a_link_to_a_contact_keeps_its_name_with_its_vat_and_email_denied(self):
+        if "product.supplierinfo" not in self.env:
+            self.skipTest("product is not installed")
+        _company, contact = self._contact_of_a_company()
+        product = self.env["product.product"].create({"name": "AI Supplied Widget"})
+        supply = self.env["product.supplierinfo"].create(
+            {"partner_id": contact.id, "product_tmpl_id": product.product_tmpl_id.id}
+        )
+        self._set_param("deny_fields_extra", "res.partner.vat, res.partner.email")
+        payload, is_error = self._search_read(
+            self.administrator, "product.supplierinfo", [["id", "=", supply.id]], ["partner_id"]
+        )
+        self.assertFalse(is_error, payload)
+        self.assertEqual(
+            [(row["display_name"], row["partner_id"]) for row in payload["records"]],
+            [("AI Acme, AI Bob", [contact.id, "AI Acme, AI Bob"])],
+        )
+        self.assertEqual(
+            self._read_group_keys(self.administrator, "product.supplierinfo", supply, "partner_id"),
+            [(contact.id, "AI Acme, AI Bob")],
+        )
+
+    def test_a_contact_named_by_its_denied_email_is_masked_whole_its_messages_authors_too(self):
+        Partner = self.env["res.partner"]
+        named, other = Partner.create(
+            [
+                {"name": "ai.carol@example.com", "email": "ai.carol@example.com"},
+                {"name": "AI Dave", "email": "ai.dave@example.com"},
+            ]
+        )
+        for author in (named, other):
+            self.partner.message_post(
+                body="AI note", author_id=author.id, message_type="comment", subtype_xmlid="mail.mt_note"
+            )
+        self._set_param("deny_fields_extra", "res.partner.email")
+        payload, is_error = self._search_read(
+            self.administrator, "res.partner", [["id", "in", (named | other).ids]], ["id"], order="id"
+        )
+        self.assertFalse(is_error, payload)
+        self.assertEqual([row["display_name"] for row in payload["records"]], [DENIED_NAME_LABEL, "AI Dave"])
+        content, is_error = self._tools(self.employee)._execute(
+            "record_history", {"model": "res.partner", "res_id": self.partner.id}
+        )
+        self.assertFalse(is_error, content)
+        history = json.loads(content.split("<untrusted_data>\n", 1)[1].rsplit("\n</untrusted_data>", 1)[0])
+        self.assertEqual([entry["author"] for entry in history[:2]], ["AI Dave", DENIED_NAME_LABEL])
+        self.assertNotIn("ai.carol", content)
+
+    def test_a_contact_named_by_its_denied_email_in_another_case_is_masked_whole(self):
+        named = self.env["res.partner"].create(
+            [
+                {"name": "AI.ERIN@EXAMPLE.COM", "email": "ai.erin@example.com"},
+                {"name": "ai.fay@example.com", "email": "AI.Fay@Example.com"},
+            ]
+        )
+        self._set_param("deny_fields_extra", "res.partner.email")
+        payload, is_error = self._search_read(self.administrator, "res.partner", [["id", "in", named.ids]], ["id"])
+        self.assertFalse(is_error, payload)
+        self.assertEqual([row["display_name"] for row in payload["records"]], [DENIED_NAME_LABEL] * 2)
+        self.assertNotIn("example", json.dumps(payload).lower())
+
+    def test_a_name_built_from_a_denied_field_by_a_link_reads_as_the_link_s_shown_name(self):
+        if "product.supplierinfo" not in self.env:
+            self.skipTest("product is not installed")
+        Partner = self.env["res.partner"]
+        vendor = Partner.create({"name": "AI Vendor Co", "is_company": True})
+        buyer = Partner.create({"name": "AI Buyer", "parent_id": vendor.id})
+        product = self.env["product.product"].create({"name": "AI Supplied Widget"})
+        supply = self.env["product.supplierinfo"].create(
+            {"partner_id": buyer.id, "product_tmpl_id": product.product_tmpl_id.id}
+        )
+        self.assertEqual(supply.display_name, "AI Vendor Co, AI Buyer", "Odoo names a supply by its vendor")
+        # A contact's complete name holds its company's name, which its own does not.
+        self._set_param("deny_fields_extra", "res.partner.complete_name")
+        payload, is_error = self._search_read(
+            self.administrator, "product.supplierinfo", [["id", "=", supply.id]], ["partner_id"]
+        )
+        self.assertFalse(is_error, payload)
+        self.assertEqual(
+            [(row["display_name"], row["partner_id"][1]) for row in payload["records"]], [("AI Buyer", "AI Buyer")]
+        )
+
+    def _billed_lines(self, products, labels):
+        """An accountant, and a draft invoice's lines of `products` labelled by `labels`, False for none, which Odoo
+        then names by their product; the invoice's reference is AI-REF-47."""
+        if "account.move.line" not in self.env or "product.product" not in self.env:
+            self.skipTest("account is not installed")
+        accountant = new_test_user(
+            self.env, login="test_assistant_line_names", groups="base.group_user,account.group_account_invoice"
+        )
+        invoice = self.env["account.move"].create(
+            {
+                "move_type": "out_invoice",
+                "partner_id": self.partner.id,
+                "ref": "AI-REF-47",
+                "invoice_line_ids": [
+                    Command.create({"product_id": product.id, "price_unit": 10}) for product in products
+                ],
+            }
+        )
+        lines = invoice.invoice_line_ids.sorted("id")
+        for line, label in zip(lines, labels):
+            line.name = label
+        return accountant, lines
+
+    def _line_names(self, user, lines):
+        payload, is_error = self._search_read(
+            user, "account.move.line", [["id", "in", lines.ids]], ["name"], order="id"
+        )
+        self.assertFalse(is_error, payload)
+        return [row["display_name"] for row in payload["records"]]
+
+    def test_a_name_built_from_a_denied_field_without_a_name_of_its_own_is_masked_whole(self):
+        if "product.product" not in self.env:
+            self.skipTest("product is not installed")
+        products = self.env["product.product"].create(
+            [{"name": "AI Billed Widget", "default_code": "AI-SECRET-CODE-47"}, {"name": "AI Plain Billed Widget"}]
+        )
+        accountant, lines = self._billed_lines(products, [False, False])
+        self.assertIn("AI-SECRET-CODE-47", lines[0].display_name, "Odoo's own names a line by its product")
+        self._set_param("deny_fields_extra", "product.*.default_code")
+        self.assertEqual(self._line_names(accountant, lines), [DENIED_NAME_LABEL, lines[1].display_name])
+        # A denied invoice hides the lines' names whole, though they also show its reference.
+        self._set_param("deny_models_extra", "account.move")
+        self.assertEqual(self._line_names(accountant, lines), [DENIED_NAME_LABEL] * 2)
+
+    def test_a_name_that_does_not_show_its_denied_value_is_kept(self):
+        if "product.product" not in self.env:
+            self.skipTest("product is not installed")
+        product = self.env["product.product"].create({"name": "AI Billed Widget", "default_code": "AI-SECRET-CODE-48"})
+        accountant, line = self._billed_lines(product, ["AI Labelled Line"])
+        self.assertEqual(line.display_name, "(AI-REF-47) AI Labelled Line", "Odoo's own, its label by its reference")
+        self._set_param("deny_fields_extra", "product.*.default_code")
+        self.assertIn("AI-SECRET-CODE-48", line.product_id.display_name, "the name is built from the code's")
+        self.assertEqual(self._line_names(accountant, line), [line.display_name])
+
+    def test_a_line_whose_label_holds_its_product_s_denied_code_is_masked_whole(self):
+        if "product.product" not in self.env:
+            self.skipTest("product is not installed")
+        product = self.env["product.product"].create({"name": "AI Billed Widget", "default_code": "AI-SECRET-CODE-49"})
+        accountant, lines = self._billed_lines([product, product], ["[AI-SECRET-CODE-49] AI Billed Widget", "AI Label"])
+        # The invoice's reference puts the code in both lines' names.
+        lines.move_id.ref = "AI PO AI-SECRET-CODE-49"
+        self.assertEqual(lines[1].display_name, "(AI PO AI-SECRET-CODE-49) AI Label", "Odoo's own")
+        self._set_param("deny_fields_extra", "product.*.default_code")
+        self.assertEqual(self._line_names(accountant, lines), [DENIED_NAME_LABEL, "AI Label"])
 
     def test_every_name_search_of_a_model_s_own_code_declares_the_fields_it_reads(self):
         tools = self._tools(self.administrator)

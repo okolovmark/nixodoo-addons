@@ -350,7 +350,8 @@ is seen by everyone who can see the record, not only by the asker.
   ``can_open_last_appraisal`` on any model (``hr_appraisal_oca``'s flag on
   employees and their public profiles), a bit derived from the appraisals, a
   denied model; the website's Plausible and Google Maps keys, a signature
-  request's share link, a Discuss channel's ``uuid`` and invitation URL, an
+  request's share link, a Discuss channel's ``uuid`` and invitation URL, the
+  live chat report's copy of that ``uuid``, an
   automation rule's webhook URL (``base.automation.url``) and a server
   action's (``ir.actions.server.webhook_url``); a calendar event's meeting
   URL (``videocall_location``), which ends with the event's access token; a
@@ -433,9 +434,27 @@ is seen by everyone who can see the record, not only by the asker.
   a call session of such a member, and a group chat that has a guest among
   the members Odoo names it by. A properties field's link to such a record
   reads the same. A name Odoo copies as text, as a live chat's name, is
-  not masked (see Roadmap). A model whose name search reaches a field
-  the deny list hides or the employee may not read refuses such a filter
-  too: with ``res.partner.vat`` hidden, a name filter on contacts, or on a
+  not masked (see Roadmap). A display name Odoo builds from a denied field
+  that is no link, as a product's from its internal reference with
+  ``product.*.default_code`` in ``deny_fields_extra``, reads as the record's
+  ``_rec_name`` does instead (*Desk* for *[DESK-01] Desk*) where it shows
+  that field's value, in the same places, and so does a display name that
+  shows it through a name it is built from, as an invoice line's that
+  shows its product's code. A name shows a value where it holds the
+  value's string form in any case, an empty value aside; a name that
+  shows none stays as Odoo builds it: with ``res.partner.vat`` and
+  ``res.partner.email`` hidden, a contact still reads *Acme, Bob*, as Odoo
+  adds the number or the address only with a context key. A
+  ``_rec_name`` that is a many2one reads that record's name as the tools
+  show it; a model without a ``_rec_name``, or with one of another link,
+  and a record whose ``_rec_name`` is empty, as an invoice line Odoo names
+  by its product, or holds one of the values its display name shows, as a
+  contact named by its hidden email address or an invoice line labelled
+  *[DESK-01] Desk*, read *a name on the AI deny list*. So does a
+  record whose name is also built from a denied record. The author of a
+  message in a record's history reads the same. A model whose name search
+  reaches a field the deny list hides or the employee may not read refuses
+  such a filter too: with ``res.partner.vat`` hidden, a name filter on contacts, or on a
   link to a contact, is refused, since Odoo matches a contact's name with
   its VAT number. The fields a name search reads are ``_rec_name``,
   ``_rec_names_search`` and the name searches of the links among them, and
@@ -499,17 +518,43 @@ is seen by everyone who can see the record, not only by the asker.
   path and a value run on across inline tags, ``<wbr>`` and comments, as
   a browser shows them (``?access_<b>token</b>=``,
   ``/survey/<b>…</b>/start``); a value ends at any space, a no-break
-  space included. A text filter matches the text as shown: a
-  text that holds a token matches with the placeholder in its place,
-  whatever the token holds. So does a filter on a display name, or on a
-  link compared with a name, of a model that searches names by its
-  ``_rec_names_search`` or ``_rec_name``; one that searches names in its
-  own code is refused while a text it reads is shown redacted (see Names). No
-  filter compares a stored text
-  that may hold a token (a char, text or HTML field) with ``<``, ``>``,
-  ``<=`` or ``>=``, which would sort the texts, and none reads a mail's own
-  copy of its text (``body_html`` and ``body_content`` of ``mail.mail``),
-  which would scan the whole HTML of every mail: the refusal points to
+  space included. In an HTML text a value also runs on across a character
+  reference, as a browser decodes it, but one to a character that ends
+  it: ``&``, ``#``, ``<``, ``>``, ``"``, ``'``, a space, a tab, a line feed
+  or a Unicode space (``&amp;``, ``&#38;``, ``&#35;``, ``&#32;``,
+  ``&nbsp;``, ``&ensp;``). A value runs on across a ``?`` (``&#63;``), and
+  across a reference to a carriage return, a form feed or a vertical tab
+  (``&#13;``, ``&#12;``, ``&#11;``), which ``html2plaintext`` drops; the
+  character itself ends it. Each character of a parameter's name, of
+  the separator before ``pid`` or ``hash`` (``&#38pid``, ``&#37;26hash``),
+  of ``=`` or ``%3D``, of ``pid``, ``hash`` or a path may be a character
+  reference, decimal or hex, with leading zeros or none and ``;`` or none, as lxml
+  and a browser decode one, or a named one, in any case (``tok&#101;n``,
+  ``&#x3d;``, ``&#37;3D``, ``/survey&#47;``, ``&equals;``, ``&sol;``); a
+  reference to another character, as ``&#610;``, is none of them. A char
+  or text value is read as it is, references included. A text filter
+  matches the text with each token's value replaced by one vertical tab,
+  so what it finds never depends on what a token holds: the words on
+  either side of a token match, joined only by a ``_``, a ``%`` or a
+  vertical tab of the filter's value (with ``unaccent``, also a sign it
+  turns into one, as ``＿`` or ``％``), or by the whole placeholder
+  ``[token-on-the-AI-deny-list]``, of any case for an ``ilike``, which the
+  filter reads as that vertical tab; each meets any token alike. So ``=``
+  or ``in`` with a char or text value as shown, or with an HTML value's
+  stored HTML holding the placeholder, finds it, and ``!=`` or ``not in``
+  the other texts. A word of the placeholder (*on-the-AI*) matches nothing. A
+  placeholder a text holds outside a token, as an answer that quotes a
+  redacted text does, is text like any other: its words match, the whole
+  placeholder of a filter's value does not. A filter on a display name,
+  or on a link compared with a name, matches alike for a model that
+  searches names by its ``_rec_names_search`` or ``_rec_name``; one that
+  searches names in its own code is refused while a text it reads is
+  shown redacted (see Names). No filter compares a stored text that may
+  hold a token (a char, text or HTML field) with ``<``, ``>``, ``<=`` or
+  ``>=``, which would sort the texts, and none reads a mail's own copy of
+  its text
+  (``body_html`` and ``body_content`` of ``mail.mail``), which would scan
+  the whole HTML of every mail: the refusal points to
   ``body``, the text of the mail's message, or to the mail's subject,
   recipients, state and dates. Structured data (a JSON, properties or
   properties definition field) is read only: no filter, sort key, group or
