@@ -109,3 +109,62 @@ jobs:
       - name: Run tests
         if: steps.addons.outputs.found == 'true'
         run: oca_run_tests
+
+  test-deny-list-extras:
+    runs-on: ubuntu-22.04
+    container:
+      image: ghcr.io/oca/oca-ci/py3.12-odoo20.0:latest
+      # an init as PID 1 reaps the processes a closed browser leaves behind: without one
+      # they stay zombies, and Odoo 20 logs a WARNING after every browser test
+      options: --init
+    name: test the AI deny list with Odoo 20.0's Indian and Dutch localizations and live chat
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_PASSWORD: odoo
+          POSTGRES_DB: odoo
+        ports:
+          - 5432:5432
+    env:
+      OCA_ENABLE_CHECKLOG_ODOO: "1"
+      DENY_LIST_TESTS: >-
+        /ai_assistant:TestAiDenyList,/ai_assistant:TestAiDenyListSecretsAndReviews,/ai_assistant:TestAiDenyListEmployeeCosts,/ai_assistant:TestAiDenyListRecordTexts,/ai_assistant:TestAiDenyListNames,/ai_assistant:TestAiDenyListTaskBrief,/ai_assistant:TestAiDenyListAppraisal
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Any module to test yet?
+        id: addons
+        run: |
+          if ls */__manifest__.py >/dev/null 2>&1; then echo "found=true" >> "$GITHUB_OUTPUT"; else echo "found=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Install addons and dependencies
+        if: steps.addons.outputs.found == 'true'
+        run: oca_install_addons
+      - name: Initialize test db
+        if: steps.addons.outputs.found == 'true'
+        run: oca_init_test_database
+      # ai_assistant's deny list reads the copies of the VAT number these localizations add, as l10n_in's GST
+      # state warning and l10n_nl's identifiers metadata, and the names im_livechat builds from a guest; its
+      # tests of them skip without them.
+      - name: Install the Indian and Dutch localizations and live chat
+        if: steps.addons.outputs.found == 'true'
+        shell: bash
+        run: |
+          unbuffer "$(which odoo)" -d "$PGDATABASE" -i l10n_in,l10n_nl,im_livechat \
+            --http-interface=127.0.0.1 --stop-after-init --skip-auto-install | oca_checklog_odoo
+      - name: Run the AI deny list tests
+        if: steps.addons.outputs.found == 'true'
+        shell: bash
+        run: |
+          unbuffer "$(which odoo)" -d "$PGDATABASE" \
+            -i "$(manifestoo --select-addons-dir "$ADDONS_DIR" list --separator=,)" \
+            --test-enable --test-tags "$DENY_LIST_TESTS" \
+            --http-interface=127.0.0.1 --stop-after-init | tee deny-list-tests.log | oca_checklog_odoo
+          # A test skipped without its module, or renamed out of the tags, would leave this job green.
+          for test in test_the_gst_state_warning_goes_by_the_vat_number test_the_dutch_identifiers_metadata_goes_by_the_vat_number \
+            test_a_live_chat_history_named_after_its_guest_is_masked; do
+            grep -q "Starting .*\.$test " deny-list-tests.log || { echo "::error::$test did not run"; exit 1; }
+            if grep -q "skipped .*\.$test " deny-list-tests.log; then echo "::error::$test was skipped"; exit 1; fi
+          done
