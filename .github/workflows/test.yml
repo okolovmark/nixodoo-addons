@@ -59,3 +59,72 @@ jobs:
       - name: Run tests
         if: steps.addons.outputs.found == 'true'
         run: oca_run_tests
+
+  test-deny-list-extras:
+    runs-on: ubuntu-22.04
+    container: ghcr.io/oca/oca-ci/py3.10-odoo16.0:latest
+    name: test the AI deny list with Odoo 16.0's Philippine localization, live chat, mailing lists and surveys
+    services:
+      postgres:
+        image: postgres:12
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_PASSWORD: odoo
+          POSTGRES_DB: odoo
+        ports:
+          - 5432:5432
+    env:
+      OCA_ENABLE_CHECKLOG_ODOO: "1"
+      DENY_LIST_TESTS: >-
+        /ai_assistant:TestAiDenyList,/ai_assistant:TestAiDenyListSecretsAndReviews,/ai_assistant:TestAiDenyListMessageTexts,/ai_assistant:TestAiDenyListRecordTexts,/ai_assistant:TestAiDenyListNames
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Any module to test yet?
+        id: addons
+        run: |
+          if ls */__manifest__.py >/dev/null 2>&1; then echo "found=true" >> "$GITHUB_OUTPUT"; else echo "found=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Install addons and dependencies
+        if: steps.addons.outputs.found == 'true'
+        run: oca_install_addons
+      - name: Initialize test db
+        if: steps.addons.outputs.found == 'true'
+        run: oca_init_test_database
+      # Odoo uses unaccent where the database has it; the deny list reads a like value's runs as unaccent turns them,
+      # and its tests of that skip without it.
+      - name: Enable unaccent
+        if: steps.addons.outputs.found == 'true'
+        run: psql -c "CREATE EXTENSION IF NOT EXISTS unaccent"
+      # ai_assistant's deny list reads l10n_ph's branch code, a copy of the VAT number, the texts im_livechat and
+      # mail_group copy from a message, im_livechat's report of the channels, a survey's background URL, and through
+      # l10n_ph's account the products' codes and the analytic distributions; its tests of them skip without them.
+      - name: Install the Philippine localization, live chat, mailing lists and surveys
+        if: steps.addons.outputs.found == 'true'
+        shell: bash
+        run: |
+          unbuffer "$(which odoo)" -d "$PGDATABASE" -i l10n_ph,im_livechat,mail_group,survey \
+            --http-interface=127.0.0.1 --stop-after-init | oca_checklog_odoo
+      - name: Run the AI deny list tests
+        if: steps.addons.outputs.found == 'true'
+        shell: bash
+        run: |
+          unbuffer "$(which odoo)" -d "$PGDATABASE" \
+            -i "$(manifestoo --select-addons-dir "$ADDONS_DIR" list --separator=,)" \
+            --test-enable --test-tags "$DENY_LIST_TESTS" \
+            --http-interface=127.0.0.1 --stop-after-init | tee deny-list-tests.log | oca_checklog_odoo
+          # A test skipped without its module, or renamed out of the tags, would leave this job green.
+          for test in test_a_branch_code_derived_from_the_vat_number_is_denied_with_it \
+            test_a_like_value_s_runs_are_read_as_unaccent_reads_them \
+            test_a_like_value_with_an_accent_finds_what_odoo_s_unaccented_filter_finds \
+            test_a_mail_group_message_s_text_goes_by_its_message test_a_chatbot_answer_goes_by_its_message \
+            test_a_live_chat_report_s_channel_uuid_is_denied test_a_survey_background_url_is_denied_with_the_token_it_holds \
+            test_an_analytic_distribution_is_filtered_by_its_accounts_and_never_grouped \
+            test_an_analytic_distribution_filtered_by_a_name_is_refused_where_the_accounts_name_search_reads_hidden \
+            test_a_name_built_from_a_denied_internal_reference_shows_the_record_s_own_name \
+            test_a_name_built_from_a_denied_code_is_masked_whole_where_its_own_name_shows_the_code \
+            test_a_name_built_from_a_denied_code_shows_the_own_name_with_its_url_tokens_redacted \
+            test_a_link_to_a_template_compared_with_a_name_is_refused_where_its_variants_code_is_denied; do
+            grep -q "Starting .*\.$test " deny-list-tests.log || { echo "::error::$test did not run"; exit 1; }
+            if grep -q "skipped .*\.$test " deny-list-tests.log; then echo "::error::$test was skipped"; exit 1; fi
+          done
