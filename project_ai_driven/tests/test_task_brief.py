@@ -1687,6 +1687,42 @@ class TestTaskBrief(ProjectAiDrivenCommon):
         for line in expected_lines:
             self.assertIn("\n%s\n" % line, header + "\n")
 
+    def test_header_shows_the_estimate_coefficient_and_the_actual_hours(self):
+        task = self.blocker_task
+        task.write({"planned_hours": 3, "estimate_coefficient": 1.2, "actual_hours": 2.5})
+        header = get_sections(self._brief(task))[""]
+        for line in ("- Estimate: 3 h, size S, coefficient 1.2", "- Actual Hours: 2.5 h"):
+            self.assertIn("\n%s\n" % line, header + "\n")
+
+    def test_header_claims_no_coefficient_or_actual_hours_a_task_lacks(self):
+        # the 16.0.2.31.0 column init stored a coefficient of 1 on tasks without an Estimate
+        unestimated_task = self.Task.create(
+            {"name": "Unestimated", "project_id": self.project.id, "estimate_coefficient": 1.0}
+        )
+        self.assertEqual((unestimated_task.planned_hours, unestimated_task.estimate_coefficient), (0, 1.0))
+        estimated_lines = get_sections(self._brief())[""].splitlines()
+        self.assertIn("- Estimate: 6 h, size S", estimated_lines)
+        self.assertFalse([line for line in estimated_lines if line.startswith("- Actual Hours")], estimated_lines)
+        for task in (self.blocker_task, unestimated_task):
+            blank_lines = get_sections(self._brief(task))[""].splitlines()
+            self.assertFalse(
+                [line for line in blank_lines if line.startswith(("- Estimate", "- Actual Hours"))], blank_lines
+            )
+
+    def test_header_shows_the_timesheet_hours_apart_from_the_actual_hours(self):
+        if "effective_hours" not in self.Task._fields:
+            self.skipTest("no module installed declares timesheet hours")
+        task = self.blocker_task
+        task.actual_hours = 2.5
+        self.env.flush_all()
+        # a timesheet line would need an employee and an analytic account
+        self.env.cr.execute("UPDATE project_task SET effective_hours = 4 WHERE id = %s", (task.id,))
+        self.env.invalidate_all()
+        header = get_sections(self._brief(task))[""]
+        for line in ("- Actual Hours: 2.5 h", "- Timesheet hours: 4 h"):
+            self.assertIn("\n%s\n" % line, header + "\n")
+        self.assertNotIn("Hours spent", header)
+
     def test_modules_only_on_a_task_of_the_project_that_develops_this_odoo(self):
         self.assertIn("\n- Modules: project\n", self._brief())
         other_brief = self._brief(self.other_task)

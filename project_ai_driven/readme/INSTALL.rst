@@ -345,6 +345,28 @@ records; it can run with the server up. From it the kanban card of a task
 names the completion of its test cases *Test cases*, no longer *Your Test
 cases*: the figure counts every case of the task, whoever reads it.
 
+The update to 16.0.2.31.0 adds **Actual Hours** (``actual_hours``) and the
+**Estimate Coefficient** (``estimate_coefficient``) to tasks, with their
+columns, and **Stages Requiring Actual Hours** to projects, with the table
+``project_actual_hours_required``. It has no migration. Odoo fills the
+coefficient column with 1.0 on every task, archived tasks included, in one
+SQL statement that writes nothing else on the tasks, and makes it NOT
+NULL. Actual Hours stay empty and no stage is marked. Run the update with
+the server stopped: a worker still running the previous code leaves the
+column out of the tasks it creates, and NOT NULL refuses them.
+
+The update to 16.0.2.32.0 has no migration and writes no task. It drops
+NOT NULL from the column ``estimate_coefficient``, and the field loses its
+default: a task created without a coefficient has none. Every task keeps
+the coefficient it has, the 1.0 of the update to 16.0.2.31.0 included, and
+counts in ``get_estimate_coefficient`` with it until a write changes its
+Estimate without one. An update from a version before 16.0.2.31.0 adds the
+column empty instead: the tasks that exist have no coefficient and do not
+count, also once they get Actual Hours, until a coefficient is written to
+them. A tool or a script that changes an Estimate priced from the anchors
+sends ``estimate_coefficient`` in the same write; without it the
+coefficient is emptied.
+
 **Coming from project_task_pull_request**
 
 This module declares ``pr_uri`` on the task and ``pr_required_states`` on

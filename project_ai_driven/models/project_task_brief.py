@@ -16,6 +16,8 @@ BRIEF_TASK_FIELDS = (
     "task_type",
     "planned_hours",
     "tshirt_estimate",
+    "estimate_coefficient",
+    "actual_hours",
     "priority_level",
     "date_deadline",
     "user_ids",
@@ -259,15 +261,25 @@ class ProjectTask(models.Model):
         since = value("date_last_stage_update")
         estimate = value("planned_hours")
         size = value("tshirt_estimate")
+        coefficient = value("estimate_coefficient")
         planned_start = value("planned_date_start")
         planned_end = value("planned_date_end")
-        hours_spent = value("effective_hours")
+        actual_hours = value("actual_hours")
+        timesheet_hours = value("effective_hours")
         created = value("create_date")
         rows = [
             ("Project", value("project_id")),
             ("Stage", join_parts(value("stage_id"), since and "since %s" % since)),
             ("Type", value("task_type")),
-            ("Estimate", join_parts(estimate and "%s h" % estimate, size and "size %s" % size)),
+            (
+                "Estimate",
+                join_parts(
+                    estimate and "%s h" % estimate,
+                    size and "size %s" % size,
+                    # stored tasks can hold a coefficient without an Estimate, which priced nothing
+                    estimate and coefficient and "coefficient %s" % coefficient,
+                ),
+            ),
             ("Priority", value("priority_level")),
             (
                 "Planned",
@@ -276,7 +288,8 @@ class ProjectTask(models.Model):
                 ),
             ),
             ("Deadline", value("date_deadline")),
-            ("Hours spent", hours_spent and "%s h" % hours_spent),
+            ("Actual Hours", actual_hours and "%s h" % actual_hours),
+            ("Timesheet hours", timesheet_hours and "%s h" % timesheet_hours),
             ("Assignees", value("user_ids")),
             ("UAT users", value("uat_user_ids")),
             ("Author", join_parts(value("create_uid"), created and "created %s" % created)),

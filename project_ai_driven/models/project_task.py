@@ -114,9 +114,8 @@ class ProjectTask(models.Model):
         help="Focused hours the task took to done, waits on other people not counted.",
     )
     estimate_coefficient = fields.Float(
-        default=1.0,
-        required=True,
-        help="The factor the estimate multiplied the anchor price by; 1.0 for an estimate made without the anchors.",
+        help="The factor the estimate multiplied the anchor price by; empty (zero) for an estimate not priced"
+        " from the anchors. A new Estimate written without it empties it.",
     )
     checklist_item_ids = fields.One2many(
         "project.task.checklist.item", "task_id", string="Checklist", groups="project.group_project_user"
@@ -372,16 +371,16 @@ class ProjectTask(models.Model):
 
     @api.constrains("estimate_coefficient")
     def _check_estimate_coefficient_is_a_number(self):
-        """A zero, a NaN or an infinity would end in the median of get_estimate_coefficient."""
+        """Zero is the empty coefficient; a NaN or an infinity would end in the median of get_estimate_coefficient."""
         tasks = self.filtered(
-            lambda record: not (math.isfinite(record.estimate_coefficient) and record.estimate_coefficient > 0)
+            lambda record: not (math.isfinite(record.estimate_coefficient) and record.estimate_coefficient >= 0)
         )
         if tasks:
             name_field = "name" if is_task_creation(self.env) else "display_name"
             raise ValidationError(
                 _(
-                    "The Estimate Coefficient is a finite number above zero: zero, a negative value, NaN"
-                    " and infinity are refused.\nTasks: %s"
+                    "The Estimate Coefficient is a finite number, zero or more (zero leaves it empty): a"
+                    " negative value, NaN and infinity are refused.\nTasks: %s"
                 )
                 % ", ".join(tasks.mapped(name_field))
             )
@@ -417,9 +416,13 @@ class ProjectTask(models.Model):
             handle_history_divergence(self, "description", vals)
         former_projects_and_stages = tasks._get_former_projects_and_stages(vals)
         former_modules = tasks._get_former_modules(vals)
+        reestimated_tasks = tasks._filter_reestimated_by(vals)
         # not tasks.write: the overrides above this one already run for this write
         result = super(ProjectTask, tasks._with_silent_assignment(tasks - self)).write(vals)
         tasks._check_modules_installed(tasks._get_added_modules(former_modules))
+        if reestimated_tasks:
+            # the coefficient alone: this write reruns neither the clearing nor a stage rule
+            reestimated_tasks.write({"estimate_coefficient": 0})
         moved_tasks = tasks._filter_moved_from(former_projects_and_stages)
         moved_tasks._apply_closing_rule()
         moved_tasks._apply_estimate_rule()
@@ -611,6 +614,19 @@ class ProjectTask(models.Model):
             and (record.project_id, record.stage_id) != former_projects_and_stages[record.id]
         )
 
+    def _filter_reestimated_by(self, vals):
+        """Return the tasks whose Estimate vals changes without setting their
+        Estimate Coefficient, which priced the former Estimate. The new Estimate
+        is compared by equality with the stored one, as the field stores it. A
+        portal user's write of the Estimate is left to core to refuse.
+        """
+        if "planned_hours" not in vals or "estimate_coefficient" in vals or self._is_refused_to_portal("planned_hours"):
+            return self.browse()
+        planned_hours_field = self._fields["planned_hours"]
+        return self.filtered(
+            lambda record: record.planned_hours != planned_hours_field.convert_to_cache(vals["planned_hours"], record)
+        )
+
     def _get_former_modules(self, vals):
         if "module_ids" not in vals:
             return {}
@@ -734,9 +750,12 @@ class ProjectTask(models.Model):
     def get_estimate_coefficient(self, tag_ids, task_type, user_ids):
         """Return the coefficient an estimate of a task with these tag ids and
         task type, done by these user ids, applies to its anchor price: the
-        median, over their newest closed tasks with Actual Hours and an
-        Estimate, of the actual hours over the anchor price each estimate
-        came from (the Estimate divided by its Estimate Coefficient).
+        median, over their newest closed tasks with Actual Hours, an Estimate
+        and an Estimate Coefficient, of the actual hours over the anchor price
+        each estimate came from (the Estimate divided by its Estimate
+        Coefficient). A task without a coefficient was not priced from the
+        anchors, and one closed as No change did not do the work priced: neither
+        counts.
 
         The tasks come from the first level with enough of them: 1 every tag
         and the type, 2 a tag and the type, 3 the type, 4 any. Without enough
@@ -753,6 +772,8 @@ class ProjectTask(models.Model):
         # SQL can store NaN and infinity past the constraints; PostgreSQL sorts NaN above
         # Infinity, so the < inf terms leave both out before they take a slot of the limit
         base_domain = [
+            # explicit: a caller's active_test=False would count archived tasks
+            ("active", "=", True),
             ("is_closed", "=", True),
             ("user_ids", "in", user_ids),
             ("actual_hours", ">", 0),
@@ -761,6 +782,8 @@ class ProjectTask(models.Model):
             ("planned_hours", "<", math.inf),
             ("estimate_coefficient", ">", 0),
             ("estimate_coefficient", "<", math.inf),
+            # != keeps the tasks without a Resolution: the ORM adds OR resolution IS NULL
+            ("resolution", "!=", "no_change"),
         ]
         tasks = self.browse()
         for level, level_domain in self._get_estimate_coefficient_levels(tag_ids, task_type):
