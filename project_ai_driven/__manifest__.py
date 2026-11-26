@@ -1,7 +1,7 @@
 {
     "name": "Project AI-driven",
-    "summary": "Task attributes, Actual Hours and an estimate coefficient from them, a checklist, test cases, pull requests and sessions for AI-driven projects, a stage log of every task, the images of task texts as task attachments, a Markdown brief of every task, keys of projects and their tasks",
-    "version": "16.0.2.31.0",
+    "summary": "Task attributes, Actual Hours and an Estimate Coefficient from them, a checklist, test cases, pull requests and sessions for AI-driven projects, a stage log of every task, the images of task texts as task attachments, a Markdown brief of every task, keys of projects and their tasks",
+    "version": "16.0.2.32.0",
     "category": "Services/Project",
     "author": "Mark Okolov",
     "website": "https://github.com/okolovmark/nixodoo-addons",

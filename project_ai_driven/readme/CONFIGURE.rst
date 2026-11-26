@@ -20,7 +20,7 @@
 * Below that, **Stages Requiring Actual Hours** lists the stages a task
   enters only with Actual Hours above zero; timesheet hours do not count.
   Only stages of the project can be picked. Leave it empty to switch the
-  actual hours rule off.
+  Actual Hours rule off.
 * What creates a task straight into a stage of that second list without
   both values is refused there: an email to the alias of the project, which
   gives neither value; a sales order line that creates a task, which gives

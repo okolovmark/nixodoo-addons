@@ -3,14 +3,13 @@ clarifying questions as rows with their answers, the technical solution, a
 checklist and test cases per task, pull requests as records, the agent
 sessions that worked on a task, the project that develops this Odoo and the
 installed modules its tasks touch, the internal notes of tasks by category,
-the Actual Hours of a task and the estimate coefficient they give, and three
+the Actual Hours of a task and the Estimate Coefficient they give, and three
 rules on the stages a project marks: a Resolution to enter some, a task type
 and an estimate to enter others, Actual Hours to enter others again. The
 module also logs the stage changes of every task of the database, keeps the
 images of every task's texts as attachments of the task, and gives every
-task a brief: the whole
-task in Markdown, in one read. Projects and their tasks get keys, such as
-``PROJ-12``, that name them and open them by link.
+task a brief: the whole task in Markdown, in one read. Projects and their
+tasks get keys, such as ``PROJ-12``, that name them and open them by link.
 
 **Task attributes** (``project.task``)
 
@@ -37,10 +36,14 @@ task in Markdown, in one read. Projects and their tasks get keys, such as
   unless it keeps the stage of its source; the next task of a recurrence
   starts without them.
 * **Estimate Coefficient** (``estimate_coefficient``): the factor the
-  estimate multiplied the anchor price by, 1.0 by default, the value of an
-  estimate made without the anchors. A finite number above zero: zero, a
-  negative value, NaN and infinity are refused. It is on no view: the tool
-  that sets the Estimate writes it over RPC.
+  estimate multiplied the anchor price by; empty (zero) for an estimate not
+  priced from the anchors. It has no default: a task created without it has
+  none. A write that changes the Estimate without it empties it on each task
+  whose Estimate changes; the same Estimate written again keeps it. Zero or
+  ``False`` written to it empties it; a negative value, NaN and infinity are
+  refused. The next task of a recurrence and a copy take it as it is. It is
+  on no view: the tool that sets the Estimate writes it over RPC, in the
+  same write.
 * **UAT users** (``uat_user_ids``): the users who run the acceptance tests
   of the task, after the Assignees on the form of every task, picked among
   active internal users. Changes are tracked. A copy of a task, a sub-task
@@ -367,7 +370,7 @@ refuses the quick create, which has no Resolution.
 The next task of a recurrence takes the task type of the last one, as it
 takes its estimate, and the Estimate Coefficient that estimate applied.
 
-**The actual hours rule**
+**The Actual Hours rule**
 
 On an AI-driven project, **Stages Requiring Actual Hours**
 (``actual_hours_required_states``) marks stages. A task of that project
@@ -390,15 +393,17 @@ creation of the next task of a recurrence, are handled as by the closing
 rule (above). The kanban quick create asks for no Actual Hours, so a column
 whose stage requires them refuses it.
 
-**The estimate coefficient** (``get_estimate_coefficient``)
+**The Estimate Coefficient** (``get_estimate_coefficient``)
 
 ``get_estimate_coefficient(tag_ids, task_type, user_ids)`` on
 ``project.task`` gives the Estimate Coefficient for an estimate of a task
 with these tags and this type, done by these users. It reads the closed
 tasks of any project (in a folded stage, a stage of cancelled tasks
 included) that one of the users is assigned to, with Actual Hours, an
-Estimate and an Estimate Coefficient each finite and above zero, and takes
-the first of these levels with at least 5 such tasks:
+Estimate and an Estimate Coefficient each finite and above zero. A task
+without a coefficient, a task with the Resolution No change and an archived
+task are not counted, at any level. It takes the first of these levels with
+at least 5 such tasks:
 
 1. every given tag and the type;
 2. at least one given tag and the type;
@@ -627,12 +632,16 @@ A brief holds, in this order, each part only when it has something to show:
 
 * The header: the task's key (*Task keys* below), or ``#<id>`` for a task
   without one, and its title; then the project, the stage and since when,
-  the task type, the estimate and its size, the priority, the planned
-  window, the deadline, the hours spent, the assignees, the UAT users, the
-  author and the creation date, the Resolution, the modules on a task of the
-  project that develops this Odoo, the tags, and the link to the task form.
-  The planned window, the hours spent and the UAT users show where a module
-  declares their fields (``planned_date_start`` and ``planned_date_end``,
+  the task type, the estimate with its size and its Estimate Coefficient
+  (``Estimate: 3 h, size S, coefficient 1.2``), the priority, the planned
+  window, the deadline, the Actual Hours, the timesheet hours (*Timesheet
+  hours*), the assignees, the UAT users, the author and the creation date,
+  the Resolution, the modules on a task of the project that develops this
+  Odoo, the tags, and the link to the task form. An empty value is left
+  out, a coefficient or Actual Hours of zero included, and so is a
+  coefficient on a task without an Estimate. The planned window,
+  the timesheet hours and the UAT users show where a module declares their
+  fields (``planned_date_start`` and ``planned_date_end``,
   ``effective_hours``, ``uat_user_ids``).
 * Related tasks: the parent, the sub-tasks, the tasks it is blocked by and
   those it blocks, each with its key, title and stage.

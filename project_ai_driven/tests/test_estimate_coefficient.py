@@ -21,7 +21,8 @@ class TestEstimateCoefficient(ProjectAiDrivenCommon):
 
     def _create_closed_tasks(self, actual_hours_list, name="Closed", project=None, days_ago=1, **values):
         """One closed feature task of the developer per value, estimated at one
-        hour, each closed a minute after the one before, days_ago days back.
+        hour with a coefficient of 1, each closed a minute after the one before,
+        days_ago days back. A value None leaves its field out of the create.
         """
         project = project or self.project
         values = {
@@ -30,8 +31,10 @@ class TestEstimateCoefficient(ProjectAiDrivenCommon):
             "user_ids": [Command.set(self.user_dev.ids)],
             "task_type": "feature",
             "planned_hours": 1,
+            "estimate_coefficient": 1.0,
             **values,
         }
+        values = {fname: value for fname, value in values.items() if value is not None}
         # no mail: dozens of tasks, assigned
         tasks = (
             project.env["project.task"]
@@ -178,6 +181,102 @@ class TestEstimateCoefficient(ProjectAiDrivenCommon):
         self._create_closed_tasks([2] * 5, planned_hours=2, estimate_coefficient=2.0)
         self.assertEqual(self._get_coefficient([], "feature")["coefficient"], 2.0)
 
+    def test_tasks_without_a_coefficient_or_closed_as_no_change_do_not_count_at_any_level(self):
+        tag_other = self.env["project.tags"].create({"name": "Coefficient Other"})
+        tagged = {"tag_ids": [Command.set(self.tags.ids)]}
+        counted_tasks = self._create_closed_tasks([2] * 3, name="Without a Resolution", **tagged)
+        counted_tasks |= self._create_closed_tasks([2] * 2, name="Closed as Data", resolution="data", **tagged)
+        # newer, and at another coefficient: they would take the median if they counted
+        self._create_closed_tasks([10] * 5, name="Not priced", days_ago=0, estimate_coefficient=None, **tagged)
+        self._create_closed_tasks([10] * 5, name="Emptied", days_ago=0, estimate_coefficient=0, **tagged)
+        self._create_closed_tasks([10] * 5, name="No change", days_ago=0, resolution="no_change", **tagged)
+
+        for level, tag_ids, task_type in (
+            (1, self.tags.ids, "feature"),
+            (2, (self.tag_report | tag_other).ids, "feature"),
+            (3, tag_other.ids, "feature"),
+            (4, [], "bug"),
+        ):
+            with self.subTest(level=level):
+                self.assertEqual(
+                    self._get_coefficient(tag_ids, task_type),
+                    {
+                        "coefficient": 2.0,
+                        "count": 5,
+                        "level": level,
+                        "task_keys": self._newest_first(counted_tasks).mapped("display_name"),
+                    },
+                )
+
+    def test_archived_tasks_do_not_count_for_a_caller_that_asks_for_them(self):
+        counted_tasks = self._create_closed_tasks([2] * 5)
+        # newer, and at another coefficient: they would take the median if they counted
+        self._create_closed_tasks([10] * 5, name="Archived", days_ago=0, active=False)
+        task_model = self.env["project.task"].with_context(active_test=False)
+        self.assertEqual(
+            task_model.get_estimate_coefficient([], "feature", self.user_dev.ids),
+            {
+                "coefficient": 2.0,
+                "count": 5,
+                "level": 3,
+                "task_keys": self._newest_first(counted_tasks).mapped("display_name"),
+            },
+        )
+
+    def test_a_new_estimate_written_without_a_coefficient_empties_it(self):
+        self.task.write({"planned_hours": 2.5, "estimate_coefficient": 1.1})
+        self.assertEqual(self.task.estimate_coefficient, 1.1)
+
+        self.task.planned_hours = 2.5
+        self.assertEqual(self.task.estimate_coefficient, 1.1, "the same Estimate again keeps its coefficient")
+
+        self.task.planned_hours = 3
+        self.assertRecordValues(self.task, [{"planned_hours": 3, "estimate_coefficient": 0}])
+
+    def test_a_new_estimate_of_the_tasks_of_a_recurrence_empties_the_coefficient_of_those_it_changes(self):
+        tasks = self.env["project.task"].create(
+            [
+                {"name": name, "project_id": self.project.id, "planned_hours": hours, "estimate_coefficient": 1.2}
+                for name, hours in (("First occurrence", 2), ("Second occurrence", 3), ("Third occurrence", 4))
+            ]
+        )
+        self.env["project.task.recurrence"].create({"mon": True, "task_ids": [Command.set(tasks.ids)]})
+
+        tasks[0].write({"planned_hours": 3, "recurrence_update": "all"})
+
+        self.assertRecordValues(
+            tasks,
+            [
+                {"planned_hours": 3, "estimate_coefficient": 0},
+                {"planned_hours": 3, "estimate_coefficient": 1.2},
+                {"planned_hours": 3, "estimate_coefficient": 0},
+            ],
+        )
+
+    def test_a_new_estimate_of_a_task_in_a_stage_of_the_rules_moves_nothing(self):
+        """In the stage before the project listed it: a stage rule run by the clearing would refuse it."""
+        task = self.env["project.task"].create(
+            {
+                "name": "Closed Task",
+                "project_id": self.project.id,
+                "stage_id": self.stage_done.id,
+                "planned_hours": 2,
+                "estimate_coefficient": 1.2,
+            }
+        )
+        self.project.write(
+            {
+                "actual_hours_required_states": [Command.set(self.stage_done.ids)],
+                "estimate_required_states": [Command.set(self.stage_done.ids)],
+            }
+        )
+
+        task.planned_hours = 3
+
+        self.assertRecordValues(
+            task, [{"stage_id": self.stage_done.id, "planned_hours": 3, "estimate_coefficient": 0, "actual_hours": 0}]
+        )
+
     def test_tasks_with_a_nan_or_an_infinity_stored_by_sql_do_not_count(self):
         """PostgreSQL holds NaN and infinity above zero: the search finds them."""
         counted_tasks = self._create_closed_tasks([2] * 5, days_ago=2)
@@ -235,6 +334,40 @@ class TestEstimateCoefficient(ProjectAiDrivenCommon):
                 {"stage_id": self.stage_progress.id, "planned_hours": 3, "estimate_coefficient": 1.5},
                 {"stage_id": self.stage_progress.id, "planned_hours": 2, "estimate_coefficient": 2.5},
             ],
+        )
+
+    def test_the_next_occurrence_of_a_task_without_a_coefficient_has_none(self):
+        self.project.allow_recurring_tasks = True
+        recurring_task = self.env["project.task"].create(
+            {
+                "name": "Recurring Task",
+                "project_id": self.project.id,
+                "stage_id": self.stage_done.id,
+                "planned_hours": 3,
+                "recurring_task": True,
+                "repeat_unit": "week",
+                "mon": True,
+            }
+        )
+
+        recurring_task.recurrence_id._create_next_task()
+
+        next_task = recurring_task.recurrence_id.task_ids - recurring_task
+        self.assertRecordValues(next_task, [{"planned_hours": 3, "estimate_coefficient": 0}])
+
+    def test_a_copy_keeps_the_coefficient_or_its_absence(self):
+        tasks = self.env["project.task"].create(
+            [
+                {"name": "Priced", "project_id": self.project.id, "planned_hours": 2, "estimate_coefficient": 1.3},
+                {"name": "Not priced", "project_id": self.project.id, "planned_hours": 2},
+            ]
+        )
+
+        copied_tasks = tasks[0].copy() | tasks[1].copy()
+
+        self.assertRecordValues(
+            copied_tasks,
+            [{"planned_hours": 2, "estimate_coefficient": 1.3}, {"planned_hours": 2, "estimate_coefficient": 0}],
         )
 
     def test_tasks_of_several_users_count_together(self):

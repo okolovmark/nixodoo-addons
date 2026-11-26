@@ -9,7 +9,7 @@ from .common import NO_RESOLUTION, NO_TYPE, PULL_REQUEST_MODULE, ProjectAiDriven
 
 NO_ACTUAL_HOURS = "Enter Actual Hours above zero"
 NOT_A_NUMBER = "Actual Hours are a finite number of hours, zero or more"
-NOT_A_COEFFICIENT = "The Estimate Coefficient is a finite number above zero"
+NOT_A_COEFFICIENT = "The Estimate Coefficient is a finite number, zero or more"
 # The timesheet hours of hr_timesheet, which the module does not depend on: patched in, installed or not.
 TIMESHEET_HOURS_FIELDS = ("effective_hours", "subtask_effective_hours", "total_hours_spent")
 
@@ -162,9 +162,9 @@ class TestActualHoursRule(ProjectAiDrivenCommon):
             NO_ACTUAL_HOURS: {"name": "Closed without actual hours"},
             NOT_A_NUMBER: {"name": "Closed after -1 hours", "actual_hours": -1},
             NOT_A_COEFFICIENT: {
-                "name": "Estimated with a coefficient of zero",
+                "name": "Estimated with a negative coefficient",
                 "actual_hours": 1,
-                "estimate_coefficient": 0,
+                "estimate_coefficient": -1,
             },
         }
         for requirement, vals in refused_creates.items():
@@ -373,14 +373,20 @@ class TestActualHoursRule(ProjectAiDrivenCommon):
         self.env.invalidate_all()
         task._apply_actual_hours_rule()
 
-    def test_estimate_coefficient_is_one_unless_set_and_a_finite_number_above_zero(self):
-        self.assertEqual(self.task.estimate_coefficient, 1.0)
-        for coefficient in (0, -1, float("nan"), float("inf"), float("-inf")):
+    def test_estimate_coefficient_is_empty_unless_set_and_a_finite_number_zero_or_more(self):
+        priced_task = self._create_task(name="Priced Task", estimate_coefficient=1.4)
+        self.assertRecordValues(self.task | priced_task, [{"estimate_coefficient": 0}, {"estimate_coefficient": 1.4}])
+        for coefficient in (-1, float("nan"), float("inf"), float("-inf")):
             with self.subTest(coefficient=coefficient):
-                with self.assertRefused(NOT_A_COEFFICIENT, self.task.name):
-                    self.task.estimate_coefficient = coefficient
-        self.task.estimate_coefficient = 1.4
-        self.assertEqual(self.task.estimate_coefficient, 1.4)
+                with self.assertRefused(NOT_A_COEFFICIENT, priced_task.name):
+                    priced_task.estimate_coefficient = coefficient
+                with self.assertRefused(NOT_A_COEFFICIENT, "Tasks: Refused Task"):
+                    self._create_task(name="Refused Task", estimate_coefficient=coefficient)
+        for empty_value in (0, False):
+            with self.subTest(empty_value=empty_value):
+                priced_task.estimate_coefficient = 1.4
+                priced_task.estimate_coefficient = empty_value
+                self.assertEqual(priced_task.estimate_coefficient, 0)
 
     def test_task_form_shows_the_actual_hours_on_flagged_projects_and_requires_them_in_listed_stages(self):
         arch = self.env.ref("project.view_task_form2")._get_combined_arch()

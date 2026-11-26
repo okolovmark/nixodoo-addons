@@ -57,7 +57,8 @@ On the task form:
   **Module**, with a technical name or a title.
 * **Task Type** and **Estimate** (AI-driven projects): set both before
   moving the task to a stage that requires them. The refusal names what is
-  missing.
+  missing. Changing the Estimate, in any project and also as *Allocated
+  Hours* on the Timesheets tab, empties the task's Estimate Coefficient.
 * **Actual Hours** (AI-driven projects), after the Estimate: the focused
   hours the task took to done, in hours and minutes, waits on other people
   left out. Fill them before moving the task to a stage that requires them;
@@ -137,6 +138,12 @@ returned ``coefficient`` to ``planned_hours`` and that coefficient to
 ``[]`` and ``False`` stand for no tags and no type. When the task is done,
 the tool writes its focused hours to ``actual_hours``, in the write that
 moves it to a stage that requires them or before it.
+
+A tool that writes an Estimate not priced from the anchors leaves
+``estimate_coefficient`` out. A task created without it has none, and a
+write that changes ``planned_hours`` without it empties it on each task
+whose Estimate changes; the same Estimate written again keeps it. Writing
+``0`` or ``False`` to it empties it too.
 
 A tool that records the modules of a task over RPC, as a project user, first
 reads ``develops_this_odoo`` on the task and goes on only when it is
