@@ -11,6 +11,7 @@
             <xpath expr="//field[@name='project_id']" position="after">
                 <field name="is_ai_driven" invisible="1" />
                 <field name="develops_this_odoo" invisible="1" />
+                <field name="is_actual_hours_required" invisible="1" />
             </xpath>
             <xpath expr="//field[@name='user_ids']" position="after">
                 <field
@@ -189,6 +190,11 @@
             <xpath expr="//field[@name='tag_ids']" position="before">
                 <field name="priority_level" string="Priority" />
                 <field name="planned_hours" string="Estimate" widget="float_time" />
+                <field
+                    name="actual_hours"
+                    widget="float_time"
+                    attrs="{'invisible': [('is_ai_driven', '=', False)], 'required': [('is_actual_hours_required', '=', True)]}"
+                />
                 <field name="tshirt_estimate" />
                 <field name="task_type" string="Task Type" />
                 <field name="resolution" attrs="{'invisible': [('is_ai_driven', '=', False)]}" />

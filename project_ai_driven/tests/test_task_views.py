@@ -77,15 +77,19 @@ class TestTaskViews(TransactionCase):
             for star in stars:
                 self.assertEqual(literal_eval(star.get("attrs") or "{}"), HIDDEN_ON_FLAGGED_PROJECTS, place)
 
-    def test_form_shows_the_estimate_the_size_and_the_type_together(self):
+    def test_form_shows_the_estimate_the_actual_hours_the_size_and_the_type_together(self):
         arch = self._combined_arch("project.view_task_form2")
         estimate = arch.xpath("//field[@name='priority_level']")[0].getnext()
-        size = estimate.getnext()
+        actual_hours = estimate.getnext()
+        size = actual_hours.getnext()
         self.assertEqual(
             (estimate.get("name"), estimate.get("string"), estimate.get("widget")),
             ("planned_hours", "Estimate", "float_time"),
         )
-        self.assertEqual([size.get("name"), size.getnext().get("name")], ["tshirt_estimate", "task_type"])
+        self.assertEqual(
+            [actual_hours.get("name"), size.get("name"), size.getnext().get("name")],
+            ["actual_hours", "tshirt_estimate", "task_type"],
+        )
         size_field = self.env["project.task"].fields_get(["tshirt_estimate"])["tshirt_estimate"]
         self.assertEqual((size.get("string"), size_field["string"], size_field["readonly"]), (None, "Size", True))
 
