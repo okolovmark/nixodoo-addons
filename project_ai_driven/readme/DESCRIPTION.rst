@@ -3,10 +3,12 @@ clarifying questions as rows with their answers, the technical solution, a
 checklist and test cases per task, pull requests as records, the agent
 sessions that worked on a task, the project that develops this Odoo and the
 installed modules its tasks touch, the internal notes of tasks by category,
-and two rules on the stages a project marks: a Resolution to enter some, a
-task type and an estimate to enter others. The module also logs the stage
-changes of every task of the database, keeps the images of every task's
-texts as attachments of the task, and gives every task a brief: the whole
+the Actual Hours of a task and the estimate coefficient they give, and three
+rules on the stages a project marks: a Resolution to enter some, a task type
+and an estimate to enter others, Actual Hours to enter others again. The
+module also logs the stage changes of every task of the database, keeps the
+images of every task's texts as attachments of the task, and gives every
+task a brief: the whole
 task in Markdown, in one read. Projects and their tasks get keys, such as
 ``PROJ-12``, that name them and open them by link.
 
@@ -27,6 +29,18 @@ task in Markdown, in one read. Projects and their tasks get keys, such as
   Timesheets installed, its tab on the task shows the same field as
   *Allocated Hours* (*Allocated Days* where the company encodes timesheets
   in days).
+* **Actual Hours** (``actual_hours``): the focused hours the task took to
+  done, waits on other people not counted. On the form of a task of an
+  AI-driven project, after the Estimate, in hours and minutes; changes are
+  tracked. They are a finite number, zero or more, in any project: a
+  negative value, NaN and infinity are refused. A copy starts without them
+  unless it keeps the stage of its source; the next task of a recurrence
+  starts without them.
+* **Estimate Coefficient** (``estimate_coefficient``): the factor the
+  estimate multiplied the anchor price by, 1.0 by default, the value of an
+  estimate made without the anchors. A finite number above zero: zero, a
+  negative value, NaN and infinity are refused. It is on no view: the tool
+  that sets the Estimate writes it over RPC.
 * **UAT users** (``uat_user_ids``): the users who run the acceptance tests
   of the task, after the Assignees on the form of every task, picked among
   active internal users. Changes are tracked. A copy of a task, a sub-task
@@ -84,9 +98,9 @@ to whoever neither follows the project nor is a Project / Administrator
 (group ``project.group_project_manager``), even the item's assignee, as Odoo
 reads the new task before writing its assignees. The *Convert to Sub-task*
 icon and button show to a user who may convert the item under these rules;
-the closing and estimate rules of the first stage, below, an author
-without an email address, and a rule on a field Odoo computes only once the
-task is created can still refuse the conversion after the click.
+the stage rules of the first stage, below, an author without an email
+address, and a rule on a field Odoo computes only once the task is created
+can still refuse the conversion after the click.
 
 The sub-task takes the item's description as its title, its assignee, and
 the date of its deadline in the time zone of the user converting it, or no
@@ -96,9 +110,9 @@ conversion starts from. The assignee and the reviewer follow it. When the
 reviewer converts an item assigned to another user, that user gets Odoo's
 *You have been assigned to* notice. The task gets an internal note, without
 a category, linking the sub-task, and the item is deleted. The conversion
-also takes the right to delete the item, and when the closing or the
-estimate rule marks that first unfolded stage, the stage refuses the
-sub-task, which has no Resolution, type or estimate. Any refusal leaves the
+also takes the right to delete the item, and when a stage rule marks that
+first unfolded stage, the stage refuses the sub-task, which has no
+Resolution, type, estimate or Actual Hours. Any refusal leaves the
 item and the task as they were, with no sub-task.
 
 The task's kanban card shows the current user's completion percentage over
@@ -271,8 +285,8 @@ access.
   was anything but one plain pull request link.
 * A duplicated task starts without pull requests, Resolution and old value.
   A copy that keeps the stage of its source, as every task and subtask of a
-  duplicated project does, takes the Resolution and the pull requests of its
-  source.
+  duplicated project does, takes the Resolution, the pull requests and the
+  Actual Hours of its source.
 
 **The closing rule**
 
@@ -315,11 +329,11 @@ sets or clears it, where Odoo did so on the task saved only.
 
 The next task of a recurrence, created by Odoo's recurrence job, enters the
 first stage of its project, or the stage of the task it repeats when the
-project lists none, unchecked by either rule in either stage, its sub-tasks
-included: one refusal would undo the run of the job for every due
-recurrence. It takes no Resolution and no pull request of the task it
-repeats, and it is checked as any task when it is moved into a marked stage
-later.
+project lists none, unchecked by the three rules in either stage, its
+sub-tasks included: one refusal would undo the run of the job for every due
+recurrence. It takes no Resolution, no pull request and no Actual Hours of
+the task it repeats, and it is checked as any task when it is moved into a
+marked stage later.
 
 **The estimate rule**
 
@@ -337,10 +351,10 @@ marked stage needs both in the values of its creation. Any other stage, a
 project that is not flagged AI-driven and a write that leaves the stage and
 the project as they are let everything through, so a task already sitting
 in a marked stage stays editable. No context key a caller sends skips the
-rule. A stage marked for both rules refuses for the Resolution first. A
-change saved for the following or for all tasks of a recurrence, and the
-creation of the next task of a recurrence, are handled as by the closing
-rule (above).
+rule. A stage marked for the closing rule too refuses for the Resolution
+first. A change saved for the following or for all tasks of a recurrence,
+and the creation of the next task of a recurrence, are handled as by the
+closing rule (above).
 
 The kanban quick create of an AI-driven project shows **Task Type** and
 **Estimate** after the assignees: required in the column of a marked stage,
@@ -351,7 +365,60 @@ with the title typed. A column whose stage also requires a Resolution still
 refuses the quick create, which has no Resolution.
 
 The next task of a recurrence takes the task type of the last one, as it
-takes its estimate.
+takes its estimate, and the Estimate Coefficient that estimate applied.
+
+**The actual hours rule**
+
+On an AI-driven project, **Stages Requiring Actual Hours**
+(``actual_hours_required_states``) marks stages. A task of that project
+enters a marked stage only with **Actual Hours** above zero: the hours of
+its timesheets and its Estimate do not count. On the form of a task in a
+marked stage, Actual Hours are required.
+
+The rule is checked where the other two are: on creation, and on a write of
+the stage or the project that leaves the task in another stage or another
+project, also one that keeps its stage. The hours may come in the same write
+as the stage, and a task created straight into a marked stage needs them in
+the values of its creation. Any other stage, a project that is not flagged
+AI-driven and a write that leaves the stage and the project as they are let
+everything through: a task already sitting in a marked stage stays editable,
+and its Actual Hours may be cleared there. No context key a caller sends
+skips the rule. A stage marked for every rule refuses for the Resolution
+first, then for the type and the estimate, then for the Actual Hours. A
+change saved for the following or for all tasks of a recurrence, and the
+creation of the next task of a recurrence, are handled as by the closing
+rule (above). The kanban quick create asks for no Actual Hours, so a column
+whose stage requires them refuses it.
+
+**The estimate coefficient** (``get_estimate_coefficient``)
+
+``get_estimate_coefficient(tag_ids, task_type, user_ids)`` on
+``project.task`` gives the Estimate Coefficient for an estimate of a task
+with these tags and this type, done by these users. It reads the closed
+tasks of any project (in a folded stage, a stage of cancelled tasks
+included) that one of the users is assigned to, with Actual Hours, an
+Estimate and an Estimate Coefficient each finite and above zero, and takes
+the first of these levels with at least 5 such tasks:
+
+1. every given tag and the type;
+2. at least one given tag and the type;
+3. the type;
+4. any task.
+
+A level that needs tags or a type is skipped when the call gives none. Of
+that level it takes the 30 with the latest stage update and returns the
+median of ``actual_hours * estimate_coefficient / planned_hours``: the
+Actual Hours over the anchor price each estimate came from. With fewer than
+5 at every level the coefficient is 1.0 and the level ``False``.
+
+The result is a dictionary: ``coefficient``, ``count`` (the tasks used),
+``level`` (1 to 4, or ``False``) and ``task_keys`` (their keys, the name of a
+task without one, the latest stage update first). Below 5, ``count`` and
+``task_keys`` are those of level 4. A task assigned to several of the
+users counts once; assigned to several people, it counts in the coefficient
+of each. The call runs with the caller's rights: a task they cannot read is
+not counted, and an internal user who reads none gets 1.0. A portal user is
+refused.
 
 **The project that develops this Odoo** (``project.project``)
 
@@ -750,9 +817,9 @@ projects and tasks by key. The task's ``url`` is the link to its form.
   project, or moved to a project that gives no key, they lose theirs.
 * Keys may skip numbers: a task draws its key as it is created, from a
   standard sequence that a refused or failed create does not take back. A
-  create refused by the closing rule, the estimate rule or an Estimate that
-  is no finite number names its tasks by their names alone, without the key
-  they drew.
+  create refused by a stage rule, or for an Estimate, Actual Hours or an
+  Estimate Coefficient out of their bounds, names its tasks by their names
+  alone, without the key they drew.
 * A new project key renames the keys of the project's tasks that end in a
   hyphen and a number, each keeping that number, and the prefix of its
   sequence; other task keys stay. A cleared key clears the keys of all its

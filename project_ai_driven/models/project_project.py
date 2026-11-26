@@ -32,6 +32,14 @@ class ProjectProject(models.Model):
         help="A task of an AI-driven project enters these stages only with a task type"
         " and an estimate above zero hours.",
     )
+    actual_hours_required_states = fields.Many2many(
+        "project.task.type",
+        "project_actual_hours_required",
+        "project_id",
+        "state_id",
+        string="Stages Requiring Actual Hours",
+        help="A task of an AI-driven project enters these stages only with Actual Hours above zero.",
+    )
 
     @api.constrains("develops_this_odoo", "is_ai_driven")
     def _check_develops_this_odoo_is_ai_driven(self):

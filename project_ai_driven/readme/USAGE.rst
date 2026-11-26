@@ -58,6 +58,10 @@ On the task form:
 * **Task Type** and **Estimate** (AI-driven projects): set both before
   moving the task to a stage that requires them. The refusal names what is
   missing.
+* **Actual Hours** (AI-driven projects), after the Estimate: the focused
+  hours the task took to done, in hours and minutes, waits on other people
+  left out. Fill them before moving the task to a stage that requires them;
+  logged timesheets do not fill them.
 
 In the kanban view of an AI-driven project, the quick create of a column
 shows **Task Type** and **Estimate** after the assignees. In a column whose
@@ -116,6 +120,24 @@ link adds a second pull request to the task. The estimate is written to
 with them is ignored. The estimate is a finite number: a NaN or an infinity
 is refused, in any project.
 
+A tool that estimates a task calls ``get_estimate_coefficient`` on
+``project.task`` with the ids of the task's tags, its ``task_type`` and the
+ids of the users who will do it, then writes the anchor price times the
+returned ``coefficient`` to ``planned_hours`` and that coefficient to
+``estimate_coefficient``, in one write. Over XML-RPC, for a task tagged 3 and
+7, of type Feature, for user 12::
+
+    models.execute_kw(
+        db, uid, password, "project.task", "get_estimate_coefficient",
+        [[3, 7], "feature", [12]],
+    )
+    # {"coefficient": 1.4, "count": 30, "level": 2,
+    #  "task_keys": ["PROJ-41", "PROJ-38", ...]}
+
+``[]`` and ``False`` stand for no tags and no type. When the task is done,
+the tool writes its focused hours to ``actual_hours``, in the write that
+moves it to a stage that requires them or before it.
+
 A tool that records the modules of a task over RPC, as a project user, first
 reads ``develops_this_odoo`` on the task and goes on only when it is
 ``True``: on a task of any other project the form hides the modules, but
@@ -144,9 +166,9 @@ It converts items into sub-tasks with ``action_convert_to_subtask``, each
 into a sub-task of its own task, as the assignee or the reviewer of every
 item who may create a task in its project under the record rules of tasks:
 a refusal of one leaves them all. ``can_convert`` tells whether its user may
-convert an item under these rules; the closing and estimate rules of the
-first stage, the email address the note needs and a rule on a field Odoo
-computes only once the task is created are checked by the conversion only.
+convert an item under these rules; the stage rules of the first stage, the
+email address the note needs and a rule on a field Odoo computes only once
+the task is created are checked by the conversion only.
 The method returns ``True``. ``action_convert_to_subtask_open`` converts one
 item and returns the window action of its sub-task, the id in ``res_id``.
 The note on the task is posted in the name of the tool's user, who needs an

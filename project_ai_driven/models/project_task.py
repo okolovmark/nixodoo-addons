@@ -1,4 +1,5 @@
 import math
+import statistics
 from collections import Counter, defaultdict
 
 from markupsafe import escape
@@ -24,6 +25,9 @@ INSTALLED_MODULE_STATES = ("installed", "to upgrade", "to remove")
 
 # The largest estimate in hours of each size. RECOMPUTE_TASK_SIZES of the hooks states the same in SQL.
 SIZE_BANDS = ((2, "xs"), (6, "s"), (12, "m"), (32, "l"), (60, "xl"), (float("inf"), "xxl"))
+# The fewest similar closed tasks a coefficient is taken from, and the most, the newest.
+ESTIMATE_COEFFICIENT_MIN_TASKS = 5
+ESTIMATE_COEFFICIENT_MAX_TASKS = 30
 
 
 def get_size(hours):
@@ -104,6 +108,16 @@ class ProjectTask(models.Model):
         help="Follows the estimate in hours: XS up to 2 hours, S up to 6, M up to 12, L up to 32,"
         " XL up to 60, XXL above. Empty while the task has no estimate.",
     )
+    actual_hours = fields.Float(
+        copy=False,
+        tracking=True,
+        help="Focused hours the task took to done, waits on other people not counted.",
+    )
+    estimate_coefficient = fields.Float(
+        default=1.0,
+        required=True,
+        help="The factor the estimate multiplied the anchor price by; 1.0 for an estimate made without the anchors.",
+    )
     checklist_item_ids = fields.One2many(
         "project.task.checklist.item", "task_id", string="Checklist", groups="project.group_project_user"
     )
@@ -146,6 +160,11 @@ class ProjectTask(models.Model):
         compute="_compute_is_estimate_required",
         compute_sudo=True,
         help="The task sits in a stage its AI-driven project lists in Stages Requiring a Type and an Estimate.",
+    )
+    is_actual_hours_required = fields.Boolean(
+        compute="_compute_is_actual_hours_required",
+        compute_sudo=True,
+        help="The task sits in a stage its AI-driven project lists in Stages Requiring Actual Hours.",
     )
     resolution = fields.Selection(
         [
@@ -304,6 +323,12 @@ class ProjectTask(models.Model):
         for record in self:
             record.is_estimate_required = record in required_tasks
 
+    @api.depends("stage_id", "project_id.is_ai_driven", "project_id.actual_hours_required_states")
+    def _compute_is_actual_hours_required(self):
+        required_tasks = self._filter_actual_hours_rule_tasks()
+        for record in self:
+            record.is_actual_hours_required = record in required_tasks
+
     # message_ids clears only the count cached within a transaction: an open form shows a new note on reload
     @api.depends("message_ids")
     def _compute_note_count(self):
@@ -332,6 +357,35 @@ class ProjectTask(models.Model):
                 % ", ".join(tasks.mapped(name_field))
             )
 
+    @api.constrains("actual_hours")
+    def _check_actual_hours_is_a_number(self):
+        tasks = self.filtered(lambda record: not (math.isfinite(record.actual_hours) and record.actual_hours >= 0))
+        if tasks:
+            name_field = "name" if is_task_creation(self.env) else "display_name"
+            raise ValidationError(
+                _(
+                    "Actual Hours are a finite number of hours, zero or more: a negative value, NaN and"
+                    " infinity are refused.\nTasks: %s"
+                )
+                % ", ".join(tasks.mapped(name_field))
+            )
+
+    @api.constrains("estimate_coefficient")
+    def _check_estimate_coefficient_is_a_number(self):
+        """A zero, a NaN or an infinity would end in the median of get_estimate_coefficient."""
+        tasks = self.filtered(
+            lambda record: not (math.isfinite(record.estimate_coefficient) and record.estimate_coefficient > 0)
+        )
+        if tasks:
+            name_field = "name" if is_task_creation(self.env) else "display_name"
+            raise ValidationError(
+                _(
+                    "The Estimate Coefficient is a finite number above zero: zero, a negative value, NaN"
+                    " and infinity are refused.\nTasks: %s"
+                )
+                % ", ".join(tasks.mapped(name_field))
+            )
+
     @api.model_create_multi
     def create(self, vals_list):
         vals_list, new_items_per_task = self._split_checklist_item_creations(vals_list)
@@ -344,6 +398,7 @@ class ProjectTask(models.Model):
             # A refusal undoes the create and the key it gave: name the tasks by their name.
             tasks._apply_closing_rule(name_field="name")
             tasks._apply_estimate_rule(name_field="name")
+            tasks._apply_actual_hours_rule(name_field="name")
         # The caller's env: core returns a portal user's tasks in sudo, past the item's access rights.
         tasks.with_env(self.env)._create_checklist_items(new_items_per_task)
         return tasks
@@ -368,6 +423,7 @@ class ProjectTask(models.Model):
         moved_tasks = tasks._filter_moved_from(former_projects_and_stages)
         moved_tasks._apply_closing_rule()
         moved_tasks._apply_estimate_rule()
+        moved_tasks._apply_actual_hours_rule()
         return result
 
     def copy(self, default=None):
@@ -448,14 +504,15 @@ class ProjectTask(models.Model):
     def _with_closing_values(self, default):
         """Return default for a copy that keeps the stage of its source, as the
         duplicate of a project makes of each task and subtask: it also takes
-        the Resolution and the pull requests that let the source into that
-        stage, unless default sets them. Without them the closing rule refuses
-        the copy.
+        the Resolution, the pull requests and the Actual Hours that let the
+        source into that stage, unless default sets them. Without them the
+        closing rule and the actual hours rule refuse the copy.
         """
         default = dict(default or {})
         if "stage_id" in default and default["stage_id"] == self.stage_id.id:
             default.setdefault("resolution", self.resolution)
             default.setdefault("pull_request_ids", [Command.set(self.pull_request_ids.ids)])
+            default.setdefault("actual_hours", self.actual_hours)
         return default
 
     @api.model
@@ -651,6 +708,94 @@ class ProjectTask(models.Model):
                 self.filtered(lambda record: not record.planned_hours > 0),
             ),
         ]
+
+    def _apply_actual_hours_rule(self, name_field="display_name"):
+        """Run on tasks that just entered a stage. Sudo: a user can write a
+        task of a project they cannot read.
+        """
+        self.sudo()._filter_actual_hours_rule_tasks()._check_actual_hours(name_field)
+
+    def _filter_actual_hours_rule_tasks(self):
+        return self.filtered(
+            lambda record: record.project_id.is_ai_driven
+            and record.stage_id in record.project_id.actual_hours_required_states
+        )
+
+    def _check_actual_hours(self, name_field="display_name"):
+        # not above zero: a NaN stored by SQL is neither above nor below it
+        tasks = self.filtered(lambda record: not record.actual_hours > 0)
+        if tasks:
+            raise ValidationError(
+                _("Enter Actual Hours above zero: a task enters this stage only with them.\nTasks: %s")
+                % ", ".join(tasks.mapped(name_field))
+            )
+
+    @api.model
+    def get_estimate_coefficient(self, tag_ids, task_type, user_ids):
+        """Return the coefficient an estimate of a task with these tag ids and
+        task type, done by these user ids, applies to its anchor price: the
+        median, over their newest closed tasks with Actual Hours and an
+        Estimate, of the actual hours over the anchor price each estimate
+        came from (the Estimate divided by its Estimate Coefficient).
+
+        The tasks come from the first level with enough of them: 1 every tag
+        and the type, 2 a tag and the type, 3 the type, 4 any. Without enough
+        at any level the coefficient is 1.0 and the level False.
+
+        Runs as the caller, record rules applied: a task they cannot read is
+        not counted, and an internal user who reads none gets 1.0. A portal
+        user is refused, as core refuses them a search on fields they cannot
+        read.
+
+        Returns {"coefficient", "count", "level", "task_keys"}: the number of
+        the tasks used, and their keys (else names), newest first.
+        """
+        # SQL can store NaN and infinity past the constraints; PostgreSQL sorts NaN above
+        # Infinity, so the < inf terms leave both out before they take a slot of the limit
+        base_domain = [
+            ("is_closed", "=", True),
+            ("user_ids", "in", user_ids),
+            ("actual_hours", ">", 0),
+            ("actual_hours", "<", math.inf),
+            ("planned_hours", ">", 0),
+            ("planned_hours", "<", math.inf),
+            ("estimate_coefficient", ">", 0),
+            ("estimate_coefficient", "<", math.inf),
+        ]
+        tasks = self.browse()
+        for level, level_domain in self._get_estimate_coefficient_levels(tag_ids, task_type):
+            tasks = self.search(
+                base_domain + level_domain,
+                order="date_last_stage_update desc, id desc",
+                limit=ESTIMATE_COEFFICIENT_MAX_TASKS,
+            )
+            if len(tasks) >= ESTIMATE_COEFFICIENT_MIN_TASKS:
+                task_coefficients = [
+                    task.actual_hours * task.estimate_coefficient / task.planned_hours for task in tasks
+                ]
+                return tasks._get_estimate_coefficient_values(statistics.median(task_coefficients), level)
+        return tasks._get_estimate_coefficient_values(1.0, False)
+
+    @api.model
+    def _get_estimate_coefficient_levels(self, tag_ids, task_type):
+        """Return [(level, domain)], the narrowest first."""
+        levels = []
+        if tag_ids and task_type:
+            every_tag_domain = [("tag_ids", "in", [tag_id]) for tag_id in tag_ids]
+            levels.append((1, every_tag_domain + [("task_type", "=", task_type)]))
+            levels.append((2, [("tag_ids", "in", tag_ids), ("task_type", "=", task_type)]))
+        if task_type:
+            levels.append((3, [("task_type", "=", task_type)]))
+        levels.append((4, []))
+        return levels
+
+    def _get_estimate_coefficient_values(self, coefficient, level):
+        return {
+            "coefficient": coefficient,
+            "count": len(self),
+            "level": level,
+            "task_keys": [task.key or task.display_name for task in self],
+        }
 
     def _get_image_task(self):
         return self

@@ -17,9 +17,10 @@ class ProjectTaskRecurrence(models.Model):
     @api.model
     def _get_recurring_fields(self):
         """The next task of a recurrence takes the task type of the last one,
-        as it takes its estimate.
+        as it takes its estimate, and the Estimate Coefficient that estimate
+        applied.
         """
-        return [*super()._get_recurring_fields(), "task_type"]
+        return [*super()._get_recurring_fields(), "task_type", "estimate_coefficient"]
 
     def _new_task_values(self, task):
         """The next task of a recurrence, and each of its sub-tasks, takes the
@@ -36,9 +37,9 @@ class ProjectTaskRecurrence(models.Model):
     def _create_next_task(self):
         """Core creates the next task of each recurrence, its sub-tasks
         included, in the first stage of its project, or in the stage of the
-        task it repeats when the project lists none. Neither stage rule checks
-        that creation, whichever the stage: one refusal would roll back the
-        whole run of the cron, and no due recurrence would get its task.
+        task it repeats when the project lists none. None of the three stage
+        rules checks that creation, whichever the stage: one refusal would roll
+        back the whole run of the cron, and no due recurrence would get its task.
         """
         # core returns None: no task created under the key reaches a caller that would write it unchecked
         return super(
