@@ -30,6 +30,11 @@
   path of ``_url_token_paths``: a token under another parameter name or
   path reads as it is, and of several ``hash`` parameters around one
   ``pid`` only the nearest is redacted.
+* In an HTML text, a character or tag ``html2plaintext`` drops inside a
+  token's mark splits the mark (a ``\r``, also as a sanitized field stores
+  ``&#13;``, a ``\f`` or ``\v``, ``&#0;``, ``&#1;``, a malformed ``&#``,
+  ``</td>``, ``<!x>``): the text shown redacts the token, a filter still
+  finds its value. Odoo writes no such link.
 * A model that searches names in its own code refuses a name filter while
   any of its rows holds a text the tools show otherwise than stored, one
   the employee may not read included; otherwise that code matches the
@@ -47,14 +52,26 @@
   (``record_name``, ``res_name``), the live chat report and the messages
   live chat posts about the visitor. A live chat guest is *Visitor*
   (*Visitor #N* with ``website_livechat``) unless the visitor types a name.
-* A like filter on a text checks each row it matches for the marks of a
-  token (``token=``, ``pid=``, a path of ``_url_token_paths``), and reads
-  every row, or those a trigram index of the text finds, for its value
-  with tags between its characters. It checks every row for those marks
-  when its value holds a wildcard (``%``, ``_``), a bracket, a non-ASCII
-  letter or a part of the placeholder, and so does an equality filter
-  whose value holds a token. Then the filter redacts the tokens of the
-  rows that hold one in SQL, taking the inline tags out of a text
+* A display name shows a denied field's value where it holds the value's
+  string form in any case: a value Odoo writes into the name otherwise, as a
+  selection's label or a date or an amount in the employee's language, is
+  not found, and the name shows as Odoo builds it.
+* A display name is checked for the denied values of its own record and of
+  the records it is built from by a link. A text that copies such a value
+  or name keeps it: a line's description, a contact's name, which holds
+  its company's (a company named by its hidden email shows it in its
+  contacts' names), the record name a message, rating or activity shows
+  (``record_name``, ``res_name``), a message's ``email_from`` and the old
+  and new values of a tracked link in a record's history.
+* A like filter on a text matches the rows with each ``_``, vertical tab
+  and whole placeholder of its value read as any run of characters, and
+  checks each row so matched for the marks of a token (``token=``,
+  ``pid=``, a path of
+  ``_url_token_paths``); it reads every row, or those a trigram index of
+  the text finds, for that value with tags between its characters, a
+  non-ASCII character of an ilike value as any run of characters too. Then
+  the filter takes the tokens' values out of the rows that hold one in
+  SQL, taking the inline tags out of a text
   wherever a run of URL characters after ``?``, ``&``, ``;``, ``#``,
   ``%``, ``/`` or ``=`` reaches an inline tag, or a ``<`` that one
   follows: in a URL, as a link's visible URL does, and in any other text
@@ -69,6 +86,25 @@
   trigram index, a like takes several to a few tens of milliseconds where
   Odoo's own takes under 5. On a translated text the like uses no trigram
   index, as its condition reads the language's value: it scans the table.
+* A ``=like`` or ``=ilike`` filter on a text that may hold a URL token
+  uses no btree index of the text, which can serve Odoo's own ``=like``
+  for a value that starts with a fixed text: only a trigram index serves
+  its regex across tags. Nor does ``=``, ``!=``, ``in`` or ``not in``
+  with a value that holds the placeholder, matched as a ``=like`` of it.
+* A vertical tab typed in an ``=`` or ``in`` value without the
+  placeholder is compared with the stored text, where a like reads it as
+  a token's place. A text that holds the placeholder outside a token, as
+  a quoted answer does, is found by no ``=`` with the text as shown, which
+  the filter reads with a token's place for each placeholder. A vertical
+  tab a text holds reads as a token's place too: the placeholder of a
+  filter's value meets it.
+* A like value, or an equality value that holds the placeholder, of over
+  5,000 characters as a like reads them (a run of wildcards, vertical
+  tabs and placeholders, and for an ilike of non-ASCII characters, counts
+  once) on a
+  text that may hold a URL token is refused:
+  PostgreSQL finds a regex across tags of many thousand characters too
+  complex.
 * With PostgreSQL's ``unaccent``, which turns ``«``, ``»``, ``‹``, ``›``
   and a few other signs into ``<`` and ``>``, a like or not like value is
   not found across a tag that holds one of them: in such a row it is
