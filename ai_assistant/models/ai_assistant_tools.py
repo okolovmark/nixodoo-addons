@@ -7,6 +7,7 @@ from collections import defaultdict
 from contextlib import closing, contextmanager
 from datetime import date, datetime
 from fnmatch import fnmatchcase
+from html.entities import html5
 
 from lxml import etree
 from lxml import html as lxml_html
@@ -15,7 +16,7 @@ from psycopg2 import errors as pg_errors
 from odoo import Command, _, api, fields, models, tools
 from odoo.exceptions import AccessError, MissingError
 from odoo.osv import expression
-from odoo.tools import html2plaintext
+from odoo.tools import frozendict, html2plaintext
 from odoo.tools.query import Query
 from odoo.tools.sql import escape_psql
 
@@ -102,30 +103,83 @@ AI_DENY_LIST_FIELDS = (
     "sign.request.share_link",
     "mail.channel.uuid",
     "mail.channel.invitation_url",
+    # A stored copy of mail.channel.uuid.
+    "im_livechat.report.channel.uuid",
     # A Discuss meeting's URL ends with the event's access token.
     "calendar.event.videocall_location",
     # URLs kept outside a message's text, whose tokens nothing redacts: a mail's headers (a digest's unsubscribe
     # link) and a link preview's URL.
     "mail.mail.headers",
     "mail.link.preview.source_url",
+    # URLs that hold their survey's access token.
+    "survey.survey.background_image_url",
+    "survey.question.background_image_url",
     # Hours times an employee's hourly cost on every row, which names no employee (a user at most): denied, not masked.
     "hr.timesheet.attendance.report.timesheets_cost",
     "hr.timesheet.attendance.report.attendance_cost",
     "hr.timesheet.attendance.report.cost_difference",
 )
-# Rows that belong to another record, by the paths naming that record's model
-# and id: a denied record's chatter, mails, followers, activities and attachments
-# stay out too.
+# Texts a localization computes from the VAT number that do not show it. None on 16.0: each text computed from it
+# shows some of its digits, as l10n_ph's branch code; any such text is a copy of it (`_copied_fields`).
+VAT_FREE_FIELDS = ()
+# Rows that belong to another record, by the pairs of paths naming that record's
+# model and id: a denied record's chatter, mails, texts, followers, activities,
+# attachments and ratings stay out too, and so do the ratings of a record under
+# a denied one.
 DENY_ROW_PATHS = {
-    "mail.message": ("model", "res_id"),
-    "mail.mail": ("model", "res_id"),
-    "mail.tracking.value": ("mail_message_id.model", "mail_message_id.res_id"),
-    "mail.notification": ("mail_message_id.model", "mail_message_id.res_id"),
-    "mail.message.reaction": ("message_id.model", "message_id.res_id"),
-    "mail.followers": ("res_model", "res_id"),
-    "mail.activity": ("res_model", "res_id"),
-    "ir.attachment": ("res_model", "res_id"),
-    "calendar.event": ("res_model", "res_id"),
+    "mail.message": (("model", "res_id"),),
+    "mail.mail": (("model", "res_id"),),
+    "mail.tracking.value": (("mail_message_id.model", "mail_message_id.res_id"),),
+    "mail.notification": (("mail_message_id.model", "mail_message_id.res_id"),),
+    "mail.message.reaction": (("message_id.model", "message_id.res_id"),),
+    "sms.sms": (("mail_message_id.model", "mail_message_id.res_id"),),
+    "mail.followers": (("res_model", "res_id"),),
+    "mail.activity": (("res_model", "res_id"),),
+    "ir.attachment": (("res_model", "res_id"),),
+    "calendar.event": (("res_model", "res_id"),),
+    "rating.rating": (("res_model", "res_id"), ("parent_res_model", "parent_res_id")),
+}
+# A message's link previews: kept only for the messages shown (`_shown_preview_message_ids`).
+LINK_PREVIEW_MODEL = "mail.link.preview"
+HIDDEN_LINK_PREVIEW_LABEL = "a link preview of a message the AI deny list leaves out"
+# A display name the AI deny list hides (`_shown_names`).
+DENIED_NAME_LABEL = "a name on the AI deny list"
+# The fields a name search coded in a model's `_name_search` reads besides its `_rec_names_search` or `_rec_name`
+# (`_name_search_paths`), without a context key that widens it; at the code's path and line.
+NAME_SEARCH_FIELDS = {
+    "account.account": ("code",),  # addons/account/models/account_account.py:553
+    "account.group": ("code_prefix_start",),  # addons/account/models/account_account.py:815
+    "account.tax": (),  # addons/account/models/account_tax.py:208
+    "chatbot.script.answer": ("script_step_id.message",),  # addons/im_livechat/models/chatbot_script_answer.py:41
+    "l10n_eg_edi.activity.type": ("code",),  # addons/l10n_eg_edi_eta/models/eta_activity_type.py:17
+    # addons/l10n_id_efaktur_coretax/models/product_code.py:21
+    "l10n_id_efaktur_coretax.product.code": ("description",),
+    "mail.template": (),  # addons/event/models/mail_template.py:12
+    "maintenance.equipment": (),  # addons/maintenance/models/maintenance.py:104
+    "product.product": ("default_code", "barcode"),  # addons/product/models/product_product.py:498
+    # addons/product/models/product_template.py:498, by the variants' name search
+    "product.template": ("product_variant_ids.default_code", "product_variant_ids.barcode"),
+    "project.pull.request": ("repository", "number"),  # project_ai_driven/models/project_pull_request.py:117
+    "project.tags": (),  # addons/project/models/project.py:2852
+    "res.bank": ("bic",),  # odoo/addons/base/models/res_bank.py:41
+    "res.company": (),  # odoo/addons/base/models/res_company.py:174
+    "res.country": ("code",),  # odoo/addons/base/models/res_country.py:84
+    "res.country.state": ("code", "country_id.name", "country_id.code"),  # odoo/addons/base/models/res_country.py:177
+    "res.currency.rate": (),  # odoo/addons/base/models/res_currency.py:472
+    "res.partner.category": (),  # odoo/addons/base/models/res_partner.py:157
+    "res.users": ("login",),  # odoo/addons/base/models/res_users.py:757
+    "sale.order": (),  # addons/sale_expense/models/sale_order.py:16
+    "sms.template": (),  # addons/event_sms/models/sms_template.py:12
+    "stock.picking.type": ("warehouse_id.name",),  # addons/stock/models/stock_picking.py:182
+    "website.route": (),  # addons/website/models/website_rewrite.py:23
+}
+# The fields a model's own `name_get` builds its display name from besides its `_rec_name`, which Odoo 16 declares no
+# depends for (`_denied_name_sources_for`): those that link into a model of the AI deny list, or that it may deny
+# through deny_fields_extra; at the code's path and line.
+NAME_GET_SOURCES = {
+    "mail.channel.member": ("partner_id.name", "guest_id.name"),  # addons/mail/models/mail_channel_member.py:63
+    "product.product": ("default_code",),  # addons/product/models/product_product.py:418
+    "product.template": ("default_code",),  # addons/product/models/product_template.py:491
 }
 # Rows that are one contact's own, by the link naming it: a private address's stay out.
 PARTNER_ROW_LINKS = {"mail.followers": "partner_id", "mail.notification": "res_partner_id"}
@@ -141,24 +195,141 @@ PARTNER_COPY_FIELDS = {
 COPY_FIELD_TYPES = ("char", "text", "html")
 PRIVATE_ADDRESS_LABEL = "a private address, on the AI deny list"
 REFUSED_ATTACHMENT_LABEL = "an attachment on the AI deny list"
-# A message's text, by the model that shows it and the link to the message: left out where the message carries a
-# refused attachment, links to a record of a denied model or holds a URL of REFUSED_MESSAGE_URLS.
+# A message's text, by the model that shows it and its link to the message ("id" its own): left out where the
+# message carries a refused attachment, links to a record of a denied model or holds a URL of REFUSED_MESSAGE_URLS
+# (`_masked_text_domain`); a copy Odoo stores goes by its own text where it links no message.
 MESSAGE_TEXT_FIELDS = {
     "mail.message": ("id", ("body", "description", "preview")),
     "mail.mail": ("mail_message_id", ("body", "body_html", "body_content", "description", "preview")),
+    "sms.sms": ("mail_message_id", ("body",)),
+    "rating.rating": ("message_id", ("feedback",)),
+    "chatbot.message": ("mail_message_id", ("user_raw_answer",)),
 }
 REFUSED_MESSAGE_TEXT = "Left out: the message carries an attachment, a record or a URL on the AI deny list."
-# A record's link in a message's body (_get_html_link), followed by its model in double quotes, as the HTML sanitizer
-# stores it.
+# Any other HTML text that links a denied record or holds a REFUSED_MESSAGE_URLS URL (`_refused_text_sql`).
+MASKED_HTML_TEXT = "Left out: the text links a record or holds a URL on the AI deny list."
+# A record's link in a message's body (_get_html_link): its model follows in quotes.
 MESSAGE_RECORD_LINK = "data-oe-model="
+MESSAGE_RECORD_LINK_PATTERN = r"""data-oe-model=["']([^"']*)["']"""
 # Where a message's text may copy a denied field: a Discuss meeting's URL, sent to the attendees, ends with the
 # event's access token.
 REFUSED_MESSAGE_URLS = ("/calendar/join_videocall/",)
-# A secret in a URL of a message's text, as *.*_token is on the deny list: a token parameter's value, or the path past
-# a route of `_url_token_paths`. ASCII classes, which a C database reads as Python does.
-URL_TOKEN_PARAMETER = r"[?&;][A-Za-z0-9_]*token="
-URL_TOKEN_VALUE = r"""[^ \t\n\r\f\v&#"'<>]+"""
+# A secret in a URL of a text, as *.*_token is on the deny list: a token parameter's value, its "=" or the separator
+# before it percent-encoded or not, or the path past a route of `_url_token_paths`; then a portal link's signature,
+# its hash= in a URL that carries the partner's pid=. A value runs on across inline tags and comments, as a browser
+# shows it, up to a space, a Unicode one too. ASCII classes, which a C database reads as Python does.
+URL_SEPARATOR = r"(?:[?&;#]|%3F|%26|%23)"
+URL_EQUALS = r"(?:=|%3D)"
+URL_INLINE_TAG = (
+    r"</?(?:a|abbr|b|bdi|bdo|big|cite|code|data|del|dfn|em|font|i|ins|kbd|label|mark|nobr|q|rp|rt|ruby|s|samp|small"
+    r"|span|strike|strong|sub|sup|time|tt|u|var|wbr)(?:[ \t\n\r\f\v/][^<>]*)?>|<!--[^<>]*-->"
+)
+URL_INLINE_TAGS = re.compile(URL_INLINE_TAG, re.IGNORECASE | re.ASCII)
+URL_INLINE_TAGS_BUT_ANCHORS = re.compile(r"(?!</?a[ \t\n\r\f\v/>])(?:%s)" % URL_INLINE_TAG, re.IGNORECASE | re.ASCII)
+URL_SPACES = "                 　"
+URL_VALUE_CHAR = r"""[^ \t\n\r\f\v&#"'<>%s]""" % URL_SPACES
+URL_TOKEN_PARAMETER = URL_SEPARATOR + r"[A-Za-z0-9_]*token" + URL_EQUALS
+URL_TOKEN_VALUE = "(?:%s|%s)+" % (URL_VALUE_CHAR, URL_INLINE_TAG)
+URL_SIGNATURE_RUN_CHAR = r"""[^ \t\n\r\f\v#"'<>%s]""" % URL_SPACES
+
+
+def html_named_references(chars):
+    """The regexes of the named character references to one of `chars`, lowercased: matched ignoring case."""
+    char_set = set(chars)
+    names = {name.lower() for name, value in html5.items() if value in char_set and name.endswith(";")}
+    return ["&" + re.escape(name) for name in sorted(names)]
+
+
+def html_reference_pattern(chars, is_guarded=True):
+    """A character reference to one of `chars`, of either case: numeric with leading zeros or none and ";" or none,
+    as lxml and a browser decode one, or named. `is_guarded` keeps a numeric one a digit follows, another
+    character's, from matching, as "&#610;" is not "=" then "0"."""
+    codes = sorted({ord(case) for char in chars for case in (char.lower(), char.upper())})
+    guard, hex_guard = ("(?![0-9])", "(?![0-9a-f])") if is_guarded else ("", "")
+    numeric = "&#(?:0*(?:%s)%s|x0*(?:%s)%s);?" % (
+        "|".join("%d" % code for code in codes),
+        guard,
+        "|".join("%x" % code for code in codes),
+        hex_guard,
+    )
+    return "(?:%s)" % "|".join([numeric, *html_named_references(chars)])
+
+
+def html_char_pattern(char, is_guarded=True):
+    """A character of a URL token's mark in an HTML text, whose references a browser decodes: itself or a reference
+    to it. A Char or Text value is read as it is."""
+    return "(?:%s|%s)" % (re.escape(char), html_reference_pattern(char, is_guarded))
+
+
+def html_named_char_pattern(char):
+    """A character in an HTML text that holds no numeric reference: itself or a named reference to it."""
+    return "(?:%s)" % "|".join([re.escape(char), *html_named_references(char)])
+
+
+def html_text_pattern(text):
+    return "".join(map(html_char_pattern, text))
+
+
+def url_signature_parameter(pid, hash_, run_char):
+    """A portal link's signature up to its hash's value, its parameters matched by `pid` and `hash_`, the URL between
+    them by `run_char`. Each scan for the other parameter ends at the next pid= or hash=: a scan to the end of the URL
+    from each would take quadratic time on a long text."""
+    run = "(?:(?!%s|%s)%s)*" % (pid, hash_, run_char)
+    return "%s%s%s|%s(?=%s%s)" % (pid, run, hash_, hash_, run, pid)
+
+
+URL_SIGNATURE_PARAMETER = url_signature_parameter(
+    URL_SEPARATOR + "pid" + URL_EQUALS, URL_SEPARATOR + "hash" + URL_EQUALS, URL_SIGNATURE_RUN_CHAR
+)
+# In an HTML text a browser reads a character reference as its character, as lxml's html2plaintext does. Odoo's
+# sanitizer writes none, a text stored unsanitized may.
+HTML_SEPARATOR = "(?:%s)" % "|".join([*map(html_char_pattern, "?&;#"), *map(html_text_pattern, ("%3F", "%26", "%23"))])
+HTML_EQUALS = "(?:%s|%s)" % (html_char_pattern("="), html_text_pattern("%3D"))
+# A reference before "token" ends in ";", or is "#" then name characters: a separator, then a name again.
+HTML_TOKEN_PARAMETER = URL_SEPARATOR + r"[A-Za-z0-9_]*" + html_text_pattern("token") + HTML_EQUALS
+# A value runs on across a reference but one to a character that ends it in the shown text, which lxml decodes: it
+# drops one to "\r", "\f" or "\v".
+HTML_VALUE_REFERENCE = r"(?!%s)&(?:#[0-9]+;?|#x[0-9a-f]+;?|[a-z][a-z0-9]*;)" % html_reference_pattern(
+    " \t\n&#\"'<>" + URL_SPACES
+)
+HTML_TOKEN_VALUE = "(?:%s|%s|%s)+" % (URL_VALUE_CHAR, HTML_VALUE_REFERENCE, URL_INLINE_TAG)
+# A reference's digits go whole, and its ";" is a step of its own: digits given back take exponential time, and a scan
+# that steps over ";" misses the ";hash=" after it, so runs to the end of the text.
+HTML_RUN_REFERENCE = r"&#(?:[0-9]+(?![0-9])|x[0-9a-f]+(?![0-9a-f]))"
+HTML_SIGNATURE_PARAMETER = url_signature_parameter(
+    HTML_SEPARATOR + html_text_pattern("pid") + HTML_EQUALS,
+    HTML_SEPARATOR + html_text_pattern("hash") + HTML_EQUALS,
+    "(?:%s|%s)" % (URL_SIGNATURE_RUN_CHAR, HTML_RUN_REFERENCE),
+)
+# A run of URL characters after a separator, "%", "/" or "=" up to an inline tag, or to a "<" a tag follows before
+# any ">": only there may taking the tags out show another token. A run stops where the next starts: linear time.
+URL_RUN_TO_TAG = re.compile(
+    r"""[?&;#%%/=][^ \t\n\r\f\v"'<>?&;#%%/=%s]*(?:<[^<>]*)?(?:%s)""" % (URL_SPACES, URL_INLINE_TAG),
+    re.IGNORECASE | re.ASCII,
+)
+# Any tags between two characters of a marker of `_url_token_markers`.
+URL_MARKER_TAGS = r"(?:<[^<>]*>)*"
 REDACTED_TOKEN = "[token-on-the-AI-deny-list]"
+# What a filter reads in place of a token's value (`_shown_text_term`): as long as REDACTED_TOKEN, so that "_" counts
+# alike, and of a character the filter refuses in a value, so that neither a word of the placeholder nor the text
+# either side of it meets one.
+FILTER_CHAR = "\x01"
+FILTER_TOKEN = FILTER_CHAR * len(REDACTED_TOKEN)
+# REDACTED_TOKEN in a value Odoo's HTML sanitizer wrote, which percent-encodes its brackets in a link's address.
+SANITIZED_REDACTED_TOKEN_PATTERN = r"(?:\[|%5[Bb])" + re.escape(REDACTED_TOKEN[1:-1]) + r"(?:\]|%5[Dd])"
+# The text types whose values the tools redact URL tokens in.
+TEXT_FIELD_TYPES = ("char", "text", "html")
+# Structured data, as stored in JSON: shown redacted, never a filter, sort key, group or aggregate but a count, which
+# would read it as stored. Odoo tests a JSON or properties definition value set or not as IS NULL; it raises on such a
+# test of a whole properties value.
+STRUCTURED_FIELD_TYPES = {"json": "JSON", "properties": "properties", "properties_definition": "properties definition"}
+NULL_TESTED_FIELD_TYPES = ("json", "properties_definition")
+RANGE_OPERATORS = ("<", ">", "<=", ">=")
+# The operators whose value is a LIKE pattern (`like_runs`).
+LIKE_OPERATORS = ("like", "not like", "ilike", "not ilike", "=like", "=ilike")
+# The operators whose value Odoo compares as given, between wildcards (`_compared_value`).
+WILDCARD_OPERATORS = ("like", "not like", "ilike", "not ilike")
+EQUALITY_OPERATORS = ("=", "!=", "in", "not in")
 # Amounts that are hours times an employee's hourly cost (timesheets), and the totals that sum them, by the model
 # that holds them and the path to the employee: masked on the rows that reach one, kept on the others (accounting).
 EMPLOYEE_COST_FIELDS = {
@@ -292,7 +463,7 @@ DOCS_FLOOR_SHARE = 0.25
 DOCS_RESERVED_CHARS = 600
 DOCS_RESERVED_CHARS_PER_MODULE = 200
 # Left out of the default fields of search_read and read, for their size.
-BULKY_FIELD_TYPES = ("binary", "html", "one2many", "many2many", "properties", "properties_definition")
+BULKY_FIELD_TYPES = ("binary", "html", "json", "one2many", "many2many", "properties", "properties_definition")
 GROUPBY_GRANULARITIES = ("day", "week", "month", "quarter", "year")
 AGGREGATE_FUNCTIONS = ("sum", "avg", "min", "max", "count", "count_distinct")
 # "field", "field:function" or "name:function(field)", as read_group takes them.
@@ -811,6 +982,72 @@ def like_pattern(text):
     return "%%%s%%" % escape_psql(text)
 
 
+def is_set_test(operator, value):
+    """Whether a condition tests a value set or not, as ["field", "!=", false]."""
+    return operator in ("=", "!=") and value is False
+
+
+def is_name_comparison(operator, value):
+    """Whether a term on a link compares the linked records' names, which Odoo 16's name search matches, rather
+    than their ids: a name, or a list with any name in it, whatever the operator."""
+    return isinstance(value, str) or (isinstance(value, (list, tuple)) and any(isinstance(item, str) for item in value))
+
+
+def negation(domain):
+    """The negation of a domain, in prefix notation."""
+    return ["!", *expression.normalize_domain(domain)]
+
+
+def resolved_group_value(value):
+    """A read_group value as plain data: Odoo 16 names a many2one's group lazily, past every check on a string."""
+    if isinstance(value, tuple) and len(value) == 2 and isinstance(value[1], tools.lazy):
+        return (value[0], str(value[1]))
+    return value
+
+
+def is_id_name_pair(value):
+    """Whether a value the tools return is a link's (id, name) pair, as Odoo reads a many2one or a group key."""
+    return isinstance(value, (tuple, list)) and len(value) == 2 and type(value[0]) is int and isinstance(value[1], str)
+
+
+def like_runs(pattern):
+    """The literal runs of a LIKE pattern between its wildcards % and _, its backslash escapes read."""
+    runs, run, chars = [], [], iter(pattern)
+    for char in chars:
+        if char == "\\":
+            run.append(next(chars, ""))
+        elif char in "%_":
+            runs.append("".join(run))
+            run = []
+        else:
+            run.append(char)
+    return [text for text in (*runs, "".join(run)) if text]
+
+
+def tagged_alternation(texts, char_pattern=re.escape):
+    """A regex of a text that holds one of `texts`, tags between its characters (URL_MARKER_TAGS) or not, each
+    character as `char_pattern` matches it, their shared starts factored out, which PostgreSQL matches faster on a
+    long text."""
+    trie = {}
+    for text in texts:
+        node = trie
+        for char in text:
+            node = node.setdefault(char, {})
+        node[""] = {}
+
+    def pattern(node):
+        if "" in node:
+            # A text ends here: the longer ones add nothing to the match.
+            return ""
+        branches = []
+        for char, child in node.items():
+            rest = pattern(child)
+            branches.append(char_pattern(char) + (URL_MARKER_TAGS + rest if rest else ""))
+        return branches[0] if len(branches) == 1 else "(?:%s)" % "|".join(branches)
+
+    return pattern(trie)
+
+
 def is_hr_only(groups):
     """Whether a field's groups name a group of the hr module or of an hr_* module."""
     modules = [xmlid.strip().lstrip("!").split(".")[0] for xmlid in (groups or "").split(",")]
@@ -1026,31 +1263,136 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _url_token_paths(self):
         """The URL paths whose next segments are a token: a Discuss meeting's, a survey's, a rating's and a Discuss
-        channel's invitation. In a message's text, the rest of such a URL reads REDACTED_TOKEN and is matched so."""
+        channel's invitation. In a text, the rest of such a URL reads REDACTED_TOKEN and is matched so."""
         return ("/calendar/join_videocall/", "/survey/", "/rate/", "/chat/", "/meet/")
 
     @api.model
-    def _url_token_regex(self):
-        """A URL token in a message's text, group 1 what precedes its value; its `pattern` is PostgreSQL's too."""
-        return self._url_token_regex_for(self._url_token_paths())
+    def _url_token_regexes(self, is_html=False):
+        """The URL tokens in a text, or in an HTML text (`html_char_pattern`), as regexes applied in turn, group 1 what
+        precedes a token's value: a token, then a signature; their `pattern` is PostgreSQL's too."""
+        return self._url_token_regexes_for(tuple(self._url_token_paths()), is_html)
 
-    @tools.ormcache("paths")
-    def _url_token_regex_for(self, paths):
+    @tools.ormcache("paths", "is_html")
+    def _url_token_regexes_for(self, paths, is_html):
         # Longest first: where one path starts another, Python takes the first listed, PostgreSQL the longest.
-        escaped_paths = [re.escape(path) for path in sorted(paths, key=len, reverse=True)]
-        return re.compile(
-            "(%s)%s" % ("|".join([URL_TOKEN_PARAMETER, *escaped_paths]), URL_TOKEN_VALUE), re.IGNORECASE | re.ASCII
+        path_pattern = html_text_pattern if is_html else re.escape
+        escaped_paths = [path_pattern(path) for path in sorted(paths, key=len, reverse=True)]
+        if is_html:
+            parameter, value, signature = HTML_TOKEN_PARAMETER, HTML_TOKEN_VALUE, HTML_SIGNATURE_PARAMETER
+        else:
+            parameter, value, signature = URL_TOKEN_PARAMETER, URL_TOKEN_VALUE, URL_SIGNATURE_PARAMETER
+        # Signatures after tokens: a signature's group 1 keeps the URL from its pid= on, whose tokens are gone then.
+        return tuple(
+            re.compile("(%s)%s" % (prefix, value), re.IGNORECASE | re.ASCII)
+            for prefix in ("|".join([parameter, *escaped_paths]), signature)
         )
 
     @api.model
     def _url_token_markers(self):
-        """The texts one of which a message's text holds when it holds a URL token."""
-        return ("token=", *self._url_token_paths())
+        """The texts one of which a text holds, its case and its tags aside, when it holds a URL token."""
+        return ("token=", "token%3d", "pid=", "pid%3d", *self._url_token_paths())
 
     @api.model
-    def _without_url_tokens(self, text):
-        """`text` with the value of each URL token in it (`_url_token_regex`) replaced by REDACTED_TOKEN."""
-        return self._url_token_regex().sub(lambda match: match.group(1) + REDACTED_TOKEN, text)
+    def _url_token_marker_pattern(self, is_html=False, is_referenced=False):
+        """The regex of a text that holds a `_url_token_markers` marker, tags between its characters or not; in an
+        HTML text any of its characters a named reference too (`html_named_char_pattern`), or, `is_referenced`, any
+        reference (`html_char_pattern`), unguarded: a marker only picks the rows the tools redact."""
+        if is_referenced:
+            return tagged_alternation(self._url_token_markers(), lambda char: html_char_pattern(char, is_guarded=False))
+        return tagged_alternation(self._url_token_markers(), html_named_char_pattern if is_html else re.escape)
+
+    @api.model
+    def _without_url_tokens(self, text, inline_tags=URL_INLINE_TAGS, is_html=False, replacement=REDACTED_TOKEN):
+        """`text` with the value of each URL token in it (`_url_token_regexes`) replaced by `replacement`; where
+        taking its `inline_tags` out shows another token, the text so, redacted again (`_redacted_text_sql`). Only a
+        text URL_RUN_TO_TAG finds a run in is stripped. With FILTER_TOKEN, the text a filter compares."""
+        is_strippable = bool(URL_RUN_TO_TAG.search(text))
+        text = self._without_url_tokens_once(text, is_html, replacement)
+        if not is_strippable:
+            return text
+        untagged_text = inline_tags.sub("", text)
+        redacted_text = self._without_url_tokens_once(untagged_text, is_html, replacement)
+        return redacted_text if redacted_text != untagged_text else text
+
+    @api.model
+    def _without_url_tokens_once(self, text, is_html=False, replacement=REDACTED_TOKEN):
+        for regex in self._url_token_regexes(is_html):
+            text = regex.sub(lambda match: match.group(1) + replacement, text)
+        return text
+
+    @api.model
+    def _redacted_text_sql(self, text_sql, is_html=False, replacement=REDACTED_TOKEN):
+        """(SQL, parameters) of the text `text_sql`, an SQL expression without parameters, with its URL tokens
+        redacted as `_without_url_tokens` redacts them, each value `replacement`. OFFSET 0 keeps PostgreSQL from
+        inlining a step into each of its uses, which would run its regexes again there."""
+        untagged_sql, untagged_params = self._redacted_text_once_sql("ai_u.untagged", is_html, replacement)
+        text_once_sql, text_once_params = self._redacted_text_once_sql(text_sql, is_html, replacement)
+        return (
+            "(SELECT CASE WHEN ai_t.stored ~* %%s THEN"
+            " (SELECT CASE WHEN ai_r.redacted <> ai_r.untagged THEN ai_r.redacted ELSE ai_r.text END"
+            " FROM (SELECT ai_u.text, ai_u.untagged, %s AS redacted"
+            " FROM (SELECT ai_t.text, regexp_replace(ai_t.text, %%s, '', 'gi') AS untagged OFFSET 0) AS ai_u"
+            " OFFSET 0) AS ai_r)"
+            " ELSE ai_t.text END"
+            " FROM (SELECT %s AS stored, %s AS text OFFSET 0) AS ai_t)" % (untagged_sql, text_sql, text_once_sql),
+            [URL_RUN_TO_TAG.pattern, *untagged_params, URL_INLINE_TAG, *text_once_params],
+        )
+
+    @api.model
+    def _redacted_text_once_sql(self, text_sql, is_html=False, replacement=REDACTED_TOKEN):
+        params = []
+        for regex in self._url_token_regexes(is_html):
+            text_sql = "regexp_replace(%s, %%s, %%s, 'gi')" % text_sql
+            params = [*params, regex.pattern, "\\1" + replacement]
+        return text_sql, params
+
+    @api.model
+    def _shown_html(self, html):
+        """An HTML text as the tools show it: plain text, its URL tokens redacted in the HTML, where a token split by
+        inline tags is whole, as filters read it, then in the text. Its anchors are taken out only where one splits a
+        token: html2plaintext lists their URLs."""
+        if not html:
+            return html
+        anchored_html = self._without_url_tokens(html, URL_INLINE_TAGS_BUT_ANCHORS, is_html=True)
+        return self._without_url_tokens(html2plaintext(self._without_url_tokens(anchored_html, is_html=True)))
+
+    @api.model
+    def _is_redacted_text(self, field):
+        """Whether the tools show a field's value with its URL tokens redacted and match a filter on it so: a stored
+        text column."""
+        return field.type in TEXT_FIELD_TYPES and field.store and bool(field.column_type)
+
+    @api.model
+    def _without_url_tokens_in(self, value):
+        """A value the tools return with the URL tokens in its texts redacted: a text, and each text a list, a pair or
+        a dict holds, as a link's (id, name), a JSON value or a property's. Keys that redact to one text keep their
+        values in a list. Walked without recursion, as a JSON value may nest deeper than Python recurses."""
+        containers, pending = [], [value]
+        while pending:
+            item = pending.pop()
+            if isinstance(item, (tuple, list)):
+                containers.append(item)
+                pending.extend(item)
+            elif isinstance(item, dict):
+                containers.append(item)
+                pending.extend(item.values())
+        # Each container comes after the one that holds it: in reverse, its items are shown before it is.
+        shown_containers = {}
+
+        def shown(item):
+            return self._without_url_tokens(item) if isinstance(item, str) else shown_containers.get(id(item), item)
+
+        for container in reversed(containers):
+            if isinstance(container, dict):
+                values_by_key = {}
+                for key, item in container.items():
+                    values_by_key.setdefault(shown(key), []).append(shown(item))
+                shown_containers[id(container)] = {
+                    key: values[0] if len(values) == 1 else values for key, values in values_by_key.items()
+                }
+            else:
+                shown_containers[id(container)] = type(container)(shown(item) for item in container)
+        return shown(value)
 
     @api.model
     def _denied_model(self, model_name):
@@ -1078,7 +1420,7 @@ class AiAssistantTools(models.AbstractModel):
     @tools.ormcache("model_patterns", "field_patterns")
     def _denied_fields_for(self, model_patterns, field_patterns):
         """The (model, field) pairs the AI deny list hides: a link into a denied model, a field the patterns
-        name, an employee's private field, and a related field with any of those on its path."""
+        name, an employee's private field, and a field that copies any of those (`_copied_hops`)."""
         denied_models = self._denied_model_names_for(model_patterns)
         employee_fields = {*self.env["hr.employee.public"]._fields, *self._employee_work_fields()}
         verdicts = {}
@@ -1094,7 +1436,7 @@ class AiAssistantTools(models.AbstractModel):
                         field.model_name == "hr.employee"
                         and (is_hr_only(field.groups) or field.name not in employee_fields)
                     )
-                    or any(is_denied(hop) for hop in self._related_hops(field))
+                    or any(is_denied(hop) for hop in self._copied_hops(field))
                 )
             return verdicts[key]
 
@@ -1115,6 +1457,59 @@ class AiAssistantTools(models.AbstractModel):
             hop = self.env[model_name]._fields[name]
             hops.append(hop)
             model_name = hop.comodel_name
+        return hops
+
+    @api.model
+    def _copied_hops(self, field):
+        """The fields a field copies its value through: the field of `_copied_fields` it shows, or a related
+        field's path."""
+        copied_name = self._copied_fields().get("%s.%s" % (field.model_name, field.name))
+        if copied_name:
+            return self._path_hops(field.model_name, copied_name)
+        return self._related_hops(field)
+
+    @tools.ormcache()
+    def _copied_fields(self):
+        """{"model.field": the field of its record it shows} of each text computed from the VAT number, `vat` in its
+        depends or a text computed so, but its display name and VAT_FREE_FIELDS: a localization shows the number under
+        names of its own, as l10n_ar's l10n_ar_vat and l10n_ar_formatted_vat or l10n_ph's branch_code."""
+        field_depends = self.env.registry.field_depends
+        copied_fields = {}
+        for model_name in self.env.registry:
+            Model = self.env[model_name]
+            if "vat" not in Model._fields:
+                continue
+            candidates = [
+                (name, field)
+                for name, field in Model._fields.items()
+                if field.type in ("char", "text")
+                and field.compute
+                and not field.related
+                and name not in ("vat", "display_name")
+                and "%s.%s" % (model_name, name) not in VAT_FREE_FIELDS
+            ]
+            copied_names = {"vat"}
+            is_growing = True
+            while is_growing:
+                is_growing = False
+                for name, field in candidates:
+                    shown_name = next((dep for dep in field_depends.get(field, ()) if dep in copied_names), None)
+                    if shown_name and name not in copied_names:
+                        copied_fields["%s.%s" % (model_name, name)] = shown_name
+                        copied_names.add(name)
+                        is_growing = True
+        return frozendict(copied_fields)
+
+    @api.model
+    def _path_hops(self, model_name, path):
+        """The fields a dotted path goes through from `model_name`; [] when a step is no field."""
+        hops = []
+        for name in path.split("."):
+            field = self.env[model_name]._fields.get(name) if model_name else None
+            if field is None:
+                return []
+            hops.append(field)
+            model_name = field.comodel_name
         return hops
 
     @api.model
@@ -1191,12 +1586,12 @@ class AiAssistantTools(models.AbstractModel):
         that belongs to a denied record or a private address, no mail of a request and nothing on it, no row of a
         private address's own, no tracking of a denied field, of a denied model's, of an employee's cost or of one
         the employee may not read, no attachment that holds a denied field, is a request's, names a model that does
-        not exist or hangs on a message left out or on a request's."""
+        not exist or hangs on a message left out or on a request's, no link preview but of a message shown
+        (`_shown_preview_message_ids`)."""
         if model_name == "res.partner":
             return [("id", "not in", self._private_address_ids())]
         domains = []
-        if model_name in DENY_ROW_PATHS:
-            model_path, res_id_path = DENY_ROW_PATHS[model_name]
+        for model_path, res_id_path in DENY_ROW_PATHS.get(model_name, ()):
             *link, model_field = model_path.split(".")
             record_domain = expression.AND(
                 [
@@ -1221,7 +1616,14 @@ class AiAssistantTools(models.AbstractModel):
                 # by their columns, and the rows' own access rules still apply.
                 Linked = self.env[self.env[model_name]._fields[link[0]].comodel_name].with_context(active_test=False)
                 record_domain = [(link[0], "in", self._rows_query(Linked, record_domain))]
+                if not self.env[model_name]._fields[link[0]].required:
+                    record_domain = expression.OR([record_domain, [(link[0], "=", False)]])
             domains.append(record_domain)
+        if model_name == LINK_PREVIEW_MODEL:
+            if not self.env[model_name].check_access_rights("read", raise_exception=False):
+                # Odoo's search refuses such an employee these rows anyway, before the messages' check.
+                return expression.FALSE_DOMAIN
+            domains.append([("message_id", "in", self._shown_preview_message_ids())])
         if model_name in PARTNER_ROW_LINKS:
             domains.append([(PARTNER_ROW_LINKS[model_name], "not in", self._private_address_ids())])
         if model_name == "mail.tracking.value":
@@ -1236,6 +1638,27 @@ class AiAssistantTools(models.AbstractModel):
                 [("id", "not in", self._refused_message_attachment_ids())],
             ]
         return expression.AND(domains) if domains else []
+
+    @api.model
+    def _shown_preview_message_ids(self):
+        """The ids of the messages with a link preview that the employee may read and whose text the tools show,
+        once per tool call: an ERP manager reads every preview, which names its message."""
+
+        def find_ids():
+            Preview = self.env[LINK_PREVIEW_MODEL]
+            preview_messages = Query(
+                self.env.cr, "ai_preview", 'SELECT DISTINCT "message_id" AS id FROM "%s"' % Preview._table
+            )
+            domain = expression.AND(
+                [
+                    [("id", "in", preview_messages)],
+                    self._deny_row_domain("mail.message"),
+                    negation(self._masked_text_domain("mail.message")),
+                ]
+            )
+            return self.env["mail.message"].search(domain).ids
+
+        return self._call_cached(("shown_preview_message_ids", self.env.uid), find_ids)
 
     @api.model
     def _hidden_tracking_domain(self):
@@ -1371,8 +1794,12 @@ class AiAssistantTools(models.AbstractModel):
         A related field is followed along its path, so a contact's data it
         shows is guarded on the contact. A value the rows mask
         (`_value_guard`) matches only where it is not masked, resolved within
-        the model that holds it, and a message's text as the rows show it,
-        its URL tokens redacted (`_shown_text_term`).
+        the model that holds it, and a text as the rows show it, its URL
+        tokens redacted (`_shown_text_term`). A link compared with names
+        matches the linked records' names as the tools show them
+        (`_name_link_domain`). Structured data is refused
+        (`_check_not_structured`) but in a test of it set or not, which Odoo
+        makes IS NULL (NULL_TESTED_FIELD_TYPES).
         """
         if private_ids is None:
             private_ids = self._private_address_ids()
@@ -1386,21 +1813,33 @@ class AiAssistantTools(models.AbstractModel):
                     field, steps[index + 1 :], operator, value, private_ids, search_context
                 )
                 held_domain = self._held_domain(model_name, steps[:index], link_domain, root_context)
-                return ["!", *held_domain] if negated else held_domain
+                return negation(held_domain) if negated else held_domain
+            if field.relational and index == len(steps) - 1 and is_name_comparison(operator, value):
+                name_domain = self._name_link_domain(
+                    field, operator, value, private_ids, search_context, (model_name, ".".join(steps))
+                )
+                if name_domain is None:
+                    break
+                held_domain = self._held_domain(model_name, steps[:index], name_domain, root_context)
+                return negation(held_domain) if negated else held_domain
             if not field.relational:
+                if not (field.type in NULL_TESTED_FIELD_TYPES and is_set_test(operator, value)):
+                    self._check_not_structured(Model._name, step)
+                # The term first: one it refuses reads no message for the guard.
                 step_term = self._shown_text_term(Model._name, step, operator, value)
                 guard = self._value_guard(Model._name, step, private_ids)
-                if guard and index:
+                if not guard and step_term == [(step, operator, value)]:
+                    # Shown as stored: Odoo resolves the path itself.
+                    break
+                if index:
                     # As the link branch: a masked linked row counts as no match, under the "!" too.
                     held_domain = self._held_domain(
                         model_name, steps[:index], expression.AND([step_term, guard]), root_context
                     )
-                    return ["!", *held_domain] if negated else held_domain
-                if guard:
-                    # A masked value matches neither the term nor its negation.
-                    term = ["!", *step_term] if negated else step_term
-                    return expression.AND([term, guard])
-                break
+                    return negation(held_domain) if negated else held_domain
+                # A masked value matches neither the term nor its negation.
+                term = negation(step_term) if negated else step_term
+                return expression.AND([term, guard])
             # The context the next model is searched in past this link, as Odoo builds it hop by hop.
             search_context = {**search_context, **self._link_search_context(field)}
             Model = self.env[field.comodel_name]
@@ -1420,7 +1859,11 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _is_row_filtered(self, model_name):
         """Whether the AI deny list's row filter holds back rows of a model; see `_deny_row_domain`."""
-        return model_name == "res.partner" or model_name in DENY_ROW_PATHS or model_name in PARTNER_ROW_LINKS
+        return (
+            model_name in ("res.partner", LINK_PREVIEW_MODEL)
+            or model_name in DENY_ROW_PATHS
+            or model_name in PARTNER_ROW_LINKS
+        )
 
     @api.model
     def _related_path(self, model_name, steps):
@@ -1440,12 +1883,14 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _value_guard(self, model_name, name, private_ids):
         """Where a field's value is shown as it is, as a domain on its model's rows; [] when it always is. A copy
-        of a contact's data shows beside no private address, a message's text on a message whose text the deny
-        list leaves (MESSAGE_TEXT_FIELDS), an employee's cost or a total of it on a row that reaches no employee."""
+        of a contact's data shows beside no private address, a message's text where the deny list does not mask it
+        (`_masked_text_domain`), any other HTML text where it links no denied record (`_refused_text_domain`), an
+        employee's cost or a total of it on a row that reaches no employee."""
         domains = [[(link, "not in", private_ids)] for link in self._partner_value_paths(model_name, name)]
-        message_link, text_names = MESSAGE_TEXT_FIELDS.get(model_name, ("", ()))
-        if name in text_names:
-            domains.append([(message_link, "not in", self._refused_text_message_ids())])
+        if name in self._message_text_fields(model_name)[1]:
+            domains.append(negation(self._masked_text_domain(model_name)))
+        elif self._is_masked_html(model_name, name) and self._is_redacted_text(self.env[model_name]._fields[name]):
+            domains.append(negation(self._refused_text_domain(model_name, name)))
         cost_path = self._employee_cost_path(model_name, name)
         if "." in cost_path:
             domains.append([("id", "not in", self._employee_cost_rows(model_name, cost_path))])
@@ -1454,75 +1899,190 @@ class AiAssistantTools(models.AbstractModel):
         return expression.AND(domains) if domains else []
 
     @api.model
+    def _is_masked_html(self, model_name, name):
+        """Whether a field is an HTML text, other than a message's, that the tools mask whole where it links a record
+        of a denied model."""
+        field = self.env[model_name]._fields[name]
+        return field.type == "html" and name not in self._message_text_fields(model_name)[1]
+
+    @api.model
+    def _message_text_fields(self, model_name):
+        """(the link paths to the rows that hold the text, the field names) of a model's message text: its
+        MESSAGE_TEXT_FIELDS, or the fields that copy one of those (`_message_text_hops`), as a mail group's message
+        shows its message's body and a task its last rating's feedback; ((), ()) for a model without any."""
+        return self._message_text_fields_by_model().get(model_name, ((), ()))
+
+    @tools.ormcache()
+    def _message_text_fields_by_model(self):
+        """{model: `_message_text_fields`} of the models with a message text, once per registry: finding the copies
+        walks every field."""
+        text_fields = {model_name: ((link,), names) for model_name, (link, names) in MESSAGE_TEXT_FIELDS.items()}
+        for model_name in self.env.registry:
+            if model_name in text_fields:
+                continue
+            names_by_link = defaultdict(list)
+            for name, field in self.env[model_name]._fields.items():
+                hops = self._message_text_hops(field)
+                if hops:
+                    names_by_link[".".join(hop.name for hop in hops[:-1])].append(name)
+            if names_by_link:
+                # A row is masked when any row it copies a text from is.
+                text_fields[model_name] = (
+                    tuple(names_by_link),
+                    tuple(name for names in names_by_link.values() for name in names),
+                )
+        return frozendict(text_fields)
+
+    @api.model
+    def _message_text_hops(self, field, seen=frozenset()):
+        """The fields from `field`'s model to the message text it copies (`_copied_hops`), that text last: a field of
+        MESSAGE_TEXT_FIELDS, as a message's body or a rating's feedback; [] when it copies none."""
+        hops = self._copied_hops(field)
+        if not hops or hops[-1] in seen:
+            return []
+        last_hop = hops[-1]
+        if last_hop.name in MESSAGE_TEXT_FIELDS.get(last_hop.model_name, ("", ()))[1]:
+            return hops
+        further_hops = self._message_text_hops(last_hop, seen | {field})
+        return hops[:-1] + further_hops if further_hops else []
+
+    @api.model
+    def _masked_text_domain(self, model_name):
+        """The rows of a model of `_message_text_fields` whose message text the AI deny list masks, as a domain: a
+        message's own (`_refused_text_message_ids`), or that of a row it links to, as that row's model masks it; a
+        row of a copy Odoo stores, without a message, by its own text (`_refused_text_domain`). Through an x2many
+        any masked row masks it, on the safe side: a task's last feedback, which shows one rating, goes by all of
+        them."""
+        links, names = self._message_text_fields(model_name)
+        if links == ("id",):
+            return [("id", "in", self._refused_text_message_ids())]
+        Model = self.env[model_name]
+        domains = []
+        for link in links:
+            hops = self._path_hops(model_name, link)
+            link_domain = self._masked_text_domain(hops[-1].comodel_name)
+            for hop in reversed(hops):
+                # Past the linked rows' rules, archived ones too: a copy shows the text whoever may read the row.
+                Comodel = self.env[hop.comodel_name].with_context(active_test=False)
+                link_domain = self._linked_rows_domain(
+                    hop, Comodel, expression.AND([link_domain, self._link_own_domain(hop)])
+                )
+            if hops[0].type == "many2one":
+                # Odoo 16 writes a many2one "in" a query as SQL IN, which a row without a link fails negated too.
+                link_domain = expression.AND([[(hops[0].name, "!=", False)], link_domain])
+            domains.append(link_domain)
+            stored_names = [name for name in names if Model._fields[name].store]
+            if len(hops) == 1 and not hops[0].required and stored_names:
+                own_domain = expression.OR([self._refused_text_domain(model_name, name) for name in stored_names])
+                domains.append(expression.AND([[(link, "=", False)], own_domain]))
+        return expression.OR(domains) if domains else expression.FALSE_DOMAIN
+
+    @api.model
     def _refused_text_message_ids(self):
-        """The ids of every message whose text the AI deny list leaves out (MESSAGE_TEXT_FIELDS), once per tool call:
-        each text filter of the call is compared with them, not with a scan of every body of its own."""
+        """The ids of every message whose text the AI deny list masks, once per tool call: those that carry an
+        attachment it refuses or whose body `_refused_text_sql` holds. Each text filter of the call is compared
+        with them, not with a scan of every body of its own."""
 
         def find_ids():
             refused_attachments = self._rows_query(
-                self.env["ir.attachment"], ["!", *self._deny_row_domain("ir.attachment")]
+                self.env["ir.attachment"], negation(self._deny_row_domain("ir.attachment"))
             )
-            query = self._rows_query(self.env["mail.message"], [("attachment_ids", "in", refused_attachments)])
+            Message = self.env["mail.message"]
+            query = self._rows_query(Message, [("attachment_ids", "in", refused_attachments)])
             self.env.cr.execute(*query.select())
             message_ids = {message_id for (message_id,) in self.env.cr.fetchall()}
-            return sorted(message_ids.union(self._scanned_text_ids()[0]))
+            Message.flush_model(["body"])
+            refused_sql, refused_params = self._refused_text_sql('"mail_message"."body"')
+            self.env.cr.execute('SELECT "id" FROM "mail_message" WHERE %s' % refused_sql, refused_params)
+            message_ids.update(message_id for (message_id,) in self.env.cr.fetchall())
+            return sorted(message_ids)
 
         return self._call_cached("refused_text_message_ids", find_ids)
 
     @api.model
-    def _refused_body_sql(self):
-        """(SQL, parameters) that hold on a mail_message row whose body links to a record of a denied model or holds a
-        URL of REFUSED_MESSAGE_URLS. One pass over the body names the models it links to, where a domain, or a
-        pattern per model, would read it once per denied model."""
-        self.env["mail.message"].flush_model(["body"])
+    def _refused_text_sql(self, text_sql):
+        """(SQL, parameters) that hold on a text `text_sql`, an SQL expression without parameters, that links to a
+        record of a denied model, in single or double quotes, or holds a URL of REFUSED_MESSAGE_URLS. One pass over
+        the text names the models it links to, where a condition per denied model would read it once per model."""
         return (
-            '(EXISTS(SELECT FROM regexp_matches("mail_message"."body", %s, \'g\') AS link WHERE link[1] = ANY(%s))'
-            ' OR "mail_message"."body" LIKE ANY(%s))',
+            "((%s LIKE %%s AND EXISTS(SELECT FROM regexp_matches(%s, %%s, 'g') AS link WHERE link[1] = ANY(%%s)))"
+            " OR %s LIKE ANY(%%s))" % (text_sql, text_sql, text_sql),
             [
-                '%s"([^"]*)"' % MESSAGE_RECORD_LINK,
+                like_pattern(MESSAGE_RECORD_LINK),
+                MESSAGE_RECORD_LINK_PATTERN,
                 sorted(self._denied_model_names()),
                 [like_pattern(url) for url in REFUSED_MESSAGE_URLS],
             ],
         )
 
     @api.model
-    def _scanned_text_ids(self):
-        """(ids of the messages whose body `_refused_body_sql` refuses, ids of those whose body holds one of
-        `_url_token_markers`), from one scan of the bodies per tool call."""
+    def _is_refused_text(self, text):
+        """Whether a text read in Python is one `_refused_text_sql` holds."""
+        denied_models = self._denied_model_names()
+        return any(url in text for url in REFUSED_MESSAGE_URLS) or any(
+            model_name in denied_models for model_name in re.findall(MESSAGE_RECORD_LINK_PATTERN, text)
+        )
 
-        def scan():
-            refused_sql, refused_params = self._refused_body_sql()
-            token_markers = self._url_token_markers()
-            candidate_markers = tuple(dict.fromkeys((*token_markers, MESSAGE_RECORD_LINK, *REFUSED_MESSAGE_URLS)))
-            # One lowercased pass, each marker once, finds the rows either test may hold on. On message bodies
-            # LIKE ANY runs faster than one ~* alternation of the markers.
-            self.env.cr.execute(
-                'SELECT "id", %s, lower("mail_message"."body") LIKE ANY(%%s) FROM "mail_message"'
-                ' WHERE lower("mail_message"."body") LIKE ANY(%%s)' % refused_sql,
-                [
-                    *refused_params,
-                    [like_pattern(marker.lower()) for marker in token_markers],
-                    [like_pattern(marker.lower()) for marker in candidate_markers],
-                ],
-            )
-            rows = self.env.cr.fetchall()
-            return (
-                [row_id for row_id, is_refused, _has_token in rows if is_refused],
-                [row_id for row_id, _is_refused, has_token in rows if has_token],
-            )
+    @api.model
+    def _refused_text_domain(self, model_name, name):
+        """The rows whose stored text `name` `_refused_text_sql` holds, as a domain."""
+        Model = self.env[model_name].with_context(active_test=False)
+        refused_sql, refused_params = self._refused_text_sql(self._text_column_sql(Model, name))
+        return self._sql_domain(Model, refused_sql, refused_params)
 
-        return self._call_cached("scanned_text_ids", scan)
+    @api.model
+    def _text_column_sql(self, Model, name):
+        """The SQL of a stored text column of `Model`'s table, a translated one's values joined by a space."""
+        Model.flush_model([name])
+        column = '"%s"."%s"' % (Model._table, name)
+        if Model._fields[name].column_type[0] == "jsonb":
+            return "(SELECT string_agg(ai_v.value, ' ') FROM jsonb_each_text(%s) AS ai_v)" % column
+        return column
+
+    @api.model
+    def _sql_domain(self, Model, sql, params, name=None):
+        """The rows of `Model` that meet the SQL condition `sql` on its table's row, as a domain: Odoo 16 has no
+        custom condition, so an "id" "in" a subquery of the row itself, which PostgreSQL tests row by row after the
+        other conditions rather than as a scan of the table. The condition names the table, as the query of the
+        model it is searched in names it.
+
+        With `name`, the one column `sql` reads, the row is a subquery of its id
+        and that column under the table's name, fenced with OFFSET 0: where
+        PostgreSQL joins it to the rows that meet the other conditions, it may
+        scan those in parallel, which a condition with subqueries tested in
+        their own scan prevents.
+        """
+        if name:
+            row = Query(
+                self.env.cr,
+                Model._table,
+                'SELECT "%s"."id" AS id, "%s"."%s" OFFSET 0' % (Model._table, Model._table, name),
+            )
+        else:
+            row = Query(self.env.cr, "ai_row", 'SELECT "%s"."id" AS id' % Model._table)
+        row.add_where(sql, params)
+        return [("id", "in", row)]
 
     @api.model
     def _shown_text_term(self, model_name, name, operator, value):
-        """The term as a domain, matched on a message's body as the tools show it: a message whose body holds a URL
-        token is decided on its body with the tokens redacted alone, so that no filter tells a token's value. A
-        range operator is refused, as a sort by the text is, and so is any filter on a mail's own copy of its text,
-        which would read the whole HTML of every mail."""
+        """The term as a domain, matched on a text as the tools show it, each URL token's value FILTER_TOKEN for
+        REDACTED_TOKEN: no filter tells a token's value or meets a word of the placeholder, and a value that holds
+        REDACTED_TOKEN meets a token there. A range operator is refused, which compares the texts as a sort does,
+        and so is any filter on a mail's own copy of its text, which would read the whole HTML of every mail.
+
+        The value is read as Odoo compares it (`_compared_value`): an HTML one
+        but between wildcards as Odoo's sanitizer writes it. A value that holds
+        FILTER_CHAR is refused. The tokens are read only in the rows the value
+        may meet: an equality with values without a token or REDACTED_TOKEN is
+        the term itself, any other value is decided in the rows whose stored
+        text holds its literal runs (`_stored_run_domain`). A value without one
+        is decided by the markers in every row.
+        """
         term = (name, operator, value)
-        if name not in MESSAGE_TEXT_FIELDS.get(model_name, ("", ()))[1]:
-            return [term]
-        if model_name == "mail.mail":
+        Model = self.env[model_name]
+        field = Model._fields[name]
+        is_message_text = name in self._message_text_fields(model_name)[1]
+        if model_name == "mail.mail" and is_message_text:
             raise AiDenyListError(
                 "%s.%s is a mail's own copy of its text: the AI deny list refuses a filter on it. To find mails by"
                 " their text, filter on body, the text of the mail's message, on mail.mail or mail.message; or filter"
@@ -1530,35 +2090,173 @@ class AiAssistantTools(models.AbstractModel):
                 " system mails are, has an empty body: find such mails by their subject, recipients, state or dates."
                 % (model_name, name)
             )
-        if operator in ("<", ">", "<=", ">="):
-            raise AiDenyListError(
-                "%s.%s is a message's text: the AI deny list refuses %s on it, which compares the texts as a sort"
-                " does; filter with ilike or =like." % (model_name, name, operator)
-            )
-        # Checked before the full-table scan, so an employee without read access fails fast.
-        self.env[model_name].check_access_rights("read")
-        token_ids = self._scanned_text_ids()[1]
-        if not token_ids:
+        if not self._is_redacted_text(field):
             return [term]
-        return expression.OR(
-            [
-                expression.AND([[term], [("id", "not in", token_ids)]]),
-                [("id", "in", self._redacted_text_match_ids(term, token_ids))],
-            ]
+        if operator in RANGE_OPERATORS:
+            kind = "a message's text" if is_message_text else "a text that may hold a URL token"
+            raise AiDenyListError(
+                "%s.%s is %s: the AI deny list refuses %s on it, which compares the texts as a sort does; filter with"
+                " ilike or =like." % (model_name, name, kind, operator)
+            )
+        is_html = field.type == "html"
+        is_sanitized = is_html and operator not in WILDCARD_OPERATORS
+        compared_value = self._compared_value(Model, name, operator, value)
+        compared_items = compared_value if isinstance(compared_value, (list, tuple)) else [compared_value]
+        if any(isinstance(item, str) and FILTER_CHAR in item for item in compared_items):
+            raise AiDenyListError(
+                "%s.%s: the AI deny list refuses a filter value that holds the control character U+0001, which it"
+                " reads in place of a URL token's value." % (model_name, name)
+            )
+        if operator in EQUALITY_OPERATORS and all(
+            not isinstance(item, str)
+            or (
+                self._filtered_value(operator, item, is_sanitized) == item
+                and self._without_url_tokens(item, is_html=is_html) == item
+            )
+            for item in compared_items
+        ):
+            return [term]
+        filtered_value = self._filtered_value(operator, compared_value, is_sanitized)
+        Model = Model.with_context(active_test=False)
+        term_sql, term_params = self._filtered_term_sql(Model, name, operator, value, filtered_value)
+        has_token_sql, has_token_params = self._has_token_sql(Model, name)
+        redacted_sql, redacted_params = self._redacted_text_match_sql(Model, name, term_sql, term_params)
+        shown_domain = self._sql_domain(
+            Model,
+            "(CASE WHEN %s THEN %s ELSE (%s) END)" % (has_token_sql, redacted_sql, term_sql),
+            [*has_token_params, *redacted_params, *term_params],
+            name,
+        )
+        # Checked before the scan, so an employee without read access fails fast.
+        Model.check_access_rights("read")
+        stored_run = self._stored_run_domain(Model, name, operator, filtered_value)
+        if stored_run is None:
+            return shown_domain
+        if operator in expression.NEGATIVE_TERM_OPERATORS:
+            return expression.OR([negation(stored_run), shown_domain])
+        return expression.AND([stored_run, shown_domain])
+
+    @api.model
+    def _compared_value(self, Model, name, operator, value):
+        """A filter's value as Odoo compares it with the text `name`: as given between the wildcards of
+        WILDCARD_OPERATORS, otherwise each text as Odoo writes it to the column, an HTML one sanitized."""
+        if operator in WILDCARD_OPERATORS:
+            return value
+        field = Model._fields[name]
+
+        def compared(item):
+            if not isinstance(item, str):
+                return item
+            column_value = field.convert_to_column(item, Model, validate=False)
+            return str(column_value.adapted["en_US"] if field.translate else column_value)
+
+        return type(value)(map(compared, value)) if isinstance(value, (list, tuple)) else compared(value)
+
+    @api.model
+    def _filtered_value(self, operator, value, is_sanitized=False):
+        """A filter's value as it meets a text whose tokens read FILTER_TOKEN: REDACTED_TOKEN in it, of any ASCII case
+        for an ilike, as FILTER_TOKEN; in a value the HTML sanitizer wrote, its brackets percent-encoded too."""
+        flags = re.IGNORECASE | re.ASCII if "ilike" in operator else 0
+        pattern = SANITIZED_REDACTED_TOKEN_PATTERN if is_sanitized else re.escape(REDACTED_TOKEN)
+
+        def filtered(item):
+            return re.sub(pattern, FILTER_TOKEN, item, flags=flags) if isinstance(item, str) else item
+
+        return type(value)(map(filtered, value)) if isinstance(value, (list, tuple)) else filtered(value)
+
+    @api.model
+    def _filtered_term_sql(self, Model, name, operator, value, filtered_value):
+        """(SQL, parameters) of Odoo's term on the stored text `name` that compares `filtered_value`, the filter's
+        value as `_compared_value` and `_filtered_value` give it. Odoo's sanitizer drops FILTER_TOKEN, so an HTML
+        value it compares otherwise than given goes to Odoo as given and REDACTED_TOKEN is mapped in the SQL's
+        parameters, the values Odoo sanitized."""
+        is_sanitized = Model._fields[name].type == "html" and operator not in WILDCARD_OPERATORS
+        term_value = value if is_sanitized else filtered_value
+        # A stored column of the table: Odoo's SQL of the term joins nothing.
+        _from_clause, term_sql, term_params = self._rows_query(
+            Model, [(name, operator, term_value)], active_test=False
+        ).get_sql()
+        if is_sanitized:
+            term_params = [self._filtered_value(operator, param, is_sanitized=True) for param in term_params]
+        return term_sql, term_params
+
+    @api.model
+    def _stored_run_domain(self, Model, name, operator, value):
+        """The rows whose stored text `name` holds, of any case for an ilike, each literal run but FILTER_TOKEN of
+        one of the filter's values, as a domain: a text meets the value as the tools show it only where it holds
+        them. `value` is the filter's as `_compared_value` and `_filtered_value` give it; where Odoo's filter is
+        unaccented, its runs are read as unaccent turns it, which makes a wildcard or an escape of some signs. Plain
+        terms, tested in the rows' own scan, so that a filter on a few rows reads only those. None for a value
+        without a run. A run split by an inline tag in the stored text is not found: a regex that reads it across
+        tags keeps PostgreSQL from scanning the table in parallel."""
+        items = list(value) if isinstance(value, (list, tuple)) else [value]
+        if not items or not all(isinstance(item, str) for item in items):
+            return None
+        if self.env.registry.has_unaccent and Model._fields[name].unaccent:
+            self.env.cr.execute("SELECT unaccent(item) FROM unnest(%s::text[]) AS item", [items])
+            items = [item for (item,) in self.env.cr.fetchall()]
+        runs_operator = "ilike" if "ilike" in operator else "like"
+        domains = []
+        for item in items:
+            texts = like_runs(item) if operator in LIKE_OPERATORS else [item]
+            runs = {run for text in texts for run in re.split("%s+" % FILTER_CHAR, text) if run}
+            if not runs:
+                return None
+            # The longest first: PostgreSQL tests the others only in the rows that hold it.
+            ordered_runs = sorted(runs, key=lambda run: (-len(run), run))
+            domains.append([(name, runs_operator, escape_psql(run)) for run in ordered_runs])
+        return expression.OR(domains)
+
+    @api.model
+    def _has_token_sql(self, Model, name):
+        """(SQL, parameters) that hold on a row whose text `name` holds a URL token marker
+        (`_url_token_marker_pattern`)."""
+        is_html = Model._fields[name].type == "html"
+        text_sql = self._text_column_sql(Model, name)
+        sql = "COALESCE(%s ~* %%s, FALSE)" % text_sql
+        params = [self._url_token_marker_pattern(is_html)]
+        if is_html:
+            # The markers written with numeric references read a text several times slower: only in a text that
+            # holds one, which Odoo's sanitizer writes none of.
+            sql = "(%s OR (strpos(%s, '&#') > 0 AND COALESCE(%s ~* %%s, FALSE)))" % (sql, text_sql, text_sql)
+            params.append(self._url_token_marker_pattern(is_html, is_referenced=True))
+        return sql, params
+
+    @api.model
+    def _redacts_text_sql(self, Model, name):
+        """(SQL, parameters) that hold on a row whose text `name` the tools show with a URL token redacted."""
+        has_token_sql, has_token_params = self._has_token_sql(Model, name)
+        redacted_sql, redacted_params = self._redacted_column_sql(Model, name)
+        return (
+            "(%s AND %s IS DISTINCT FROM %s)" % (has_token_sql, redacted_sql, '"%s"."%s"' % (Model._table, name)),
+            [*has_token_params, *redacted_params],
         )
 
     @api.model
-    def _redacted_text_match_ids(self, term, message_ids):
-        """The ids among `message_ids` whose body, its URL tokens redacted in SQL, matches `term`."""
-        Message = self.env["mail.message"]
-        # Odoo's SQL of the term names the column by the table: under that name, the query reads the redacted body.
-        _from_clause, where_clause, where_params = self._rows_query(Message, [term]).get_sql()
-        self.env.cr.execute(
-            'SELECT "id" FROM (SELECT "id", regexp_replace("body", %%s, %%s, \'gi\') AS "body" FROM "%s"'
-            ' WHERE "id" = ANY(%%s)) AS "%s" WHERE %s' % (Message._table, Message._table, where_clause or "TRUE"),
-            [self._url_token_regex().pattern, "\\1" + REDACTED_TOKEN, message_ids, *where_params],
+    def _redacted_column_sql(self, Model, name, replacement=REDACTED_TOKEN):
+        """(SQL, parameters) of a stored text column with its URL tokens redacted (`_redacted_text_sql`), each value
+        of a translated one."""
+        field = Model._fields[name]
+        column = self._text_column_sql(Model, name) if field.column_type[0] != "jsonb" else None
+        if column:
+            return self._redacted_text_sql(column, field.type == "html", replacement)
+        redacted_sql, redacted_params = self._redacted_text_sql("ai_text.value", field.type == "html", replacement)
+        return (
+            '(SELECT jsonb_object_agg(ai_text.key, %s) FROM jsonb_each_text("%s"."%s") AS ai_text)'
+            % (redacted_sql, Model._table, name),
+            redacted_params,
         )
-        return [row_id for (row_id,) in self.env.cr.fetchall()]
+
+    @api.model
+    def _redacted_text_match_sql(self, Model, name, term_sql, term_params):
+        """(SQL, parameters) that hold on a row whose text `name`, each URL token's value FILTER_TOKEN in SQL, meets
+        the SQL `term_sql` Odoo builds of a term on it."""
+        redacted_sql, redacted_params = self._redacted_column_sql(Model, name, FILTER_TOKEN)
+        # Odoo's SQL of the term names the column by the table: under that name, it reads the redacted text.
+        return (
+            'EXISTS(SELECT FROM (SELECT %s AS "%s") AS "%s" WHERE %s)' % (redacted_sql, name, Model._table, term_sql),
+            [*redacted_params, *term_params],
+        )
 
     @api.model
     def _rows_query(self, Model, domain, active_test=True):
@@ -1595,10 +2293,7 @@ class AiAssistantTools(models.AbstractModel):
         row filter leaves and, on an x2many, the field's own domain keeps; see `_guarded_term`. `search_context`
         is the context Odoo searches the field's model in there."""
         link = field.name
-        is_names = not rest and (
-            isinstance(value, str)
-            or (isinstance(value, (list, tuple)) and value and all(isinstance(item, str) for item in value))
-        )
+        is_names = not rest and is_name_comparison(operator, value)
         if field.comodel_name == "mail.message" and (is_names or (rest and not field.auto_join)):
             # As the employee, mail.message checks each match in Python, which no statement timeout ends.
             raise AiToolError(
@@ -1661,7 +2356,7 @@ class AiAssistantTools(models.AbstractModel):
             return [(link, "in", Members._search([("id", "child_of", value), ("id", "not in", private_ids)]))]
         is_negative = operator in expression.NEGATIVE_TERM_OPERATORS
         positive_operator = expression.TERM_OPERATORS_NEGATION[operator] if is_negative else operator
-        match_term = self._link_match_term(Comodel, positive_operator, value, is_names)
+        match_term = self._link_match_term(field, Comodel, positive_operator, value, is_names, private_ids)
         match_domain = expression.AND([[match_term], *link_domains])
         # Ids, archived ones too, are compared in SQL, as Odoo compares a many2one's column: mail.message's search
         # would check each match in Python.
@@ -1711,12 +2406,187 @@ class AiAssistantTools(models.AbstractModel):
         return inverse_rows
 
     @api.model
-    def _link_match_term(self, Comodel, operator, value, is_names):
+    def _link_match_term(self, field, Comodel, operator, value, is_names, private_ids):
         """The term on a linked record's id that a link compared with `value` by a positive operator matches: a
-        name as Odoo's name search finds it, ids as they are."""
-        if is_names:
+        name as Odoo's name search finds it, its fields matched as the tools show them (`_shown_name_domain`), ids
+        as they are."""
+        if not is_names:
+            return ("id", operator, value)
+        link_path = (field.model_name, field.name)
+        shown_domain = self._shown_name_domain(Comodel._name, operator, value, private_ids, link_path)
+        if shown_domain is None:
             return ("id", "in", Comodel._name_search(value, [], operator, limit=None))
-        return ("id", operator, value)
+        return ("id", "in", Comodel._search(shown_domain))
+
+    @api.model
+    def _name_link_domain(self, field, operator, value, private_ids, search_context, link_path):
+        """A link compared with names as Odoo 16's expression compares it, as a domain on the field's model, the
+        linked records' names matched as the tools show them (`_shown_name_domain`); None where the comodel's own
+        name search runs as it is. A many2one takes the operator as written, a negative one matching an empty link
+        too; an x2many one name, by the positive operator, its negation that no linked record matches."""
+        link_context = {**search_context, **self._link_search_context(field)}
+        Comodel = self.env[field.comodel_name].with_context(**link_context)
+        if field.type == "many2one":
+            name_operator = "in" if operator in RANGE_OPERATORS else operator
+            if isinstance(value, (list, tuple)) and name_operator in ("=", "!="):
+                name_operator = "in" if name_operator == "=" else "not in"
+            elif not isinstance(value, (list, tuple)) and name_operator in ("in", "not in"):
+                name_operator = "=" if name_operator == "in" else "!="
+            Searched = Comodel.with_context(active_test=False)
+            shown_domain = self._shown_name_domain(Searched._name, name_operator, value, private_ids, link_path)
+            if shown_domain is None:
+                return None
+            matched = [(field.name, "in", Searched._search(shown_domain))]
+            if name_operator in expression.NEGATIVE_TERM_OPERATORS:
+                return ["|", *matched, (field.name, "=", False)]
+            return matched
+        is_negative = operator in expression.NEGATIVE_TERM_OPERATORS
+        positive_operator = expression.TERM_OPERATORS_NEGATION[operator] if is_negative else operator
+        shown_domain = self._shown_name_domain(Comodel._name, positive_operator, value, private_ids, link_path)
+        if shown_domain is None:
+            return None
+        matched = [(field.name, "in", Comodel._search(expression.AND([shown_domain, self._link_own_domain(field)])))]
+        return negation(matched) if is_negative else matched
+
+    @api.model
+    def _is_base_name_search(self, model_name):
+        """Whether a model searches its names as Odoo's base model does, by its `_rec_names_search` or `_rec_name`."""
+        return type(self.env[model_name])._name_search is models.BaseModel._name_search
+
+    @api.model
+    def _shown_name_domain(self, model_name, operator, value, private_ids, link_path=(None, "")):
+        """A domain on a model's records whose name meets `operator` `value`, as Odoo's base `_name_search` builds
+        it, each of its fields matched as the tools show it (`_guarded_term`); None for a model that searches its
+        names in its own code, which `_check_own_name_search` passes."""
+        if not self._is_base_name_search(model_name):
+            self._check_own_name_search(model_name, private_ids, link_path)
+            return None
+        Model = self.env[model_name]
+        names = Model._rec_names_search or ([Model._rec_name] if Model._rec_name else [])
+        if not names or (value == "" and operator in ("like", "ilike")):
+            return []
+        aggregator = expression.AND if operator in expression.NEGATIVE_TERM_OPERATORS else expression.OR
+        domains = []
+        for name in names:
+            field = self._path_hops(model_name, name)[-1]
+            if field.relational:
+                written_value = value
+            else:
+                try:
+                    written_value = field.convert_to_write(value, Model)
+                except ValueError:
+                    continue
+            domains.append(self._guarded_term(model_name, name, operator, written_value, private_ids))
+        return aggregator(domains)
+
+    @api.model
+    def _name_search_fields(self):
+        """NAME_SEARCH_FIELDS: a module whose model codes its own name search adds the fields it reads."""
+        return NAME_SEARCH_FIELDS
+
+    @api.model
+    def _name_search_paths(self, model_name):
+        """The field paths a model's name search reads: its `_rec_names_search` and `_rec_name`, and for a search in
+        its own code those of `_name_search_fields`; None for such a search it does not declare."""
+        Model = self.env[model_name]
+        paths = [*(Model._rec_names_search or ()), *filter(None, [Model._rec_name])]
+        if not self._is_base_name_search(model_name):
+            name_search_fields = self._name_search_fields()
+            if model_name not in name_search_fields:
+                return None
+            paths += name_search_fields[model_name]
+        return tuple(dict.fromkeys(path for path in paths if self._path_hops(model_name, path)))
+
+    @api.model
+    def _check_own_name_search(self, model_name, private_ids, link_path=(None, ""), runner="in its own code"):
+        """Refuse a name search in a model's own code, or that `runner` runs on the stored texts, that reads a text
+        the tools show otherwise than stored in a row (`_is_shown_otherwise`), or that `_name_search_fields` does
+        not declare: the code matches the stored text, a URL token's value or a masked text too. Its texts
+        (`_name_search_texts`) are looked up past the rules, once per tool call. `link_path`, (model, path) of a
+        link the term compares with a name, names the fields to filter on instead from there."""
+        texts = self._name_search_texts(model_name)
+        if texts is not None:
+            text = next((text for text in texts if self._is_shown_otherwise(*text, private_ids)), None)
+            if not text:
+                return
+            reason = (
+                "%s's name search, %s, reads a text that the AI deny list redacts or masks in some rows, %s.%s, as it"
+                " is stored" % (model_name, runner, *text)
+            )
+        else:
+            reason = "%s's name search is in its own code, whose fields the AI deny list does not know" % model_name
+        Model = self.env[model_name]
+        holder_name, link = link_path
+        holder_name = holder_name if link else model_name
+        prefix = link + "." if link else ""
+        name_paths = [
+            "%s.%s%s" % (holder_name, prefix, name)
+            for name in ("complete_name", "name")
+            if name in Model._fields
+            and Model._fields[name].type in TEXT_FIELD_TYPES
+            and self._is_filterable_path(holder_name, prefix + name)
+        ]
+        compared = "%s.%s" % (holder_name, link) if link else "a link to it"
+        raise AiDenyListError(
+            "%s: compare %s with ids, or filter on %s, which the tools match as they show it."
+            % (reason, compared, " or ".join(name_paths) or "another field")
+        )
+
+    @api.model
+    def _name_search_texts(self, model_name):
+        """The (model, path) of each stored text a model's name search reads, a link among its paths by its own
+        model's name search, as Odoo searches it, and a computed text by the texts it depends on; None where one of
+        them is in code `_name_search_fields` does not declare."""
+        texts, seen_models, pending = [], {model_name}, [model_name]
+        while pending:
+            searched_model = pending.pop()
+            paths = self._name_search_paths(searched_model)
+            if paths is None:
+                return None
+            for path in paths:
+                steps = self._related_path(searched_model, path.split("."))
+                hops = self._path_hops(searched_model, ".".join(steps))
+                if not hops:
+                    continue
+                if hops[-1].relational:
+                    if hops[-1].comodel_name not in seen_models:
+                        seen_models.add(hops[-1].comodel_name)
+                        pending.append(hops[-1].comodel_name)
+                    continue
+                text_paths = [steps]
+                if not hops[-1].store:
+                    depends = self.env.registry.field_depends.get(hops[-1], ())
+                    text_paths = [[*steps[:-1], *depend.split(".")] for depend in depends]
+                for text_steps in text_paths:
+                    text_hops = self._path_hops(searched_model, ".".join(text_steps))
+                    if text_hops and text_hops[-1].type in TEXT_FIELD_TYPES and text_hops[-1].store:
+                        texts.append((searched_model, ".".join(text_steps)))
+        return tuple(dict.fromkeys(texts))
+
+    @api.model
+    def _is_shown_otherwise(self, model_name, path, private_ids):
+        """Whether a row, past the rules, holds a text at `path` the tools show otherwise than stored: a URL token
+        they redact, or a value they mask (`_value_guard`). Once per tool call."""
+
+        def find_row():
+            hops = self._path_hops(model_name, path)
+            text = hops[-1]
+            Text = self.env[text.model_name].with_context(active_test=False)
+            domains = []
+            guard = self._value_guard(text.model_name, text.name, private_ids)
+            if guard:
+                domains.append(negation(guard))
+            if self._is_redacted_text(text):
+                domains.append(self._sql_domain(Text, *self._redacts_text_sql(Text, text.name)))
+            if not domains:
+                return False
+            domain = expression.OR(domains)
+            for hop in reversed(hops[:-1]):
+                Comodel = self.env[hop.comodel_name].with_context(active_test=False)
+                domain = [(hop.name, "in", self._rows_query(Comodel, domain, active_test=False))]
+            return bool(self.env[model_name].sudo().with_context(active_test=False).search(domain, limit=1))
+
+        return self._call_cached(("shown_otherwise", model_name, path), find_row)
 
     @api.model
     def _partner_value_paths(self, model_name, name, seen=()):
@@ -1849,53 +2719,154 @@ class AiAssistantTools(models.AbstractModel):
         return rows
 
     @api.model
-    def _without_refused_message_text(self, records, rows):
-        """The rows of messages, or of mails, whose message's text the AI deny list leaves out (MESSAGE_TEXT_FIELDS),
-        their text replaced by REFUSED_MESSAGE_TEXT."""
-        message_link, text_names = MESSAGE_TEXT_FIELDS.get(records._name, ("", ()))
-        names = set(text_names) & {name for row in rows for name in row}
+    def _without_hidden_link_previews(self, model_name, rows):
+        """The rows with every link into a link preview the row filter leaves out (`_shown_preview_message_ids`)
+        taken out as `_without_links_into` does."""
+        return self._without_links_into(
+            model_name, rows, LINK_PREVIEW_MODEL, self._hidden_preview_ids, HIDDEN_LINK_PREVIEW_LABEL
+        )
+
+    @api.model
+    def _hidden_preview_ids(self, preview_ids):
+        """The ids among `preview_ids` of the link previews the row filter leaves out."""
+        shown = (
+            self.env[LINK_PREVIEW_MODEL]
+            .sudo()
+            .search([("id", "in", sorted(preview_ids)), ("message_id", "in", self._shown_preview_message_ids())])
+        )
+        return set(preview_ids) - set(shown.ids)
+
+    @api.model
+    def _without_denied_names(self, model_name, rows):
+        """The rows with each display name the AI deny list changes (`_shown_names`) replaced: a record's own, and the
+        name of an (id, name) pair of a many2one, of a many2many's group key or of a group key by id."""
+        Model = self.env[model_name]
+        named_models = {*self._denied_name_models(), *self._denied_name_sources()}
+        pair_models = {}
+        for row in rows:
+            for name, value in row.items():
+                field = Model._fields.get(name)
+                if field is None or not is_id_name_pair(value):
+                    continue
+                if name == "id":
+                    pair_models[name] = model_name
+                elif field.type in ("many2one", "many2many") and field.comodel_name in named_models:
+                    pair_models[name] = field.comodel_name
+        record_ids = {row["id"] for row in rows if type(row.get("id")) is int}
+        ids_by_model = {model_name: set(record_ids)} if model_name in named_models else {}
+        for name, comodel_name in pair_models.items():
+            ids_by_model.setdefault(comodel_name, set()).update(
+                row[name][0] for row in rows if is_id_name_pair(row.get(name))
+            )
+        shown_names = {name: self._shown_names(name, ids) for name, ids in ids_by_model.items()}
+        for row in rows:
+            row_id = row.get("id")
+            # A private address's copy keeps its label: the record's own name may be the address's.
+            display_name = row.get("display_name")
+            if type(row_id) is int and row_id in shown_names.get(model_name, {}) and display_name:
+                if display_name != PRIVATE_ADDRESS_LABEL:
+                    row["display_name"] = shown_names[model_name][row_id]
+            for name, comodel_name in pair_models.items():
+                value = row.get(name)
+                if is_id_name_pair(value) and value[0] in shown_names[comodel_name]:
+                    row[name] = type(value)((value[0], shown_names[comodel_name][value[0]]))
+        return rows
+
+    @api.model
+    def _shown_names(self, model_name, ids):
+        """{id: the display name the tools show} of the ids among `ids` whose display name the AI deny list
+        changes, each link read past the rules: DENIED_NAME_LABEL for all of a model of `_denied_name_models` and
+        for a name built from a denied record or from such a name (`_denied_name_sources`); the record's
+        `_rec_name` value, its URL tokens redacted, for one that shows the value of a denied field it is built
+        from, as a product's internal reference, or DENIED_NAME_LABEL where that field is denied, missing or empty
+        or holds such a value, of any case."""
+        denied_name_models = self._denied_name_models()
+        sources = self._denied_name_sources()
+        if model_name in denied_name_models:
+            return dict.fromkeys(ids, DENIED_NAME_LABEL)
+        if model_name not in sources or not ids:
+            return {}
+        # A name may come back to its own record, as a group chat's through its members': the links are walked
+        # once, then each name built from a changed one is denied in turn.
+        users_by_key, denied_keys, shown_values = {}, set(), {}
+        seen_keys = {(model_name, record_id) for record_id in ids}
+        pending = {model_name: set(ids)}
+        while pending:
+            source_model, source_ids = pending.popitem()
+            if source_model in denied_name_models:
+                denied_keys.update((source_model, record_id) for record_id in source_ids)
+                continue
+            for record in self.env[source_model].sudo().with_context(active_test=False).browse(source_ids):
+                key = (source_model, record.id)
+                for path, target_model in sources[source_model]:
+                    linked = record.mapped(path)
+                    if target_model is None:
+                        if linked:
+                            denied_keys.add(key)
+                        continue
+                    if target_model is False:
+                        # Only where the name shows the value: a source may show only under a context key, as
+                        # res.partner's VAT number. A plain field mapped is a list of its values, [False] if empty.
+                        found = {str(value) for value in linked if value and str(value) in record.display_name}
+                        if found:
+                            shown_values.setdefault(key, set()).update(found)
+                        continue
+                    for linked_id in linked.ids:
+                        linked_key = (target_model, linked_id)
+                        users_by_key.setdefault(linked_key, set()).add(key)
+                        if linked_key not in seen_keys:
+                            seen_keys.add(linked_key)
+                            pending.setdefault(target_model, set()).add(linked_id)
+        queue = list(denied_keys | shown_values.keys())
+        while queue:
+            for user_key in users_by_key.get(queue.pop(), ()):
+                if user_key not in denied_keys:
+                    denied_keys.add(user_key)
+                    queue.append(user_key)
+        Model = self.env[model_name].sudo().with_context(active_test=False)
+        rec_name = Model._rec_name
+        rec_field = Model._fields.get(rec_name) if rec_name else None
+        shows_rec_name = (
+            rec_field is not None
+            and rec_field.type in ("char", "text")
+            and not self._denied_field(rec_field)
+            and (model_name, rec_name) not in self._denied_fields()
+        )
+        shown_names = {}
+        for record_id in ids:
+            key = (model_name, record_id)
+            if key in denied_keys:
+                shown_names[record_id] = DENIED_NAME_LABEL
+            elif key in shown_values:
+                own_name = self._without_url_tokens(Model.browse(record_id)[rec_name] or "") if shows_rec_name else ""
+                is_showing = any(value.lower() in own_name.lower() for value in shown_values[key])
+                shown_names[record_id] = DENIED_NAME_LABEL if is_showing or not own_name else own_name
+        return shown_names
+
+    @api.model
+    def _without_masked_message_text(self, records, rows):
+        """The rows of messages, or of the rows that show one's text, whose text the AI deny list masks
+        (`_masked_text_domain`), their text replaced by REFUSED_MESSAGE_TEXT."""
+        names = set(self._message_text_fields(records._name)[1]) & {name for row in rows for name in row}
         if not names:
             return rows
-        sudo_records = records.sudo().with_context(active_test=False)
-
-        def message(record):
-            return record if message_link == "id" else record[message_link]
-
-        messages = message(sudo_records)
-        refused_message_ids = self._refused_text_ids_among(
-            messages, self._refused_attachment_ids(set(messages.attachment_ids.ids))
+        masked_ids = set(
+            records.sudo()
+            .with_context(active_test=False)
+            .search(expression.AND([[("id", "in", records.ids)], self._masked_text_domain(records._name)]))
+            .ids
         )
-        refused_ids = {record.id for record in sudo_records if message(record).id in refused_message_ids}
         for row in rows:
-            if row["id"] in refused_ids:
+            if row["id"] in masked_ids:
                 row.update({name: REFUSED_MESSAGE_TEXT for name in names & set(row) if row[name]})
         return rows
 
     @api.model
-    def _refused_text_ids_among(self, messages, refused_attachment_ids):
-        """The ids of the messages among `messages` whose text the AI deny list leaves out (MESSAGE_TEXT_FIELDS),
-        `refused_attachment_ids` holding those of their attachments it refuses."""
-        messages = messages.sudo().with_context(active_test=False)
-        refused_ids = {
-            message.id for message in messages if refused_attachment_ids.intersection(message.attachment_ids.ids)
-        }
-        if messages:
-            refused_sql, refused_params = self._refused_body_sql()
-            self.env.cr.execute(
-                'SELECT "id" FROM "mail_message" WHERE "id" = ANY(%%s) AND %s' % refused_sql,
-                [messages.ids, *refused_params],
-            )
-            refused_ids.update(message_id for (message_id,) in self.env.cr.fetchall())
-        return refused_ids
-
-    @api.model
-    def _without_message_tokens(self, records, rows):
-        """The rows of messages, or of mails, with the URL tokens in their text (`_url_token_regex`) redacted."""
-        text_names = MESSAGE_TEXT_FIELDS.get(records._name, ("", ()))[1]
+    def _without_text_tokens(self, rows):
+        """The rows with the URL tokens in each text they hold, and in each name of a link, redacted
+        (`_without_url_tokens_in`)."""
         for row in rows:
-            for name in set(text_names) & set(row):
-                if isinstance(row[name], str):
-                    row[name] = self._without_url_tokens(row[name])
+            row.update({name: self._without_url_tokens_in(value) for name, value in row.items()})
         return rows
 
     @api.model
@@ -2083,25 +3054,7 @@ class AiAssistantTools(models.AbstractModel):
                 checked_domain.extend(["!", term] if negated else [term])
                 negated = False
                 continue
-            path, operator, value = term
-            holder_name = self._check_field_path(model_name, path)
-            self._check_searchable(model_name, path)
-            last_field = self.env[holder_name]._fields[path.split(".")[-1]]
-            if operator in ("in", "not in") and not isinstance(value, (list, tuple)):
-                # One id on a link is taken as a list of it; a name is refused: Odoo would name-search it, not match
-                # it as a list.
-                if not (last_field.relational and isinstance(value, int)):
-                    raise AiToolError('"%s" takes a list of values, not %s.' % (operator, json.dumps(value)))
-                value = [value]
-            if operator in ("child_of", "parent_of"):
-                value = self._hierarchy_roots(holder_name, path, value)
-                if not value:
-                    checked_domain.append(expression.TRUE_LEAF if negated else expression.FALSE_LEAF)
-                    negated = False
-                    continue
-            checked_domain.extend(
-                self._guarded_term(model_name, path, operator, value, private_ids=private_ids, negated=negated)
-            )
+            checked_domain.extend(self._checked_term(model_name, term, negated, private_ids))
             negated = False
         domains = [checked_domain, self._deny_row_domain(model_name)]
         # The row filter names res_field, which turns off Odoo's own: field attachments stay out unless asked for.
@@ -2110,6 +3063,218 @@ class AiAssistantTools(models.AbstractModel):
         ):
             domains.append([("res_field", "=", False)])
         return expression.AND(domains)
+
+    @api.model
+    def _checked_term(self, model_name, term, negated, private_ids):
+        """A term as a guarded domain (`_guarded_term`), its path checked; a child_of or parent_of from no root it
+        may start from matches nothing. A term on an analytic distribution but a test of it set or not goes to
+        analytic.mixin's own search of it by its accounts, as Odoo 16's `_search` rewrites it, with a name or a
+        list of ids."""
+        path, operator, value = term
+        holder_name = self._check_field_path(model_name, path)
+        steps = path.split(".")
+        last_field = self.env[holder_name]._fields[steps[-1]]
+        if self._is_analytic_distribution(last_field) and not is_set_test(operator, value):
+            is_name = isinstance(value, (str, bool)) and operator in ("=", "!=", "ilike", "not ilike")
+            if not (is_name or (operator == "in" and isinstance(value, (list, tuple)))):
+                raise AiToolError(
+                    '%s.%s is filtered by its analytic accounts, as Odoo does: by an account\'s name with "=", "!=",'
+                    ' "ilike" or "not ilike", by account ids with "in", or set or not with "=" or "!=" false.'
+                    % (holder_name, steps[-1])
+                )
+            if is_name and isinstance(value, str):
+                # analytic.mixin names the accounts by Odoo's name search, on their stored name and code.
+                link_path = (holder_name, steps[-1])
+                self._check_not_denied_name_search("account.analytic.account", link_path)
+                self._check_own_name_search(
+                    "account.analytic.account", private_ids, link_path, runner="as analytic.mixin runs it"
+                )
+            path = ".".join([*steps[:-1], "analytic_distribution_search"])
+            last_field = self.env[holder_name]._fields["analytic_distribution_search"]
+        self._check_searchable(model_name, path)
+        is_list = isinstance(value, (list, tuple)) and operator not in ("child_of", "parent_of")
+        if last_field.relational and is_list and is_name_comparison(operator, value):
+            if last_field.type != "many2one" or not all(isinstance(item, str) for item in value):
+                # Odoo 16 takes such a list's items as ids, and PostgreSQL refuses a name among them.
+                raise AiToolError(
+                    '%s.%s is compared with a list of ids, or with one name per term: join such terms with "|".'
+                    % (holder_name, steps[-1])
+                )
+        self._check_not_denied_name(last_field, operator, value)
+        if operator in ("in", "not in") and not isinstance(value, (list, tuple)):
+            # One id on a link is taken as a list of it; a name is refused: Odoo would name-search it, not match
+            # it as a list.
+            if not (last_field.relational and isinstance(value, int)):
+                raise AiToolError('"%s" takes a list of values, not %s.' % (operator, json.dumps(value)))
+            value = [value]
+        if operator in ("child_of", "parent_of"):
+            value = self._hierarchy_roots(holder_name, path, value)
+            if not value:
+                return [expression.TRUE_LEAF if negated else expression.FALSE_LEAF]
+        return self._guarded_term(model_name, path, operator, value, private_ids=private_ids, negated=negated)
+
+    @api.model
+    def _check_not_denied_name(self, field, operator, value):
+        """Refuse a term on a link to a model of `_denied_name_search_models` that compares names: Odoo's name
+        search would match the field it hides."""
+        if field.relational and is_name_comparison(operator, value):
+            self._check_not_denied_name_search(field.comodel_name, (field.model_name, field.name))
+
+    @api.model
+    def _check_not_denied_name_search(self, named_model, link_path):
+        """Refuse a name search of a model of `_denied_name_search_models` for a term on `link_path`, the (model,
+        field) that names its records."""
+        holder_name, link = link_path
+        hidden_path = self._denied_name_search_models().get(named_model)
+        if not hidden_path:
+            return
+        if named_model in self._denied_name_models():
+            reason = "%s names its records by %s, on the AI deny list" % (named_model, self.env[named_model]._rec_name)
+            name_paths = []
+        else:
+            reason = "%s's name search also matches %s, which the AI deny list hides or the employee may not read" % (
+                named_model,
+                hidden_path,
+            )
+            name_paths = [
+                "%s.%s.%s" % (holder_name, link, name)
+                for name in ("complete_name", "name")
+                if self._is_filterable_path(holder_name, "%s.%s" % (link, name))
+            ]
+        raise AiDenyListError(
+            "%s: compare %s.%s with ids, or filter on %s."
+            % (reason, holder_name, link, " or ".join(name_paths) or "another field")
+        )
+
+    @api.model
+    def _is_filterable_path(self, model_name, path):
+        """Whether a term may name a field path: `_check_field_path` and `_check_searchable` pass it."""
+        try:
+            self._check_field_path(model_name, path)
+            self._check_searchable(model_name, path)
+        except (AiToolError, AiAccessError):
+            return False
+        return True
+
+    @api.model
+    def _denied_name_search_models(self):
+        """{model: the field its name search matches that the AI deny list hides or the employee may not read}, as
+        a partner's VAT number with deny_fields_extra or a user's login: a field of `_name_search_paths`, a step of
+        its path too; a link among them goes by its model's name search, as Odoo searches it."""
+
+        def find_models():
+            denied_fields = self._denied_fields()
+            hops_by_model, hidden_paths = {}, {}
+            for model_name in self.env.registry:
+                paths = self._name_search_paths(model_name) or ()
+                hops_by_model[model_name] = {path: self._path_hops(model_name, path) for path in paths}
+                for path, hops in hops_by_model[model_name].items():
+                    if any(
+                        (hop.model_name, hop.name) in denied_fields
+                        or (hop.groups and not self.env[hop.model_name].user_has_groups(hop.groups))
+                        for hop in hops
+                    ):
+                        hidden_paths.setdefault(model_name, path)
+            is_growing = True
+            while is_growing:
+                is_growing = False
+                for model_name, hops_by_path in hops_by_model.items():
+                    linked_paths = [
+                        "%s.%s" % (path, hidden_paths[hops[-1].comodel_name])
+                        for path, hops in hops_by_path.items()
+                        if hops and hops[-1].relational and hops[-1].comodel_name in hidden_paths
+                    ]
+                    if linked_paths and model_name not in hidden_paths:
+                        hidden_paths[model_name] = linked_paths[0]
+                        is_growing = True
+            return frozendict(hidden_paths)
+
+        return self._call_cached(("denied_name_search_models", self.env.uid), find_models)
+
+    @api.model
+    def _denied_name_models(self):
+        """The models whose display name is a field the AI deny list hides, their `_rec_name`."""
+        return self._call_cached(
+            "denied_name_models",
+            lambda: frozenset(
+                model_name
+                for model_name in self.env.registry
+                if (model_name, self.env[model_name]._rec_name) in self._denied_fields()
+            ),
+        )
+
+    @api.model
+    def _name_get_sources(self):
+        """NAME_GET_SOURCES: a module whose model builds its display name in its own `name_get` adds its fields."""
+        return NAME_GET_SOURCES
+
+    @api.model
+    def _denied_name_sources(self):
+        """See `_denied_name_sources_for`."""
+        return self._denied_name_sources_for(
+            self._deny_patterns(), self._deny_field_patterns(), frozendict(self._name_get_sources())
+        )
+
+    @tools.ormcache("model_patterns", "field_patterns", "name_get_sources")
+    def _denied_name_sources_for(self, model_patterns, field_patterns, name_get_sources):
+        """{model: ((path, target), ...)} of the models whose display name Odoo builds from a denied record or
+        field, by the paths of `_rec_name` and `name_get_sources`, as a discuss member's from its guest's name or a
+        product's from its internal reference: target None for a link into a denied model, False for a denied
+        field, or the model of a linked record whose own display name is built so, or is one of
+        `_denied_name_models`."""
+        denied_models = self._denied_model_names_for(model_patterns)
+        denied_fields = self._denied_fields_for(model_patterns, field_patterns)
+        links_by_model = {}
+        for model_name in self.env.registry:
+            Model = self.env[model_name]
+            if Model._abstract or model_name in denied_models:
+                continue
+            paths = [*filter(None, [Model._rec_name]), *name_get_sources.get(model_name, ())]
+            for path in dict.fromkeys(paths):
+                hops = self._path_hops(model_name, path)
+                if not hops:
+                    continue
+                denied_index = next(
+                    (index for index, hop in enumerate(hops) if hop.relational and hop.comodel_name in denied_models),
+                    None,
+                )
+                if denied_index is not None:
+                    link = (".".join(hop.name for hop in hops[: denied_index + 1]), None)
+                elif path != Model._rec_name and any((hop.model_name, hop.name) in denied_fields for hop in hops):
+                    link = (path, False)
+                elif hops[-1].name == "display_name" and len(hops) > 1:
+                    link = (".".join(hop.name for hop in hops[:-1]), hops[-2].comodel_name)
+                elif hops[-1].relational:
+                    link = (path, hops[-1].comodel_name)
+                else:
+                    continue
+                links_by_model.setdefault(model_name, []).append(link)
+        named_models = {
+            model_name
+            for model_name in self.env.registry
+            if (model_name, self.env[model_name]._rec_name) in denied_fields
+        }
+        named_models.update(
+            model_name
+            for model_name, links in links_by_model.items()
+            if any(target in (None, False) for _path, target in links)
+        )
+        is_growing = True
+        while is_growing:
+            grown = {
+                model_name
+                for model_name, links in links_by_model.items()
+                if model_name not in named_models and any(target in named_models for _path, target in links)
+            }
+            named_models |= grown
+            is_growing = bool(grown)
+        return frozendict(
+            {
+                model_name: tuple(link for link in links if link[1] in (None, False) or link[1] in named_models)
+                for model_name, links in links_by_model.items()
+                if model_name in named_models and model_name not in denied_models
+            }
+        )
 
     @api.model
     def _check_domain_arity(self, domain):
@@ -2171,10 +3336,12 @@ class AiAssistantTools(models.AbstractModel):
             match = ORDER_TERM.match(term)
             if not match:
                 raise AiToolError('An order is "field [asc|desc]", comma separated, not %r.' % order)
-            self._check_field_path(model_name, match.group(1))
-            self._check_not_partner_order(model_name, match.group(1))
-            self._check_not_message_text(model_name, match.group(1))
-            self._check_not_employee_cost(model_name, match.group(1), search_domain)
+            name = match.group(1)
+            self._check_field_path(model_name, name)
+            self._check_not_partner_order(model_name, name)
+            self._check_not_masked_text(model_name, name)
+            self._check_not_employee_cost(model_name, name, search_domain)
+            self._check_not_structured(model_name, name)
         return order
 
     @api.model
@@ -2186,14 +3353,51 @@ class AiAssistantTools(models.AbstractModel):
             )
 
     @api.model
-    def _check_not_message_text(self, model_name, name):
-        """Refuse a message's text as a sort or group key or an aggregate: it would show where the rows mask it."""
-        if name in MESSAGE_TEXT_FIELDS.get(model_name, ("", ()))[1]:
+    def _check_not_masked_text(self, model_name, name):
+        """Refuse a message's text or another HTML text as a sort or group key or an aggregate: it would show where
+        the rows mask it."""
+        if name in self._message_text_fields(model_name)[1]:
             raise AiDenyListError(
                 "%s.%s is a message's text, which the AI deny list leaves out where the message carries an"
                 " attachment, a record or a URL it refuses: sort, group or aggregate by another field."
                 % (model_name, name)
             )
+        if self._is_masked_html(model_name, name):
+            raise AiDenyListError(
+                "%s.%s is an HTML text, which the AI deny list leaves out where it links a record or holds a URL it"
+                " refuses: sort, group or aggregate by another field." % (model_name, name)
+            )
+
+    @api.model
+    def _check_not_structured(self, model_name, name):
+        """Refuse structured data (STRUCTURED_FIELD_TYPES) as a filter, sort key, group or aggregate but a count: Odoo
+        would compare it as stored, while the rows show its URL tokens redacted. A field Odoo searches by a method
+        of its own, as analytic.mixin's analytic_distribution_search, compares nothing stored."""
+        field = self.env[model_name]._fields[name]
+        if field.type not in STRUCTURED_FIELD_TYPES or (not field.store and field.search):
+            return
+        if self._is_analytic_distribution(field):
+            raise AiDenyListError(
+                "%s.%s is structured data (JSON), which the AI deny list shows with its URL tokens redacted: it is no"
+                " sort key, group or aggregate but a count, which Odoo would read as stored. Filter on it by an"
+                " analytic account's name or ids, as Odoo does; to count or total by analytic account, group"
+                " account.analytic.line by account_id." % (model_name, name)
+            )
+        set_test = ', or test it set or not with "=" or "!=" false' if field.type in NULL_TESTED_FIELD_TYPES else ""
+        raise AiDenyListError(
+            "%s.%s is structured data (%s), which the AI deny list shows with its URL tokens redacted: it is no filter,"
+            " sort key, group or aggregate but a count, which Odoo would compare as stored. Read it, and filter, sort"
+            " or group by another field%s." % (model_name, name, STRUCTURED_FIELD_TYPES[field.type], set_test)
+        )
+
+    @api.model
+    def _is_analytic_distribution(self, field):
+        """Whether a field is an analytic distribution that Odoo searches by its accounts (analytic.mixin's
+        analytic_distribution_search), never by its JSON text."""
+        return (
+            field.name == "analytic_distribution"
+            and "analytic_distribution_search" in self.env[field.model_name]._fields
+        )
 
     @api.model
     def _check_not_employee_cost(self, model_name, name, search_domain):
@@ -2244,16 +3448,55 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _tool_rows(self, records, field_names):
         """`read` of the records, HTML as plain text, with what the AI deny list masks taken out: links into
-        private addresses and copies of their data, links into refused attachments, the text of the messages it
-        leaves out (MESSAGE_TEXT_FIELDS), the URL tokens in the others' and employees' costs."""
+        private addresses and copies of their data, links into refused attachments and into the link previews it
+        leaves out, the text of the messages it masks and any other HTML text that links a denied record, the URL
+        tokens in every other text, employees' costs and the names it hides; a property's link as
+        `_shown_properties` shows it."""
         rows = records.read(field_names)
+        rows = self._without_private_copies(records, self._without_private_addresses(records._name, rows))
         html_names = [name for name in field_names if records._fields[name].type == "html"]
+        property_names = [
+            name for name in field_names if records._fields[name].type in ("properties", "properties_definition")
+        ]
         for row in rows:
             for name in html_names:
-                row[name] = row[name] and html2plaintext(row[name])
-        rows = self._without_private_copies(records, self._without_private_addresses(records._name, rows))
-        rows = self._without_refused_message_text(records, self._without_refused_attachments(records._name, rows))
-        return self._without_employee_costs(records, self._without_message_tokens(records, rows))
+                if self._is_masked_html(records._name, name) and row[name] and self._is_refused_text(row[name]):
+                    row[name] = MASKED_HTML_TEXT
+                else:
+                    row[name] = self._shown_html(row[name])
+        self._shown_properties([row[name] for row in rows for name in property_names])
+        rows = self._without_hidden_link_previews(records._name, self._without_refused_attachments(records._name, rows))
+        rows = self._without_masked_message_text(records, rows)
+        rows = self._without_employee_costs(records, self._without_text_tokens(rows))
+        return self._without_denied_names(records._name, rows)
+
+    @api.model
+    def _shown_properties(self, properties_values):
+        """Mask in place the link of each property of the Properties values or definitions `properties_values`, its
+        value and its default, as a field of its type is: its name as DENIED_NAME_LABEL where its model is denied or
+        the tools change its name (`_shown_names`), once per model; the URL tokens of every text go with the
+        row's."""
+        linked = []
+        for prop in (prop for properties in properties_values for prop in properties or ()):
+            for key in ("value", "default"):
+                value = prop.get(key)
+                if value and prop.get("type") in ("many2one", "many2many") and prop.get("comodel") in self.env:
+                    linked.append((prop, key, [value] if prop["type"] == "many2one" else value))
+        ids_by_model = {}
+        for prop, _key, links in linked:
+            ids_by_model.setdefault(prop["comodel"], set()).update(link[0] for link in links if is_id_name_pair(link))
+        shown_names = {
+            model_name: dict.fromkeys(ids, DENIED_NAME_LABEL)
+            if self._denied_model(model_name)
+            else self._shown_names(model_name, ids)
+            for model_name, ids in ids_by_model.items()
+        }
+        for prop, key, links in linked:
+            names = shown_names[prop["comodel"]]
+            shown_links = [
+                (link[0], names[link[0]]) if is_id_name_pair(link) and link[0] in names else link for link in links
+            ]
+            prop[key] = shown_links[0] if prop["type"] == "many2one" else shown_links
 
     @api.model
     def _tool_search_read(self, model, domain, fields, limit, order):
@@ -2308,8 +3551,9 @@ class AiAssistantTools(models.AbstractModel):
             self._check_field_path(model, name)
             if not Model._fields[name].base_field.groupable:
                 raise AiToolError("%s.%s cannot be grouped: group by a stored field." % (model, name))
-            self._check_not_message_text(model, name)
+            self._check_not_masked_text(model, name)
             self._check_not_employee_cost(model, name, search_domain)
+            self._check_not_structured(model, name)
             if self._partner_value_paths(model, name):
                 raise AiDenyListError(
                     "%s.%s copies a contact's data, which may be a private address on the AI deny list: group by the"
@@ -2339,8 +3583,10 @@ class AiAssistantTools(models.AbstractModel):
                 raise AiToolError(
                     "%s.%s cannot be aggregated: aggregate a stored field." % (model, field_name or output_name)
                 )
+            if function != "count":
+                self._check_not_structured(model, field_name or output_name)
             if function not in ("count", "count_distinct"):
-                self._check_not_message_text(model, field_name or output_name)
+                self._check_not_masked_text(model, field_name or output_name)
                 self._check_not_employee_cost(model, field_name or output_name, search_domain)
                 if self._partner_value_paths(model, field_name or output_name):
                     raise AiDenyListError(
@@ -2362,8 +3608,9 @@ class AiAssistantTools(models.AbstractModel):
             elif match.group(1) not in output_names:
                 self._check_field_path(model, match.group(1))
                 self._check_not_partner_order(model, match.group(1))
-                self._check_not_message_text(model, match.group(1))
+                self._check_not_masked_text(model, match.group(1))
                 self._check_not_employee_cost(model, match.group(1), search_domain)
+                self._check_not_structured(model, match.group(1))
             order_terms.append(term.strip())
         orderby = ",".join(order_terms)
         if not orderby and partner_groupby:
@@ -2380,10 +3627,15 @@ class AiAssistantTools(models.AbstractModel):
             lazy=False,
         )
         rows = [
-            {key: value for key, value in group.items() if key == "__count" or not key.startswith("__")}
+            {
+                key: resolved_group_value(value)
+                for key, value in group.items()
+                if key == "__count" or not key.startswith("__")
+            }
             for group in groups[:limit]
         ]
         rows = self._without_refused_attachments(model, self._without_private_addresses(model, rows))
+        rows = self._without_denied_names(model, self._without_text_tokens(rows))
         if not groupby:
             for row in rows:
                 row.pop("id", None)
@@ -2684,6 +3936,9 @@ class AiAssistantTools(models.AbstractModel):
         descriptions = Model.fields_get(list(self._visible_fields(model)), attributes=FIELD_ATTRIBUTES)
         for name, description in descriptions.items():
             description["groupable"] = bool(Model._fields[name].base_field.groupable)
+            field = Model._fields[name]
+            if field.type in STRUCTURED_FIELD_TYPES:
+                description.update(searchable=self._is_analytic_distribution(field), sortable=False, groupable=False)
             for attribute in ("help", "selection", "relation"):
                 if not description.get(attribute):
                     description.pop(attribute, None)
@@ -2747,10 +4002,14 @@ class AiAssistantTools(models.AbstractModel):
             )
         )
         private_ids = set(self._private_address_ids())
-        refused_attachment_ids = self._refused_attachment_ids(set(messages[:max_rows].sudo().attachment_ids.ids))
-        refused_text_ids = self._refused_text_ids_among(messages[:max_rows], refused_attachment_ids)
+        shown_messages = messages[:max_rows].sudo()
+        refused_attachment_ids = self._refused_attachment_ids(set(shown_messages.attachment_ids.ids))
+        refused_text_ids = {
+            message.id for message in shown_messages if refused_attachment_ids & set(message.attachment_ids.ids)
+        }
+        refused_text_ids.update(message.id for message in shown_messages if self._is_refused_text(message.body or ""))
         entries = []
-        for message in messages[:max_rows].sudo():
+        for message in shown_messages:
             message_trackings = trackings.filtered(
                 lambda tracking, message=message: tracking.mail_message_id == message
             )
@@ -2758,21 +4017,21 @@ class AiAssistantTools(models.AbstractModel):
                 {
                     "author": PRIVATE_ADDRESS_LABEL
                     if message.author_id.id in private_ids
-                    else message.author_id.display_name or message.email_from or "",
+                    else self._without_url_tokens(message.author_id.display_name or message.email_from or ""),
                     "date": json_value(message.date),
                     "type": message.message_type,
-                    "subtype": message.subtype_id.name or "",
+                    "subtype": self._without_url_tokens(message.subtype_id.name or ""),
                     "text": REFUSED_MESSAGE_TEXT if message.id in refused_text_ids else self._message_text(message),
                     "attachments": [
-                        attachment.name
+                        self._without_url_tokens(attachment.name or "")
                         for attachment in message.attachment_ids
                         if attachment.id not in refused_attachment_ids
                     ],
                     "changes": [
                         {
                             "field": tracking.field_desc,
-                            "old": tracking._get_old_display_value()[0],
-                            "new": tracking._get_new_display_value()[0],
+                            "old": self._without_url_tokens_in(tracking._get_old_display_value()[0]),
+                            "new": self._without_url_tokens_in(tracking._get_new_display_value()[0]),
                         }
                         for tracking in message_trackings
                     ],
@@ -2793,8 +4052,8 @@ class AiAssistantTools(models.AbstractModel):
 
     @api.model
     def _message_text(self, message):
-        """A message's body as plain text, its URL tokens redacted, cut at MESSAGE_MAX_CHARS."""
-        text = self._without_url_tokens(html2plaintext(message.body or ""))
+        """A message's HTML body as plain text, its URL tokens redacted (`_shown_html`), cut at MESSAGE_MAX_CHARS."""
+        text = self._shown_html(message.body) or ""
         return text if len(text) <= MESSAGE_MAX_CHARS else "%s [cut]" % text[:MESSAGE_MAX_CHARS]
 
     @api.model
@@ -3149,7 +4408,8 @@ class AiAssistantTools(models.AbstractModel):
 
     @api.model
     def _question_context(self, context_model=None, res_id=None):
-        """The context block of a question: the employee, now in their timezone, their companies, the record."""
+        """The context block of a question: the employee, now in their timezone, their companies, the record; the
+        URL tokens in their names redacted."""
         self._check_runs_as_employee()
         user = self.env.user
         timezone = user.tz or "UTC"
@@ -3161,7 +4421,7 @@ class AiAssistantTools(models.AbstractModel):
         ]
         if context_model:
             lines.append(self._context_record_line(context_model, res_id))
-        return "<context>\n%s\n</context>" % "\n".join(lines)
+        return "<context>\n%s\n</context>" % self._without_url_tokens("\n".join(lines))
 
     @api.model
     def _context_record_line(self, model_name, res_id):
@@ -3176,6 +4436,8 @@ class AiAssistantTools(models.AbstractModel):
             name = self.env[model_name].browse(res_id).display_name
         except (AccessError, MissingError):
             name = "not visible to the employee"
+        else:
+            name = self._shown_names(model_name, {res_id}).get(res_id, name)
         return f"Record: {label} id {res_id}: {name}"
 
     @contextmanager
