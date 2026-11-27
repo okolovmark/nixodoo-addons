@@ -21,6 +21,8 @@ from odoo.exceptions import AccessError, UserError
 from odoo.tests import BaseCase, new_test_user, tagged
 from odoo.tools.binary import BinaryBytes
 
+from odoo.addons.html_editor.models import html_field_history_mixin
+
 from ..models.html_markdown import get_base_host, get_local_url
 from ..models.project_task_image_mixin import (
     DRY_RUN_SOURCE,
@@ -37,7 +39,6 @@ from ..models.project_task_image_mixin import (
     unescape_with_spans,
 )
 from .common import ProjectAiDrivenCommon
-from odoo.addons.html_editor.models import html_field_history_mixin
 
 # 1x1 PNG images of four colours
 RED = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"

@@ -12,6 +12,16 @@ from psycopg2.pool import PoolError
 from odoo.modules.module import get_manifest
 from odoo.tests import tagged
 
+from odoo.addons.ai_claude.models.ai_claude_gateway import (
+    CLAUDE_EFFORT,
+    CLAUDE_EFFORT_VALUES,
+    Attempt,
+    ClaudeOutcome,
+    claude_cost,
+    claude_trace_kinds,
+    quiet_sql_errors,
+)
+
 from .common import (
     API_URL,
     GATEWAY_LOGGER,
@@ -21,15 +31,6 @@ from .common import (
     api_timeout,
     claude_message,
     spend_limit_429,
-)
-from odoo.addons.ai_claude.models.ai_claude_gateway import (
-    CLAUDE_EFFORT,
-    CLAUDE_EFFORT_VALUES,
-    Attempt,
-    ClaudeOutcome,
-    claude_cost,
-    claude_trace_kinds,
-    quiet_sql_errors,
 )
 
 QUESTION = {"role": "user", "content": "How many open orders?"}

@@ -8,17 +8,6 @@ from anthropic.types import TextBlock, ThinkingBlock
 
 from odoo.tests import TransactionCase, tagged
 
-from .common import (
-    GATEWAY_LOGGER,
-    KEY_ENV,
-    PREFIX,
-    AiClaudeCase,
-    api_timeout,
-    claude_turn,
-    text,
-    tool_use,
-    usage,
-)
 from odoo.addons.ai_claude.models.ai_claude_gateway import (
     CIRCUIT_THRESHOLD,
     NOT_COVERED,
@@ -33,6 +22,18 @@ from odoo.addons.ai_claude.models.ai_claude_gateway import (
     response_usage,
     split_not_covered,
     turn_chars,
+)
+
+from .common import (
+    GATEWAY_LOGGER,
+    KEY_ENV,
+    PREFIX,
+    AiClaudeCase,
+    api_timeout,
+    claude_turn,
+    text,
+    tool_use,
+    usage,
 )
 
 TOOLS = [

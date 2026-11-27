@@ -4,12 +4,13 @@ from unittest.mock import patch
 from odoo import fields
 from odoo.tests import tagged
 
-from .test_ai_assistant_app import AppCase
-from .test_ai_assistant_engine import claude_turn, text, tool_use
-from .test_ask_ai import QUESTION, THUMBS_DOWN
 from odoo.addons.ai_assistant.models.ai_assistant_exchange import DIGEST_MAX_ROWS
 from odoo.addons.ai_assistant.models.ai_assistant_tools import ASSISTANT_PREFIX
 from odoo.addons.queue_job.tests.common import trap_jobs
+
+from .test_ai_assistant_app import AppCase
+from .test_ai_assistant_engine import claude_turn, text, tool_use
+from .test_ask_ai import QUESTION, THUMBS_DOWN
 
 MAIL_LOGGER = "odoo.addons.ai_claude.models.ai_exchange_mixin"
 RECIPIENTS = "ai-review@example.com, it@example.com"
