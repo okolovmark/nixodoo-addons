@@ -184,6 +184,9 @@ NAME_TEXT_FIELDS = dict.fromkeys(
     + [("mail.scheduled.message", name) for name in ("subject", "body")],
     ("model", "res_id"),
 )
+# The edges of a hidden name's occurrence in a text that start or end with a letter or digit: no other one next to it.
+WORD_START = r"(?<![^\W_])"
+WORD_END = r"(?![^\W_])"
 # The fields a name search coded in a model's `_search_display_name` reads besides its `_rec_names_search` or
 # `_rec_name` (`_name_search_paths`), without a context key that widens it; at the code's path and line.
 NAME_SEARCH_FIELDS = {
@@ -2163,45 +2166,105 @@ class AiAssistantTools(models.AbstractModel):
 
     @api.model
     def _changed_copy_domain(self, model_name, name):
-        """The rows the tools show `name`, a stored field of COPIED_NAME_FIELDS or NAME_TEXT_FIELDS, otherwise than
-        stored, as a domain on their own columns matched past the rules: a copy `_copied_name_ids` replaces, a text
-        on a record whose name the tools change (`_record_names`), whose name no filter can match, as the database
-        does not hold it. Rows of a model of `_denied_name_models` go by their model; the others by the records they
-        name, a tracked property's link by its row. Once per tool call."""
+        """The rows the tools may show `name`, a stored field of COPIED_NAME_FIELDS or NAME_TEXT_FIELDS, otherwise
+        than stored, as a domain on their own columns matched in SQL past the rules. No display name is computed, so
+        it holds more rows than the display masks: those of a record of a denied model, of `_denied_name_models` or
+        of `_name_copying_models`; of a record of `_denied_name_sources` with a source of its name set
+        (`_name_source_rows`); a copy, not a text, that is not its record's `_rec_name` as stored now
+        (`_stale_copy_rows`); a tracked property's link, whose model no column holds. Once per tool call."""
 
         def find_domain():
             model_path, id_path = COPIED_NAME_FIELDS.get((model_name, name)) or NAME_TEXT_FIELDS[model_name, name]
-            is_text = (model_name, name) in NAME_TEXT_FIELDS
             Holder = self.env[model_name].sudo().with_context(active_test=False)
-            set_domain = Domain(name, "!=", False)
-            named_models = self._denied_name_models() | self._denied_model_names()
-            changed = Domain(model_path, "in", sorted(named_models))
-            for named_model in sorted(self._masked_name_models() - named_models):
-                model_domain = set_domain & Domain(model_path, "=", named_model)
-                if is_text:
-                    named_ids = {named_id for (named_id,) in Holder._read_group(model_domain, [id_path])}
-                    names = self._record_names({(named_model, named_id) for named_id in named_ids})
-                    changed_ids = [named_id for (_model, named_id), (own, shown) in names.items() if own != shown]
-                    if changed_ids:
-                        changed |= model_domain & Domain(id_path, "in", sorted(changed_ids))
-                    continue
-                groups = Holder._read_group(model_domain, [id_path, name], ["id:array_agg"])
-                names = self._record_names({(named_model, named_id) for named_id, _copy, _ids in groups})
-                row_ids = [
-                    row_id
-                    for named_id, copy, ids in groups
-                    if copy != names[named_model, named_id][1]
-                    for row_id in ids
-                ]
-                if row_ids:
-                    changed |= Domain("id", "in", sorted(row_ids))
+            whole_models = self._denied_name_models() | self._denied_model_names() | self._name_copying_models()
+            changed = Domain(model_path, "in", sorted(whole_models))
+            for named_model in sorted(self._masked_name_models() - whole_models):
+                named_changed = Domain(id_path, "any!", self._name_source_rows(named_model))
+                if (model_name, name) in COPIED_NAME_FIELDS:
+                    stale_rows = self._stale_copy_rows(Holder, name, model_path, id_path, named_model)
+                    named_changed |= Domain("id", "any!", stale_rows)
+                changed |= Domain(model_path, "=", named_model) & named_changed
             if model_name == "mail.tracking.value":
-                property_rows = Holder.search(set_domain & Domain("field_id.ttype", "=", "properties"))
-                changed_ids = self._copied_name_ids(model_name, property_rows.ids).get(name, {})
-                changed |= Domain("id", "in", sorted(changed_ids))
-            return set_domain & changed
+                changed |= Domain("field_id.ttype", "=", "properties") & Domain(id_path, "not in", [0, False])
+            return Domain(name, "!=", False) & changed
 
         return self._call_cached(("changed_copy_domain", model_name, name), find_domain)
+
+    @api.model
+    def _name_source_rows(self, model_name):
+        """The records of a model of `_denied_name_sources` whose display name may be built from a denied record or
+        value (`_name_source_domain`), as a query past the rules."""
+        Model = self.env[model_name].sudo().with_context(active_test=False)
+        return self._rows_query(Model, self._name_source_domain(model_name), active_test=False)
+
+    @api.model
+    def _name_source_domain(self, model_name, stack=(), back_link=None):
+        """The records of a model of `_denied_name_sources` with a source of their display name set, as a domain: a
+        denied link or value the name is built from, or a link to a record whose name is so in turn, by steps Odoo
+        searches (`_searched_name_link`). A link into a model on the way counts as set, but `back_link`, a
+        one2many's inverse back to the record itself, which adds no source; a step Odoo cannot search counts as set
+        from the step before it, the record itself for the first."""
+        sources = self._denied_name_sources()
+        domain = Domain.FALSE
+        for path, target_model in sources.get(model_name, ()):
+            if path == back_link:
+                continue
+            fields_and_conditions = []
+            for hop in self._path_hops(model_name, path):
+                link, condition = self._searched_name_link(hop) or (hop.name, Domain.TRUE)
+                field = self.env[hop.model_name]._fields[link]
+                if not field._description_searchable:
+                    break
+                fields_and_conditions.append((field, condition))
+            path_domain = None
+            if len(fields_and_conditions) < len(path.split(".")):
+                path_domain = Domain.TRUE
+            elif target_model in sources and target_model not in (*stack, model_name):
+                first_field = fields_and_conditions[0][0]
+                inverse = (
+                    first_field.inverse_name if len(path.split(".")) == 1 and first_field.type == "one2many" else None
+                )
+                path_domain = self._name_source_domain(target_model, (*stack, model_name), inverse)
+            for field, condition in reversed(fields_and_conditions):
+                is_set = (
+                    Domain(field.name, "!=", False) if path_domain is None else Domain(field.name, "any", path_domain)
+                )
+                path_domain = condition & is_set
+            domain |= path_domain
+        return domain
+
+    @api.model
+    def _searched_name_link(self, field):
+        """(the stored link Odoo searches in place of `field`, a link a display name is built through that it cannot
+        search, the records of `field`'s model whose `field` may hold any, as a domain), or None: a group chat's first
+        members (addons/mail/models/discuss/discuss_channel.py:163), which only a channel of the types Odoo names by
+        their members has."""
+        if (field.model_name, field.name) != ("discuss.channel", "channel_name_member_ids"):
+            return None
+        Channel = self.env["discuss.channel"]
+        return "channel_member_ids", Domain("channel_type", "in", Channel._member_based_naming_channel_types())
+
+    @api.model
+    def _stale_copy_rows(self, Holder, name, model_path, id_path, named_model):
+        """The rows of `Holder` that name a record of `named_model` by these paths and whose copy `name` of its display
+        name is not the record's `_rec_name` as stored now, as a query: a copy Odoo took while the name showed a
+        denied value, or another name since. All of them where that `_rec_name` is no stored text, or the record is
+        one of `Holder`'s own."""
+        rows = self._rows_query(Holder, Domain(model_path, "=", named_model), active_test=False)
+        Named = self.env[named_model].sudo().with_context(active_test=False)
+        rec_field = Named._fields.get(Named._rec_name or "")
+        if (
+            named_model == Holder._name
+            or not rec_field
+            or rec_field.type not in ("char", "text")
+            or not (rec_field.store or rec_field.inherited)
+        ):
+            return rows
+        named_rows = self._rows_query(Named, Domain.TRUE, active_test=False)
+        named_rows.add_where(SQL("%s = %s", named_rows.table["id"], rows.table[id_path]))
+        named_rows.add_where(SQL("%s = %s", named_rows.table[rec_field.name], rows.table[name]))
+        rows.add_where(SQL("NOT EXISTS %s", named_rows.subselect(SQL("1"))))
+        return rows
 
     @api.model
     def _changed_rows_domain(self, model_name, name):
@@ -2221,8 +2284,9 @@ class AiAssistantTools(models.AbstractModel):
     def _check_not_copied_name(self, model_name, name, search_domain):
         """Refuse a copy of a record's display name or a text that may hold it (`_name_copy_fields`) as a sort or
         group key or an aggregate but a count when a row of `search_domain`, past the rules, shows it otherwise than
-        stored (`_changed_copy_domain`): its order or its value would show the name. mail.message's own search checks
-        each match in Python."""
+        stored (`_changed_copy_domain`): its order or its value would show the name. Counted as superuser: the
+        employee's own count goes through mail.message's and mail.activity's searches, which check matches in
+        Python."""
         changed = self._changed_rows_domain(model_name, name)
         if changed is None or not self.env[model_name].sudo().search_count(search_domain & changed, limit=1):
             return
@@ -2973,6 +3037,20 @@ class AiAssistantTools(models.AbstractModel):
         return rows
 
     @api.model
+    def _without_copied_group_names(self, model_name, rows, row_ids, copy_names):
+        """The read_group tool's rows with each group key or aggregate of `copy_names` ({as written: field}), a copy of
+        a display name or a text that may hold one, as the group's rows `row_ids` show it (`_without_copied_names`);
+        DENIED_NAME_LABEL where they show it otherwise from one another."""
+        for written, name in copy_names.items():
+            rows_by_group = [[{"id": row_id, name: row[written]} for row_id in ids] for row, ids in zip(rows, row_ids)]
+            self._without_copied_names(model_name, [group_row for group in rows_by_group for group_row in group])
+            for row, group_rows in zip(rows, rows_by_group):
+                shown_values = {group_row[name] for group_row in group_rows}
+                if shown_values and shown_values != {row[written]}:
+                    row[written] = shown_values.pop() if len(shown_values) == 1 else DENIED_NAME_LABEL
+        return rows
+
+    @api.model
     def _name_copy_paths(self, model_name, name):
         """(path to the model, path to the id, whether a text of NAME_TEXT_FIELDS) of the record whose display name a
         field copies (COPIED_NAME_FIELDS) or may hold, a related field's from its own model by the path it shows;
@@ -3169,14 +3247,26 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _with_names_shown(self, text, masks):
         """`text` with each occurrence of a hidden name of `masks` (`_hidden_names_by_row`), in any case, as HTML
-        escapes it too and its spaces as any run of white space, replaced by the name shown, URL tokens redacted, in
-        one pass: no name shown is read again."""
-        patterns, shown_names = [], []
+        escapes it too, its URL tokens redacted or not, and its spaces as any run of white space, replaced by the name
+        shown, URL tokens redacted, in one pass: no name shown is read again. An occurrence is a whole word: never
+        part of a longer run of letters and digits, as "New" in "Renewal"."""
+        shown_by_form = {}
         for hidden_name, shown_name in masks:
-            for form in dict.fromkeys((hidden_name, str(markupsafe.escape(hidden_name)))):
-                if form.split():
-                    patterns.append("(%s)" % r"\s+".join(re.escape(word) for word in form.split()))
-                    shown_names.append(self._without_url_tokens(shown_name))
+            escaped_name = str(markupsafe.escape(hidden_name))
+            for form in (hidden_name, escaped_name, self._without_url_tokens(hidden_name)):
+                shown_by_form.setdefault(form, shown_name)
+            shown_by_form.setdefault(self._without_url_tokens(escaped_name), shown_name)
+        patterns, shown_names = [], []
+        # Longest first: a contact's name goes whole before its company's within it.
+        for form in sorted(filter(str.split, shown_by_form), key=len, reverse=True):
+            words = form.split()
+            pattern = r"\s+".join(re.escape(word) for word in words)
+            if words[0][0].isalnum():
+                pattern = WORD_START + pattern
+            if words[-1][-1].isalnum():
+                pattern += WORD_END
+            patterns.append("(%s)" % pattern)
+            shown_names.append(self._without_url_tokens(shown_by_form[form]))
         if not patterns:
             return text
         regex = re.compile("|".join(patterns), re.IGNORECASE)
@@ -3897,10 +3987,11 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _check_not_employee_cost(self, model_name, name, search_domain):
         """Refuse an employee's cost or a total of it (EMPLOYEE_COST_FIELDS) as a sort or group key or an aggregate
-        when a row of `search_domain` masks it: its order or its total would show it. Checked before
-        `_check_not_masked_text`, whose refusal of any HTML text would not say that such a text is masked as a cost."""
+        when a row of `search_domain`, past the rules as `_check_not_copied_name` counts, masks it: its order or its
+        total would show it. Checked before `_check_not_masked_text`, whose refusal of any HTML text would not say
+        that such a text is masked as a cost."""
         path = self._employee_cost_path(model_name, name)
-        if not path or not self.env[model_name].search_count(
+        if not path or not self.env[model_name].sudo().search_count(
             search_domain & Domain("id", "in", self._employee_cost_rows(model_name, path)), limit=1
         ):
             return
@@ -4183,10 +4274,18 @@ class AiAssistantTools(models.AbstractModel):
                     ' model, as ["model", "=", "res.partner"], or narrow the domain.' % MAX_SEARCH_LIMIT
                 )
             search_domain = Domain("id", "in", messages.ids)
+        copy_fields = self._name_copy_fields(model)
+        copy_names = {written: spec for written, spec in zip(groupby, groupby_specs) if spec in copy_fields}
+        copy_names.update(
+            (output_name, aggregate.partition(":")[0])
+            for output_name, aggregate in zip(output_names, aggregates)
+            if aggregate.partition(":")[0] in copy_fields
+            and aggregate.partition(":")[2] not in ("count", "count_distinct")
+        )
         groups = Model._read_group(
             search_domain,
             groupby_specs,
-            [*aggregates, "__count"],
+            [*aggregates, *(["id:array_agg"] if copy_names else []), "__count"],
             order=order or ", ".join(groupby_specs) or None,
             limit=limit + 1,
         )
@@ -4197,10 +4296,12 @@ class AiAssistantTools(models.AbstractModel):
         rows = []
         for index, group in enumerate(groups[:limit]):
             row = {written: column[index] for written, column in zip(groupby, key_columns)}
-            row.update(zip(output_names, group[len(groupby_specs) : -1]))
+            row.update(zip(output_names, group[len(groupby_specs) : len(groupby_specs) + len(aggregates)]))
             row["__count"] = group[-1]
             rows.append(row)
         rows = self._without_text_tokens(self._without_refused_attachments(model, rows))
+        if copy_names:
+            rows = self._without_copied_group_names(model, rows, [group[-2] for group in groups[:limit]], copy_names)
         rows = self._without_denied_names(model, rows)
         payload = {"model": model, "groups": rows}
         if len(groups) > limit:
