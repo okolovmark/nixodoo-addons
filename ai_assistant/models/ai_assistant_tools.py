@@ -330,12 +330,16 @@ LIKE_OPERATORS = ("like", "not like", "ilike", "not ilike", "=like", "=ilike")
 # The operators whose value Odoo compares as given, between wildcards (`_compared_value`).
 WILDCARD_OPERATORS = ("like", "not like", "ilike", "not ilike")
 EQUALITY_OPERATORS = ("=", "!=", "in", "not in")
-# Amounts that are hours times an employee's hourly cost (timesheets), and the totals that sum them, by the model
-# that holds them and the path to the employee: masked on the rows that reach one, kept on the others (accounting).
+# Amounts that are hours times an employee's hourly cost (timesheets), the totals that sum them and a text that writes
+# them out, by the model that holds them and the path to the employee: masked on the rows that reach one, kept on the
+# others (accounting).
 EMPLOYEE_COST_FIELDS = {
     "account.analytic.line": ("employee_id", ("amount",)),
     "account.analytic.account": ("line_ids.employee_id", ("balance", "debit", "credit")),
     "project.project": ("analytic_account_id.line_ids.employee_id", ("analytic_account_balance",)),
+    # sale_timesheet's project_update_default_description writes the project's costs, its timesheets' among them, into
+    # the description of a new update.
+    "project.update": ("project_id.analytic_account_id.line_ids.employee_id", ("description",)),
     # sale_timesheet_margin sets a timesheet-delivered line's purchase_price to its timesheets' hourly cost, which
     # sale_margin's margins give back; with sale_timesheet, analytic_line_ids leaves timesheets out.
     "sale.order.line": ("timesheet_ids.employee_id", ("purchase_price", "margin", "margin_percent")),
@@ -1949,13 +1953,13 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _masked_text_domain(self, model_name):
         """The rows of a model of `_message_text_fields` whose message text the AI deny list masks, as a domain: a
-        message's own (`_refused_text_message_ids`), or that of a row it links to, as that row's model masks it; a
+        message's own (`_masked_message_domain`), or that of a row it links to, as that row's model masks it; a
         row of a copy Odoo stores, without a message, by its own text (`_refused_text_domain`). Through an x2many
         any masked row masks it, on the safe side: a task's last feedback, which shows one rating, goes by all of
         them."""
         links, names = self._message_text_fields(model_name)
         if links == ("id",):
-            return [("id", "in", self._refused_text_message_ids())]
+            return self._masked_message_domain()
         Model = self.env[model_name]
         domains = []
         for link in links:
@@ -1978,26 +1982,16 @@ class AiAssistantTools(models.AbstractModel):
         return expression.OR(domains) if domains else expression.FALSE_DOMAIN
 
     @api.model
-    def _refused_text_message_ids(self):
-        """The ids of every message whose text the AI deny list masks, once per tool call: those that carry an
-        attachment it refuses or whose body `_refused_text_sql` holds. Each text filter of the call is compared
-        with them, not with a scan of every body of its own."""
-
-        def find_ids():
-            refused_attachments = self._rows_query(
-                self.env["ir.attachment"], negation(self._deny_row_domain("ir.attachment"))
-            )
-            Message = self.env["mail.message"]
-            query = self._rows_query(Message, [("attachment_ids", "in", refused_attachments)])
-            self.env.cr.execute(*query.select())
-            message_ids = {message_id for (message_id,) in self.env.cr.fetchall()}
-            Message.flush_model(["body"])
-            refused_sql, refused_params = self._refused_text_sql('"mail_message"."body"')
-            self.env.cr.execute('SELECT "id" FROM "mail_message" WHERE %s' % refused_sql, refused_params)
-            message_ids.update(message_id for (message_id,) in self.env.cr.fetchall())
-            return sorted(message_ids)
-
-        return self._call_cached("refused_text_message_ids", find_ids)
+    def _masked_message_domain(self):
+        """The messages whose text the AI deny list masks, as conditions on their own row, which a search tests on
+        the rows it reaches rather than on every message: those that carry an attachment it refuses or whose body
+        `_refused_text_sql` holds."""
+        refused_attachments = self._rows_query(
+            self.env["ir.attachment"], negation(self._deny_row_domain("ir.attachment"))
+        )
+        return expression.OR(
+            [[("attachment_ids", "in", refused_attachments)], self._refused_text_domain("mail.message", "body")]
+        )
 
     @api.model
     def _refused_text_sql(self, text_sql):
@@ -2872,7 +2866,7 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _without_employee_costs(self, records, rows):
         """The rows with each employee's cost or total of it (EMPLOYEE_COST_FIELDS) replaced by EMPLOYEE_COST_LABEL,
-        a zero too."""
+        a zero or an empty text too: a filter finds neither on such a row (`_value_guard`)."""
         path, cost_names = EMPLOYEE_COST_FIELDS.get(records._name, ("", ()))
         shown_names = {name for row in rows for name in row if name in cost_names}
         names = {name for name in shown_names if self._employee_cost_path(records._name, name)}
@@ -3339,8 +3333,8 @@ class AiAssistantTools(models.AbstractModel):
             name = match.group(1)
             self._check_field_path(model_name, name)
             self._check_not_partner_order(model_name, name)
-            self._check_not_masked_text(model_name, name)
             self._check_not_employee_cost(model_name, name, search_domain)
+            self._check_not_masked_text(model_name, name)
             self._check_not_structured(model_name, name)
         return order
 
@@ -3402,7 +3396,8 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _check_not_employee_cost(self, model_name, name, search_domain):
         """Refuse an employee's cost or a total of it (EMPLOYEE_COST_FIELDS) as a sort or group key or an aggregate
-        when a row of `search_domain` masks it: its order or its total would show it."""
+        when a row of `search_domain` masks it: its order or its total would show it. Checked before
+        `_check_not_masked_text`, so that an HTML text that writes out costs is refused as a cost where it holds one."""
         path = self._employee_cost_path(model_name, name)
         masked_domain = [("id", "in", self._employee_cost_rows(model_name, path))] if path else []
         if not masked_domain or not self.env[model_name].search_count(
@@ -3551,8 +3546,8 @@ class AiAssistantTools(models.AbstractModel):
             self._check_field_path(model, name)
             if not Model._fields[name].base_field.groupable:
                 raise AiToolError("%s.%s cannot be grouped: group by a stored field." % (model, name))
-            self._check_not_masked_text(model, name)
             self._check_not_employee_cost(model, name, search_domain)
+            self._check_not_masked_text(model, name)
             self._check_not_structured(model, name)
             if self._partner_value_paths(model, name):
                 raise AiDenyListError(
@@ -3586,8 +3581,8 @@ class AiAssistantTools(models.AbstractModel):
             if function != "count":
                 self._check_not_structured(model, field_name or output_name)
             if function not in ("count", "count_distinct"):
-                self._check_not_masked_text(model, field_name or output_name)
                 self._check_not_employee_cost(model, field_name or output_name, search_domain)
+                self._check_not_masked_text(model, field_name or output_name)
                 if self._partner_value_paths(model, field_name or output_name):
                     raise AiDenyListError(
                         "%s.%s copies a contact's data, which may be a private address on the AI deny list: only"
@@ -3608,8 +3603,8 @@ class AiAssistantTools(models.AbstractModel):
             elif match.group(1) not in output_names:
                 self._check_field_path(model, match.group(1))
                 self._check_not_partner_order(model, match.group(1))
-                self._check_not_masked_text(model, match.group(1))
                 self._check_not_employee_cost(model, match.group(1), search_domain)
+                self._check_not_masked_text(model, match.group(1))
                 self._check_not_structured(model, match.group(1))
             order_terms.append(term.strip())
         orderby = ",".join(order_terms)
