@@ -639,8 +639,10 @@ link compared with a name: Odoo would check every message one by one;</li>
 <li>sorting by a contact or a copy of a contact’s data, grouping by a path,
 grouping or aggregating (other than counting) a copy of a contact’s data,
 and sorting, grouping or aggregating a message’s text or another HTML
-text, or a timesheet’s amount or margin, a sale margin or an analytic
-total where the rows hold or sum a timesheet;</li>
+text, or a timesheet’s amount or margin, a sale margin, an analytic
+total or a project update’s description where the rows hold or sum a
+timesheet, and a copy of a masked display name or a text that may hold
+one where a row the call reads holds one (see AI deny list);</li>
 <li>filtering, sorting, grouping or aggregating (other than counting) by
 structured data: a JSON, properties or properties definition field
 (<tt class="docutils literal">task_properties</tt>), which Odoo would compare as stored while the tools
@@ -737,7 +739,13 @@ asker may not read, read the same: the account’s <tt class="docutils literal">
 and <tt class="docutils literal">credit</tt> and a project’s <tt class="docutils literal">analytic_account_balance</tt>, which beside
 the hours would give the rate. They are computed, so no filter, group or
 aggregate takes them, and a sort by one over such an account is refused.
-An account without such a line keeps its totals. With <tt class="docutils literal">sale_timesheet</tt>
+An account without such a line keeps its totals. A project update’s
+<tt class="docutils literal">description</tt> reads the same, an empty one too, on every update of a
+project whose analytic account has such a line, as <tt class="docutils literal">sale_timesheet</tt>
+writes the project’s costs, revenue and margin into a new update’s
+default description: a filter on it matches only the descriptions shown,
+and a sort, group or aggregate by it over such an update is refused with
+the cost’s reason. With <tt class="docutils literal">sale_timesheet</tt>
 and <tt class="docutils literal">sale_margin</tt>, whose <tt class="docutils literal">sale_timesheet_margin</tt> costs a sale line
 delivered by timesheets at their hourly cost, a sale line with a timesheet
 reads the same in its <tt class="docutils literal">purchase_price</tt>, <tt class="docutils literal">margin</tt> and
@@ -775,7 +783,9 @@ whose display name does not show the value keeps it: one without a value,
 or a contact whose name shows its VAT number only under a context key. A
 properties field’s link to any of these reads the same. The fields a
 display name is built from are <tt class="docutils literal">_rec_name</tt> and those
-<tt class="docutils literal">NAME_GET_SOURCES</tt> declares for a model whose <tt class="docutils literal">name_get</tt> reads more.</p>
+<tt class="docutils literal">NAME_GET_SOURCES</tt> declares for a model whose <tt class="docutils literal">name_get</tt> reads more.
+Odoo’s copies of these names read the name shown (see <em>Copies of a
+name</em>).</p>
 <p>A filter on such a name, or on a link to such a record compared with a
 name, is refused. So is a name filter on a model whose name search
 reaches a field the deny list hides or the employee may not read: with a
@@ -797,6 +807,41 @@ base does matches each of its fields as the tools show it. An analytic
 distribution filtered by an account’s name goes by Odoo’s own name
 search of the accounts, and is refused alike.</p>
 </li>
+<li><p class="first"><strong>Copies of a name</strong>: where Odoo keeps the display name of the record a
+row names as text, a copy of a name the deny list masks reads the name
+the tools show for that record now: a message’s and a mail’s
+<tt class="docutils literal">record_name</tt>, the <tt class="docutils literal">res_name</tt> of an attachment, an activity and a
+rating, a rating’s <tt class="docutils literal">parent_res_name</tt>, the old and new value of a
+tracked link (in <tt class="docutils literal">record_history</tt> too), and a related field that shows
+one of them. A copy taken while the name showed what the list hides reads
+the name shown now; one of a deleted record of such a model reads <em>a name
+on the AI deny list</em>. A message’s, a mail’s and a rating’s display name
+follow, and so do the links to them (a reply’s parent, a notification’s
+message and mail).</p>
+<p>In the texts of a message (<tt class="docutils literal">subject</tt>, <tt class="docutils literal">description</tt>, <tt class="docutils literal">body</tt>,
+<tt class="docutils literal">preview</tt>) and of a mail (those, <tt class="docutils literal">body_html</tt> and <tt class="docutils literal">body_content</tt>),
+each occurrence of a hidden name reads the name shown: the current name of
+the message’s record and the message’s <tt class="docutils literal">record_name</tt>, and the current
+name of each record it links directly, by a stored many2one of the
+message’s record (a task’s note names its project) or by a record link
+(<tt class="docutils literal"><span class="pre">data-oe-model</span></tt>) in the message’s body or the mail’s own HTML. A name
+is matched where a word starts, in any case, its spaces as any run of
+white space: <em>New</em> is not found in <em>Renewal</em>, <em>Desk</em> is in <em>Desks</em>. A
+preview, and a description without a subject, are cut again from the
+masked body as Odoo cuts them. The <tt class="docutils literal">reply_to</tt> of a message whose
+record’s name is hidden reads its addresses only, without the name Odoo
+writes before them.</p>
+<p>A filter on a copy or on such a text, <tt class="docutils literal">reply_to</tt> included, negated or
+not, never finds a row whose copy or text the masking changes or may
+change. It is decided in SQL, on the safe side, without reading a display
+name: it leaves out the rows that name a record of a model whose names
+are hidden, or a record whose name is built from a denied source that is
+set, whether or not the name shows it; a stored copy that is not the
+record’s stored name, or whose record is gone; a message on a record that
+links such a record by a stored many2one; and a message or a mail whose
+HTML links one. A sort, group or aggregate other than a count by a copy or
+such a text is refused while a row the call reads holds one.</p>
+</li>
 <li><p class="first"><strong>Rows of a denied record</strong> or a private address: its messages, their
 SMS, its mails, tracking values, notifications, reactions, followers,
 activities, attachments, calendar events and ratings, and the ratings of
@@ -817,7 +862,9 @@ with it: its mails, its SMS, a mail group message’s body, a rating’s
 feedback, a visitor’s answer to a chatbot (<tt class="docutils literal">chatbot.message</tt>), and a
 record’s <tt class="docutils literal">rating_last_feedback</tt>, masked when any of the record’s
 ratings is. An SMS or a rating without a message goes by its own text: a
-link to a denied record or a meeting’s URL.</p>
+link to a denied record or a meeting’s URL. Whether a message’s text is
+masked is a condition on the message’s own row, tested in the query of
+each call on the rows it reaches.</p>
 </li>
 <li><p class="first"><strong>HTML text</strong>: any other HTML field (a task’s description, an activity’s
 note, a contact’s notes) that links to a record of a denied model or
@@ -856,7 +903,9 @@ but one to a character that ends it: <tt class="docutils literal">&amp;</tt>, <t
 <tt class="docutils literal">&amp;#38;</tt>, <tt class="docutils literal">&amp;#35;</tt>, <tt class="docutils literal">&amp;#32;</tt>, <tt class="docutils literal">&amp;nbsp;</tt>, <tt class="docutils literal">&amp;ensp;</tt>). It runs on
 across a <tt class="docutils literal">?</tt> (<tt class="docutils literal">&amp;#63;</tt>) and a reference to a carriage return, a form
 feed or a vertical tab (<tt class="docutils literal">&amp;#13;</tt>, <tt class="docutils literal">&amp;#12;</tt>, <tt class="docutils literal">&amp;#11;</tt>), which
-<tt class="docutils literal">html2plaintext</tt> drops. A char or text field is read as it is.</p>
+<tt class="docutils literal">html2plaintext</tt> drops. A test pins the character-reference decodings
+of the installed lxml, which the filters’ SQL patterns mirror. A char or
+text field is read as it is.</p>
 <p>A text filter matches the text with each token’s value taken out,
 whatever the token holds but on a row where an inline tag splits a
 token’s mark (see <em>Known issues / Roadmap</em>): the words on either side
@@ -893,6 +942,11 @@ they show; a link to another reads <em>a link preview of a message the AI
 deny list leaves out</em>, and a list of them leaves it out.</p>
 </li>
 </ul>
+<p>A refusal that depends on the rows, a sort, group or aggregate by an
+employee’s cost or by a copy of a name, is decided on the rows the call
+itself reads: the model’s read access is checked first, whatever the terms,
+then the rows come from the employee’s own search, or from their own group
+read for <tt class="docutils literal">read_group</tt>.</p>
 <p><tt class="docutils literal">deny_models_extra</tt> and <tt class="docutils literal">deny_fields_extra</tt> add patterns, and so may a
 module through <tt class="docutils literal">_deny_list_models</tt> and <tt class="docutils literal">_deny_list_fields</tt>; narrowing
 the list is a code change. A refused call is logged as <em>Denied</em>, and the model is
@@ -1345,10 +1399,10 @@ module that adds such a search declares it through
 A filter on any other text field that is not stored is matched by the
 field’s search method, though its value shows redacted.</li>
 <li>A display name built from a denied record or field is masked by the
-fields <tt class="docutils literal">_rec_name</tt> and <tt class="docutils literal">NAME_GET_SOURCES</tt> name, not by its value:
-where Odoo copies such a name as text (the record name a message or
-activity shows, the old and new value of a link’s tracked change, a live
-chat’s name), the copy shows and a filter matches it.</li>
+fields <tt class="docutils literal">_rec_name</tt> and <tt class="docutils literal">NAME_GET_SOURCES</tt> name, not by its value.
+Odoo’s copies of such a name, and its occurrences in a message’s texts,
+are masked by the current name of the record a row names and of the
+records it links directly: see <em>Known limits of masked names</em> below.</li>
 <li>Not in this version, as Odoo 16 has no such data: scheduled messages,
 message translations, the attendance kiosk’s URL, shared dashboards,
 product feeds, <tt class="docutils literal">html_field_history</tt> and a live chat’s member history.
@@ -1371,6 +1425,46 @@ where a model labels one otherwise, such as <tt class="docutils literal">create_
 Date</em>.</li>
 <li><tt class="docutils literal">do</tt> is a common word <tt class="docutils literal">find_models</tt> and <tt class="docutils literal">find_menus</tt> leave out, also
 where it stands for a delivery order.</li>
+</ul>
+<p><strong>Known limits of masked names</strong></p>
+<ul class="simple">
+<li>A former name of a record, after a rename, is matched only where it is
+the message’s own <tt class="docutils literal">record_name</tt>; a text that holds it otherwise keeps
+it. An activity’s notice keeps no <tt class="docutils literal">record_name</tt> and takes its subject
+from the activity’s copy of the name, so it keeps a denied code the record
+has since lost.</li>
+<li>The name of a record the message’s record linked when the message was
+written, and links no longer, stays.</li>
+<li>A name reached through lines stays, as an order line’s product in the
+order’s chatter: only the record’s own stored many2one links count.</li>
+<li>Only a whole name is matched: a text that holds part of one, as a text
+cut short does, keeps that part.</li>
+<li>An SMS’s body keeps the names its message’s text masks.</li>
+<li>A calendar event created from an activity without a summary is named
+after the activity’s record, and keeps that name.</li>
+<li>A mail alias address, which may be built from a record’s name, stays, and
+so does the address part of a <tt class="docutils literal">reply_to</tt>.</li>
+<li>A distinct count of a copy or of a text that may hold one is not refused.</li>
+<li>An attachment’s own name stays: a report’s file named after its record,
+and a file name a user typed.</li>
+<li>A live chat channel’s name, which Odoo writes from the visitor’s and the
+operator’s names, stays.</li>
+<li>A queue job’s result stays as written.</li>
+<li>Filters and sorts leave out or refuse more rows than the display masks:
+those naming a record with a denied source of its name set where the name
+does not show it (a contact whose name shows its VAT number only under a
+context key), every message on a record that links a record whose name is
+masked, and a copy that differs from the record’s stored name, as a
+product variant’s with its attributes.</li>
+<li>A sort by a link into a model whose names are masked is not refused: it
+orders the rows by that model’s own order, by name where it sorts by
+name.</li>
+<li>A call over a whole table without a term that narrows it, such as
+grouping every mail by subject, checks each row and can reach the tools’
+time limit (<tt class="docutils literal">tool_seconds</tt>).</li>
+<li>The first tool call of a worker builds caches over every field of every
+model (the links into masked names, the copies of names and of message
+texts); the next calls reuse them.</li>
 </ul>
 </div>
 <div class="section" id="bug-tracker">

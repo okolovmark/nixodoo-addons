@@ -284,8 +284,10 @@ can act on:
 * sorting by a contact or a copy of a contact's data, grouping by a path,
   grouping or aggregating (other than counting) a copy of a contact's data,
   and sorting, grouping or aggregating a message's text or another HTML
-  text, or a timesheet's amount or margin, a sale margin or an analytic
-  total where the rows hold or sum a timesheet;
+  text, or a timesheet's amount or margin, a sale margin, an analytic
+  total or a project update's description where the rows hold or sum a
+  timesheet, and a copy of a masked display name or a text that may hold
+  one where a row the call reads holds one (see AI deny list);
 * filtering, sorting, grouping or aggregating (other than counting) by
   structured data: a JSON, properties or properties definition field
   (``task_properties``), which Odoo would compare as stored while the tools
@@ -380,7 +382,13 @@ is seen by everyone who can see the record, not only by the asker.
   and ``credit`` and a project's ``analytic_account_balance``, which beside
   the hours would give the rate. They are computed, so no filter, group or
   aggregate takes them, and a sort by one over such an account is refused.
-  An account without such a line keeps its totals. With ``sale_timesheet``
+  An account without such a line keeps its totals. A project update's
+  ``description`` reads the same, an empty one too, on every update of a
+  project whose analytic account has such a line, as ``sale_timesheet``
+  writes the project's costs, revenue and margin into a new update's
+  default description: a filter on it matches only the descriptions shown,
+  and a sort, group or aggregate by it over such an update is refused with
+  the cost's reason. With ``sale_timesheet``
   and ``sale_margin``, whose ``sale_timesheet_margin`` costs a sale line
   delivered by timesheets at their hourly cost, a sale line with a timesheet
   reads the same in its ``purchase_price``, ``margin`` and
@@ -417,6 +425,8 @@ is seen by everyone who can see the record, not only by the asker.
   properties field's link to any of these reads the same. The fields a
   display name is built from are ``_rec_name`` and those
   ``NAME_GET_SOURCES`` declares for a model whose ``name_get`` reads more.
+  Odoo's copies of these names read the name shown (see *Copies of a
+  name*).
 
   A filter on such a name, or on a link to such a record compared with a
   name, is refused. So is a name filter on a model whose name search
@@ -438,6 +448,42 @@ is seen by everyone who can see the record, not only by the asker.
   base does matches each of its fields as the tools show it. An analytic
   distribution filtered by an account's name goes by Odoo's own name
   search of the accounts, and is refused alike.
+* **Copies of a name**: where Odoo keeps the display name of the record a
+  row names as text, a copy of a name the deny list masks reads the name
+  the tools show for that record now: a message's and a mail's
+  ``record_name``, the ``res_name`` of an attachment, an activity and a
+  rating, a rating's ``parent_res_name``, the old and new value of a
+  tracked link (in ``record_history`` too), and a related field that shows
+  one of them. A copy taken while the name showed what the list hides reads
+  the name shown now; one of a deleted record of such a model reads *a name
+  on the AI deny list*. A message's, a mail's and a rating's display name
+  follow, and so do the links to them (a reply's parent, a notification's
+  message and mail).
+
+  In the texts of a message (``subject``, ``description``, ``body``,
+  ``preview``) and of a mail (those, ``body_html`` and ``body_content``),
+  each occurrence of a hidden name reads the name shown: the current name of
+  the message's record and the message's ``record_name``, and the current
+  name of each record it links directly, by a stored many2one of the
+  message's record (a task's note names its project) or by a record link
+  (``data-oe-model``) in the message's body or the mail's own HTML. A name
+  is matched where a word starts, in any case, its spaces as any run of
+  white space: *New* is not found in *Renewal*, *Desk* is in *Desks*. A
+  preview, and a description without a subject, are cut again from the
+  masked body as Odoo cuts them. The ``reply_to`` of a message whose
+  record's name is hidden reads its addresses only, without the name Odoo
+  writes before them.
+
+  A filter on a copy or on such a text, ``reply_to`` included, negated or
+  not, never finds a row whose copy or text the masking changes or may
+  change. It is decided in SQL, on the safe side, without reading a display
+  name: it leaves out the rows that name a record of a model whose names
+  are hidden, or a record whose name is built from a denied source that is
+  set, whether or not the name shows it; a stored copy that is not the
+  record's stored name, or whose record is gone; a message on a record that
+  links such a record by a stored many2one; and a message or a mail whose
+  HTML links one. A sort, group or aggregate other than a count by a copy or
+  such a text is refused while a row the call reads holds one.
 * **Rows of a denied record** or a private address: its messages, their
   SMS, its mails, tracking values, notifications, reactions, followers,
   activities, attachments, calendar events and ratings, and the ratings of
@@ -457,7 +503,9 @@ is seen by everyone who can see the record, not only by the asker.
   feedback, a visitor's answer to a chatbot (``chatbot.message``), and a
   record's ``rating_last_feedback``, masked when any of the record's
   ratings is. An SMS or a rating without a message goes by its own text: a
-  link to a denied record or a meeting's URL.
+  link to a denied record or a meeting's URL. Whether a message's text is
+  masked is a condition on the message's own row, tested in the query of
+  each call on the rows it reaches.
 * **HTML text**: any other HTML field (a task's description, an activity's
   note, a contact's notes) that links to a record of a denied model or
   holds a Discuss meeting's URL reads *Left out: the text links a record or
@@ -494,7 +542,9 @@ is seen by everyone who can see the record, not only by the asker.
   ``&#38;``, ``&#35;``, ``&#32;``, ``&nbsp;``, ``&ensp;``). It runs on
   across a ``?`` (``&#63;``) and a reference to a carriage return, a form
   feed or a vertical tab (``&#13;``, ``&#12;``, ``&#11;``), which
-  ``html2plaintext`` drops. A char or text field is read as it is.
+  ``html2plaintext`` drops. A test pins the character-reference decodings
+  of the installed lxml, which the filters' SQL patterns mirror. A char or
+  text field is read as it is.
 
   A text filter matches the text with each token's value taken out,
   whatever the token holds but on a row where an inline tag splits a
@@ -529,6 +579,12 @@ is seen by everyone who can see the record, not only by the asker.
   return a preview only for a message the employee may read and whose text
   they show; a link to another reads *a link preview of a message the AI
   deny list leaves out*, and a list of them leaves it out.
+
+A refusal that depends on the rows, a sort, group or aggregate by an
+employee's cost or by a copy of a name, is decided on the rows the call
+itself reads: the model's read access is checked first, whatever the terms,
+then the rows come from the employee's own search, or from their own group
+read for ``read_group``.
 
 ``deny_models_extra`` and ``deny_fields_extra`` add patterns, and so may a
 module through ``_deny_list_models`` and ``_deny_list_fields``; narrowing

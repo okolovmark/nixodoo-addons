@@ -62,10 +62,10 @@
   A filter on any other text field that is not stored is matched by the
   field's search method, though its value shows redacted.
 * A display name built from a denied record or field is masked by the
-  fields ``_rec_name`` and ``NAME_GET_SOURCES`` name, not by its value:
-  where Odoo copies such a name as text (the record name a message or
-  activity shows, the old and new value of a link's tracked change, a live
-  chat's name), the copy shows and a filter matches it.
+  fields ``_rec_name`` and ``NAME_GET_SOURCES`` name, not by its value.
+  Odoo's copies of such a name, and its occurrences in a message's texts,
+  are masked by the current name of the record a row names and of the
+  records it links directly: see *Known limits of masked names* below.
 * Not in this version, as Odoo 16 has no such data: scheduled messages,
   message translations, the attendance kiosk's URL, shared dashboards,
   product feeds, ``html_field_history`` and a live chat's member history.
@@ -88,3 +88,43 @@
   Date*.
 * ``do`` is a common word ``find_models`` and ``find_menus`` leave out, also
   where it stands for a delivery order.
+
+**Known limits of masked names**
+
+* A former name of a record, after a rename, is matched only where it is
+  the message's own ``record_name``; a text that holds it otherwise keeps
+  it. An activity's notice keeps no ``record_name`` and takes its subject
+  from the activity's copy of the name, so it keeps a denied code the record
+  has since lost.
+* The name of a record the message's record linked when the message was
+  written, and links no longer, stays.
+* A name reached through lines stays, as an order line's product in the
+  order's chatter: only the record's own stored many2one links count.
+* Only a whole name is matched: a text that holds part of one, as a text
+  cut short does, keeps that part.
+* An SMS's body keeps the names its message's text masks.
+* A calendar event created from an activity without a summary is named
+  after the activity's record, and keeps that name.
+* A mail alias address, which may be built from a record's name, stays, and
+  so does the address part of a ``reply_to``.
+* A distinct count of a copy or of a text that may hold one is not refused.
+* An attachment's own name stays: a report's file named after its record,
+  and a file name a user typed.
+* A live chat channel's name, which Odoo writes from the visitor's and the
+  operator's names, stays.
+* A queue job's result stays as written.
+* Filters and sorts leave out or refuse more rows than the display masks:
+  those naming a record with a denied source of its name set where the name
+  does not show it (a contact whose name shows its VAT number only under a
+  context key), every message on a record that links a record whose name is
+  masked, and a copy that differs from the record's stored name, as a
+  product variant's with its attributes.
+* A sort by a link into a model whose names are masked is not refused: it
+  orders the rows by that model's own order, by name where it sorts by
+  name.
+* A call over a whole table without a term that narrows it, such as
+  grouping every mail by subject, checks each row and can reach the tools'
+  time limit (``tool_seconds``).
+* The first tool call of a worker builds caches over every field of every
+  model (the links into masked names, the copies of names and of message
+  texts); the next calls reuse them.
