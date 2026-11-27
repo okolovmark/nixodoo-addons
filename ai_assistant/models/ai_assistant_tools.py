@@ -2,15 +2,18 @@ import json
 import logging
 import math
 import re
+import textwrap
 import time
 from collections import defaultdict
 from contextlib import closing, contextmanager
 from datetime import date, datetime
 from fnmatch import fnmatchcase
+from html import escape as html_escape
 from html.entities import html5
 
 from lxml import etree
 from lxml import html as lxml_html
+from markupsafe import escape as markup_escape
 from psycopg2 import errors as pg_errors
 
 from odoo import Command, _, api, fields, models, tools
@@ -155,6 +158,14 @@ NAME_COPY_FIELDS = {
     ("mail.tracking.value", "old_value_char"): ("field.relation", "old_value_integer"),
     ("mail.tracking.value", "new_value_char"): ("field.relation", "new_value_integer"),
 }
+# Texts of a message, or of a mail by its message, that Odoo writes the display name of the message's record into, as
+# the composer's "Re: <name>" subject or the assigned activity's notice: each occurrence masked (`_hidden_names`).
+NAME_TEXT_FIELDS = {
+    "mail.message": ("id", ("subject", "description", "body", "preview")),
+    "mail.mail": ("mail_message_id", ("subject", "description", "body", "preview", "body_html", "body_content")),
+}
+# The texts cut from a message's body, by their length (mail.message._compute_description, _get_message_preview).
+MESSAGE_PREVIEW_CHARS = {"preview": 190, "description": 30}
 # The fields a name search coded in a model's `_name_search` reads besides its `_rec_names_search` or `_rec_name`
 # (`_name_search_paths`), without a context key that widens it; at the code's path and line.
 NAME_SEARCH_FIELDS = {
@@ -1901,10 +1912,13 @@ class AiAssistantTools(models.AbstractModel):
         of a contact's data shows beside no private address, a message's text where the deny list does not mask it
         (`_masked_text_domain`), any other HTML text where it links no denied record (`_refused_text_domain`), an
         employee's cost or a total of it on a row that reaches no employee, a copy of a display name where the deny
-        list leaves that name (`_changed_copy_domain`)."""
+        list leaves that name (`_changed_copy_domain`), a text that may hold one where it leaves it too
+        (`_name_text_domain`)."""
         domains = [[(link, "not in", private_ids)] for link in self._partner_value_paths(model_name, name)]
         if (model_name, name) in NAME_COPY_FIELDS:
             domains.append(negation(self._changed_copy_domain(model_name, name)))
+        if name in NAME_TEXT_FIELDS.get(model_name, ("", ()))[1]:
+            domains.append(negation(self._name_text_domain(model_name)))
         if name in self._message_text_fields(model_name)[1]:
             domains.append(negation(self._masked_text_domain(model_name)))
         elif self._is_masked_html(model_name, name) and self._is_redacted_text(self.env[model_name]._fields[name]):
@@ -2788,14 +2802,17 @@ class AiAssistantTools(models.AbstractModel):
         `_rec_name` value, its URL tokens redacted, for one that shows the value of a denied field it is built
         from, as a product's internal reference, or DENIED_NAME_LABEL where that field is denied, missing or empty
         or holds such a value, of any case; for a model named by a copy of another record's display name
-        (`_name_copy_models`), as a message, the name shown of that record."""
+        (`_name_copy_models`), as a message, the name shown of that record, or as a mail its subject with that
+        record's hidden name read as the name shown (`_shown_name_texts`)."""
         denied_name_models = self._denied_name_models()
         sources = self._denied_name_sources()
         if model_name in denied_name_models:
             return dict.fromkeys(ids, DENIED_NAME_LABEL)
         if model_name in self._name_copy_models():
             Model = self.env[model_name]
-            return self._shown_name_copies(Model.browse(ids), [Model._rec_name])[Model._rec_name]
+            if Model._rec_name in NAME_TEXT_FIELDS.get(model_name, ("", ()))[1]:
+                return self._shown_name_texts(Model.browse(ids), Model._rec_name)
+            return self._shown_name_copies(Model.browse(ids), [Model._rec_name]).get(Model._rec_name, {})
         if model_name not in sources or not ids:
             return {}
         # A name may come back to its own record, as a group chat's through its members': the links are walked
@@ -2876,11 +2893,13 @@ class AiAssistantTools(models.AbstractModel):
 
     @tools.ormcache()
     def _name_copy_models(self):
-        """The models whose display name is a copy of another record's (`_name_copy_paths`), as a message's."""
+        """The models whose display name is a copy of another record's (`_name_copy_paths`), as a message's, or a text
+        of NAME_TEXT_FIELDS that may hold one, as a mail's subject."""
         return frozenset(
             model_name
             for model_name in self.env.registry
             if self._name_copy_paths(model_name, self.env[model_name]._rec_name)
+            or self.env[model_name]._rec_name in NAME_TEXT_FIELDS.get(model_name, ("", ()))[1]
         )
 
     @api.model
@@ -2894,26 +2913,35 @@ class AiAssistantTools(models.AbstractModel):
         return named_records
 
     @api.model
-    def _shown_copied_names(self, named_records):
-        """{(model, id): the name the tools show} of the records among `named_records`, (model, id) pairs, whose
-        display name the AI deny list changes (`_shown_names`); where it changes the names of a model record by
-        record, one that no longer exists shows DENIED_NAME_LABEL: nothing tells what its copy was built from."""
+    def _current_names(self, named_records):
+        """{(model, id): (its display name read past the rules, the name the tools show for it)} of the records among
+        `named_records`, (model, id) pairs, of `_masked_name_models`: DENIED_NAME_LABEL for all of
+        `_denied_name_models` and for a record of another that no longer exists, whose display name is None, as
+        nothing tells what a copy of it was built from; else the name `_shown_names` gives, or the record's own."""
+        denied_name_models = self._denied_name_models()
+        masked_name_models = self._masked_name_models()
         ids_by_model = defaultdict(set)
         for model_name, record_id in named_records:
-            if model_name in self.env.registry:
+            if model_name in masked_name_models:
                 ids_by_model[model_name].add(record_id)
-        record_name_models = self._record_name_models()
-        shown_names = {}
+        current_names = {}
         for model_name, ids in ids_by_model.items():
-            names = {}
-            if model_name in record_name_models:
-                Model = self.env[model_name].sudo().with_context(active_test=False)
-                existing_ids = set(Model.browse(ids).exists().ids)
-                names = dict.fromkeys(ids - existing_ids, DENIED_NAME_LABEL)
-                ids = existing_ids
-            names.update(self._shown_names(model_name, ids))
-            shown_names.update(((model_name, record_id), name) for record_id, name in names.items())
-        return shown_names
+            records = self.env[model_name].sudo().with_context(active_test=False).browse(ids).exists()
+            own_names = {record.id: record.display_name for record in records}
+            shown_names = {} if model_name in denied_name_models else self._shown_names(model_name, set(own_names))
+            for record_id in ids:
+                if model_name in denied_name_models or record_id not in own_names:
+                    shown_name = DENIED_NAME_LABEL
+                else:
+                    shown_name = shown_names.get(record_id, own_names[record_id])
+                current_names[model_name, record_id] = (own_names.get(record_id), shown_name)
+        return current_names
+
+    @api.model
+    def _masked_name_models(self):
+        """The models whose display names the AI deny list may change: `_denied_name_models` and
+        `_record_name_models`."""
+        return {*self._denied_name_models(), *self._record_name_models()}
 
     @api.model
     def _record_name_models(self):
@@ -2924,16 +2952,25 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _shown_name_copies(self, records, names):
         """{field: {id: the name shown}} of the records among `records` whose copy of a display name in `names`,
-        fields of `_name_copy_fields`, is of a name the AI deny list changes, as the tools show that name."""
+        fields of `_name_copy_fields`, set, reads otherwise than stored: of a record of `_masked_name_models`, as
+        stored only where it is the name the tools show for that record now (`_current_names`). Odoo writes no copy
+        again, so one taken while the name showed a value the deny list hides would show it once the name no longer
+        does."""
         copy_fields = self._name_copy_fields(records._name)
         named_by_name = {
             name: self._named_records(records, *copy_fields[name]) for name in names if name in copy_fields
         }
-        shown_names = self._shown_copied_names({pair for named in named_by_name.values() for pair in named.values()})
-        return {
-            name: {record_id: shown_names[pair] for record_id, pair in named.items() if pair in shown_names}
-            for name, named in named_by_name.items()
-        }
+        current_names = self._current_names({pair for named in named_by_name.values() for pair in named.values()})
+        sudo_records = records.sudo().with_context(active_test=False)
+        shown_copies = {}
+        for name, named in named_by_name.items():
+            stored_copies = {record.id: record[name] for record in sudo_records if record.id in named}
+            shown_copies[name] = {
+                record_id: current_names[pair][1]
+                for record_id, pair in named.items()
+                if pair in current_names and stored_copies[record_id] not in (False, current_names[pair][1])
+            }
+        return shown_copies
 
     @api.model
     def _without_name_copies(self, records, rows):
@@ -2947,29 +2984,153 @@ class AiAssistantTools(models.AbstractModel):
         return rows
 
     @api.model
+    def _hidden_names(self, records, link):
+        """{id: (names, the name shown instead)} of the records among `records`, messages or rows that show one's
+        texts by `link` ("id" a message's own, NAME_TEXT_FIELDS), on a record of `_masked_name_models` whose name the
+        tools show otherwise (`_current_names`) than its display name, read past the rules, or than the message's
+        record_name, the copy of it taken when the message was written: those of the two."""
+        messages = {
+            record.id: record if link == "id" else record[link]
+            for record in records.sudo().with_context(active_test=False)
+        }
+        current_names = self._current_names(
+            {(message.model, message.res_id) for message in messages.values() if message.model and message.res_id}
+        )
+        hidden_names = {}
+        for record_id, message in messages.items():
+            own_name, shown_name = current_names.get((message.model, message.res_id), (None, None))
+            names = {name for name in (own_name, message.record_name) if name and name != shown_name}
+            if shown_name and names:
+                hidden_names[record_id] = (names, shown_name)
+        return hidden_names
+
+    @api.model
+    def _shown_name_occurrences(self, text, names, shown_name):
+        """`text` with each occurrence of one of `names`, of any case, read as `shown_name`; of its HTML-escaped forms
+        too, as a mail's raw body_html holds it."""
+        variants = {
+            variant for name in names for variant in (name, html_escape(name, quote=False), str(markup_escape(name)))
+        }
+        pattern = re.compile("|".join(map(re.escape, sorted(variants, key=len, reverse=True))), re.IGNORECASE)
+        return pattern.sub(lambda _match: shown_name, text)
+
+    @api.model
+    def _shown_name_texts(self, records, name):
+        """{id: the text shown} of the records among `records` whose text `name` of NAME_TEXT_FIELDS holds a name
+        `_hidden_names` finds, each occurrence read as the name shown."""
+        hidden_names = self._hidden_names(records, NAME_TEXT_FIELDS[records._name][0])
+        shown_texts = {}
+        for record in records.sudo().with_context(active_test=False):
+            text = record[name]
+            if text and record.id in hidden_names:
+                shown_text = self._shown_name_occurrences(text, *hidden_names[record.id])
+                if shown_text != text:
+                    shown_texts[record.id] = shown_text
+        return shown_texts
+
+    @api.model
+    def _without_hidden_names(self, records, rows):
+        """The rows of messages, or of mails by their message (NAME_TEXT_FIELDS), with each occurrence in their texts of
+        a name `_hidden_names` finds read as the name shown: a preview, and a description without a subject, cut from
+        the body so read as Odoo cuts it (mail.message._get_message_preview), as a cut would keep part of a name."""
+        link, text_names = NAME_TEXT_FIELDS.get(records._name, ("", ()))
+        names = set(text_names) & {name for row in rows for name in row}
+        hidden_names = self._hidden_names(records, link) if names else {}
+        if not hidden_names:
+            return rows
+        messages = {
+            record.id: record if link == "id" else record[link]
+            for record in records.sudo().with_context(active_test=False)
+            if record.id in hidden_names
+        }
+        for row in rows:
+            message = messages.get(row["id"])
+            for name in names if message else ():
+                if not row.get(name):
+                    continue
+                if name in MESSAGE_PREVIEW_CHARS and not (name == "description" and message.subject):
+                    body_text = tools.html_to_inner_content(message.body)
+                    body_text = self._shown_name_occurrences(body_text, *hidden_names[row["id"]])
+                    row[name] = textwrap.shorten(body_text, MESSAGE_PREVIEW_CHARS[name])
+                    continue
+                shown_text = self._shown_name_occurrences(row[name], *hidden_names[row["id"]])
+                if records._fields[name].type == "text" and self._holds_name(
+                    self._shown_html(shown_text), hidden_names[row["id"]][0]
+                ):
+                    # A mail's raw HTML may split a name with tags: its text then, as the tools return a body.
+                    shown_text = self._shown_name_occurrences(self._shown_html(row[name]), *hidden_names[row["id"]])
+                row[name] = shown_text
+        return rows
+
+    @api.model
+    def _holds_name(self, text, names):
+        """Whether `text` holds one of `names`, of any case."""
+        return any(name.lower() in text.lower() for name in names)
+
+    @api.model
     def _changed_copy_domain(self, model_name, name):
-        """The rows whose copy `name`, a field of NAME_COPY_FIELDS, is not empty and of a display name the AI deny
-        list changes, as a domain matched in SQL past the rules: of a record of `_denied_name_models`, or of one whose
-        name it changes record by record (`_shown_copied_names`) among those the rows name. Once per tool call."""
+        """The rows whose copy `name`, a field of NAME_COPY_FIELDS, is not empty and reads otherwise than stored
+        (`_changed_name_domain`)."""
+        model_path, id_path = NAME_COPY_FIELDS[(model_name, name)]
+        return expression.AND([[(name, "!=", False)], self._changed_name_domain(model_name, model_path, id_path, name)])
+
+    @api.model
+    def _name_text_domain(self, model_name):
+        """The rows of a model of NAME_TEXT_FIELDS whose texts may hold a name `_hidden_names` finds, as a domain
+        matched in SQL past the rules (`_changed_name_domain`): Odoo keeps no copy of a name in a text apart from it,
+        so a filter matches none of these rows rather than the name in them."""
+        message_domain = self._changed_name_domain("mail.message", "model", "res_id", "record_name", is_text=True)
+        link = NAME_TEXT_FIELDS[model_name][0]
+        if link == "id":
+            return message_domain
+        Message = self.env["mail.message"].with_context(active_test=False)
+        return [(link, "in", self._rows_query(Message, message_domain, active_test=False))]
+
+    @api.model
+    def _changed_name_domain(self, model_name, model_path, id_path, copy_name, is_text=False):
+        """The rows that name by these paths a record of `_masked_name_models` whose copy `copy_name` of its display
+        name reads otherwise than stored (`_shown_name_copies`), or with `is_text` whose display name or copy the
+        tools show otherwise (`_hidden_names`), as a domain matched in SQL past the rules: all those of a record of
+        `_denied_name_models`, else by the pairs of a named record and a copy that the rows hold. Once per tool
+        call."""
 
         def find_domain():
-            model_path, id_path = NAME_COPY_FIELDS[(model_name, name)]
             Holder = self.env[model_name].sudo().with_context(active_test=False)
+            id_column = '"%s"."%s"' % (Holder._table, id_path)
+            is_stored_copy = Holder._fields[copy_name].store
+            copy_column = '"%s"."%s"' % (Holder._table, copy_name) if is_stored_copy else "NULL"
             domains = [self._path_in_domain(Holder, model_path, sorted(self._denied_name_models()))]
             for named_model in sorted(self._record_name_models()):
-                model_domain = self._path_in_domain(Holder, model_path, [named_model])
-                rows_query = self._rows_query(
-                    Holder, expression.AND([model_domain, [(id_path, "!=", False)]]), active_test=False
+                model_domain = expression.AND(
+                    [self._path_in_domain(Holder, model_path, [named_model]), [(id_path, "!=", False)]]
                 )
-                self.env.cr.execute(*rows_query.select('DISTINCT "%s"."%s"' % (Holder._table, id_path)))
-                named_ids = [named_id for (named_id,) in self.env.cr.fetchall()]
-                shown_names = self._shown_copied_names({(named_model, named_id) for named_id in named_ids})
-                if shown_names:
-                    changed_ids = sorted(named_id for _model, named_id in shown_names)
-                    domains.append(expression.AND([model_domain, [(id_path, "in", changed_ids)]]))
-            return expression.AND([[(name, "!=", False)], expression.OR(domains)])
+                rows_query = self._rows_query(Holder, model_domain, active_test=False)
+                self.env.cr.execute(*rows_query.select("DISTINCT %s, %s" % (id_column, copy_column)))
+                pairs = self.env.cr.fetchall()
+                current_names = self._current_names({(named_model, named_id) for named_id, _copy in pairs})
+                changed_pairs = []
+                for named_id, copy in pairs:
+                    own_name, shown_name = current_names[named_model, named_id]
+                    # A copy Odoo computes, not stored, is the record's own name.
+                    stored_copy = copy if is_stored_copy else own_name
+                    if is_text:
+                        is_changed = own_name != shown_name or (bool(copy) and copy != shown_name)
+                    else:
+                        is_changed = bool(stored_copy) and stored_copy != shown_name
+                    if is_changed:
+                        changed_pairs.append((named_id, copy or ""))
+                if changed_pairs:
+                    changed_query = self._rows_query(Holder, model_domain, active_test=False)
+                    # Arrays: a list of row values is an OR chain past Postgres' stack depth on a few thousand pairs.
+                    changed_query.add_where(
+                        "(%s, COALESCE(%s, '')) IN (SELECT * FROM unnest(%%s::int[], %%s::text[]))"
+                        % (id_column, copy_column),
+                        [[named_id for named_id, _copy in changed_pairs], [copy for _id, copy in changed_pairs]],
+                    )
+                    domains.append([("id", "in", changed_query)])
+            return expression.OR(domains)
 
-        return self._call_cached(("changed_copy_domain", model_name, name), find_domain)
+        return self._call_cached(("changed_name_domain", model_name, copy_name, is_text), find_domain)
 
     @api.model
     def _path_in_domain(self, Model, path, values):
@@ -2984,14 +3145,23 @@ class AiAssistantTools(models.AbstractModel):
 
     @api.model
     def _check_not_masked_name_copy(self, model_name, name, search_domain):
-        """Refuse a copy of a display name (`_name_copy_paths`) as a sort or group key or an aggregate when a row of
-        `search_domain` holds one the AI deny list changes, as it refuses the name itself: the order or the group
-        would show it."""
+        """Refuse a copy of a display name (`_name_copy_paths`), or a text that may hold one other than a message's
+        text (NAME_TEXT_FIELDS: a subject), as a sort or group key or an aggregate when a row of `search_domain` holds
+        one the AI deny list changes, as it refuses the name itself: the order or the group would show it."""
         steps = self._related_path(model_name, [name])
         hops = self._path_hops(model_name, ".".join(steps))
-        if not hops or (hops[-1].model_name, hops[-1].name) not in NAME_COPY_FIELDS:
+        if not hops:
             return
-        changed_domain = self._changed_copy_domain(hops[-1].model_name, hops[-1].name)
+        held_model, held_name = hops[-1].model_name, hops[-1].name
+        if (held_model, held_name) in NAME_COPY_FIELDS:
+            changed_domain = self._changed_copy_domain(held_model, held_name)
+        elif (
+            held_name in NAME_TEXT_FIELDS.get(held_model, ("", ()))[1]
+            and held_name not in self._message_text_fields(held_model)[1]
+        ):
+            changed_domain = expression.AND([[(held_name, "!=", False)], self._name_text_domain(held_model)])
+        else:
+            return
         for hop in reversed(hops[:-1]):
             Comodel = self.env[hop.comodel_name].with_context(active_test=False)
             changed_domain = [(hop.name, "in", self._rows_query(Comodel, changed_domain, active_test=False))]
@@ -3627,7 +3797,7 @@ class AiAssistantTools(models.AbstractModel):
                     row[name] = self._shown_html(row[name])
         self._shown_properties([row[name] for row in rows for name in property_names])
         rows = self._without_hidden_link_previews(records._name, self._without_refused_attachments(records._name, rows))
-        rows = self._without_masked_message_text(records, rows)
+        rows = self._without_masked_message_text(records, self._without_hidden_names(records, rows))
         rows = self._without_employee_costs(records, self._without_text_tokens(rows))
         return self._without_denied_names(records._name, self._without_name_copies(records, rows))
 
@@ -4173,6 +4343,7 @@ class AiAssistantTools(models.AbstractModel):
             message.id for message in shown_messages if refused_attachment_ids & set(message.attachment_ids.ids)
         }
         refused_text_ids.update(message.id for message in shown_messages if self._is_refused_text(message.body or ""))
+        hidden_names = self._hidden_names(shown_messages, "id")
         entries = []
         for message in shown_messages:
             message_trackings = trackings.filtered(
@@ -4186,7 +4357,9 @@ class AiAssistantTools(models.AbstractModel):
                     "date": json_value(message.date),
                     "type": message.message_type,
                     "subtype": self._without_url_tokens(message.subtype_id.name or ""),
-                    "text": REFUSED_MESSAGE_TEXT if message.id in refused_text_ids else self._message_text(message),
+                    "text": REFUSED_MESSAGE_TEXT
+                    if message.id in refused_text_ids
+                    else self._message_text(message, hidden_names.get(message.id)),
                     "attachments": [
                         self._without_url_tokens(attachment.name or "")
                         for attachment in message.attachment_ids
@@ -4220,9 +4393,12 @@ class AiAssistantTools(models.AbstractModel):
         return f"{notice}\n<untrusted_data>\n{history}\n</untrusted_data>", len(entries)
 
     @api.model
-    def _message_text(self, message):
-        """A message's HTML body as plain text, its URL tokens redacted (`_shown_html`), cut at MESSAGE_MAX_CHARS."""
+    def _message_text(self, message, hidden_names=None):
+        """A message's HTML body as plain text, its URL tokens redacted (`_shown_html`), each occurrence of
+        `hidden_names`, (names, the name shown) of `_hidden_names`, read as the name shown, cut at MESSAGE_MAX_CHARS."""
         text = self._shown_html(message.body) or ""
+        if hidden_names:
+            text = self._shown_name_occurrences(text, *hidden_names)
         return text if len(text) <= MESSAGE_MAX_CHARS else "%s [cut]" % text[:MESSAGE_MAX_CHARS]
 
     @api.model
