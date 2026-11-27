@@ -1,8 +1,9 @@
 from odoo import _, api, models, release
 from odoo.exceptions import AccessError
 
-from .ai_assistant_tools import ASSISTANT_PREFIX
 from odoo.addons.ai_claude.models.ai_claude_gateway import NOT_COVERED
+
+from .ai_assistant_tools import ASSISTANT_PREFIX
 
 CLAUDE_KEY_ENV = "ANTHROPIC_API_KEY"
 # A constant, not a setting: a change to the prompt is a reviewed diff. It is

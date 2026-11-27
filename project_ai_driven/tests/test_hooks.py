@@ -12,6 +12,8 @@ from odoo.tests.common import TransactionCase, tagged
 from odoo.tools import convert_file
 from odoo.tools.sql import table_exists
 
+from odoo.addons.base.models.ir_model import selection_xmlid
+
 from ..hooks import (
     CHECKLIST_MODEL,
     CHECKLIST_TABLE,
@@ -36,7 +38,6 @@ from ..hooks import (
     rename_checklist,
     rename_external_ids,
 )
-from odoo.addons.base.models.ir_model import selection_xmlid
 
 # The nodes that named the fields in DROPPED_FIELDS in the task form views that had them, the
 # cases' sub-view included, cut down to one arch; the page title is its translated term.

@@ -13,13 +13,14 @@ from odoo import SUPERUSER_ID, Command, api
 from odoo.tests import HttpCase, new_test_user, tagged
 from odoo.tools import mute_logger
 
-from .test_ai_assistant_app import AI_CONVERSATION_MODULE
-from .test_ai_assistant_engine import claude_turn, text
-from .test_ai_assistant_tools import ASSISTANT_KEY_ENV
 from odoo.addons.ai_assistant.models.ai_assistant_exchange import ASSISTANT_GROUP
 from odoo.addons.bus.models.bus import dispatch
 from odoo.addons.bus.websocket import WebsocketConnectionHandler
 from odoo.addons.queue_job.tests.common import trap_jobs
+
+from .test_ai_assistant_app import AI_CONVERSATION_MODULE
+from .test_ai_assistant_engine import claude_turn, text
+from .test_ai_assistant_tools import ASSISTANT_KEY_ENV
 
 ANSWER_WAIT_SECONDS = 60
 # Long enough for the page to render the app_ask response, the pending question, before the answer.

@@ -9,11 +9,12 @@ from odoo.exceptions import ValidationError
 from odoo.osv import expression
 from odoo.tools.misc import clean_context
 
+from odoo.addons.web_editor.controllers.main import handle_history_divergence
+
 from .project_pull_request import parse_single_pull_request_link
 from .project_task_image_mixin import ImageMover
 from .project_task_recurrence import is_next_occurrence_creation
 from .project_task_testcase import TESTCASE_STATES
-from odoo.addons.web_editor.controllers.main import handle_history_divergence
 
 KANBAN_TESTCASE_STATES = ("not_run", "failed", "waiting")
 SILENT_ASSIGNMENT_KEY = "project_ai_driven_silent_assignment"
