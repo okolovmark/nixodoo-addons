@@ -164,6 +164,24 @@ HIDDEN_LINK_ROW_LABEL = "a link preview of a message the AI deny list leaves out
 REFUSED_ATTACHMENT_LABEL = "an attachment on the AI deny list"
 # A display name the AI deny list hides (`_denied_name_ids`).
 DENIED_NAME_LABEL = "a name on the AI deny list"
+# The fields that copy the display name of the record their row names, by the paths to its model and its id
+# (`_copied_name_ids`). A message's subject, its display name, is one: Odoo mails a message without a subject under
+# its record's name, and writes that name into it.
+COPIED_NAME_FIELDS = {
+    "mail.message": dict.fromkeys(("record_name", "subject", "display_name"), ("model", "res_id")),
+    "mail.mail": dict.fromkeys(("record_name", "subject", "display_name"), ("model", "res_id")),
+    "mail.scheduled.message": {"subject": ("model", "res_id")},
+    "mail.activity": {"res_name": ("res_model", "res_id")},
+    "ir.attachment": {"res_name": ("res_model", "res_id")},
+    "rating.rating": {
+        **dict.fromkeys(("res_name", "display_name"), ("res_model", "res_id")),
+        "parent_res_name": ("parent_res_model", "parent_res_id"),
+    },
+    "mail.tracking.value": {
+        "old_value_char": ("field_id.relation", "old_value_integer"),
+        "new_value_char": ("field_id.relation", "new_value_integer"),
+    },
+}
 # The fields a name search coded in a model's `_search_display_name` reads besides its `_rec_names_search` or
 # `_rec_name` (`_name_search_paths`), without a context key that widens it; at the code's path and line.
 NAME_SEARCH_FIELDS = {
@@ -197,7 +215,8 @@ MESSAGE_TEXT_FIELDS = {
 }
 MASKED_MESSAGE_TEXT = (
     "Left out: the message carries an attachment, a record, a bank account number or a URL on the AI deny list, or a"
-    " tracked change of a field the deny list hides or the employee may not read."
+    " tracked change of a field the deny list hides or the employee may not read, or of a link to a record whose"
+    " name it hides."
 )
 # Any other HTML text that links a denied record or holds a REFUSED_MESSAGE_URLS URL (`_refused_body_domain`).
 MASKED_HTML_TEXT = "Left out: the text links a record or holds a URL on the AI deny list."
@@ -1815,25 +1834,26 @@ class AiAssistantTools(models.AbstractModel):
         )
 
     @api.model
-    def _hidden_tracking_labels(self, model_name):
-        """The labels, in every installed language, of the tracked changes a message of a model never shows; see
-        `_masking_models_by_label`."""
+    def _hidden_tracking_labels(self, model_name, is_named=False):
+        """The labels, in every installed language, of the tracked changes a message of a model never shows, or with
+        `is_named` of those whose values it shows as DENIED_NAME_LABEL; see `_masking_models_by_label`."""
         return frozenset(
-            label for label, model_names in self._masking_models_by_label().items() if model_name in model_names
+            label for label, model_names in self._masking_models_by_label(is_named).items() if model_name in model_names
         )
 
     @api.model
-    def _masking_models_by_label(self):
+    def _masking_models_by_label(self, is_named=False):
         """{label: the models whose tracking messages it masks}, labels in every installed language. A hidden
-        field's label (`_tracking_labels`) masks those of its own model, and of each model linked with it either way
-        that tracks no readable namesake: a tracking message names its fields by their labels alone, and Odoo posts
-        one record's changes on another linked with it (`_track_record`: a bank account's on its holder's chatter)."""
+        field's label (`_tracking_labels`), or with `is_named` a tracked link's to a record whose name the deny list
+        may hide, masks those of its own model, and of each model linked with it either way that tracks no readable
+        namesake: a tracking message names its fields by their labels alone, and Odoo posts one record's changes on
+        another linked with it (`_track_record`: a bank account's on its holder's chatter)."""
 
         def find_models():
-            hidden_by_model, visible_models_by_label = self._tracking_labels()
+            hidden_by_model, named_by_model, visible_models_by_label = self._tracking_labels()
             linked_models_by_model = self._linked_models_by_model()
             masking_models_by_label = defaultdict(set)
-            for model_name, labels in hidden_by_model.items():
+            for model_name, labels in (named_by_model if is_named else hidden_by_model).items():
                 linked_models = linked_models_by_model.get(model_name, frozenset())
                 for label in labels:
                     masking_models_by_label[label] |= {
@@ -1842,7 +1862,7 @@ class AiAssistantTools(models.AbstractModel):
                     }
             return {label: frozenset(model_names) for label, model_names in masking_models_by_label.items()}
 
-        return self._call_cached(("masking_models_by_label", self.env.uid), find_models)
+        return self._call_cached(("masking_models_by_label", self.env.uid, is_named), find_models)
 
     @api.ormcache()
     def _linked_models_by_model(self):
@@ -1857,31 +1877,36 @@ class AiAssistantTools(models.AbstractModel):
 
     @api.model
     def _tracking_labels(self):
-        """({model: labels of its tracked fields hidden}, {label: models that track a readable field of it}), labels
-        in every installed language. Hidden are the fields the AI deny list hides or the employee may not read, and
-        all of a denied model's."""
+        """({model: labels of its tracked fields hidden}, {model: labels of its other tracked links to a model of
+        `_masked_name_models`}, {label: models that track another field of it}), labels in every installed language.
+        Hidden are the fields the AI deny list hides or the employee may not read, and all of a denied model's."""
 
         def find_labels():
             denied_fields = self._denied_fields()
             denied_models = self._denied_model_names()
             copied_fields = self._copied_fields()
-            hidden_fields, visible_fields = [], []
+            masked_name_models = self._masked_name_models()
+            hidden_fields, named_fields, visible_fields = [], [], []
             for model_name in self.env.registry:
                 Model = self.env[model_name]
                 for name, field in Model._fields.items():
                     if not getattr(field, "tracking", None):
                         continue
-                    is_hidden = (
+                    if (
                         model_name in denied_models
                         or (model_name, name) in denied_fields
                         or not self._may_read(Model, field, copied_fields)
-                    )
-                    (hidden_fields if is_hidden else visible_fields).append((model_name, name))
+                    ):
+                        hidden_fields.append((model_name, name))
+                    elif field.relational and field.comodel_name in masked_name_models:
+                        named_fields.append((model_name, name))
+                    else:
+                        visible_fields.append((model_name, name))
             visible_models_by_label = defaultdict(set)
             for model_name, labels in self._field_labels(visible_fields).items():
                 for label in labels:
                     visible_models_by_label[label].add(model_name)
-            return self._field_labels(hidden_fields), dict(visible_models_by_label)
+            return self._field_labels(hidden_fields), self._field_labels(named_fields), dict(visible_models_by_label)
 
         return self._call_cached(("tracking_labels", self.env.uid), find_labels)
 
@@ -2069,7 +2094,8 @@ class AiAssistantTools(models.AbstractModel):
     def _value_guard(self, model_name, name):
         """Where a field's value is shown as it is, as a domain on its model's rows; TRUE when it always is. A
         message's text on a message whose text the deny list does not mask, an employee's cost or a total of it on
-        a row that reaches no employee, any other HTML text where it links no denied record (`_refused_body_domain`)."""
+        a row that reaches no employee, any other HTML text where it links no denied record (`_refused_body_domain`),
+        a copy of a record's display name where it names no model of `_masked_name_models` (`_copied_name_guard`)."""
         domain = Domain.TRUE
         if name in self._message_text_fields(model_name)[1]:
             domain &= ~self._masked_text_domain(model_name)
@@ -2080,7 +2106,38 @@ class AiAssistantTools(models.AbstractModel):
             domain &= Domain("id", "not in", self._employee_cost_rows(model_name, cost_path))
         elif cost_path:
             domain &= Domain(cost_path, "=", False)
-        return domain
+        return domain & self._copied_name_guard(model_name, name)
+
+    @api.model
+    def _copied_name_guard(self, model_name, name):
+        """Where a field of COPIED_NAME_FIELDS shows the display name it copies as stored, as a domain on its model's
+        rows: those whose record is of no model of `_masked_name_models`, as a filter cannot tell which of its
+        records' names `_denied_name_ids` masks. TRUE for any other field."""
+        paths = COPIED_NAME_FIELDS.get(model_name, {}).get(name)
+        if not paths:
+            return Domain.TRUE
+        link, _sep, model_field = paths[0].rpartition(".")
+        masked = Domain(model_field, "in", sorted(self._masked_name_models()))
+        return Domain(link, "not any!", masked) if link else ~masked
+
+    @api.model
+    def _check_not_copied_name(self, model_name, name, search_domain):
+        """Refuse a field of COPIED_NAME_FIELDS as a sort or group key or an aggregate but a count when a row of
+        `search_domain`, past the rules, masks it (`_copied_name_guard`): its order or its value would show the name.
+        mail.message's own search checks each match in Python."""
+        guard = self._copied_name_guard(model_name, name)
+        if guard.is_true() or not self.env[model_name].sudo().search_count(search_domain & ~guard, limit=1):
+            return
+        raise AiDenyListError(
+            "%s.%s copies the display name of the record its row names, which the AI deny list may hide on some of"
+            ' these rows: sort, group or aggregate by it only the others, with ["%s", "not in", %s] in the domain.'
+            % (
+                model_name,
+                name,
+                COPIED_NAME_FIELDS[model_name][name][0],
+                json.dumps(sorted(self._masked_name_models())),
+            )
+        )
 
     @api.model
     def _is_masked_html(self, model_name, name):
@@ -2158,7 +2215,7 @@ class AiAssistantTools(models.AbstractModel):
         their own row, which a search tests on the rows it reaches rather than on every message: those that carry
         an attachment it refuses, whose body `_refused_body_domain` holds or shows a bank account's number
         (`_bank_number_domain`), and the tracking messages that name a field of their model's
-        `_hidden_tracking_labels`, or any hidden field without a model."""
+        `_hidden_tracking_labels`, named or not, or any such field without a model."""
         refused_attachments = self._rows_query(self.env["ir.attachment"], ~self._deny_row_domain("ir.attachment"))
         domain = (
             Domain("attachment_ids", "any!", refused_attachments)
@@ -2169,8 +2226,9 @@ class AiAssistantTools(models.AbstractModel):
             # Odoo writes tracked changes into posted messages only.
             return domain
         labels_by_masking_models = defaultdict(set)
-        for label, model_names in self._masking_models_by_label().items():
-            labels_by_masking_models[tuple(sorted(model_names))].add(label)
+        for is_named in (False, True):
+            for label, model_names in self._masking_models_by_label(is_named).items():
+                labels_by_masking_models[tuple(sorted(model_names))].add(label)
         # A tracking message without a model is masked by any hidden field's label.
         names_hidden_label = Domain.OR(
             Domain("model", "in", [*model_names, False]) & self._names_tracking_label(labels)
@@ -2763,9 +2821,10 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _without_denied_names(self, model_name, rows):
         """The rows with each display name of `_denied_name_ids` replaced by the name shown instead: a record's own,
-        and the name of an (id, name) pair of a many2one, of a many2many's group key or of a group key by id."""
+        and the name of an (id, name) pair of a many2one, of a many2many's group key or of a group key by id, and each
+        copy of a record's display name (`_without_copied_names`)."""
         Model = self.env[model_name]
-        named_models = {*self._denied_name_models(), *self._denied_name_sources()}
+        named_models = self._masked_name_models()
         pair_models = {}
         for row in rows:
             for name, value in row.items():
@@ -2792,18 +2851,74 @@ class AiAssistantTools(models.AbstractModel):
                 value = row.get(name)
                 if is_id_name_pair(value) and value[0] in shown_names[comodel_name]:
                     row[name] = type(value)((value[0], shown_names[comodel_name][value[0]]))
+        return self._without_copied_names(model_name, rows)
+
+    @api.model
+    def _without_copied_names(self, model_name, rows):
+        """The rows with each field of COPIED_NAME_FIELDS replaced by the name shown instead (`_copied_name_ids`);
+        the display name goes with the record's own (`_denied_name_ids`)."""
+        names = (COPIED_NAME_FIELDS.get(model_name, {}).keys() - {"display_name"}) & {
+            name for row in rows for name in row
+        }
+        record_ids = {row["id"] for row in rows if type(row.get("id")) is int}
+        if not (names and record_ids):
+            return rows
+        shown_names = self._copied_name_ids(model_name, record_ids)
+        for row in rows:
+            row_id = row.get("id")
+            for name in names & shown_names.keys():
+                if type(row_id) is int and row.get(name) and row_id in shown_names[name]:
+                    row[name] = shown_names[name][row_id]
         return rows
+
+    @api.model
+    def _copied_name_ids(self, model_name, ids):
+        """{field: {id: the name shown instead}} of the fields of COPIED_NAME_FIELDS of the rows `ids`, read past the
+        rules, whose record's display name `_denied_name_ids` hides, as it shows that name. DENIED_NAME_LABEL where
+        such a row names a model of `_masked_name_models` but no record that exists, as a many2many's tracked names
+        or a deleted record's. Once per tool call."""
+
+        def find_names():
+            masked_name_models = self._masked_name_models()
+            copied_fields = COPIED_NAME_FIELDS[model_name]
+            records = self.env[model_name].sudo().with_context(active_test=False).browse(ids)
+            targets_by_paths, ids_by_model = {}, defaultdict(set)
+            for model_path, id_field in set(copied_fields.values()):
+                targets = targets_by_paths[model_path, id_field] = {}
+                for record in records:
+                    target_model = next(iter(record.mapped(model_path)), False)
+                    if target_model in masked_name_models:
+                        targets[record.id] = (target_model, record[id_field])
+                        ids_by_model[target_model].add(record[id_field])
+            shown_by_model = {}
+            for target_model, target_ids in ids_by_model.items():
+                existing_ids = set(self.env[target_model].sudo().browse(target_ids - {0}).exists().ids)
+                shown_by_model[target_model] = {
+                    **dict.fromkeys(target_ids - existing_ids, DENIED_NAME_LABEL),
+                    **self._denied_name_ids(target_model, existing_ids),
+                }
+            shown_names = defaultdict(dict)
+            for name, paths in copied_fields.items():
+                for record_id, (target_model, target_id) in targets_by_paths[paths].items():
+                    if target_id in shown_by_model[target_model]:
+                        shown_names[name][record_id] = shown_by_model[target_model][target_id]
+            return dict(shown_names)
+
+        return self._call_cached(("copied_name_ids", model_name, frozenset(ids)), find_names)
 
     @api.model
     def _denied_name_ids(self, model_name, ids):
         """{id: the name shown instead} of the ids among `ids` whose display name the AI deny list hides: all of a
         model of `_denied_name_models`, and those Odoo builds from a denied record or value (`_denied_name_sources`),
-        each link read past the rules. A name built from a denied record reads DENIED_NAME_LABEL; one that shows a
-        denied field's value (`_names_showing_values`), as the record's `_rec_name` reads (`_rec_names_shown`)."""
+        each link read past the rules, or copies from another record's (COPIED_NAME_FIELDS), as that record's reads.
+        A name built from a denied record reads DENIED_NAME_LABEL; one that shows a denied field's value
+        (`_names_showing_values`), as the record's `_rec_name` reads (`_rec_names_shown`)."""
         denied_name_models = self._denied_name_models()
         sources = self._denied_name_sources()
         if model_name in denied_name_models:
             return dict.fromkeys(ids, DENIED_NAME_LABEL)
+        if "display_name" in COPIED_NAME_FIELDS.get(model_name, {}):
+            return self._copied_name_ids(model_name, ids).get("display_name", {})
         if model_name not in sources or not ids:
             return {}
         # A name may come back to its own record, as a group chat's through its members': the links are walked
@@ -3309,6 +3424,17 @@ class AiAssistantTools(models.AbstractModel):
         )
 
     @api.model
+    def _masked_name_models(self):
+        """The models whose display names `_denied_name_ids` may mask: those of `_denied_name_models` and
+        `_denied_name_sources`, and those whose display name copies another record's (COPIED_NAME_FIELDS)."""
+        copying_models = (
+            model_name
+            for model_name, copies in COPIED_NAME_FIELDS.items()
+            if "display_name" in copies and model_name in self.env
+        )
+        return frozenset({*self._denied_name_models(), *self._denied_name_sources(), *copying_models})
+
+    @api.model
     def _denied_name_sources(self):
         """See `_denied_name_sources_for`."""
         return self._denied_name_sources_for(self._deny_patterns(), self._deny_field_patterns())
@@ -3425,6 +3551,7 @@ class AiAssistantTools(models.AbstractModel):
             self._check_not_structured(model_name, name)
             if not self.env[model_name]._fields[name]._description_sortable(self.env):
                 raise AiToolError("%s.%s cannot be a sort key: sort by a stored field." % (model_name, name))
+            self._check_not_copied_name(model_name, name, search_domain)
         return order
 
     @api.model
@@ -3714,6 +3841,7 @@ class AiAssistantTools(models.AbstractModel):
             self._check_not_employee_cost(model, name, search_domain)
             self._check_not_masked_text(model, name)
             self._check_not_structured(model, name)
+            self._check_not_copied_name(model, name, search_domain)
             # A date without a granularity groups by month, as the tool says.
             is_date = field.type in ("date", "datetime")
             groupby_specs.append(f"{name}:{granularity or 'month'}" if is_date else name)
@@ -3744,6 +3872,7 @@ class AiAssistantTools(models.AbstractModel):
             if function not in ("count", "count_distinct"):
                 self._check_not_employee_cost(model, name, search_domain)
                 self._check_not_masked_text(model, name)
+                self._check_not_copied_name(model, name, search_domain)
             if function != "count":
                 self._check_not_structured(model, name)
             aggregates.append(f"{name}:{function}")
@@ -4173,6 +4302,7 @@ class AiAssistantTools(models.AbstractModel):
             limit=max_rows + 1,
         )
         hidden_labels = self._hidden_tracking_labels(model)
+        named_labels = self._hidden_tracking_labels(model, is_named=True)
         shown_messages = messages[:max_rows].sudo()
         refused_attachment_ids = self._refused_attachment_ids(set(shown_messages.attachment_ids.ids))
         masked_ids = set(
@@ -4200,8 +4330,8 @@ class AiAssistantTools(models.AbstractModel):
                     "changes": [
                         {
                             **change,
-                            "old": self._without_url_tokens(change["old"]),
-                            "new": self._without_url_tokens(change["new"]),
+                            "old": self._shown_tracked_value(change["old"], change["field"] in named_labels),
+                            "new": self._shown_tracked_value(change["new"], change["field"] in named_labels),
                         }
                         for change in changes
                         if change["field"] not in hidden_labels
@@ -4220,6 +4350,15 @@ class AiAssistantTools(models.AbstractModel):
         if len(entries) < len(messages):
             notice += " Only the newest %s messages are here." % len(entries)
         return f"{notice}\n<untrusted_data>\n{history}\n</untrusted_data>", len(entries)
+
+    @api.model
+    def _shown_tracked_value(self, value, is_named):
+        """A tracked change's old or new value as record_history shows it, its URL tokens redacted; DENIED_NAME_LABEL
+        for a link to a model of `_masked_name_models` (`is_named`), as the message holds the linked record's name
+        and not its id. "None" is how Odoo writes an empty one."""
+        if is_named and value not in ("", "None"):
+            return DENIED_NAME_LABEL
+        return self._without_url_tokens(value)
 
     @api.model
     def _message_text(self, body):

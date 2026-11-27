@@ -138,6 +138,15 @@ class AssistantCase(TransactionCase):
         group = self.env.ref(xmlid)
         group.write({"implied_by_ids": [Command.clear()], "user_ids": [Command.set((group.all_user_ids - users).ids)]})
 
+    def _tracked_write(self, record, values):
+        """`values` written on `record`, its tracked changes posted as Odoo posts them at commit."""
+        self.env.flush_all()
+        self.env.cr.precommit.run()
+        record.write(values)
+        self.env.flush_all()
+        self.env.cr.precommit.run()
+        return record.message_ids[0]
+
 
 @tagged("post_install", "-at_install")
 class TestAiAssistantTools(AssistantCase):
@@ -3110,15 +3119,6 @@ class TestAiDenyListSecretsAndReviews(AssistantCase):
                 content, is_error = self._search_read(self.administrator, model)
                 self.assertTrue(is_error, model)
                 self.assertIn("on the AI deny list", content)
-
-    def _tracked_write(self, record, values):
-        """`values` written on `record`, its tracked changes posted as Odoo posts them at commit."""
-        self.env.flush_all()
-        self.env.cr.precommit.run()
-        record.write(values)
-        self.env.flush_all()
-        self.env.cr.precommit.run()
-        return record.message_ids[0]
 
     def test_tracked_changes_of_a_deny_listed_field_stay_out_of_the_history(self):
         employee = self.env["hr.employee"].create({"name": "AI Paid Employee", "work_phone": "+32 470 00 01"})
@@ -7324,3 +7324,252 @@ class TestAiDenyListNames(AssistantCase):
             if model_name in self.env:
                 for path in paths:
                     self.assertTrue(tools._path_hops(model_name, path), "%s.%s" % (model_name, path))
+
+
+@tagged("post_install", "-at_install")
+class TestAiDenyListNameCopies(AssistantCase):
+    """Odoo's copies of a display name the deny list masks, on a project whose name the test denies."""
+
+    def setUp(self):
+        super().setUp()
+        if "project.task" not in self.env:
+            self.skipTest("project is not installed")
+        self.reader = new_test_user(
+            self.env,
+            login="test_assistant_name_copies",
+            groups="base.group_user,base.group_system,project.group_project_manager",
+        )
+        self.hidden, self.other = self.env["project.project"].create(
+            [{"name": "AI Hidden Orchard"}, {"name": "AI Hidden Quarry"}]
+        )
+        self.task = self.env["project.task"].create({"name": "AI Copied Task", "project_id": self.hidden.id})
+
+    def _deny_project_names(self):
+        self._set_param("deny_fields_extra", "project.project.name")
+
+    def _mailed_message(self, record):
+        """A comment on `record` mailed to a follower: Odoo writes the record's name into its subject."""
+        follower = self.env["res.partner"].create({"name": "AI Copy Follower", "email": "ai.copy.follower@example.com"})
+        record.message_subscribe(partner_ids=follower.ids)
+        message = record.message_post(body="AI mailed", message_type="comment", subtype_xmlid="mail.mt_comment")
+        self.assertEqual((message.record_name, message.subject), (record.display_name,) * 2, "Odoo's own")
+        return message
+
+    def _ratings(self, record):
+        """A rating of the task under `record`, and one of `record` itself."""
+        model_id = self.env["ir.model"]._get_id
+        return self.env["rating.rating"].create(
+            [
+                {
+                    "res_model_id": model_id("project.task"),
+                    "res_id": self.task.id,
+                    "parent_res_model_id": model_id(record._name),
+                    "parent_res_id": record.id,
+                    "rating": 5,
+                },
+                {"res_model_id": model_id(record._name), "res_id": record.id, "rating": 3},
+            ]
+        )
+
+    def _rows(self, model, records, fields):
+        payload, is_error = self._search_read(self.reader, model, [["id", "in", records.ids]], fields, order="id")
+        self.assertFalse(is_error, payload)
+        return payload["records"]
+
+    def _found_ids(self, model, records, terms):
+        payload, is_error = self._search_read(self.reader, model, [["id", "in", records.ids], *terms], ["id"])
+        self.assertFalse(is_error, payload)
+        return [row["id"] for row in payload["records"]]
+
+    def test_a_message_on_a_masked_record_reads_the_name_shown_instead(self):
+        mailed = self._mailed_message(self.hidden)
+        reply = self.hidden.message_post(
+            body="AI reply", parent_id=mailed.id, message_type="comment", subtype_xmlid="mail.mt_note"
+        )
+        mail = self.env["mail.mail"].create(
+            {"model": "project.project", "res_id": self.hidden.id, "subject": self.hidden.name, "body_html": "AI"}
+        )
+        scheduled = self.env["mail.scheduled.message"].create(
+            {
+                "model": "project.project",
+                "res_id": self.hidden.id,
+                "subject": self.hidden.name,
+                "scheduled_date": datetime(2099, 1, 1),
+                "author_id": self.reader.partner_id.id,
+            }
+        )
+        self._deny_project_names()
+        rows = self._rows("mail.message", mailed | reply, ["record_name", "subject", "parent_id"])
+        self.assertEqual(
+            [(row["display_name"], row["record_name"], row["subject"]) for row in rows[:1]],
+            [(DENIED_NAME_LABEL,) * 3],
+        )
+        self.assertEqual(rows[1]["parent_id"], [mailed.id, DENIED_NAME_LABEL])
+        [mail_row] = self._rows("mail.mail", mail, ["record_name", "subject", "mail_message_id"])
+        self.assertEqual(
+            (mail_row["display_name"], mail_row["record_name"], mail_row["subject"], mail_row["mail_message_id"][1]),
+            (DENIED_NAME_LABEL,) * 4,
+        )
+        [scheduled_row] = self._rows("mail.scheduled.message", scheduled, ["subject"])
+        self.assertEqual(scheduled_row["subject"], DENIED_NAME_LABEL)
+        self.assertIn(
+            "id %s: %s" % (mailed.id, DENIED_NAME_LABEL),
+            self._tools(self.reader)._question_context("mail.message", mailed.id),
+        )
+        self.assertNotIn("Orchard", json.dumps([rows, mail_row, scheduled_row]))
+
+    def test_a_file_an_activity_and_a_rating_of_a_masked_record_read_the_name_shown_instead(self):
+        attachment = self.env["ir.attachment"].create(
+            {"name": "ai-copy.txt", "res_model": "project.project", "res_id": self.hidden.id, "raw": b"AI"}
+        )
+        activity = self.hidden.activity_schedule("mail.mail_activity_data_todo", user_id=self.reader.id)
+        under, of_project = self._ratings(self.hidden)
+        self.assertEqual(
+            (attachment.res_name, activity.res_name, under.parent_res_name, of_project.display_name),
+            (self.hidden.name,) * 4,
+            "Odoo's own",
+        )
+        product = self.env["product.product"].create({"name": "AI Coded Widget", "default_code": "AI-SECRET-CODE-58"})
+        product_file = self.env["ir.attachment"].create(
+            {"name": "ai-widget.txt", "res_model": "product.product", "res_id": product.id, "raw": b"AI"}
+        )
+        self.assertEqual(product_file.res_name, "[AI-SECRET-CODE-58] AI Coded Widget", "Odoo's own")
+        self._set_param("deny_fields_extra", "project.project.name, product.product.default_code")
+        for model, records, expected in (
+            ("ir.attachment", attachment | product_file, [DENIED_NAME_LABEL, "AI Coded Widget"]),
+            ("mail.activity", activity, [DENIED_NAME_LABEL]),
+        ):
+            self.assertEqual([row["res_name"] for row in self._rows(model, records, ["res_name"])], expected, model)
+        rows = self._rows("rating.rating", under | of_project, ["res_name", "parent_res_name"])
+        self.assertEqual(
+            [(row["display_name"], row["res_name"], row["parent_res_name"]) for row in rows],
+            [
+                (self.task.name, self.task.name, DENIED_NAME_LABEL),
+                (DENIED_NAME_LABEL, DENIED_NAME_LABEL, False),
+            ],
+        )
+        payload, is_error = self._call(
+            self.reader,
+            "read_group",
+            model="rating.rating",
+            domain=json.dumps([["id", "=", of_project.id]]),
+            groupby=["id"],
+            measures=[],
+            orderby="",
+            limit=0,
+        )
+        self.assertFalse(is_error, payload)
+        self.assertEqual([row["id"] for row in payload["groups"]], [[of_project.id, DENIED_NAME_LABEL]])
+
+    def test_a_tracked_change_of_a_link_to_a_masked_record_reads_the_name_shown_instead(self):
+        moved = self._tracked_write(self.task, {"project_id": self.other.id})
+        self.assertIn(self.hidden.name, moved.body, "Odoo writes the names into the message's body")
+        label = self.env["project.task"]._fields["project_id"].string
+        self._deny_project_names()
+        content, is_error = self._tools(self.reader)._execute(
+            "record_history", {"model": "project.task", "res_id": self.task.id}
+        )
+        self.assertFalse(is_error, content)
+        history = json.loads(content.split("<untrusted_data>\n", 1)[1].rsplit("\n</untrusted_data>", 1)[0])
+        changes = [change for entry in history for change in entry["changes"]]
+        self.assertIn({"field": label, "old": DENIED_NAME_LABEL, "new": DENIED_NAME_LABEL}, changes)
+        [row] = self._rows("mail.message", moved, ["body", "preview"])
+        self.assertEqual((row["body"], row["preview"]), (MASKED_MESSAGE_TEXT,) * 2)
+        self.assertNotIn("AI Hidden", json.dumps([changes, row]))
+        if "mail.tracking.value" in self.env:
+            rows = self._rows("mail.tracking.value", self._project_change(moved), ["old_value_char", "new_value_char"])
+            self.assertEqual(
+                [(row["old_value_char"], row["new_value_char"]) for row in rows], [(DENIED_NAME_LABEL,) * 2]
+            )
+
+    def _project_change(self, message):
+        return self.env["mail.tracking.value"].search(
+            [("mail_message_id", "=", message.id), ("field_id.name", "=", "project_id")]
+        )
+
+    def test_a_filter_on_a_copy_of_a_masked_name_never_finds_its_row(self):
+        mailed = self._mailed_message(self.hidden)
+        activity = self.hidden.activity_schedule("mail.mail_activity_data_todo", user_id=self.reader.id)
+        under, of_project = self._ratings(self.hidden)
+        # The task's ratings follow it to its new project.
+        moved = self._tracked_write(self.task, {"project_id": self.other.id})
+        word = "AI Hidden"
+        searches = [
+            ("mail.message", mailed, ["subject", "ilike", word]),
+            ("mail.message", mailed, ["display_name", "ilike", word]),
+            ("mail.message", moved, ["body", "ilike", word]),
+            ("mail.activity", activity, ["res_name", "ilike", word]),
+            ("rating.rating", under, ["parent_res_name", "ilike", word]),
+            ("rating.rating", of_project, ["display_name", "ilike", word]),
+        ]
+        if "mail.tracking.value" in self.env:
+            searches.append(("mail.tracking.value", self._project_change(moved), ["new_value_char", "ilike", word]))
+        for model, records, term in searches:
+            self.assertTrue(self._found_ids(model, records, [term]), "Odoo's own: %s %s" % (model, term))
+        self._deny_project_names()
+        for model, records, term in searches:
+            for terms in ([term], ["!", term]):
+                self.assertEqual(self._found_ids(model, records, terms), [], (model, terms))
+
+    def test_a_copy_of_a_masked_name_is_no_sort_or_group_key_over_its_rows(self):
+        activities = self.hidden.activity_schedule(
+            "mail.mail_activity_data_todo", user_id=self.reader.id
+        ) | self.partner.activity_schedule("mail.mail_activity_data_todo", user_id=self.reader.id)
+        self._deny_project_names()
+        message = "mail.activity.res_name copies the display name of the record its row names"
+        content, is_error = self._search_read(
+            self.reader, "mail.activity", [["id", "in", activities.ids]], ["id"], order="res_name"
+        )
+        self.assertTrue(is_error, content)
+        self.assertIn(message, content)
+        for groupby, measures in ((["res_name"], []), (["user_id"], ["res_name:max"])):
+            content, is_error = self._read_group(activities, groupby, measures)
+            self.assertTrue(is_error, (groupby, measures))
+            self.assertIn(message, content)
+        payload, is_error = self._read_group(activities, ["res_name"], [], [["res_model", "=", "res.partner"]])
+        self.assertFalse(is_error, payload)
+        self.assertEqual([row["res_name"] for row in payload["groups"]], [self.partner.name])
+
+    def _read_group(self, activities, groupby, measures, terms=()):
+        return self._call(
+            self.reader,
+            "read_group",
+            model="mail.activity",
+            domain=json.dumps([["id", "in", activities.ids], *terms]),
+            groupby=groupby,
+            measures=measures,
+            orderby="",
+            limit=0,
+        )
+
+    def test_the_copies_of_a_name_the_deny_list_does_not_mask_stay_as_odoo_stores_them(self):
+        mailed = self._mailed_message(self.partner)
+        attachment = self.env["ir.attachment"].create(
+            {"name": "ai-copy.txt", "res_model": "res.partner", "res_id": self.partner.id, "raw": b"AI"}
+        )
+        activity = self.partner.activity_schedule("mail.mail_activity_data_todo", user_id=self.reader.id)
+        rating = self._ratings(self.partner)[1]
+        assigned = self._tracked_write(self.task, {"partner_id": self.partner.id})
+        self._deny_project_names()
+        name = self.partner.name
+        [row] = self._rows("mail.message", mailed, ["record_name", "subject"])
+        self.assertEqual((row["display_name"], row["record_name"], row["subject"]), (name,) * 3)
+        for model, record in (("ir.attachment", attachment), ("mail.activity", activity), ("rating.rating", rating)):
+            self.assertEqual(self._rows(model, record, ["res_name"])[0]["res_name"], name, model)
+        for model, records, term in (
+            ("mail.message", mailed, ["subject", "ilike", name]),
+            ("mail.activity", activity, ["res_name", "ilike", name]),
+            ("rating.rating", rating, ["display_name", "ilike", name]),
+            ("mail.message", assigned, ["body", "ilike", name]),
+        ):
+            self.assertEqual(self._found_ids(model, records, [term]), records.ids, (model, term))
+        payload, is_error = self._search_read(
+            self.reader, "mail.activity", [["id", "=", activity.id]], ["res_name"], order="res_name"
+        )
+        self.assertFalse(is_error, payload)
+        content, is_error = self._tools(self.reader)._execute(
+            "record_history", {"model": "project.task", "res_id": self.task.id}
+        )
+        self.assertFalse(is_error, content)
+        label = self.env["project.task"]._fields["partner_id"].string
+        self.assertIn('"field": "%s", "old": "None", "new": "%s"' % (label, name), content)
