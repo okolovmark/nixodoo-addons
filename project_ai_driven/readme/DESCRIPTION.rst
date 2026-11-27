@@ -748,15 +748,17 @@ it (``2px`` spans 2).
 * An image or a link that names an attachment, by a relative url or a url on
   the host of this database (``get_base_url()``, a website's domain where it
   applies), in any url form, its id written as the editor writes it (at most
-  ten ASCII digits), becomes a pointer:
+  ten ASCII digits), read as a browser reads it (a backslash up to the query
+  of an http(s) or relative url is a slash), becomes a pointer:
   ``![image: <name>](attachment <id>)`` for an image,
   ``[file: <name>](attachment <id>)`` for a bare link and
   ``[<link text>](attachment <id>)`` for a link with a text of its own;
   ``![image](attachment <id>)`` and ``[file](attachment <id>)`` without a
   name.
-* An inline image the save has not moved to an attachment shows as
-  ``[image not yet moved to an attachment]``: its data never enters the
-  brief.
+* An inline image the save has not moved to an attachment is written
+  ``\[image not yet moved to an attachment\]`` and renders as the bracketed
+  text, whatever stands around it (a ``(`` after it, a ``!`` before it): its
+  data never enters the brief.
 * Tokens and credentials are removed from urls: a url loses its user and
   password, its query and fragment parameters named like a token, and the
   ``hash`` and ``pid`` that sign a portal link. That holds for the url of a
@@ -765,9 +767,24 @@ it (``2px`` spans 2).
 * A link of a scheme other than http(s) or mailto keeps only its text. A
   link with no text to show (none, or only a ``script``, ``style``,
   ``template`` or ``noscript`` element) is written bare, as its url or its
-  attachment's pointer, a word apart from the words around it.
+  attachment's pointer, a word apart from the words around it; so is a link
+  whose text is its url. A bare url that holds a backslash or a bracket is
+  written as an autolink ``<url>``, its white space, control characters,
+  ``<`` and ``>`` percent-encoded; a relative one, which makes no autolink,
+  and one that holds an ``&`` read as a character reference are written
+  ``[url](url)``. Inside another link's text, where CommonMark lets no link
+  stand, a bare link is written as a word: its text, or its url where it
+  has none.
 * In the url of a link or an image, a space, a parenthesis, ``<``, ``>`` and
-  a backslash are percent-encoded, a backslash as ``%5C``.
+  a backslash are percent-encoded, a backslash as ``%5C``. An ``&`` that a
+  renderer would read as a character reference (``&#``, ``&name;``, or a
+  name HTML reads without ``;``, as ``&reg`` in ``&reg_id``, where no ``=``,
+  letter or digit follows it) is written ``&amp;``, so that it stays an
+  ``&``.
+* A link or an image right after a url of the text, also inside emphasis,
+  is set apart from it by a space: GFM reads a url of the text on up to a
+  space or a ``<``, which would take its markup in. After a link, an
+  autolink or code, none is needed.
 * Inline code is written on one line: a line break in it is a space, and so
   is the break on each side of a block in it. Code, inline or preformatted,
   leaves out what a ``script``, ``style``, ``template`` or ``noscript``
@@ -781,7 +798,9 @@ it (``2px`` spans 2).
   paragraph and is still open at its end, where the text of an editor's
   nested item going on after it could close it. A table's caption is written
   on one line, and a ``[label]:`` at its start is escaped too, after the
-  quote and list markers and the box the caption opens with as well.
+  quote and list markers and the box the caption opens with as well. An
+  autolink the brief writes at the start of a line stays as written; the
+  text's own ``<scheme:...>`` there is escaped (``\<javascript:...>``).
 * A ``!`` right before a link is escaped (``\![text](url)``), so that the
   link does not read as an image, unless an odd run of backslashes right
   before it escapes it already; the backslashes typed before it count across

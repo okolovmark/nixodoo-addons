@@ -1102,15 +1102,17 @@ it (<tt class="docutils literal">2px</tt> spans 2).</p>
 <li>An image or a link that names an attachment, by a relative url or a url on
 the host of this database (<tt class="docutils literal">get_base_url()</tt>, a website’s domain where it
 applies), in any url form, its id written as the editor writes it (at most
-ten ASCII digits), becomes a pointer:
+ten ASCII digits), read as a browser reads it (a backslash up to the query
+of an http(s) or relative url is a slash), becomes a pointer:
 <tt class="docutils literal">![image: <span class="pre">&lt;name&gt;](attachment</span> &lt;id&gt;)</tt> for an image,
 <tt class="docutils literal">[file: <span class="pre">&lt;name&gt;](attachment</span> &lt;id&gt;)</tt> for a bare link and
 <tt class="docutils literal">[&lt;link <span class="pre">text&gt;](attachment</span> &lt;id&gt;)</tt> for a link with a text of its own;
 <tt class="docutils literal"><span class="pre">![image](attachment</span> &lt;id&gt;)</tt> and <tt class="docutils literal"><span class="pre">[file](attachment</span> &lt;id&gt;)</tt> without a
 name.</li>
-<li>An inline image the save has not moved to an attachment shows as
-<tt class="docutils literal">[image not yet moved to an attachment]</tt>: its data never enters the
-brief.</li>
+<li>An inline image the save has not moved to an attachment is written
+<tt class="docutils literal">\[image not yet moved to an attachment\]</tt> and renders as the bracketed
+text, whatever stands around it (a <tt class="docutils literal">(</tt> after it, a <tt class="docutils literal">!</tt> before it): its
+data never enters the brief.</li>
 <li>Tokens and credentials are removed from urls: a url loses its user and
 password, its query and fragment parameters named like a token, and the
 <tt class="docutils literal">hash</tt> and <tt class="docutils literal">pid</tt> that sign a portal link. That holds for the url of a
@@ -1119,9 +1121,24 @@ word in a text or in code. A token written loose, outside a url, stays.</li>
 <li>A link of a scheme other than http(s) or mailto keeps only its text. A
 link with no text to show (none, or only a <tt class="docutils literal">script</tt>, <tt class="docutils literal">style</tt>,
 <tt class="docutils literal">template</tt> or <tt class="docutils literal">noscript</tt> element) is written bare, as its url or its
-attachment’s pointer, a word apart from the words around it.</li>
+attachment’s pointer, a word apart from the words around it; so is a link
+whose text is its url. A bare url that holds a backslash or a bracket is
+written as an autolink <tt class="docutils literal">&lt;url&gt;</tt>, its white space, control characters,
+<tt class="docutils literal">&lt;</tt> and <tt class="docutils literal">&gt;</tt> percent-encoded; a relative one, which makes no autolink,
+and one that holds an <tt class="docutils literal">&amp;</tt> read as a character reference are written
+<tt class="docutils literal"><span class="pre">[url](url)</span></tt>. Inside another link’s text, where CommonMark lets no link
+stand, a bare link is written as a word: its text, or its url where it
+has none.</li>
 <li>In the url of a link or an image, a space, a parenthesis, <tt class="docutils literal">&lt;</tt>, <tt class="docutils literal">&gt;</tt> and
-a backslash are percent-encoded, a backslash as <tt class="docutils literal">%5C</tt>.</li>
+a backslash are percent-encoded, a backslash as <tt class="docutils literal">%5C</tt>. An <tt class="docutils literal">&amp;</tt> that a
+renderer would read as a character reference (<tt class="docutils literal">&amp;#</tt>, <tt class="docutils literal">&amp;name;</tt>, or a
+name HTML reads without <tt class="docutils literal">;</tt>, as <tt class="docutils literal">&amp;reg</tt> in <tt class="docutils literal">&amp;reg_id</tt>, where no <tt class="docutils literal">=</tt>,
+letter or digit follows it) is written <tt class="docutils literal">&amp;amp;</tt>, so that it stays an
+<tt class="docutils literal">&amp;</tt>.</li>
+<li>A link or an image right after a url of the text, also inside emphasis,
+is set apart from it by a space: GFM reads a url of the text on up to a
+space or a <tt class="docutils literal">&lt;</tt>, which would take its markup in. After a link, an
+autolink or code, none is needed.</li>
 <li>Inline code is written on one line: a line break in it is a space, and so
 is the break on each side of a block in it. Code, inline or preformatted,
 leaves out what a <tt class="docutils literal">script</tt>, <tt class="docutils literal">style</tt>, <tt class="docutils literal">template</tt> or <tt class="docutils literal">noscript</tt>
@@ -1135,7 +1152,9 @@ link reference definition and show nothing of; and a label that opens a
 paragraph and is still open at its end, where the text of an editor’s
 nested item going on after it could close it. A table’s caption is written
 on one line, and a <tt class="docutils literal">[label]:</tt> at its start is escaped too, after the
-quote and list markers and the box the caption opens with as well.</li>
+quote and list markers and the box the caption opens with as well. An
+autolink the brief writes at the start of a line stays as written; the
+text’s own <tt class="docutils literal"><span class="pre">&lt;scheme:...&gt;</span></tt> there is escaped (<tt class="docutils literal"><span class="pre">\&lt;javascript:...&gt;</span></tt>).</li>
 <li>A <tt class="docutils literal">!</tt> right before a link is escaped (<tt class="docutils literal"><span class="pre">\![text](url)</span></tt>), so that the
 link does not read as an image, unless an odd run of backslashes right
 before it escapes it already; the backslashes typed before it count across
@@ -2092,8 +2111,9 @@ bare link to a file;</li>
 <li><tt class="docutils literal">[&lt;link <span class="pre">text&gt;](attachment</span> &lt;id&gt;)</tt>, a link with a text of its own.</li>
 </ul>
 <p>The tool reads the file it needs from <tt class="docutils literal">ir.attachment</tt> by that id, under
-its own rights. <tt class="docutils literal">[image not yet moved to an attachment]</tt> stands for an
-inline image of a text saved before 16.0.2.13.0. Notes older than the last
+its own rights. <tt class="docutils literal">\[image not yet moved to an attachment\]</tt>, which renders
+as the bracketed text, stands for an inline image of a text saved before
+16.0.2.13.0. Notes older than the last
 10 are read with <tt class="docutils literal">search_read</tt> on <tt class="docutils literal">mail.message</tt>, as above. The help
 text of the field is the reference for the tokens and credentials removed
 from urls, and for the forms that may keep them.</p>
@@ -2205,8 +2225,8 @@ task, copies images: a write that pastes one leaves it pointing at the
 other task.</li>
 <li>A link is copied in the forms <tt class="docutils literal"><span class="pre">/web/image/&lt;id&gt;</span></tt> and <tt class="docutils literal"><span class="pre">/web/content/&lt;id&gt;</span></tt>
 only: the other forms the brief reads, such as
-<tt class="docutils literal"><span class="pre">/web/content/ir.attachment/&lt;id&gt;/datas</span></tt> or <tt class="docutils literal"><span class="pre">/web/content?id=&lt;id&gt;</span></tt>,
-stay as they are.</li>
+<tt class="docutils literal"><span class="pre">/web/content/ir.attachment/&lt;id&gt;/datas</span></tt>, <tt class="docutils literal"><span class="pre">/web/content?id=&lt;id&gt;</span></tt> or a
+url with a backslash in its host or up to the id’s end, stay as they are.</li>
 <li>A large image that a copied text both shows and links as a file gives
 the new task two attachments: the image resized, the file as uploaded.</li>
 <li>An image taken out of a text, and the images of a deleted question row or
@@ -2216,6 +2236,19 @@ code on a best-effort basis: a url split by markup (bold, a line break),
 or holding a brace, <tt class="docutils literal">&lt;</tt> or <tt class="docutils literal">&gt;</tt>, or a bracket or a quote in its query,
 may keep its token. A token written loose, outside a url, stays as
 written.</li>
+<li>The text’s own <tt class="docutils literal"><span class="pre">&lt;scheme:...&gt;</span></tt> in the middle of a line is written as
+typed, which a renderer reads as an autolink: only at the start of a line
+is it escaped.</li>
+<li>A link right after a url of the text is set apart from it where the link
+opens an inline element, not where text of that element comes before the
+link: a renderer may then read the url on into the link’s markup.</li>
+<li>A link with a text of its own inside another link’s text is written as a
+link, and a renderer shows the outer one as text: CommonMark lets no link
+stand in another’s text.</li>
+<li>A text that names attachments only by urls whose backslash is a
+character reference (<tt class="docutils literal">&amp;#92;web</tt>) gets pointers without the
+attachments’ names, an element’s own title or alt text at most: the brief
+looks the names up only for a text that holds <tt class="docutils literal">/web</tt> or <tt class="docutils literal">\web</tt>.</li>
 <li>A few table shapes come out otherwise than a browser shows them: a
 browser ends what holds a part of the table there, the brief does not.<ul>
 <li>A row inside a row: the cells after it stay in the outer row.</li>

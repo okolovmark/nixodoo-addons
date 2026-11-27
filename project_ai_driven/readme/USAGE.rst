@@ -288,8 +288,9 @@ in the attachments list. A pointer in a text names an ``ir.attachment``:
 * ``[<link text>](attachment <id>)``, a link with a text of its own.
 
 The tool reads the file it needs from ``ir.attachment`` by that id, under
-its own rights. ``[image not yet moved to an attachment]`` stands for an
-inline image of a text saved before 16.0.2.13.0. Notes older than the last
+its own rights. ``\[image not yet moved to an attachment\]``, which renders
+as the bracketed text, stands for an inline image of a text saved before
+16.0.2.13.0. Notes older than the last
 10 are read with ``search_read`` on ``mail.message``, as above. The help
 text of the field is the reference for the tokens and credentials removed
 from urls, and for the forms that may keep them.
