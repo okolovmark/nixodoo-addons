@@ -19,7 +19,9 @@
   when that record's model tracks a readable field of the same label, or
   has no relational field to or from the hidden field's model; a readable
   field's change is left out where a hidden field of its model shares its
-  label. With ``mail_tracking``, its tracking values are filtered by field.
+  label, and its values read *a name on the AI deny list* where a tracked
+  link into a model whose names the list may mask shares it. With
+  ``mail_tracking``, its tracking values are filtered by field.
 * A bank account's number masks a message by the accounts its record links
   to when the tools run, as stored or sanitized: a mail sent before the
   record's account, or the account's number, changed keeps its text, and
@@ -44,25 +46,58 @@
   any other text field that is not stored is matched by the field's search
   method, though its value shows redacted.
 * A guest's name is masked only in the display names Odoo builds from the
-  guest record, by the fields it builds them from, not by their value: a
-  group chat that has a name still reads *a name on the AI deny list* while
-  a guest is among the members Odoo would name it by. Where Odoo copies a
-  guest's name as text, the copy shows and a filter matches it: a live
-  chat's name, the record name a message, rating or activity shows
-  (``record_name``, ``res_name``), the live chat report and the messages
-  live chat posts about the visitor. A live chat guest is *Visitor*
-  (*Visitor #N* with ``website_livechat``) unless the visitor types a name.
+  guest record, by the fields it builds them from, not by their value, and
+  in their copies: a group chat that has a name still reads *a name on the
+  AI deny list* while a guest is among the members Odoo would name it by.
+  A live chat's own name, which Odoo writes from the visitor's, is not
+  built from the guest record: it shows, and so do its copies (the record
+  name of the messages, ratings and activities on it), the live chat
+  report and the messages live chat posts about the visitor. A live chat
+  guest is *Visitor* (*Visitor #N* with ``website_livechat``) unless the
+  visitor types a name.
 * A display name shows a denied field's value where it holds the value's
   string form in any case: a value Odoo writes into the name otherwise, as a
   selection's label or a date or an amount in the employee's language, is
   not found, and the name shows as Odoo builds it.
 * A display name is checked for the denied values of its own record and of
   the records it is built from by a link. A text that copies such a value
-  or name keeps it: a line's description, a contact's name, which holds
-  its company's (a company named by its hidden email shows it in its
-  contacts' names), the record name a message, rating or activity shows
-  (``record_name``, ``res_name``), a message's ``email_from`` and the old
-  and new values of a tracked link in a record's history.
+  or name, other than the copies and texts the list masks (see Copies of a
+  name), keeps it: a line's description, a contact's name, which holds its
+  company's (a company named by its hidden email shows it in its contacts'
+  names), and a message's ``email_from``.
+* The copies and texts of a masked name are read for the current display
+  name of the record their row names and of its direct links. Kept as
+  Odoo stores them: a name a record held before a rename, and the name of
+  a record it linked to before (``record_history`` masks the names its
+  tracked links held in the texts it shows); a name reached through lines
+  or a second link; a name the message's ``preview`` cuts short; a name as
+  an alias address spells it, unaccented with dashes for spaces; the text
+  of a message's translations and SMS; a calendar event scheduled from an
+  activity, named after the activity's record; a file's own name, as a
+  printed report's named after its record; and a live chat's own name.
+  A ``count_distinct`` of a copy or text counts its stored values.
+* A tracked property goes by its label as the definition holds it now: a
+  change logged under a property's former name, or of a property since
+  removed, matches no hidden or masked label and shows in the message's
+  text and in ``record_history``. With ``mail_tracking``, the tracking
+  value of such a link reads *a name on the AI deny list*.
+* A filter on a copy or text of a name leaves out more rows than the
+  display changes, as SQL decides without the names: where the list hides
+  a contact's email or VAT number, the rows of every contact with one set,
+  its name built from it or not; those of every group chat with a guest
+  among its members, named or not; every tracked change of a property's
+  link; and every copy
+  of a name the list may mask that differs from its record's stored name,
+  a renamed record's included. Sorts, groups and aggregates are refused
+  over the same rows.
+* A sort by a many2one into a model whose names the list masks orders by
+  that model's own order, its name among the keys for many models (a
+  task's ``project_id`` by the project's sequence and name).
+* On a message search that names no model, or more than 5, the refusal of
+  a sort by a copy or text counts as the employee the matching messages
+  that may show one otherwise, which Odoo checks one by one: where the
+  employee reads none of them, it checks each, up to the 10,000 the search
+  looks at. How long that takes on a large database is not measured.
 * A like filter on a text matches the rows with each ``_``, vertical tab
   and whole placeholder of its value read as any run of characters, and
   checks each row so matched for the marks of a token (``token=``,
