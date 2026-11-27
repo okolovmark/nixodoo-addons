@@ -295,8 +295,9 @@ can act on:
 * grouping by a path; sorting by a field Odoo cannot sort, grouping by one
   it cannot group, aggregating one it does not store; and sorting, grouping
   or aggregating (other than counting) a message's text or another HTML
-  text, or an employee's cost or a total of it where a row holds one (see
-  AI deny list);
+  text, an employee's cost or a total of it where a row the call reads
+  holds one, or a copy of a masked name or a text that may hold one where
+  a row the call reads may show it otherwise (see AI deny list);
 * filtering, sorting, grouping or aggregating (other than with ``count``) by
   structured data: a JSON, properties or properties definition field
   (``additional_identifiers`` of a contact, ``task_properties``), which
@@ -381,8 +382,10 @@ is seen by everyone who can see the record, not only by the asker.
 * **Employees' costs**: an amount that is hours times an employee's hourly
   cost, or a total of such amounts, reads *an employee's cost, on the AI
   deny list* on the rows that hold one, matches no filter there, negated or
-  not, and is no sort key, group or total over rows that hold one. The other
-  rows keep their values. These are:
+  not, and is no sort key, group or total where a row the call reads holds
+  one: the employee's read access is checked first, then the employee's own
+  search among the rows that hold one decides. The other rows keep their
+  values. These are:
 
   * the ``amount`` of an analytic line that names an employee (a
     timesheet); lines without an employee (accounting) keep theirs;
@@ -396,6 +399,13 @@ is seen by everyone who can see the record, not only by the asker.
     names an employee, even one the asker may not read: beside the hours
     they would give the rate. They are computed, so no filter, group or
     aggregate takes them, and a sort by one over such an account is refused;
+  * the ``description`` of a project update (``project.update``) whose
+    project's analytic account (``account_id``) has a line that names an
+    employee, an empty one too. Odoo 20 writes no costs into it, but a
+    database migrated from 16.0 keeps the text 16.0 wrote there, with the
+    project's costs, revenue and margin, and people type figures. A sort,
+    group or aggregate by it over such an update is refused as a cost, over
+    another as any HTML text;
   * with ``sale_timesheet``, a sale order line with a timesheet: its
     ``purchase_price``, which ``sale_timesheet_margin`` sets to the
     timesheets' hourly cost, ``margin`` and ``margin_percent``; its order's
@@ -433,9 +443,10 @@ is seen by everyone who can see the record, not only by the asker.
   one: a Discuss channel member of a guest, a live chat history of a guest,
   a call session of such a member, and a group chat that has a guest among
   the members Odoo names it by. A properties field's link to such a record
-  reads the same. A name Odoo copies as text, as a live chat's name, is
-  not masked (see Roadmap). A display name Odoo builds from a denied field
-  that is no link, as a product's from its internal reference with
+  reads the same, and so do Odoo's copies of its name (see Copies of a
+  name); a live chat's own name, which Odoo writes from its visitor's, is
+  no such copy and shows (see Roadmap). A display name Odoo builds from a
+  denied field that is no link, as a product's from its internal reference with
   ``product.*.default_code`` in ``deny_fields_extra``, reads as the record's
   ``_rec_name`` does instead (*Desk* for *[DESK-01] Desk*) where it shows
   that field's value, in the same places, and so does a display name that
@@ -468,6 +479,48 @@ is seen by everyone who can see the record, not only by the asker.
   refuses it always. The refusal names ``complete_name`` and ``name`` to
   filter on instead, through the link the filter crosses
   (``partner_id.name``); ids still compare, and the names still show.
+* **Copies of a name**: where the list masks a record's display name,
+  Odoo's copies of that name read the name shown instead: the
+  ``record_name`` of a message and of a mail; the ``res_name`` of an
+  attachment, an activity and a rating, and a rating's
+  ``parent_res_name``; with ``mail_tracking``, the old and new values of a
+  tracked link to the record and of a tracked many2one property, one into
+  a denied model too; and a field related to one of these. A copy that is
+  not the name shown now, as one Odoo took while the name showed a denied
+  value, reads the name shown now; a copy of a denied record's name, of a
+  removed record's, of a tracked many2many's names or of a property link
+  no single property names now reads *a name on the AI deny list*. The
+  texts that may hold the name read each occurrence of it as the name
+  shown: the ``subject``, ``body`` and ``preview`` of a message, the
+  ``body_html`` and ``body_content`` of a mail, the ``subject`` and
+  ``body`` of a scheduled message, and a field related to one (a mail
+  group message's ``subject``). The names looked for are the current
+  display names of the message's record, of each record that one links to
+  by a stored many2one (a task's project in its creation message), and of
+  each record the text links (``data-oe-model``), a mail's own
+  ``body_html`` included. An occurrence starts a word and may end within
+  one (*Desks*), in any case, with any run of white space between its
+  words, as stored, HTML-escaped or with its URL tokens redacted; the rest
+  of the text stays (*Re: a name on the AI deny list*). The display name
+  of a message, a mail and a rating is such a copy or text and reads
+  alike, in a question's context too. Odoo 20's reply-to names the
+  message's author, not its record, and shows as stored.
+
+  A filter on a copy or such a text, negated or not, never finds a row
+  whose value the masking changes or may change. It is decided in SQL and
+  leaves out more than the display changes: every row that names a record
+  of a denied model, of a model whose names the list hides, or of one
+  named by such a copy (a message, a rating); a row that names a record
+  whose name is built from a denied value or record where that source is
+  set, following links (a contact with a hidden email or VAT number set);
+  a copy that differs from its record's stored name; a text whose record
+  links by a stored many2one to a record whose name may be masked, or
+  whose own HTML links a record of such a model or of a denied one; and
+  every tracked property link. Sorting, grouping or aggregating (other
+  than counting) by a copy or such a text is refused where a row the call
+  reads may show it otherwise, decided as for an employee's cost; a
+  message search that names no model, or more than 5, and passes the
+  10,000 matches it looks at refuses every sort by one, whatever the rows.
 * **Rows of a denied record**: its messages, posted or scheduled (with the
   files Odoo keeps under a scheduled one until it posts it), their
   translations and SMS, its mails, tracking values, notifications,
@@ -489,7 +542,8 @@ is seen by everyone who can see the record, not only by the asker.
   visitor's answer to a chatbot (``chatbot.message``), and a record's
   ``rating_last_feedback``, masked when any of the record's ratings is. An
   SMS, a rating or a chatbot answer without a message goes by its own
-  text: a link to a denied record or a meeting's URL.
+  text: a link to a denied record or a meeting's URL. A text that stays
+  reads each hidden name in it as the name shown (see Copies of a name).
 * **HTML text**: any other HTML field (a task's description, an
   activity's note, a contact's notes) that links to a record of a denied
   model or holds a Discuss meeting's URL reads *Left out: the text links a
@@ -531,7 +585,10 @@ is seen by everyone who can see the record, not only by the asker.
   reference, decimal or hex, with leading zeros or none and ``;`` or none, as lxml
   and a browser decode one, or a named one, in any case (``tok&#101;n``,
   ``&#x3d;``, ``&#37;3D``, ``/survey&#47;``, ``&equals;``, ``&sol;``); a
-  reference to another character, as ``&#610;``, is none of them. A char
+  reference to another character, as ``&#610;``, is none of them. A test
+  pins how the installed lxml decodes references in ``html2plaintext`` (a
+  named one only with its ``;``, a numeric one with or without, ``&#0;`` as
+  nothing, ``&#128;`` to ``&#159;`` as those code points). A char
   or text value is read as it is, references included. A text filter
   matches the text with each token's value replaced by one vertical tab,
   so what it finds never depends on what a token holds: the words on
@@ -585,8 +642,15 @@ is seen by everyone who can see the record, not only by the asker.
   lines, and a tracking message that names such a label loses its text (of
   the message, its mails and its translations). A VAT number goes by every
   country's label of it, as Odoo names it after its company's country.
-  With ``mail_tracking`` installed, its tracking values of these fields stay
-  out too.
+  Odoo tracks a property as *<field>: <property>*: the properties of a
+  hidden properties field, and any many2one property into a denied model,
+  are hidden alike, by the definitions as they are now. A tracked link
+  into a model whose names the list may mask (see Copies of a name), a
+  many2one property's too, goes by its label the same way: its tracking
+  message loses its text, and ``record_history`` shows the change with its
+  old and new values as *a name on the AI deny list*, and those names
+  masked in the other texts it shows. With ``mail_tracking`` installed,
+  its tracking values of hidden fields stay out too.
 
 ``deny_models_extra`` and ``deny_fields_extra`` add patterns, and so may a
 module through ``_deny_list_models`` and ``_deny_list_fields``; narrowing
