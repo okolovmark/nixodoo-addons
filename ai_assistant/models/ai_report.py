@@ -14,10 +14,11 @@ from odoo.exceptions import AccessError, UserError
 from odoo.fields import Domain
 from odoo.tools import file_open
 
+from odoo.addons.base.models.assetsbundle import rjsmin
+
 from ..utils.report_spec import ReportSpecError
 from .ai_assistant_exchange import APP_ACTION_TAG, ASSISTANT_GROUP
 from .ai_assistant_tools import AiAccessError, AiModelNotInstalledError, AiToolError, json_value
-from odoo.addons.base.models.assetsbundle import rjsmin
 
 _logger = logging.getLogger(__name__)
 

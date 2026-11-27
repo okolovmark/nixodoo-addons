@@ -2,8 +2,9 @@ from odoo import api, fields, models
 from odoo.exceptions import AccessError, ValidationError
 from odoo.tools import SQL
 
-from .project_member import RESTRICTED_ACCESS_MODES
 from odoo.addons.project.models.project_task import CLOSED_STATES
+
+from .project_member import RESTRICTED_ACCESS_MODES
 
 ROLE_CHECKED_FIELDS = {"project_id", "user_ids", "uat_user_ids", "stage_id", "state"}
 PRIVATE_PROJECT_PEOPLE_FIELDS = ("user_ids", "uat_user_ids")

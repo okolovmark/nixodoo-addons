@@ -7,6 +7,8 @@ from odoo import api, fields, models
 from odoo.exceptions import AccessError, MissingError, UserError
 from odoo.tools import format_datetime, plaintext2html
 
+from odoo.addons.ai_claude.models.ai_claude_gateway import quiet_sql_errors
+
 from .ai_assistant_exchange import (
     APP_ACTION_TAG,
     APP_MENU,
@@ -15,7 +17,6 @@ from .ai_assistant_exchange import (
     ASSISTANT_PARTNER,
     AskAiConversationRace,
 )
-from odoo.addons.ai_claude.models.ai_claude_gateway import quiet_sql_errors
 
 APP_TITLE_CHARS = 80
 APP_LIST_LIMIT = 200

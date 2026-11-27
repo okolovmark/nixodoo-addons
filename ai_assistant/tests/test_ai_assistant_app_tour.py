@@ -16,12 +16,13 @@ from odoo.tests import HttpCase, TransactionCase, new_test_user, no_retry, tagge
 from odoo.tests.tag_selector import TagsSelector
 from odoo.tools import config, mute_logger
 
-from .test_ai_assistant_app import AI_CONVERSATION_MODULE
-from .test_ai_assistant_engine import claude_turn, text
-from .test_ai_assistant_tools import ASSISTANT_KEY_ENV
 from odoo.addons.ai_assistant.models.ai_assistant_exchange import ASSISTANT_GROUP
 from odoo.addons.queue_job.tests.common import trap_jobs
 from odoo.addons.web.tests import test_js
+
+from .test_ai_assistant_app import AI_CONVERSATION_MODULE
+from .test_ai_assistant_engine import claude_turn, text
+from .test_ai_assistant_tools import ASSISTANT_KEY_ENV
 
 MODULE = "ai_assistant"
 APP_URL = "/odoo/action-ai_assistant.ai_assistant_app_action"

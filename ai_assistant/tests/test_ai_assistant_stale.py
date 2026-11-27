@@ -6,7 +6,6 @@ from psycopg2 import errors as pg_errors
 from odoo.tests import tagged
 from odoo.tools import plaintext2html
 
-from .test_ai_assistant_app import REFUSED, UNAVAILABLE, AppCase
 from odoo.addons.ai_assistant.models.ai_assistant_exchange import (
     ANSWER_NOTIFICATION,
     APP_ANSWER_NOTIFICATION,
@@ -17,6 +16,8 @@ from odoo.addons.ai_assistant.models.ai_assistant_exchange import (
 )
 from odoo.addons.ai_assistant.models.ai_assistant_tools import ASSISTANT_PREFIX
 from odoo.addons.queue_job.job import Job
+
+from .test_ai_assistant_app import REFUSED, UNAVAILABLE, AppCase
 
 QUEUE_JOB_LOGGER = "odoo.addons.ai_assistant.models.queue_job"
 EXCHANGE_LOGGER = "odoo.addons.ai_assistant.models.ai_assistant_exchange"

@@ -13,9 +13,6 @@ from odoo.exceptions import AccessError, UserError
 from odoo.tests import Form, new_test_user, tagged
 from odoo.tools import file_open
 
-from .test_ai_assistant_app import AppCase
-from .test_ai_assistant_engine import api_timeout, claude_turn, text, tool_use
-from .test_ai_assistant_tools import TOOLS_MODULE
 from odoo.addons.ai_assistant.models import ai_report as ai_report_module
 from odoo.addons.ai_assistant.models.ai_assistant_engine import MODE_PROMPTS
 from odoo.addons.ai_assistant.models.ai_assistant_tools import (
@@ -36,6 +33,10 @@ from odoo.addons.ai_assistant.models.ai_report import (
     script_json,
 )
 from odoo.addons.ai_assistant.utils.report_page import clean_page
+
+from .test_ai_assistant_app import AppCase
+from .test_ai_assistant_engine import api_timeout, claude_turn, text, tool_use
+from .test_ai_assistant_tools import TOOLS_MODULE
 
 PARTNER_PREFIX = "AI Report "
 PARTNER_DOMAIN = json.dumps([["name", "=like", PARTNER_PREFIX + "%"]])

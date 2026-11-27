@@ -20,6 +20,9 @@ from odoo.tools import SQL, frozendict, html2plaintext
 from odoo.tools.constants import IN_MAX
 from odoo.tools.sql import escape_like_value
 
+from odoo.addons.base.models.ir_attachment import condition_values
+from odoo.addons.mail.models.mail_message import MAX_COMODELS_FOR_DOMAIN, MAX_SEARCH_LIMIT
+
 from ..utils.report_page import clean_page, page_element_ids
 from ..utils.report_spec import (
     CHART_TYPES,
@@ -45,8 +48,6 @@ from ..utils.report_spec import (
     validate_bindings,
     validate_spec,
 )
-from odoo.addons.base.models.ir_attachment import condition_values
-from odoo.addons.mail.models.mail_message import MAX_COMODELS_FOR_DOMAIN, MAX_SEARCH_LIMIT
 
 _logger = logging.getLogger(__name__)
 

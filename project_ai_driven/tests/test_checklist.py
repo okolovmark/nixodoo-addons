@@ -10,8 +10,9 @@ from odoo.exceptions import AccessError, MissingError, UserError
 from odoo.tests import Form
 from odoo.tools.translate import code_translations
 
-from .common import MODULE, ProjectAiDrivenCommon
 from odoo.addons.project.models.project_task import ProjectTask
+
+from .common import MODULE, ProjectAiDrivenCommon
 
 CHECKLIST_MODEL = "project.task.checklist.item"
 CHECKLIST_RECORDS = (
