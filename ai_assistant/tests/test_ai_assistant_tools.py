@@ -17,7 +17,7 @@ from odoo.exceptions import AccessError, UserError
 from odoo.fields import Domain
 from odoo.orm.registry import _unaccent
 from odoo.tests import TransactionCase, new_test_user, tagged
-from odoo.tools import SQL, mute_logger, remove_accents
+from odoo.tools import SQL, html2plaintext, mute_logger, remove_accents
 
 from odoo.addons.ai_assistant.models.ai_assistant_tools import (
     ACCESS_DENIED_TEXT,
@@ -4762,6 +4762,29 @@ class TestAiDenyListEmployeeCosts(AssistantCase):
         cls.plain_project = cls.env["project.project"].create(
             {"name": "AI Accounting Project", "account_id": cls.plain_account.id}
         )
+        Update = cls.env["project.update"]
+        cls.update = Update.create(
+            {
+                "name": "AI Costed Update",
+                "project_id": cls.project.id,
+                "status": "at_risk",
+                "progress": 40,
+                "date": date(2026, 3, 2),
+                "description": "<p>AI update marker: costs 80, margin 70</p>",
+            }
+        )
+        cls.empty_update = Update.create(
+            {"name": "AI Empty Update", "project_id": cls.project.id, "status": "on_track", "description": False}
+        )
+        cls.plain_update = Update.create(
+            {
+                "name": "AI Plain Update",
+                "project_id": cls.plain_project.id,
+                "status": "on_track",
+                "description": "<p>AI update marker: <b>on plan</b></p>",
+            }
+        )
+        cls.update_ids = (cls.update | cls.empty_update | cls.plain_update).ids
 
     def setUp(self):
         super().setUp()
@@ -5233,6 +5256,122 @@ class TestAiDenyListEmployeeCosts(AssistantCase):
             "a formula computes nothing from a masked cost",
         )
 
+    def test_an_update_of_a_project_with_a_timesheet_shows_its_description_as_the_cost_label(self):
+        self.assertIn("costs 80", self.update.with_user(self.accountant).description, "Odoo's own reads the text")
+        names = ["name", "status", "progress", "date", "description"]
+        costed = [["id", "in", (self.update | self.empty_update).ids]]
+        payload, is_error = self._search_read(self.accountant, "project.update", costed, names)
+        self.assertFalse(is_error, payload)
+        rows = {row["id"]: row for row in payload["records"]}
+        self.assertEqual(
+            {name: rows[self.update.id][name] for name in names},
+            {
+                "name": "AI Costed Update",
+                "status": "at_risk",
+                "progress": 40,
+                "date": "2026-03-02",
+                "description": EMPLOYEE_COST_LABEL,
+            },
+        )
+        self.assertEqual(rows[self.empty_update.id]["description"], EMPLOYEE_COST_LABEL, "an empty text too")
+        payload, is_error = self._call(
+            self.accountant, "read", model="project.update", ids=self.update.ids, fields=["description"]
+        )
+        self.assertEqual((payload["records"][0]["description"], is_error), (EMPLOYEE_COST_LABEL, False))
+        dataset = {
+            "name": "updates",
+            "model": "project.update",
+            "domain": json.dumps(costed),
+            "groupby": [],
+            "measures": [],
+            "fields": ["description"],
+            "order": "id",
+            "limit": 0,
+            "formulas": [],
+        }
+        tools = self._tools(self.accountant)
+        with tools._tool_scope():
+            data = tools._report_data({"datasets": [dataset], "merges": []})
+        self.assertEqual(
+            [(row["id"], row["description"]) for row in data["updates"]["rows"]],
+            [(self.update.id, EMPLOYEE_COST_LABEL), (self.empty_update.id, EMPLOYEE_COST_LABEL)],
+        )
+
+    def test_an_update_of_a_project_without_a_timesheet_shows_its_description(self):
+        payload, is_error = self._search_read(
+            self.accountant, "project.update", [["id", "=", self.plain_update.id]], ["description"]
+        )
+        self.assertEqual((payload["records"][0]["description"], is_error), ("AI update marker: *on plan*", False))
+
+    def test_a_filter_on_an_update_s_description_matches_only_the_descriptions_shown(self):
+        Update = self.env["project.update"].with_user(self.accountant)
+        self.assertEqual(
+            Update.search([("id", "in", self.update_ids), ("description", "ilike", "AI update marker")]),
+            self.update | self.plain_update,
+            "Odoo's own reads the text",
+        )
+        updates = [["id", "in", self.update_ids]]
+        for terms, expected in (
+            ([["description", "ilike", "AI update marker"]], self.plain_update.ids),
+            ([["description", "ilike", "costs 80"]], []),
+            (["!", ["description", "ilike", "costs 80"]], self.plain_update.ids),
+            ([["description", "=", False]], []),
+        ):
+            with self.subTest(terms=terms):
+                self.assertEqual(self._found_ids("project.update", [*updates, *terms]), expected)
+        projects = [["id", "in", (self.project | self.plain_project).ids]]
+        self.assertEqual(
+            self._found_ids("project.project", [*projects, ["update_ids.description", "ilike", "AI update marker"]]),
+            self.plain_project.ids,
+            "nor through a link",
+        )
+
+    def test_an_update_s_description_is_never_a_sort_key_or_a_group_where_it_is_masked(self):
+        updates = [["id", "in", self.update_ids]]
+        refusal = (
+            "Not available: project.update.description sums employees' costs where"
+            " project_id.account_id.line_ids.employee_id names one, on the AI deny list: sort, group or aggregate by"
+            " another field."
+        )
+        content, is_error = self._search_read(self.accountant, "project.update", updates, ["id"], order="description")
+        self.assertEqual((content, is_error), (refusal, True))
+        for groupby, measures in (
+            (["description"], []),
+            ([], ["description:max"]),
+            (["status"], ["text:min(description)"]),
+        ):
+            with self.subTest(groupby=groupby, measures=measures):
+                content, is_error = self._call(
+                    self.accountant,
+                    "read_group",
+                    model="project.update",
+                    domain=json.dumps(updates),
+                    groupby=groupby,
+                    measures=measures,
+                    orderby="",
+                    limit=0,
+                )
+                self.assertEqual((content, is_error), (refusal, True))
+        content, is_error = self._search_read(
+            self.accountant, "project.update", [["id", "=", self.plain_update.id]], ["id"], order="description"
+        )
+        self.assertTrue(is_error, content)
+        self.assertIn("project.update.description is an HTML text", content, "elsewhere refused as any HTML text")
+
+    def test_an_update_s_description_leaves_no_tracked_change_in_its_history(self):
+        self.env.flush_all()
+        self.env.cr.precommit.run()
+        self.update.write({"name": "AI Costed Update Renamed", "description": "<p>AI update marker: costs 90</p>"})
+        self.env.flush_all()
+        self.env.cr.precommit.run()
+        content, is_error = self._tools(self.accountant)._execute(
+            "record_history", {"model": "project.update", "res_id": self.update.id}
+        )
+        self.assertFalse(is_error, content)
+        self.assertIn('"field": "Title", "old": "AI Costed Update", "new": "AI Costed Update Renamed"', content)
+        self.assertNotIn("costs", content)
+        self.assertNotIn("Description", content)
+
     def test_the_employee_map_s_costs_are_denied(self):
         if "project.sale.line.employee.map" not in self.env:
             self.skipTest("sale_timesheet is not installed")
@@ -5614,6 +5753,26 @@ class TestAiDenyListRecordTexts(AssistantCase):
             secret, tail = "made-up-end-%s" % index, "ai-tail-%s" % index
             shown = self._assert_filtered_as_shown(self.employee, "digest.tip", tip, "tip_description", (secret, tail))
             self.assertEqual((secret in shown, tail in shown), (False, reference in ends), (reference, shown))
+
+    def test_html2plaintext_decodes_character_references_as_the_html_token_patterns_read_them(self):
+        """html_reference_pattern, HTML_VALUE_REFERENCE and HTML_RUN_REFERENCE read a character reference as lxml
+        decodes it in html2plaintext: a named one only with its ";", a numeric one with or without, a code point
+        that HTML5 maps to another character as itself. An lxml that decodes these otherwise needs the patterns
+        changed with it."""
+        for reference, decoded in (
+            ("&eacute", "&eacute"),
+            ("&eacute;", "é"),
+            ("&#0;", ""),
+            ("&#128;", "\x80"),
+            ("&#130;", "\x82"),
+            ("&#150;", "\x96"),
+            ("&#159;", "\x9f"),
+            ("&#x80;", "\x80"),
+            ("&#x9f;", "\x9f"),
+            ("&#61", "="),
+        ):
+            with self.subTest(reference=reference):
+                self.assertEqual(html2plaintext("<p>a%sb</p>" % reference), "a%sb" % decoded)
 
     def test_an_entity_encoded_equals_sign_in_a_char_or_text_value_is_shown_as_it_is(self):
         # Beside a token the text redacts, which a filter reads redacted too.

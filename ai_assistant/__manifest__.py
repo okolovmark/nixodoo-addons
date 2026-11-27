@@ -41,7 +41,7 @@ it may export its data to xlsx.
     "author": "Mark Okolov",
     "website": "https://github.com/okolovmark/nixodoo-addons",
     "category": "Productivity",
-    "version": "20.0.1.1.0",
+    "version": "20.0.1.1.1",
     "license": "AGPL-3",
     # hr: the deny list hides the fields of hr.employee that hr.employee.public lacks.
     "depends": ["ai_claude", "hr", "mail", "queue_job", "report_xlsx"],

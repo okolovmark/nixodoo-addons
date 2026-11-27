@@ -392,6 +392,9 @@ EMPLOYEE_COST_FIELDS = {
     "account.analytic.line": ("employee_id", ("amount",)),
     "account.analytic.account": ("line_ids.employee_id", ("balance", "debit", "credit")),
     "project.project": ("account_id.line_ids.employee_id", ("analytic_account_balance",)),
+    # Odoo 16's sale_timesheet wrote the project's costs, revenues and margin into an update's default text, which a
+    # database migrated from it keeps, and people type costs too: masked whole, an empty one as well.
+    "project.update": ("project_id.account_id.line_ids.employee_id", ("description",)),
     # sale_timesheet_margin sets a timesheet-delivered line's purchase_price to its timesheets' hourly cost, which
     # sale_margin's margins give back; with sale_timesheet, analytic_line_ids leaves timesheets out.
     "sale.order.line": ("timesheet_ids.employee_id", ("purchase_price", "margin", "margin_percent")),
@@ -2935,7 +2938,7 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _without_employee_costs(self, records, rows):
         """The rows with each employee's cost or total of it (EMPLOYEE_COST_FIELDS, SALE_ESTIMATE_FIELDS) replaced by
-        EMPLOYEE_COST_LABEL, a zero too."""
+        EMPLOYEE_COST_LABEL, a zero or an empty text too."""
         read_names = {name for row in rows for name in row}
         path, cost_names = EMPLOYEE_COST_FIELDS.get(records._name, ("", ()))
         names = set(cost_names) & read_names
@@ -3417,8 +3420,8 @@ class AiAssistantTools(models.AbstractModel):
                 raise AiToolError('An order is "field [asc|desc]", comma separated, not %r.' % order)
             name = match.group(1)
             self._check_field_path(model_name, name)
-            self._check_not_masked_text(model_name, name)
             self._check_not_employee_cost(model_name, name, search_domain)
+            self._check_not_masked_text(model_name, name)
             self._check_not_structured(model_name, name)
             if not self.env[model_name]._fields[name]._description_sortable(self.env):
                 raise AiToolError("%s.%s cannot be a sort key: sort by a stored field." % (model_name, name))
@@ -3474,7 +3477,8 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _check_not_employee_cost(self, model_name, name, search_domain):
         """Refuse an employee's cost or a total of it (EMPLOYEE_COST_FIELDS) as a sort or group key or an aggregate
-        when a row of `search_domain` masks it: its order or its total would show it."""
+        when a row of `search_domain` masks it: its order or its total would show it. Checked before
+        `_check_not_masked_text`, whose refusal of any HTML text would not say that such a text is masked as a cost."""
         path = self._employee_cost_path(model_name, name)
         if not path or not self.env[model_name].search_count(
             search_domain & Domain("id", "in", self._employee_cost_rows(model_name, path)), limit=1
@@ -3707,8 +3711,8 @@ class AiAssistantTools(models.AbstractModel):
             field = Model._fields[name]
             if not field._description_groupable(self.env):
                 raise AiToolError("%s.%s cannot be grouped: group by a stored field." % (model, name))
-            self._check_not_masked_text(model, name)
             self._check_not_employee_cost(model, name, search_domain)
+            self._check_not_masked_text(model, name)
             self._check_not_structured(model, name)
             # A date without a granularity groups by month, as the tool says.
             is_date = field.type in ("date", "datetime")
@@ -3738,8 +3742,8 @@ class AiAssistantTools(models.AbstractModel):
             if not function:
                 raise AiToolError("%s.%s has no aggregate of its own: name one, as %s:count." % (model, name, name))
             if function not in ("count", "count_distinct"):
-                self._check_not_masked_text(model, name)
                 self._check_not_employee_cost(model, name, search_domain)
+                self._check_not_masked_text(model, name)
             if function != "count":
                 self._check_not_structured(model, name)
             aggregates.append(f"{name}:{function}")
