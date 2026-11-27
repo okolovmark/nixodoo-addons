@@ -1926,7 +1926,7 @@ class AiAssistantTools(models.AbstractModel):
         if (model_name, name) in NAME_COPY_FIELDS:
             domains.append(negation(self._changed_copy_domain(model_name, name)))
         if name in NAME_TEXT_FIELDS.get(model_name, ("", ()))[1]:
-            domains.append(negation(self._name_text_domain(model_name, name)))
+            domains.append(negation(self._name_text_domain(model_name)))
         if name in self._message_text_fields(model_name)[1]:
             domains.append(negation(self._masked_text_domain(model_name)))
         elif self._is_masked_html(model_name, name) and self._is_redacted_text(self.env[model_name]._fields[name]):
@@ -2352,6 +2352,16 @@ class AiAssistantTools(models.AbstractModel):
             rest_domain = self._guarded_term(
                 field.comodel_name, ".".join(rest), operator, value, private_ids, link_context
             )
+            holder_link, holder_texts = NAME_TEXT_FIELDS.get(field.model_name, ("id", ()))
+            if field.name == holder_link and rest[0] in holder_texts:
+                # A mail's text reads the names its own body_html links too (`_hidden_names`): as no mail's row is
+                # at hand among the messages, those one of whose mails does, tested only where the term holds.
+                Holder = self.env[field.model_name].with_context(active_test=False)
+                join_sql = '"%s"."%s" = "%s"."id"' % (Holder._table, field.name, Comodel._table)
+                held_domain = self._correlated_link_domain(
+                    Comodel, Holder, join_sql, self._html_name_domain(field.model_name)
+                )
+                rest_domain = expression.AND([rest_domain, negation(held_domain)])
             if field.auto_join:
                 return self._linked_rows_domain(field, Comodel, expression.AND([rest_domain, *read_domains]))
             return [(link, "in", Comodel._search(expression.AND([rest_domain, *read_domains])))]
@@ -3100,8 +3110,9 @@ class AiAssistantTools(models.AbstractModel):
     def _name_occurrences(self, masks):
         """(a regex, the names shown by its group numbers less one) that finds each hidden name of `masks`
         (`_hidden_names`) in one pass, longest first: of any case, its spaces as any run of white space, as HTML escapes
-        it too, as a mail's raw body_html holds it, and not inside a longer run of letters and digits, as "New" in
-        "Renewal". The names shown have their URL tokens redacted. None without a name. Once per tool call."""
+        it too, as a mail's raw body_html holds it, and never after a letter or a digit, as "New" in "Renewal", but
+        before one, as a plural ("Desks") holds the name. The names shown have their URL tokens redacted. None without a
+        name. Once per tool call."""
 
         def compile_names():
             forms = {}
@@ -3114,8 +3125,7 @@ class AiAssistantTools(models.AbstractModel):
                 if not words:
                     continue
                 start = r"(?<![^\W_])" if words[0][0].isalnum() else ""
-                end = r"(?![^\W_])" if words[-1][-1].isalnum() else ""
-                patterns.append("(%s%s%s)" % (start, r"\s+".join(map(re.escape, words)), end))
+                patterns.append("(%s%s)" % (start, r"\s+".join(map(re.escape, words))))
                 shown_names.append(self._without_url_tokens(shown_name))
             if not patterns:
                 return None, []
@@ -3197,22 +3207,116 @@ class AiAssistantTools(models.AbstractModel):
         return expression.AND([[(name, "!=", False)], self._changed_name_domain(model_name, model_path, id_path, name)])
 
     @api.model
-    def _name_text_domain(self, model_name, name):
-        """The rows of a model of NAME_TEXT_FIELDS whose text `name` may hold a name `_hidden_names` finds, as a domain
+    def _name_text_domain(self, model_name):
+        """The rows of a model of NAME_TEXT_FIELDS whose texts may hold a name `_hidden_names` finds, as a domain
         matched in SQL past the rules: those of a message on a record whose name may read otherwise
-        (`_changed_name_domain`) and, for a message's body or a text cut from it, those whose body links a record of
-        `_masked_name_models` (MESSAGE_RECORD_LINK). Odoo keeps no copy of a name in a text apart from it, so a filter
-        matches none of these rows rather than the name in them."""
+        (`_changed_name_domain`) or that links a record of `_masked_name_models` by a stored many2one
+        (`_many2one_name_domain`), and those whose own HTML links one (`_html_name_domain`); a mail by its message
+        too. Odoo keeps no copy of a name in a text apart from it, so a filter matches none of these rows rather than
+        the name in them. Once per tool call."""
+
+        def find_domain():
+            if model_name == "mail.message":
+                return expression.OR(
+                    [
+                        self._changed_name_domain("mail.message", "model", "res_id", "record_name"),
+                        self._many2one_name_domain(),
+                        self._html_name_domain(model_name),
+                    ]
+                )
+            Holder = self.env[model_name].with_context(active_test=False)
+            Message = self.env["mail.message"].with_context(active_test=False)
+            join_sql = '"%s"."id" = "%s"."%s"' % (Message._table, Holder._table, NAME_TEXT_FIELDS[model_name][0])
+            message_domain = self._correlated_link_domain(
+                Holder, Message, join_sql, self._name_text_domain("mail.message")
+            )
+            return expression.OR([message_domain, self._html_name_domain(model_name)])
+
+        return self._call_cached(("name_text_domain", model_name), find_domain)
+
+    @api.model
+    def _correlated_link_domain(self, Model, Linked, join_sql, linked_domain):
+        """The rows of `Model` that a row of `Linked` matching `linked_domain` past its rules joins by `join_sql`, an
+        SQL condition naming both tables, as a domain tested row by row (`_sql_domain`): each row reads its own
+        linked rows by an index, where PostgreSQL would read every matching linked row first, or, too many to hash,
+        read them again per row."""
+        if linked_domain == expression.FALSE_DOMAIN:
+            return expression.FALSE_DOMAIN
+        from_sql, where_sql, params = self._rows_query(Linked, linked_domain, active_test=False).get_sql()
+        exists_sql = "EXISTS(SELECT FROM %s WHERE %s AND (%s))" % (from_sql, join_sql, where_sql or "TRUE")
+        return self._sql_domain(Model, exists_sql, params)
+
+    @api.model
+    def _many2one_name_domain(self):
+        """The messages on a record that links a record of `_masked_name_models` by a stored many2one whose display
+        name may read otherwise, as a domain on their rows matched in SQL past the rules, as `_changed_name_domain`
+        decides it: any record of a model whose names `_hidden_names` may mask whole, one of `_denied_name_sources`
+        with a source of its name set (`_changed_name_rows`). One condition per message, which looks up its own record
+        only: a subquery per model, as of every message with a parent, PostgreSQL would cost as read again per row."""
+        masked_name_models = self._masked_name_models()
+        source_models = self._record_name_models() & set(self._denied_name_sources())
+        changed_rows = {
+            model_name: self._rows_query(
+                self.env[model_name].with_context(active_test=False),
+                self._changed_name_rows(model_name),
+                active_test=False,
+            ).subselect()
+            for model_name in source_models
+        }
         Message = self.env["mail.message"].with_context(active_test=False)
-        message_domain = self._changed_name_domain("mail.message", "model", "res_id", "record_name")
+        cases, params = [], []
+        for model_name, links in self._many2one_links().items():
+            conditions, condition_params = [], []
+            for name, comodel_name in links:
+                if comodel_name in source_models:
+                    rows_sql, rows_params = changed_rows[comodel_name]
+                    conditions.append('"ai_linked"."%s" IN (%s)' % (name, rows_sql))
+                    condition_params += rows_params
+                elif comodel_name in masked_name_models:
+                    conditions.append('"ai_linked"."%s" IS NOT NULL' % name)
+            if not conditions:
+                continue
+            Model = self.env[model_name]
+            Model.flush_model([name for name, _comodel_name in links])
+            table_sql = "(%s)" % Model._table_query if Model._table_query else '"%s"' % Model._table
+            cases.append(
+                'WHEN %%s THEN EXISTS(SELECT FROM %s AS "ai_linked" WHERE "ai_linked"."id" = "%s"."res_id" AND (%s))'
+                % (table_sql, Message._table, " OR ".join(conditions))
+            )
+            params += [model_name, *condition_params]
+        if not cases:
+            return expression.FALSE_DOMAIN
+        Message.flush_model(["model", "res_id"])
+        case_sql = 'CASE "%s"."model" %s ELSE FALSE END' % (Message._table, " ".join(cases))
+        return self._sql_domain(Message, case_sql, params)
+
+    @tools.ormcache()
+    def _many2one_links(self):
+        """{model: ((field, comodel), ...)} of the stored many2one links of each model that holds rows, once per
+        registry: finding them walks every field."""
+        links_by_model = {}
+        for model_name in self.env.registry:
+            Model = self.env[model_name]
+            links = tuple(
+                (name, field.comodel_name)
+                for name, field in Model._fields.items()
+                if field.type == "many2one" and field.store
+            )
+            if links and not Model._abstract:
+                links_by_model[model_name] = links
+        return frozendict(links_by_model)
+
+    @api.model
+    def _html_name_domain(self, model_name):
+        """The rows of a model of NAME_TEXT_FIELDS whose own HTML, a message's body or a mail's body_html, links a
+        record of `_masked_name_models` (MESSAGE_RECORD_LINK), as `_hidden_names` reads the links, as a domain tested
+        on each of its rows."""
         masked_name_models = sorted(self._masked_name_models())
-        if name in self._message_text_fields(model_name)[1] and masked_name_models:
-            link_sql, link_params = self._record_link_sql(self._text_column_sql(Message, "body"), masked_name_models)
-            message_domain = expression.OR([message_domain, self._sql_domain(Message, link_sql, link_params)])
-        link = NAME_TEXT_FIELDS[model_name][0]
-        if link == "id":
-            return message_domain
-        return [(link, "in", self._rows_query(Message, message_domain, active_test=False))]
+        if not masked_name_models:
+            return expression.FALSE_DOMAIN
+        Model = self.env[model_name].with_context(active_test=False)
+        text_sql = self._text_column_sql(Model, "body" if model_name == "mail.message" else "body_html")
+        return self._sql_domain(Model, *self._record_link_sql(text_sql, masked_name_models))
 
     @api.model
     def _changed_name_domain(self, model_name, model_path, id_path, copy_name):
@@ -3315,7 +3419,10 @@ class AiAssistantTools(models.AbstractModel):
     def _masked_name_copy_domain(self, model_name, name):
         """The rows of `model_name` whose field `name`, a copy of a display name (`_name_copy_paths`) or a text that may
         hold one other than a message's text (NAME_TEXT_FIELDS: a subject, a reply-to address), is set and may read
-        otherwise than stored, as a domain matched in SQL past the rules; None for any other field."""
+        otherwise than stored, as a domain matched in SQL past the rules; None for any other field. A mail's text is
+        decided on the mail, which reads the names its body_html links, not through its message."""
+        if self._is_name_text(model_name, name):
+            return expression.AND([[(name, "!=", False)], self._name_text_domain(model_name)])
         steps = self._related_path(model_name, [name])
         hops = self._path_hops(model_name, ".".join(steps))
         if not hops:
@@ -3323,11 +3430,8 @@ class AiAssistantTools(models.AbstractModel):
         held_model, held_name = hops[-1].model_name, hops[-1].name
         if (held_model, held_name) in NAME_COPY_FIELDS:
             changed_domain = self._changed_copy_domain(held_model, held_name)
-        elif (
-            held_name in NAME_TEXT_FIELDS.get(held_model, ("", ()))[1]
-            and held_name not in self._message_text_fields(held_model)[1]
-        ):
-            changed_domain = expression.AND([[(held_name, "!=", False)], self._name_text_domain(held_model, held_name)])
+        elif self._is_name_text(held_model, held_name):
+            changed_domain = expression.AND([[(held_name, "!=", False)], self._name_text_domain(held_model)])
         else:
             return None
         for hop in reversed(hops[:-1]):
@@ -3336,24 +3440,39 @@ class AiAssistantTools(models.AbstractModel):
         return changed_domain
 
     @api.model
-    def _has_rows(self, Model, domain):
-        """Whether a row of `Model` matches `domain`, read in SQL without its record rules and search overrides
-        (`_rows_query`): mail.message and mail.activity drop the rows the employee may not read after their LIMIT, so
-        a count with a limit misses a row that a newer unreadable one hides, and mail.message's read_group, open to an
-        administrator, groups rows its search leaves out. Counting more rows refuses more, which is the safe side."""
-        query = self._rows_query(Model, domain)
-        query.limit = 1
-        self.env.cr.execute(*query.select("1"))
+    def _is_name_text(self, model_name, name):
+        """Whether a field is a text of NAME_TEXT_FIELDS other than a message's text, as a subject or a reply-to."""
+        return (
+            name in NAME_TEXT_FIELDS.get(model_name, ("", ()))[1]
+            and name not in self._message_text_fields(model_name)[1]
+        )
+
+    @api.model
+    def _has_rows(self, Model, domain, is_grouped=False):
+        """Whether the call reads a row of `Model` that matches `domain`, as the employee: a read_group those its
+        `_read_group_raw` reads, mail.message's past its search, open to an administrator; a search those its
+        `_search` returns, which mail.message and mail.activity filter after their SQL, so under no limit. A refusal
+        decided on any other row would tell the employee of a row they may not read."""
+        if is_grouped:
+            groups = Model._read_group_raw(domain, ["__count"], [], lazy=False)
+            return bool(groups and groups[0]["__count"])
+        rows = Model._search(domain)
+        if not isinstance(rows, Query):
+            return bool(rows)
+        rows.order, rows.limit = None, 1
+        self.env.cr.execute(*rows.select("1"))
         return bool(self.env.cr.fetchone())
 
     @api.model
-    def _check_not_masked_name_copy(self, model_name, name, search_domain):
+    def _check_not_masked_name_copy(self, model_name, name, search_domain, is_grouped=False):
         """Refuse a copy of a display name, or a text that may hold one (`_masked_name_copy_domain`), as a sort or
-        group key or an aggregate when a row of `search_domain`, readable or not (`_has_rows`), holds one the AI deny
+        group key or an aggregate when a row of `search_domain` the call reads (`_has_rows`) holds one the AI deny
         list changes, as it refuses the name itself: the order or the group would show it."""
         changed_domain = self._masked_name_copy_domain(model_name, name)
         Model = self.env[model_name]
-        if changed_domain is not None and self._has_rows(Model, expression.AND([search_domain, changed_domain])):
+        if changed_domain is not None and self._has_rows(
+            Model, expression.AND([search_domain, changed_domain]), is_grouped
+        ):
             raise AiDenyListError(
                 "%s.%s copies the display name of the record a row names, which the AI deny list masks on some of these"
                 " rows: sort, group or aggregate by another field, or leave out the rows of the records whose names it"
@@ -3918,14 +4037,15 @@ class AiAssistantTools(models.AbstractModel):
         )
 
     @api.model
-    def _check_not_employee_cost(self, model_name, name, search_domain):
+    def _check_not_employee_cost(self, model_name, name, search_domain, is_grouped=False):
         """Refuse an employee's cost or a total of it (EMPLOYEE_COST_FIELDS) as a sort or group key or an aggregate
-        when a row of `search_domain` masks it: its order or its total would show it. Checked before
-        `_check_not_masked_text`, so that an HTML text that writes out costs is refused as a cost where it holds one."""
+        when a row of `search_domain` the call reads (`_has_rows`) masks it: its order or its total would show it.
+        Checked before `_check_not_masked_text`, so that an HTML text that writes out costs is refused as a cost where
+        it holds one."""
         path = self._employee_cost_path(model_name, name)
         masked_domain = [("id", "in", self._employee_cost_rows(model_name, path))] if path else []
         if not masked_domain or not self._has_rows(
-            self.env[model_name], expression.AND([search_domain, masked_domain])
+            self.env[model_name], expression.AND([search_domain, masked_domain]), is_grouped
         ):
             return
         if "." in path:
@@ -4022,6 +4142,8 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _tool_search_read(self, model, domain, fields, limit, order):
         Model = self._tool_model(model)
+        # Before any refusal, so that an employee who may not read the model is denied access whatever the terms.
+        Model.check_access_rights("read")
         search_domain = self._tool_domain(model, domain)
         field_names = self._tool_read_fields(model, fields)
         max_rows = self._max_rows()
@@ -4061,6 +4183,7 @@ class AiAssistantTools(models.AbstractModel):
     @api.model
     def _tool_read_group(self, model, domain, groupby, measures, orderby, limit):
         Model = self._tool_model(model)
+        Model.check_access_rights("read")
         search_domain = self._tool_domain(model, domain)
         partner_groupby = []
         for spec in groupby:
@@ -4072,8 +4195,8 @@ class AiAssistantTools(models.AbstractModel):
             self._check_field_path(model, name)
             if not Model._fields[name].base_field.groupable:
                 raise AiToolError("%s.%s cannot be grouped: group by a stored field." % (model, name))
-            self._check_not_employee_cost(model, name, search_domain)
-            self._check_not_masked_name_copy(model, name, search_domain)
+            self._check_not_employee_cost(model, name, search_domain, is_grouped=True)
+            self._check_not_masked_name_copy(model, name, search_domain, is_grouped=True)
             self._check_not_masked_text(model, name)
             self._check_not_structured(model, name)
             if self._partner_value_paths(model, name):
@@ -4108,8 +4231,8 @@ class AiAssistantTools(models.AbstractModel):
             if function != "count":
                 self._check_not_structured(model, field_name or output_name)
             if function not in ("count", "count_distinct"):
-                self._check_not_employee_cost(model, field_name or output_name, search_domain)
-                self._check_not_masked_name_copy(model, field_name or output_name, search_domain)
+                self._check_not_employee_cost(model, field_name or output_name, search_domain, is_grouped=True)
+                self._check_not_masked_name_copy(model, field_name or output_name, search_domain, is_grouped=True)
                 self._check_not_masked_text(model, field_name or output_name)
                 if self._partner_value_paths(model, field_name or output_name):
                     raise AiDenyListError(
@@ -4131,8 +4254,8 @@ class AiAssistantTools(models.AbstractModel):
             elif match.group(1) not in output_names:
                 self._check_field_path(model, match.group(1))
                 self._check_not_partner_order(model, match.group(1))
-                self._check_not_employee_cost(model, match.group(1), search_domain)
-                self._check_not_masked_name_copy(model, match.group(1), search_domain)
+                self._check_not_employee_cost(model, match.group(1), search_domain, is_grouped=True)
+                self._check_not_masked_name_copy(model, match.group(1), search_domain, is_grouped=True)
                 self._check_not_masked_text(model, match.group(1))
                 self._check_not_structured(model, match.group(1))
             order_terms.append(term.strip())
@@ -4159,8 +4282,7 @@ class AiAssistantTools(models.AbstractModel):
             for group in groups[:limit]
         ]
         rows = self._without_refused_attachments(model, self._without_private_addresses(model, rows))
-        rows = self._without_masked_copy_keys(Model, search_domain, groupby, self._without_denied_names(model, rows))
-        rows = self._without_text_tokens(rows)
+        rows = self._without_text_tokens(self._without_denied_names(model, rows))
         if not groupby:
             for row in rows:
                 row.pop("id", None)
@@ -4169,25 +4291,6 @@ class AiAssistantTools(models.AbstractModel):
             payload["truncated"] = True
             payload["note"] = "More groups exist: only the first %s are here." % limit
         return payload, len(payload["groups"])
-
-    @api.model
-    def _without_masked_copy_keys(self, Model, search_domain, groupby, rows):
-        """The group rows with each key of a copy of a display name, or of a text that may hold one
-        (`_masked_name_copy_domain`), that a row the deny list changes it on holds read as DENIED_NAME_LABEL, as
-        `_tool_rows` masks such a value. `_check_not_masked_name_copy` refuses such a group first: this holds should
-        a row pass that count."""
-        for name in {spec.partition(":")[0] for spec in groupby}:
-            changed_domain = self._masked_name_copy_domain(Model._name, name)
-            if changed_domain is None:
-                continue
-            changed_groups = Model.sudo().read_group(
-                expression.AND([search_domain, changed_domain]), [name], [name], lazy=False
-            )
-            changed_keys = {group[name] for group in changed_groups}
-            for row in rows:
-                if row.get(name) in changed_keys:
-                    row[name] = DENIED_NAME_LABEL
-        return rows
 
     @api.model
     def _within_result_cap(self, payload, rows_key):

@@ -127,6 +127,16 @@ class AssistantCase(TransactionCase):
     def _set_param(self, key, value):
         self.env["ir.config_parameter"].sudo().set_param(f"ai_assistant.{key}", value)
 
+    def _grant_read(self, user, *model_names):
+        """Add to `user` a group that may read each of `model_names`: the tools deny access before any refusal."""
+        for model_name in model_names:
+            if not self.env[model_name].with_user(user).check_access_rights("read", raise_exception=False):
+                access = self.env["ir.model.access"].search(
+                    [("model_id.model", "=", model_name), ("perm_read", "=", True), ("group_id.share", "=", False)],
+                    limit=1,
+                )
+                user.groups_id |= access.group_id
+
 
 @tagged("post_install", "-at_install")
 class TestAiAssistantTools(AssistantCase):
@@ -3023,6 +3033,7 @@ class TestAiDenyListSecretsAndReviews(AssistantCase):
             if model_name not in self.env:
                 continue
             self.assertTrue(tools._denied_field(self.env[model_name]._fields[field_name]), field_name)
+            self._grant_read(self.administrator, model_name)
             content, is_error = self._search_read(self.administrator, model_name, fields=[field_name])
             self.assertTrue(is_error, field_name)
             self.assertIn("%s.%s is on the AI deny list" % (model_name, field_name), content)
@@ -3124,6 +3135,7 @@ class TestAiDenyListSecretsAndReviews(AssistantCase):
                 continue
             self.assertIn("access_token", self.env[model_name]._fields)
             self.assertNotIn("access_token", tools._tool_read_fields(model_name, []), model_name)
+            self._grant_read(self.administrator, model_name)
             content, is_error = self._search_read(self.administrator, model_name, fields=["access_token"])
             self.assertTrue(is_error, model_name)
             self.assertIn("%s.access_token is on the AI deny list" % model_name, content)
@@ -4152,6 +4164,51 @@ class TestAiDenyListEmployeeCosts(AssistantCase):
         payload, is_error = self._search_read(self.accountant, "account.analytic.line", accounting, order="amount")
         self.assertEqual(([row["id"] for row in payload["records"]], is_error), (self.entry.ids, False))
 
+    def test_a_cost_is_refused_as_a_sort_key_or_a_total_only_on_the_rows_the_employee_reads(self):
+        timesheet_user = new_test_user(
+            self.env,
+            login="test_assistant_own_timesheets",
+            groups="base.group_user,hr_timesheet.group_hr_timesheet_user",
+            company_id=self.company.id,
+        )
+        Line = self.env["account.analytic.line"].with_user(timesheet_user)
+        self.assertFalse(Line.search([("id", "=", self.timesheet.id)]), "a colleague's timesheet")
+        hours = self.timesheet.unit_amount
+        for threshold in (hours - 0.5, hours + 0.5):
+            domain = [["id", "=", self.timesheet.id], ["unit_amount", ">", threshold]]
+            with self.subTest(threshold=threshold):
+                payload, is_error = self._search_read(
+                    timesheet_user, "account.analytic.line", domain, ["id"], order="amount"
+                )
+                self.assertFalse(is_error, payload)
+                self.assertEqual(payload["records"], [])
+                payload, is_error = self._call(
+                    timesheet_user,
+                    "read_group",
+                    model="account.analytic.line",
+                    domain=json.dumps(domain),
+                    groupby=[],
+                    measures=["amount:sum"],
+                    orderby="",
+                    limit=0,
+                )
+                self.assertFalse(is_error, payload)
+                self.assertEqual([group["__count"] for group in payload["groups"]], [0])
+
+    def test_an_employee_without_read_access_is_denied_access_whatever_the_terms(self):
+        Report = self.env["timesheets.analysis.report"]
+        self.assertFalse(Report.with_user(self.employee).check_access_rights("read", raise_exception=False))
+        for domain in ([["id", "=", self.timesheet.id]], [["id", "=", 0]]):
+            for tool, arguments in (
+                ("search_read", {"fields": ["id"], "limit": 0, "order": "amount"}),
+                ("read_group", {"groupby": [], "measures": ["amount:sum"], "orderby": "", "limit": 0}),
+            ):
+                with self.subTest(tool=tool, domain=domain):
+                    content, is_error = self._call(
+                        self.employee, tool, model=Report._name, domain=json.dumps(domain), **arguments
+                    )
+                    self.assertEqual((content, is_error), (ACCESS_DENIED_TEXT, True))
+
     def test_the_totals_of_an_account_with_a_timesheet_are_masked_and_those_of_another_kept(self):
         self.assertEqual(
             self.project.with_user(self.accountant).analytic_account_balance,
@@ -4826,6 +4883,7 @@ class TestAiDenyListMessageTexts(DenyListTextCase):
             {"title": "AI Survey", "background_image": base64.b64encode(image.getvalue())}
         )
         self.assertIn(survey.access_token, survey.background_image_url)
+        self._grant_read(self.administrator, "survey.survey", "survey.question")
         for model_name in ("survey.survey", "survey.question"):
             content, is_error = self._search_read(
                 self.administrator, model_name, [["background_image_url", "ilike", "/survey/"]], ["id"]
@@ -4835,6 +4893,7 @@ class TestAiDenyListMessageTexts(DenyListTextCase):
 
     def test_a_live_chat_report_s_channel_uuid_is_denied(self):
         self._skip_without("im_livechat.report.channel", "uuid")
+        self._grant_read(self.administrator, "im_livechat.report.channel")
         content, is_error = self._search_read(self.administrator, "im_livechat.report.channel", [], ["uuid"])
         self.assertTrue(is_error, content)
         self.assertIn("im_livechat.report.channel.uuid is on the AI deny list", content)
@@ -5990,6 +6049,31 @@ class TestAiDenyListNames(DenyListTextCase):
                 {company.id: "AI Acme", contact.id: "AI Acme, AI Bob"},
             )
 
+    def test_a_name_built_from_a_linked_name_reads_otherwise_down_the_links_until_they_loop(self):
+        # Declared as built from its parent's name too, a contact's name is a source of itself.
+        Partner = self.env["res.partner"].with_context(active_test=False)
+        coded = Partner.create({"name": "AI Coded Parent", "ref": "AI-REF-1"})
+        plain = Partner.create({"name": "AI Plain Parent"})
+        child_of_coded, child_of_plain = Partner.create(
+            [{"name": "AI Coded Child", "parent_id": coded.id}, {"name": "AI Plain Child", "parent_id": plain.id}]
+        )
+        grandchild = Partner.create({"name": "AI Grandchild", "parent_id": child_of_plain.id})
+        partners = coded | plain | child_of_coded | child_of_plain | grandchild
+        self._set_param("deny_fields_extra", "res.partner.ref")
+        tools_class = type(self.env["ai.assistant.tools"])
+        sources = {**NAME_GET_SOURCES, "res.partner": ("ref", "parent_id.display_name")}
+        with patch.object(tools_class, "_name_get_sources", lambda tools: sources):
+            tools = self._tools(self.administrator)
+            self.assertEqual(
+                set(tools._denied_name_sources()["res.partner"]), {("ref", False), ("parent_id", "res.partner")}
+            )
+            changed_domain = tools._changed_name_rows("res.partner")
+        self.assertEqual(
+            Partner.search(expression.AND([[("id", "in", partners.ids)], changed_domain])),
+            coded | child_of_coded | grandchild,
+            "the coded parent, its child, and a grandchild whose parent's parent, met at the loop, counts as set",
+        )
+
     def test_a_name_search_of_its_own_code_is_refused_where_it_reaches_a_hidden_field(self):
         user = new_test_user(self.env, login="ai-secret-login", name="AI Logged")
         payload, is_error = self._search_read(
@@ -6185,12 +6269,12 @@ class TestAiDenyListNameCopies(DenyListTextCase):
         self.assertEqual(child_rating.parent_res_name, "AI Quokka Desk")
         return rating, child_rating, plain_rating
 
-    def _read_group(self, user, model_name, domain, groupby, measures, orderby):
-        """(payload or text, is_error) of read_group. An order by a field it does not group by is checked before Odoo
-        ignores it with a warning, muted here."""
-        is_ignored_order = bool(orderby) and orderby not in groupby
-        with mute_logger("odoo.models") if is_ignored_order else nullcontext():
-            return self._call(
+    def _read_group(self, user, model_name, domain, groupby, measures, orderby, is_refused):
+        """The payload or text of read_group, refused or not as `is_refused` says. An order by a field it does not
+        group by is checked first; a call that runs then has Odoo warn once that it ignores that order."""
+        is_warned = bool(orderby) and orderby not in groupby and not is_refused
+        with self.assertLogs("odoo.models", "WARNING") if is_warned else nullcontext() as warnings:
+            content, is_error = self._call(
                 user,
                 "read_group",
                 model=model_name,
@@ -6200,6 +6284,11 @@ class TestAiDenyListNameCopies(DenyListTextCase):
                 orderby=orderby,
                 limit=0,
             )
+        self.assertEqual(is_error, is_refused, (domain, groupby, measures, orderby, content))
+        if is_warned:
+            self.assertEqual(len(warnings.output), 1, warnings.output)
+            self.assertIn("read_group order by `%s` ignored" % orderby, warnings.output[0])
+        return content
 
     def _named_messages(self):
         """The job's messages whose texts Odoo writes its name into: the composer's reply, its subject followed on, one
@@ -6365,10 +6454,9 @@ class TestAiDenyListNameCopies(DenyListTextCase):
                         ([["id", "in", records.ids]], True),
                         ([["id", "in", plain_records.ids]], False),
                     ):
-                        content, is_error = self._read_group(
-                            self.reader, model_name, domain, groupby, measures, orderby
+                        content = self._read_group(
+                            self.reader, model_name, domain, groupby, measures, orderby, is_refused
                         )
-                        self.assertEqual(is_error, is_refused, (groupby, measures, orderby, domain, content))
                         self._assert_no_job_name(content)
                 payload, is_error = self._call(
                     self.reader,
@@ -6609,10 +6697,9 @@ class TestAiDenyListNameCopies(DenyListTextCase):
                 if is_refused:
                     self.assertIn("mail.message.%s copies the display name" % name, content)
                 for groupby, measures, orderby in (([name], [], ""), ([], ["%s:max" % name], ""), ([], [], name)):
-                    content, is_error = self._read_group(
-                        self.reader, "mail.message", domain, groupby, measures, orderby
+                    content = self._read_group(
+                        self.reader, "mail.message", domain, groupby, measures, orderby, is_refused
                     )
-                    self.assertEqual(is_error, is_refused, (groupby, measures, orderby, content))
                     self._assert_no_job_name(content)
 
     def test_a_copy_taken_while_a_name_showed_a_denied_code_reads_the_name_shown_now(self):
@@ -6687,8 +6774,7 @@ class TestAiDenyListNameCopies(DenyListTextCase):
         self.assertEqual(self._found(self.reader, "mail.message", domain), self.plain_message.ids)
         for name in ("record_name", "subject"):
             with self.subTest(name):
-                content, is_error = self._read_group(self.reader, "mail.message", domain, [name], [], "")
-                self.assertTrue(is_error, content)
+                content = self._read_group(self.reader, "mail.message", domain, [name], [], "", is_refused=True)
                 self.assertIn("mail.message.%s copies the display name" % name, content)
                 self._assert_no_job_name(content)
 
@@ -6705,7 +6791,6 @@ class TestAiDenyListNameCopies(DenyListTextCase):
         self._set_param("deny_fields_extra", "hr.job.name,product.product.default_code,product.template.default_code")
         tools = self._tools(self.reader)
         this = [["id", "in", messages.ids]]
-        # On a copy of production, reading the name of every product with a message took seconds per filter.
         no_name_read = patch.object(type(tools), "_current_names", side_effect=AssertionError("a display name read"))
         for term in (
             ["record_name", "ilike", "AI"],
@@ -6762,9 +6847,10 @@ class TestAiDenyListNameCopies(DenyListTextCase):
         spaced = self.job.message_post(
             body="AI spaced note", subject="AI  Quokka\tDesk kickoff", message_type="comment"
         )
+        plural = self.job.message_post(body="Hiring two more AI Quokka Desks", message_type="comment")
         self._deny_job_names()
         payload, is_error = self._search_read(
-            self.reader, "mail.message", [["id", "in", (renewal | spaced).ids]], ["subject", "body"]
+            self.reader, "mail.message", [["id", "in", (renewal | spaced | plural).ids]], ["subject", "body"]
         )
         self.assertFalse(is_error, payload)
         self.assertEqual(
@@ -6775,8 +6861,10 @@ class TestAiDenyListNameCopies(DenyListTextCase):
                     "Renewal of the %s desk, %s hires" % (DENIED_NAME_LABEL, DENIED_NAME_LABEL),
                 ),
                 spaced.id: ("%s kickoff" % DENIED_NAME_LABEL, "AI spaced note"),
+                plural.id: (False, "Hiring two more %ss" % DENIED_NAME_LABEL),
             },
         )
+        self._assert_no_job_name(payload)
 
     def test_a_message_s_texts_mask_the_names_of_the_records_it_links_and_its_record_links_to(self):
         self.partner.message_post_with_view(
@@ -6806,6 +6894,88 @@ class TestAiDenyListNameCopies(DenyListTextCase):
         this = [["id", "=", origin_message.id]]
         self.assertEqual(self._found(self.reader, "mail.message", [*this, ["body", "ilike", "Quokka"]]), [])
         self.assertEqual(self._found(self.reader, "mail.message", [*this, ["body", "not ilike", "Quokka"]]), [])
+
+    def test_a_text_holding_the_name_of_a_record_a_message_links_is_no_filter_sort_or_group_key(self):
+        employee = self.env["hr.employee"].create({"name": "AI Linked Employee", "job_id": self.job.id})
+        note = employee.message_post(body="AI note: moved to AI Quokka Desk", message_type="comment")
+        titled = employee.message_post(body="AI titled note", subject="AI Quokka Desk kickoff", message_type="comment")
+        job_link = Markup('<a href="#" data-oe-model="hr.job" data-oe-id="%s">AI Quokka Desk</a>') % self.job.id
+        origin = self.partner.message_post(
+            body=Markup("<p>AI origin: %s</p>") % job_link, subject="AI Quokka Desk origin", message_type="comment"
+        )
+        self._deny_job_names()
+        payload, is_error = self._search_read(
+            self.reader, "mail.message", [["id", "in", (note | titled | origin).ids]], ["subject", "body"]
+        )
+        self.assertFalse(is_error, payload)
+        self.assertEqual(
+            {row["id"]: row["subject"] for row in payload["records"]},
+            {
+                note.id: False,
+                titled.id: "%s kickoff" % DENIED_NAME_LABEL,
+                origin.id: "%s origin" % DENIED_NAME_LABEL,
+            },
+        )
+        self._assert_no_job_name(payload)
+        for message, name in ((note, "body"), (titled, "subject"), (origin, "subject")):
+            for operator in ("ilike", "not ilike"):
+                term = [name, operator, "Quokka"]
+                with self.subTest(message=message.subject or message.body, term=term):
+                    self.assertEqual(self._found(self.reader, "mail.message", [["id", "=", message.id], term]), [])
+        plain = [["id", "=", self.plain_message.id]]
+        self.assertEqual(
+            self._found(self.reader, "mail.message", [*plain, ["body", "not ilike", "Quokka"]]),
+            self.plain_message.ids,
+        )
+        for messages, is_refused in (
+            (titled | self.plain_message, True),
+            (origin | self.plain_message, True),
+            (note | self.plain_message, False),
+        ):
+            domain = [["id", "in", messages.ids]]
+            with self.subTest(messages=messages.ids):
+                content, is_error = self._search_read(self.reader, "mail.message", domain, ["id"], order="subject")
+                self.assertEqual(is_error, is_refused, content)
+                content = self._read_group(self.reader, "mail.message", domain, ["subject"], [], "", is_refused)
+                self._assert_no_job_name(content)
+
+    def test_a_mail_s_subject_is_no_filter_or_sort_key_where_its_body_html_links_a_record_with_a_masked_name(self):
+        job_link = Markup('<a href="#" data-oe-model="hr.job" data-oe-id="%s">AI Quokka Desk</a>') % self.job.id
+        mail, plain_mail = self.env["mail.mail"].create(
+            [
+                {
+                    "model": "res.partner",
+                    "res_id": self.partner.id,
+                    "subject": "AI Quokka Desk digest",
+                    "body": "<p>AI digest</p>",
+                    "body_html": Markup("<p>AI digest: %s</p>") % job_link,
+                },
+                {
+                    "model": "res.partner",
+                    "res_id": self.partner.id,
+                    "subject": "AI plain digest",
+                    "body": "<p>AI plain digest</p>",
+                    "body_html": "<p>AI plain digest</p>",
+                },
+            ]
+        )
+        self.assertNotIn("data-oe-model", mail.mail_message_id.body)
+        self._deny_job_names()
+        row = self._shown(self.reader, "mail.mail", mail, ["subject", "body_html"])
+        self.assertEqual(row["subject"], "%s digest" % DENIED_NAME_LABEL)
+        self._assert_no_job_name(row)
+        this = [["id", "in", (mail | plain_mail).ids]]
+        for operator, expected in (("ilike", []), ("not ilike", plain_mail.ids)):
+            term = ["subject", operator, "Quokka"]
+            with self.subTest(term=term):
+                self.assertEqual(self._found(self.reader, "mail.mail", [*this, term]), expected)
+        content, is_error = self._search_read(self.reader, "mail.mail", this, ["id"], order="subject")
+        self.assertTrue(is_error, content)
+        self.assertIn("mail.mail.subject copies the display name", content)
+        payload, is_error = self._search_read(
+            self.reader, "mail.mail", [["id", "=", plain_mail.id]], ["id"], order="subject"
+        )
+        self.assertFalse(is_error, payload)
 
     def test_a_message_filed_on_itself_reads_its_own_name(self):
         looped = self.env["mail.message"].create(
