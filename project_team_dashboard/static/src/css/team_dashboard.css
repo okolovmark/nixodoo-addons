@@ -365,20 +365,8 @@ html .o_web_client > .o_action_manager > .o_action.o_team_dashboard {
     border: 2px dashed #dc3545 !important;
     box-shadow: 0 0 4px rgba(220, 53, 69, 0.4);
 }
-
-.o_gantt_overlap_banner {
-    background-color: #fff3cd;
-    border: 1px solid #ffc107;
-    border-radius: 4px;
-    padding: 8px 16px;
-    margin: 8px 12px 0 12px;
-    font-size: 13px;
-    color: #664d03;
-}
-
-.o_gantt_overlap_banner .fa {
-    color: #e65100;
-    margin-right: 6px;
+.o_gantt_legend_overlap {
+    border: 2px dashed;
 }
 
 /* ---- Multi-project gantt selector ---- */

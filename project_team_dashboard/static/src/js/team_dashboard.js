@@ -155,12 +155,17 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
     }
 
     /**
-     * Ids of the bars that overlap another bar of the same person. A rolled-up parent always
-     * covers its sub-tasks, so a pair where one task is an ancestor of the other never counts.
+     * The bars that overlap another bar of the same person, each with the tasks of the bars it
+     * overlaps. A rolled-up parent always covers its sub-tasks, so a pair where one task is an
+     * ancestor of the other never counts.
      * @param {Array} bars - {id, taskId, start, end}
+     * @returns {Object} bar id -> [task id of each bar it overlaps, by start]
      */
-    function findOverlappingBarIds(bars, taskMap) {
-        var overlappingIds = {};
+    function findBarOverlaps(bars, taskMap) {
+        var overlaps = {};
+        function addOverlap(bar, otherBar) {
+            (overlaps[bar.id] = overlaps[bar.id] || []).push(otherBar.taskId);
+        }
         var openBars = [];
         bars.filter(function (bar) { return bar.end; })
             .sort(function (a, b) { return new Date(a.start) - new Date(b.start); })
@@ -169,13 +174,13 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
                 openBars = openBars.filter(function (openBar) { return new Date(openBar.end) > barStart; });
                 openBars.forEach(function (openBar) {
                     if (!isAncestorPair(taskMap, openBar.taskId, bar.taskId)) {
-                        overlappingIds[openBar.id] = true;
-                        overlappingIds[bar.id] = true;
+                        addOverlap(openBar, bar);
+                        addOverlap(bar, openBar);
                     }
                 });
                 openBars.push(bar);
             });
-        return overlappingIds;
+        return overlaps;
     }
 
     function ganttBarRules(task, hasSubtaskRows) {
@@ -1321,9 +1326,6 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
             $container.empty().removeClass("o_gantt_cols_off");
             this._ganttSyncToolbar();
 
-            // Clear overlap banner
-            this.$(".o_gantt_overlap_container").empty();
-
             var unscheduledMatches = this._ganttUnscheduledMatches();
             if (!this.ganttData || (!(this.ganttData.tasks || []).length && !unscheduledMatches.length)) {
                 $container.html(
@@ -1527,8 +1529,10 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
             orderIdx = this._ganttAddUnscheduledGroups(groups, orderIdx, isMultiProject);
 
             // ---- Requirement 5: Detect overlapping tasks (user groupBy mode) ----
-            var overlapItemIds = {};
-            if (this.ganttGroupBy === "user" && !showStageHistory) {
+            var overlaps = {};
+            var marksOverlaps = this.ganttGroupBy === "user" && !showStageHistory;
+            this.$(".o_gantt_legend_overlap_item").toggleClass("d-none", !marksOverlaps);
+            if (marksOverlaps) {
                 var userBarsForOverlap = {};
                 items.forEach(function (it) {
                     // Extract user id from item id "ut_<uid>_<taskId>"
@@ -1546,19 +1550,21 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
                 });
 
                 Object.keys(userBarsForOverlap).forEach(function (uid) {
-                    _.extend(overlapItemIds, findOverlappingBarIds(userBarsForOverlap[uid], taskMap));
+                    _.extend(overlaps, findBarOverlaps(userBarsForOverlap[uid], taskMap));
                 });
 
-                // Mark items with overlap class
+                // Outline each overlapping bar and name the tasks it overlaps in its tooltip
                 items.forEach(function (it) {
-                    if (overlapItemIds[it.id]) {
+                    var overlappedTaskIds = overlaps[it.id];
+                    if (overlappedTaskIds) {
                         it.className = (it.className || "") + " gantt-overlap";
+                        it.title += "<br/>Overlaps: " + overlappedTaskIds.map(function (taskId) {
+                            var task = taskMap[taskId];
+                            return _.escape(task.key || task.name);
+                        }).join(", ");
                     }
                 });
             }
-
-            var $overlapContainer = this.$(".o_gantt_overlap_container");
-            $overlapContainer.empty();
 
             // Compute date range
             var allStarts = items.map(function (i) { return new Date(i.start); });
@@ -3170,7 +3176,7 @@ odoo.define("project_team_dashboard.team_dashboard", function (require) {
     TeamDashboard.groupTasksByStage = groupTasksByStage;
     TeamDashboard.buildTaskTree = buildTaskTree;
     TeamDashboard.isAncestorPair = isAncestorPair;
-    TeamDashboard.findOverlappingBarIds = findOverlappingBarIds;
+    TeamDashboard.findBarOverlaps = findBarOverlaps;
     TeamDashboard.ganttBarRules = ganttBarRules;
     TeamDashboard.subtaskOfMarker = subtaskOfMarker;
     TeamDashboard.outsideParentOf = outsideParentOf;

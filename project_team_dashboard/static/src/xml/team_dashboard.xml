@@ -572,14 +572,17 @@
                             <span class="o_gantt_legend_dot o_gantt_legend_overdue"/>
                             Overdue
                         </span>
+                        <span class="o_gantt_legend_overlap_item d-flex align-items-center gap-1"
+                              title="Red dashed outline: the task's planned dates overlap another task of the same person (a task and its own sub-tasks do not count). An overdue task keeps its solid outline. Hover a bar to see which tasks it overlaps.">
+                            <span class="o_gantt_legend_dot o_gantt_legend_overlap border-danger"/>
+                            Overlap
+                        </span>
                         <span class="d-flex align-items-center gap-1">
                             <span class="o_gantt_legend_diamond"/>
                             Milestone
                         </span>
                     </div>
                 </div>
-                <!-- Overlap warning banner (populated by JS) -->
-                <div class="o_gantt_overlap_container" />
                 <div class="o_gantt_timeline_wrapper" />
             </div>
         </t>

@@ -166,7 +166,7 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
             assert.deepEqual(rows.map(function (row) { return row.task.id; }).sort(), [1, 2]);
         });
 
-        QUnit.module("findOverlappingBarIds");
+        QUnit.module("findBarOverlaps");
 
         var familyTaskMap = {
             1: {id: 1, parent_id: false},
@@ -182,7 +182,7 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
         });
 
         QUnit.test("a parent covering its sub-tasks is not an overlap", function (assert) {
-            var overlapping = TeamDashboard.findOverlappingBarIds([
+            var overlapping = TeamDashboard.findBarOverlaps([
                 {id: "p", taskId: 1, start: "2026-03-01", end: "2026-03-20"},
                 {id: "c", taskId: 2, start: "2026-03-02", end: "2026-03-05"},
                 {id: "g", taskId: 3, start: "2026-03-03", end: "2026-03-04"},
@@ -190,17 +190,17 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
             assert.deepEqual(overlapping, {});
         });
 
-        QUnit.test("unrelated overlapping tasks are flagged", function (assert) {
-            var overlapping = TeamDashboard.findOverlappingBarIds([
+        QUnit.test("unrelated overlapping tasks are flagged with the tasks they overlap", function (assert) {
+            var overlapping = TeamDashboard.findBarOverlaps([
                 {id: "p", taskId: 1, start: "2026-03-01", end: "2026-03-20"},
                 {id: "c", taskId: 2, start: "2026-03-02", end: "2026-03-05"},
                 {id: "o", taskId: 4, start: "2026-03-04", end: "2026-03-06"},
             ], familyTaskMap);
-            assert.deepEqual(overlapping, {p: true, c: true, o: true});
+            assert.deepEqual(overlapping, {p: [4], c: [4], o: [1, 2]});
         });
 
         QUnit.test("tasks that only touch do not overlap", function (assert) {
-            var overlapping = TeamDashboard.findOverlappingBarIds([
+            var overlapping = TeamDashboard.findBarOverlaps([
                 {id: "a", taskId: 1, start: "2026-03-01", end: "2026-03-05"},
                 {id: "b", taskId: 4, start: "2026-03-05", end: "2026-03-08"},
             ], familyTaskMap);
@@ -955,6 +955,60 @@ odoo.define("project_team_dashboard.team_dashboard_tests", function (require) {
                         selector + ": " + element.scrollWidth + "px in " + element.clientWidth + "px"
                     );
                 }
+            });
+
+            QUnit.test("grouped by user, an overlapping bar names the tasks it overlaps and the legend explains the outline", async function (assert) {
+                var person = {id: 7, name: "Person"};
+                function plannedTask(id, key, start, end, parentId) {
+                    return {
+                        id: id, key: key, name: "Task " + key, parent_id: parentId || false,
+                        stage_id: 40, stage_name: "Doing", stage_sequence: 1, is_closed: false,
+                        planned_date_start: start + " 01:00:00", planned_date_end: end + " 00:00:00",
+                        has_planned_date_start: true, has_planned_date_end: true,
+                        user_list: [person], user_names: person.name, depend_on_ids: [], can_write: false,
+                        planned_hours: 0, remaining_hours: 0, progress: 0,
+                    };
+                }
+                serveCalls(function () {
+                    return Promise.resolve({
+                        tasks: [
+                            plannedTask(1, "T-1", "2026-11-02", "2026-11-10"),
+                            plannedTask(2, "T-2", "2026-11-04", "2026-11-06", 1),
+                            plannedTask(3, "T-3", "2026-11-05", "2026-11-12"),
+                            plannedTask(4, "T-4", "2026-11-12", "2026-11-14"),
+                        ],
+                        tasks_without_dates: 0,
+                        unscheduled: [],
+                        columns: [],
+                        today: "2026-11-05",
+                    });
+                });
+                var dashboard = renderedDashboard("project");
+                var screen = document.createElement("div");
+                document.body.appendChild(screen);
+                registerCleanup(function () {
+                    screen.remove();
+                });
+                screen.replaceChildren(dashboard.el);
+                dashboard._onViewGantt();
+                await dashboard._loadGanttData();
+                var overlapLines = {};
+                dashboard._ganttItemsDS.get().forEach(function (item) {
+                    if (/gantt-overlap/.test(item.className)) {
+                        overlapLines[item.id] = item.title.split("<br/>").pop();
+                    }
+                });
+                assert.deepEqual(overlapLines, {
+                    ut_7_1: "Overlaps: T-3",
+                    ut_7_2: "Overlaps: T-3",
+                    ut_7_3: "Overlaps: T-1, T-2",
+                }, "neither a sub-task inside its parent nor a task starting after another ends is an overlap");
+                var legendItem = dashboard.$(".o_gantt_legend_overlap_item");
+                assert.notOk(legendItem.hasClass("d-none"), "the legend shows the outline where bars carry it");
+                assert.ok(/overlap another task of the same person/.test(legendItem.attr("title")));
+                dashboard.ganttGroupBy = "task";
+                dashboard._renderGantt();
+                assert.ok(legendItem.hasClass("d-none"), "grouped by task no bar is outlined, nor is the legend");
             });
 
             QUnit.test("a manager or department not found leaves the header without a team", async function (assert) {

@@ -152,6 +152,10 @@ completed tasks, a counter of tasks without dates, faceted search with a
 jump to any shown task by key or name, several projects at once. Bars
 take the colour of their stage (closed stages grey, legend built from the
 stages shown); an open task past its planned end gets a red outline.
+Grouped by user, a bar whose planned dates overlap another task of the
+same person (a task and its own sub-tasks do not count) gets a red dashed
+outline, unless it is overdue, and its tooltip names the tasks it
+overlaps; the legend's *Overlap* entry explains the outline.
 Dependencies are drawn as orange elbow connectors from the predecessor's
 end into the successor's start.
 **Export Excel** downloads the open tasks of the selected projects that
