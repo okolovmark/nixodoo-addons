@@ -102,8 +102,8 @@
   other task.
 * A link is copied in the forms ``/web/image/<id>`` and ``/web/content/<id>``
   only: the other forms the brief reads, such as
-  ``/web/content/ir.attachment/<id>/datas`` or ``/web/content?id=<id>``,
-  stay as they are.
+  ``/web/content/ir.attachment/<id>/datas``, ``/web/content?id=<id>`` or a
+  url with a backslash in its host or up to the id's end, stay as they are.
 * A large image that a copied text both shows and links as a file gives
   the new task two attachments: the image resized, the file as uploaded.
 * An image taken out of a text, and the images of a deleted question row or
@@ -113,6 +113,19 @@
   or holding a brace, ``<`` or ``>``, or a bracket or a quote in its query,
   may keep its token. A token written loose, outside a url, stays as
   written.
+* The text's own ``<scheme:...>`` in the middle of a line is written as
+  typed, which a renderer reads as an autolink: only at the start of a line
+  is it escaped.
+* A link right after a url of the text is set apart from it where the link
+  opens an inline element, not where text of that element comes before the
+  link: a renderer may then read the url on into the link's markup.
+* A link with a text of its own inside another link's text is written as a
+  link, and a renderer shows the outer one as text: CommonMark lets no link
+  stand in another's text.
+* A text that names attachments only by urls whose backslash is a
+  character reference (``&#92;web``) gets pointers without the
+  attachments' names, an element's own title or alt text at most: the brief
+  looks the names up only for a text that holds ``/web`` or ``\web``.
 * A few table shapes come out otherwise than a browser shows them: a
   browser ends what holds a part of the table there, the brief does not.
 
