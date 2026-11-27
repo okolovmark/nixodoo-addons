@@ -130,7 +130,7 @@ jobs:
     env:
       OCA_ENABLE_CHECKLOG_ODOO: "1"
       DENY_LIST_TESTS: >-
-        /ai_assistant:TestAiDenyList,/ai_assistant:TestAiDenyListSecretsAndReviews,/ai_assistant:TestAiDenyListEmployeeCosts,/ai_assistant:TestAiDenyListRecordTexts,/ai_assistant:TestAiDenyListNames,/ai_assistant:TestAiDenyListTaskBrief,/ai_assistant:TestAiDenyListAppraisal
+        /ai_assistant:TestAiDenyList,/ai_assistant:TestAiDenyListSecretsAndReviews,/ai_assistant:TestAiDenyListEmployeeCosts,/ai_assistant:TestAiDenyListRecordTexts,/ai_assistant:TestAiDenyListNames,/ai_assistant:TestAiDenyListNameCopies,/ai_assistant:TestAiDenyListTaskBrief,/ai_assistant:TestAiDenyListAppraisal
     steps:
       - uses: actions/checkout@v4
         with:
@@ -146,13 +146,13 @@ jobs:
         if: steps.addons.outputs.found == 'true'
         run: oca_init_test_database
       # ai_assistant's deny list reads the copies of the VAT number these localizations add, as l10n_in's GST
-      # state warning and l10n_nl's identifiers metadata, and the names im_livechat builds from a guest; its
-      # tests of them skip without them.
-      - name: Install the Indian and Dutch localizations and live chat
+      # state warning and l10n_nl's identifiers metadata, the names im_livechat builds from a guest, the tracking
+      # values mail_tracking stores and the message subjects mail_group relates; its tests of them skip without them.
+      - name: Install the Indian and Dutch localizations, live chat, tracking and mail groups
         if: steps.addons.outputs.found == 'true'
         shell: bash
         run: |
-          unbuffer "$(which odoo)" -d "$PGDATABASE" -i l10n_in,l10n_nl,im_livechat \
+          unbuffer "$(which odoo)" -d "$PGDATABASE" -i l10n_in,l10n_nl,im_livechat,mail_tracking,mail_group \
             --http-interface=127.0.0.1 --stop-after-init --skip-auto-install | oca_checklog_odoo
       - name: Run the AI deny list tests
         if: steps.addons.outputs.found == 'true'
@@ -164,7 +164,8 @@ jobs:
             --http-interface=127.0.0.1 --stop-after-init | tee deny-list-tests.log | oca_checklog_odoo
           # A test skipped without its module, or renamed out of the tags, would leave this job green.
           for test in test_the_gst_state_warning_goes_by_the_vat_number test_the_dutch_identifiers_metadata_goes_by_the_vat_number \
-            test_a_live_chat_history_named_after_its_guest_is_masked; do
+            test_a_live_chat_history_named_after_its_guest_is_masked test_the_tracking_values_of_a_hidden_field_stay_out \
+            test_a_field_related_to_a_message_s_subject_reads_as_the_subject_does; do
             grep -q "Starting .*\.$test " deny-list-tests.log || { echo "::error::$test did not run"; exit 1; }
             if grep -q "skipped .*\.$test " deny-list-tests.log; then echo "::error::$test was skipped"; exit 1; fi
           done
