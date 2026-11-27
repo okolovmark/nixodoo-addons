@@ -6,7 +6,7 @@ import os
 import random
 import re
 import time
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from datetime import date, datetime
 from unittest.mock import patch
 
@@ -19,7 +19,7 @@ from odoo import Command, models
 from odoo.exceptions import AccessError
 from odoo.osv import expression
 from odoo.tests import TransactionCase, new_test_user, tagged
-from odoo.tools import html2plaintext, mute_logger, remove_accents
+from odoo.tools import email_split, html2plaintext, mute_logger, remove_accents
 
 from odoo.addons.ai_assistant.models.ai_assistant_tools import (
     ACCESS_DENIED_TEXT,
@@ -6185,15 +6185,30 @@ class TestAiDenyListNameCopies(DenyListTextCase):
         self.assertEqual(child_rating.parent_res_name, "AI Quokka Desk")
         return rating, child_rating, plain_rating
 
-    def _without_reply_to(self, row):
-        """The row without reply_to, which quotes the record's name beside the company's (_notify_get_reply_to): out of
-        what the tools mask."""
-        return {name: value for name, value in row.items() if name != "reply_to"}
+    def _read_group(self, user, model_name, domain, groupby, measures, orderby):
+        """(payload or text, is_error) of read_group. An order by a field it does not group by is checked before Odoo
+        ignores it with a warning, muted here."""
+        is_ignored_order = bool(orderby) and orderby not in groupby
+        with mute_logger("odoo.models") if is_ignored_order else nullcontext():
+            return self._call(
+                user,
+                "read_group",
+                model=model_name,
+                domain=json.dumps(domain),
+                groupby=groupby,
+                measures=measures,
+                orderby=orderby,
+                limit=0,
+            )
 
     def _named_messages(self):
         """The job's messages whose texts Odoo writes its name into: the composer's reply, its subject followed on, one
         with a subject of its own, one Odoo mailed without one, the notice of the activity assigned to the reader
-        (setUp); and the partner's with a subject of its own."""
+        (setUp); and the partner's with a subject of its own. With a catchall, each one's reply_to quotes its record's
+        name beside the company's (_notify_get_reply_to)."""
+        icp = self.env["ir.config_parameter"].sudo()
+        icp.set_param("mail.catchall.domain", "example.com")
+        icp.set_param("mail.catchall.alias", "ai-catchall")
         composer = (
             self.env["mail.compose.message"]
             .with_context(default_composition_mode="comment", default_model="hr.job", default_res_id=self.job.id)
@@ -6214,6 +6229,8 @@ class TestAiDenyListNameCopies(DenyListTextCase):
         self.assertEqual((composed.subject, mailed.subject), ("Re: AI Quokka Desk follow-up", "Re: AI Quokka Desk"))
         self.assertIn("AI Quokka Desk", notice.body)
         self.assertIn("AI Quokka Desk", mailed.notification_ids.mail_mail_id[:1].body_html)
+        for message in (composed, titled, mailed):
+            self.assertIn("AI Quokka Desk", message.reply_to)
         return composed | titled | mailed | notice, plain
 
     def test_a_message_on_a_record_with_a_masked_name_shows_the_label_for_the_record_s_name(self):
@@ -6348,15 +6365,8 @@ class TestAiDenyListNameCopies(DenyListTextCase):
                         ([["id", "in", records.ids]], True),
                         ([["id", "in", plain_records.ids]], False),
                     ):
-                        content, is_error = self._call(
-                            self.reader,
-                            "read_group",
-                            model=model_name,
-                            domain=json.dumps(domain),
-                            groupby=groupby,
-                            measures=measures,
-                            orderby=orderby,
-                            limit=0,
+                        content, is_error = self._read_group(
+                            self.reader, model_name, domain, groupby, measures, orderby
                         )
                         self.assertEqual(is_error, is_refused, (groupby, measures, orderby, domain, content))
                         self._assert_no_job_name(content)
@@ -6465,7 +6475,16 @@ class TestAiDenyListNameCopies(DenyListTextCase):
                 self.message.id: (False, DENIED_NAME_LABEL),
             },
         )
-        self._assert_no_job_name([self._without_reply_to(row) for row in payload["records"]])
+        self._assert_no_job_name(payload)
+        self.assertEqual(
+            {message.id: rows[message.id]["reply_to"] for message in (composed, titled, mailed, plain)},
+            {
+                **{message.id: ", ".join(email_split(message.reply_to)) for message in (composed, titled, mailed)},
+                plain.id: plain.reply_to,
+            },
+        )
+        self.assertIn("@example.com", rows[composed.id]["reply_to"])
+        self.assertIn("AI Assistant Acme", plain.reply_to)
         text_names = ["subject", "description", "body", "preview"]
         payload, is_error = self._search_read(self.reader, "mail.message", [["id", "in", all_messages.ids]], text_names)
         self.assertFalse(is_error, payload)
@@ -6498,12 +6517,13 @@ class TestAiDenyListNameCopies(DenyListTextCase):
             (
                 "mail.mail",
                 mail,
-                ["subject", "description", "record_name"],
+                ["subject", "description", "record_name", "reply_to"],
                 {
                     "display_name": mail_subject,
                     "subject": mail_subject,
                     "description": mail_subject,
                     "record_name": DENIED_NAME_LABEL,
+                    "reply_to": ", ".join(email_split(mailed.reply_to)),
                 },
             ),
             (
@@ -6517,7 +6537,7 @@ class TestAiDenyListNameCopies(DenyListTextCase):
             with self.subTest(model=model_name, fields=fields):
                 row = self._shown(self.reader, model_name, record, fields)
                 self.assertEqual({name: row[name] for name in expected}, expected)
-                self._assert_no_job_name(self._without_reply_to(row))
+                self._assert_no_job_name(row)
         # The mail's body is its notification layout, which prints the record's name.
         self.assertIn(DENIED_NAME_LABEL, self._shown(self.reader, "mail.mail", mail, ["body_html"])["body_html"])
 
@@ -6541,6 +6561,9 @@ class TestAiDenyListNameCopies(DenyListTextCase):
                     (["body", "ilike", "Quokka"], False),
                     (["body", "not ilike", "Quokka"], True),
                     (["body", "ilike", "AI partner note"], True),
+                    (["reply_to", "ilike", "Quokka"], False),
+                    (["reply_to", "not ilike", "Quokka"], True),
+                    (["reply_to", "ilike", "@example.com"], True),
                 ),
             ),
             (
@@ -6553,6 +6576,8 @@ class TestAiDenyListNameCopies(DenyListTextCase):
                     (["body", "ilike", "Quokka"], False),
                     (["body", "not ilike", "Quokka"], True),
                     (["body", "ilike", "AI partner note"], True),
+                    (["reply_to", "ilike", "Quokka"], False),
+                    (["reply_to", "not ilike", "Quokka"], True),
                 ),
             ),
         ):
@@ -6570,30 +6595,22 @@ class TestAiDenyListNameCopies(DenyListTextCase):
         )
         self.assertTrue(is_error, content)
         self.assertIn("mail.mail.subject copies the display name", content)
-        # A message of the job without a subject holds no copy in it.
-        for domain, is_refused in (
-            ([["id", "in", (messages | plain).ids]], True),
-            ([["id", "in", (plain | self.message).ids]], False),
+        # A message of the job without a subject holds no copy in it; each one with a catchall quotes the name in its
+        # reply_to.
+        for name, domain, is_refused in (
+            ("subject", [["id", "in", (messages | plain).ids]], True),
+            ("subject", [["id", "in", (plain | self.message).ids]], False),
+            ("reply_to", [["id", "in", (messages | plain).ids]], True),
+            ("reply_to", [["id", "in", plain.ids]], False),
         ):
-            with self.subTest(is_refused=is_refused):
-                content, is_error = self._search_read(self.reader, "mail.message", domain, ["id"], order="subject")
+            with self.subTest(name=name, is_refused=is_refused):
+                content, is_error = self._search_read(self.reader, "mail.message", domain, ["id"], order=name)
                 self.assertEqual(is_error, is_refused, content)
                 if is_refused:
-                    self.assertIn("mail.message.subject copies the display name", content)
-                for groupby, measures, orderby in (
-                    (["subject"], [], ""),
-                    ([], ["subject:max"], ""),
-                    ([], [], "subject"),
-                ):
-                    content, is_error = self._call(
-                        self.reader,
-                        "read_group",
-                        model="mail.message",
-                        domain=json.dumps(domain),
-                        groupby=groupby,
-                        measures=measures,
-                        orderby=orderby,
-                        limit=0,
+                    self.assertIn("mail.message.%s copies the display name" % name, content)
+                for groupby, measures, orderby in (([name], [], ""), ([], ["%s:max" % name], ""), ([], [], name)):
+                    content, is_error = self._read_group(
+                        self.reader, "mail.message", domain, groupby, measures, orderby
                     )
                     self.assertEqual(is_error, is_refused, (groupby, measures, orderby, content))
                     self._assert_no_job_name(content)
@@ -6657,3 +6674,149 @@ class TestAiDenyListNameCopies(DenyListTextCase):
             with self.subTest(model=model_name, term=term):
                 records = activity if model_name == "mail.activity" else message | reply
                 self.assertEqual(self._found(self.reader, model_name, [["id", "in", records.ids], term]), [])
+
+    def test_a_copy_is_no_group_key_where_a_newer_row_the_reader_may_not_read_holds_one(self):
+        # mail.message checks access after its LIMIT, so a count of one sees only the newest row; read_group, open to
+        # an administrator, groups them all.
+        hidden_job = self.env["hr.job"].create({"name": "AI Wombat Hidden Desk", "company_id": self.other_company.id})
+        hidden_message = hidden_job.message_post(
+            body="AI note on the hidden job", subject="AI Wombat Hidden kickoff", message_type="comment"
+        )
+        self._deny_job_names()
+        domain = [["id", "in", (self.plain_message | hidden_message).ids]]
+        self.assertEqual(self._found(self.reader, "mail.message", domain), self.plain_message.ids)
+        for name in ("record_name", "subject"):
+            with self.subTest(name):
+                content, is_error = self._read_group(self.reader, "mail.message", domain, [name], [], "")
+                self.assertTrue(is_error, content)
+                self.assertIn("mail.message.%s copies the display name" % name, content)
+                self._assert_no_job_name(content)
+
+    def test_a_filter_on_a_copy_of_a_name_or_a_text_holding_one_reads_no_display_name(self):
+        self._skip_without("product.product", "default_code")
+        if "message_ids" not in self.env["product.product"]._fields:
+            self.skipTest("product.product keeps no chatter")
+        coded, plain = self.env["product.product"].create(
+            [{"name": "AI Coded Gadget", "default_code": "AI-SECRET-88"}, {"name": "AI Plain Gadget"}]
+        )
+        messages = coded.message_post(
+            body="AI gadget note", subject="AI gadget kickoff", message_type="comment"
+        ) | plain.message_post(body="AI gadget note", subject="AI gadget kickoff", message_type="comment")
+        self._set_param("deny_fields_extra", "hr.job.name,product.product.default_code,product.template.default_code")
+        tools = self._tools(self.reader)
+        this = [["id", "in", messages.ids]]
+        # On a copy of production, reading the name of every product with a message took seconds per filter.
+        no_name_read = patch.object(type(tools), "_current_names", side_effect=AssertionError("a display name read"))
+        for term in (
+            ["record_name", "ilike", "AI"],
+            ["subject", "ilike", "kickoff"],
+            ["subject", "not ilike", "AI-SECRET"],
+            ["body", "ilike", "gadget"],
+        ):
+            with self.subTest(term=term), tools._call_cache(), no_name_read:
+                domain = tools._tool_domain("mail.message", json.dumps([*this, term]))
+                self.assertEqual(tools.env["mail.message"].search(domain).ids, messages[1:].ids)
+
+    def test_a_name_or_a_text_written_in_has_its_url_tokens_redacted(self):
+        token_url = "https://example.com/doc?access_token=AITOKEN42"
+        contact = self.env["res.partner"].create({"name": "AI Token Contact", "email": "ai.token@example.com"})
+        mailed = self.job.with_context(mail_notify_force_send=False).message_post(
+            body="AI mailed note",
+            subject="AI Quokka Desk %s" % token_url,
+            message_type="comment",
+            subtype_xmlid="mail.mt_comment",
+            partner_ids=contact.ids,
+        )
+        notification = mailed.notification_ids.filtered("mail_mail_id")[0]
+        self._deny_job_names()
+        shown_subject = "%s https://example.com/doc?access_token=%s" % (DENIED_NAME_LABEL, REDACTED_TOKEN)
+        row = self._shown(self.reader, "mail.notification", notification, ["mail_mail_id"])
+        self.assertEqual(row["mail_mail_id"], [notification.mail_mail_id.id, shown_subject])
+        row = self._shown(self.reader, "mail.mail", notification.mail_mail_id, ["subject"])
+        self.assertEqual((row["display_name"], row["subject"]), (shown_subject, shown_subject))
+        self._skip_without("product.product", "default_code")
+        if "activity_ids" not in self.env["product.product"]._fields:
+            self.skipTest("product.product keeps no activities")
+        product = self.env["product.product"].create(
+            {"name": "AI Stale Gadget %s" % token_url, "default_code": "AI-SECRET-3"}
+        )
+        activity = self.env["mail.activity"].create(
+            {
+                "activity_type_id": self.env.ref("mail.mail_activity_data_todo").id,
+                "res_model_id": self.env["ir.model"]._get_id("product.product"),
+                "res_id": product.id,
+                "user_id": self.env.user.id,
+            }
+        )
+        product.default_code = False
+        self.env.invalidate_all()
+        self._set_param("deny_fields_extra", "product.product.default_code,product.template.default_code")
+        row = self._shown(self.reader, "mail.activity", activity, ["res_name"])
+        self.assertEqual(row["res_name"], "AI Stale Gadget https://example.com/doc?access_token=%s" % REDACTED_TOKEN)
+
+    def test_a_hidden_name_is_masked_as_a_word_never_inside_a_longer_one(self):
+        new_job = self.env["hr.job"].create({"name": "New"})
+        renewal = new_job.message_post(
+            body="Renewal of the New desk, new hires", subject="Renewal: NEW", message_type="comment"
+        )
+        spaced = self.job.message_post(
+            body="AI spaced note", subject="AI  Quokka\tDesk kickoff", message_type="comment"
+        )
+        self._deny_job_names()
+        payload, is_error = self._search_read(
+            self.reader, "mail.message", [["id", "in", (renewal | spaced).ids]], ["subject", "body"]
+        )
+        self.assertFalse(is_error, payload)
+        self.assertEqual(
+            {row["id"]: (row["subject"], row["body"]) for row in payload["records"]},
+            {
+                renewal.id: (
+                    "Renewal: %s" % DENIED_NAME_LABEL,
+                    "Renewal of the %s desk, %s hires" % (DENIED_NAME_LABEL, DENIED_NAME_LABEL),
+                ),
+                spaced.id: ("%s kickoff" % DENIED_NAME_LABEL, "AI spaced note"),
+            },
+        )
+
+    def test_a_message_s_texts_mask_the_names_of_the_records_it_links_and_its_record_links_to(self):
+        self.partner.message_post_with_view(
+            "mail.message_origin_link",
+            values={"self": self.partner, "origin": self.job},
+            subtype_id=self.env.ref("mail.mt_note").id,
+        )
+        origin_message = self.partner.message_ids.filtered(lambda message: "data-oe-model" in (message.body or ""))
+        self.assertIn("AI Quokka Desk", origin_message.body)
+        employee = self.env["hr.employee"].create({"name": "AI Linked Employee", "job_id": self.job.id})
+        note = employee.message_post(body="AI note: moved to AI Quokka Desk", message_type="comment")
+        self._deny_job_names()
+        payload, is_error = self._search_read(
+            self.reader, "mail.message", [["id", "in", (origin_message | note).ids]], ["body", "preview"]
+        )
+        self.assertFalse(is_error, payload)
+        rows = {row["id"]: row for row in payload["records"]}
+        self.assertIn(DENIED_NAME_LABEL, rows[origin_message.id]["body"])
+        self.assertEqual(rows[note.id]["body"], "AI note: moved to %s" % DENIED_NAME_LABEL)
+        self._assert_no_job_name(payload)
+        history, is_error = self._tools(self.reader)._execute(
+            "record_history", {"model": "res.partner", "res_id": self.partner.id}
+        )
+        self.assertFalse(is_error, history)
+        self.assertIn(DENIED_NAME_LABEL, history)
+        self._assert_no_job_name(history)
+        this = [["id", "=", origin_message.id]]
+        self.assertEqual(self._found(self.reader, "mail.message", [*this, ["body", "ilike", "Quokka"]]), [])
+        self.assertEqual(self._found(self.reader, "mail.message", [*this, ["body", "not ilike", "Quokka"]]), [])
+
+    def test_a_message_filed_on_itself_reads_its_own_name(self):
+        looped = self.env["mail.message"].create(
+            {
+                "model": "res.partner",
+                "res_id": self.partner.id,
+                "body": "AI looped note",
+                "message_type": "comment",
+                "author_id": self.reader.partner_id.id,
+            }
+        )
+        looped.write({"model": "mail.message", "res_id": looped.id, "record_name": "AI looped record"})
+        row = self._shown(self.reader, "mail.message", looped, ["record_name"])
+        self.assertEqual((row["record_name"], row["display_name"]), ("AI looped record", "AI looped record"))
