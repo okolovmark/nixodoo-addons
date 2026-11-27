@@ -1428,6 +1428,95 @@ class TestHtmlToMarkdown(TransactionCase):
             "[t](https://e.com/x%5C) [u](https://e.com/a%5C.b) ![](https://e.com/i%5C.png)",
         )
 
+    def test_an_ampersand_read_as_a_character_reference_stays_an_ampersand_in_a_url(self):
+        """CommonMark reads &amp; in a destination as "&", and a browser reads &reg_id so in the raw href marked
+        writes. A url holding one is written in a link, never bare: renderers read it differently there.
+        """
+        self.assertMarkdown(
+            '<p><a href="https://e.com/?a=1&amp;amp;b=2">t</a> <a href="https://e.com/?x&amp;#39;&amp;reg_id=5">u</a>'
+            ' <a href="https://e.com/?copy&amp;copy=3&amp;model=x">v</a> <img src="https://e.com/i.png?a&amp;amp;b"></p>'
+            '<p><a href="https://e.com/?a&amp;amp;b">https://e.com/?a&amp;amp;b</a> <a href="https://e.com/?c&amp;amp;d"></a>'
+            "</p>",
+            "[t](https://e.com/?a=1&amp;amp;b=2) [u](https://e.com/?x&amp;#39;&amp;reg_id=5)"
+            " [v](https://e.com/?copy&copy=3&model=x) ![](https://e.com/i.png?a&amp;amp;b)\n\n"
+            "[https://e.com/?a&amp;amp;b](https://e.com/?a&amp;amp;b) [https://e.com/?c&amp;amp;d](https://e.com/?c&amp;amp;d)",
+        )
+
+    def test_a_backslash_up_to_the_query_of_an_http_or_relative_url_is_a_slash_as_a_browser_reads_it(self):
+        self.assertEqual(
+            get_linked_attachment_ids(
+                '<a href="/web/content/14\\x">a</a><img src="\\web\\image\\15">'
+                '<a href="https:\\\\e.com\\web\\content\\16">b</a><img src="/web/image\\?model=ir.attachment&amp;id=17">'
+                '<a href="/web/content/18?download=\\x">c</a><a href="/web/content?id=19\\x">d</a>'
+                '<a href="mailto:\\web\\content\\20">e</a>'
+            ),
+            {14, 15, 16, 17, 18},
+        )
+        self.assertMarkdown(
+            '<p><a href="/web/content/14\\x">spec</a> <a href="https://odoo.example.com\\web\\content\\15">'
+            'https://odoo.example.com\\web\\content\\15</a> <img src="//odoo.example.com\\web\\image\\16" alt="chart"></p>',
+            "[spec](attachment 14) [file](attachment 15) ![image: chart](attachment 16)",
+            base_url="https://odoo.example.com",
+        )
+
+    def test_a_link_whose_text_is_its_url_holding_a_backslash_or_a_bracket_is_an_autolink(self):
+        """A word would encode its backslash, and its brackets could make a link with the text around it. An autolink
+        opening a line opens no HTML block; a relative url makes none.
+        """
+        self.assertMarkdown(
+            '<p><a href="https://example.com/a\\b">https://example.com/a\\b</a> and'
+            ' <a href="https://e.com/a[1]?access_token=SECRET">https://e.com/a[1]?access_token=SECRET</a>'
+            ' [see <a href="https://e.com/x]">https://e.com/x]</a>(note) <a href="https://e.com/y\\"></a>'
+            ' <a href="/web/a[1]">/web/a[1]</a></p>'
+            '<p><a href="https://e.com/a[1] b">https://e.com/a[1] b</a> opens the line</p>'
+            "<p>&lt;https://e.com/&gt; too</p><p>&lt;b&gt; still</p>",
+            "<https://example.com/a\\b> and <https://e.com/a[1]> [see <https://e.com/x]>(note) <https://e.com/y\\>"
+            " [/web/a\\[1\\]](/web/a[1])\n\n<https://e.com/a[1]%20b> opens the line\n\n<https://e.com/> too\n\n\\<b> still",
+        )
+
+    def test_a_link_or_an_image_right_after_a_url_of_the_text_is_set_apart_from_it(self):
+        """GFM makes an autolink of a url of the text up to a space or a "<", which would take the markup in. After a
+        link, an autolink or code, a link needs no space.
+        """
+        self.assertMarkdown(
+            '<p>https://e.com/a<a href="https://e.com/b">x</a> www.e.com/a<a href="/web/content/12">f</a>'
+            ' https://e.com/c<img src="https://e.com/i.png"> https://e.com/d<img src="%s">'
+            ' https://e.com/e!<a href="https://e.com/b">y</a> https://e.com/f<span><b></b><a href="https://e.com/b">s</a>'
+            '</span> <a href="https://e.com/g">https://e.com/g</a><a href="https://e.com/b">z</a></p>'
+            '<p><a href="https://e.com/u">x</a><a href="https://e.com/v">y</a>'
+            ' <a href="https://e.com/u">see https://e.com/a</a><a href="https://e.com/v">w</a>'
+            ' <code>https://e.com/a</code><a href="https://e.com/b">c</a>'
+            ' <a href="https://e.com/a[1]">https://e.com/a[1]</a><a href="https://e.com/b">d</a></p>' % data_uri(RED),
+            "https://e.com/a [x](https://e.com/b) www.e.com/a [f](attachment 12) https://e.com/c ![](https://e.com/i.png)"
+            " https://e.com/d \\[image not yet moved to an attachment\\] https://e.com/e! [y](https://e.com/b)"
+            " https://e.com/f [s](https://e.com/b) https://e.com/g [z](https://e.com/b)\n\n"
+            "[x](https://e.com/u)[y](https://e.com/v) [see https://e.com/a](https://e.com/u)[w](https://e.com/v)"
+            " `https://e.com/a`[c](https://e.com/b) <https://e.com/a[1]>[d](https://e.com/b)",
+        )
+
+    def test_each_link_of_a_glued_run_reads_back_for_a_url_up_to_the_link_before_it_only(self):
+        """Read back to the start of the text each time, a long run of links takes its length squared."""
+        read_lengths = []
+        get_word_start = html_markdown._get_word_start
+
+        def read_word_start(text, start, end):
+            read_lengths.append(end - start)
+            return get_word_start(text, start, end)
+
+        with patch.object(html_markdown, "_get_word_start", read_word_start):
+            markdown = html_to_markdown("<p>%s%s</p>" % ("x" * 1000, '<a href="https://e.com/">u</a>' * 1000))
+        self.assertLessEqual(sum(read_lengths), len(markdown))
+
+    def test_the_pointer_of_an_image_not_yet_moved_is_text_whatever_stands_around_it(self):
+        """Its brackets are escaped: a "(" after them would make it a link, a "!" before them an image."""
+        image = '<img src="%s">' % data_uri(RED)
+        self.assertMarkdown(
+            '<p>%s(screenshot) !%s(x) <a href="https://e.com/">%s</a></p><p>%s: below</p>' % ((image,) * 4),
+            "\\[image not yet moved to an attachment\\](screenshot) !\\[image not yet moved to an attachment\\](x)"
+            " [\\[image not yet moved to an attachment\\]](https://e.com/)\n\n"
+            "\\[image not yet moved to an attachment\\]: below",
+        )
+
     def test_a_cell_in_inline_text_preformatted_text_or_code_in_a_table_is_written_in_the_table_only(self):
         """The words around it stay apart, in the heading, preformatted text or code: a limit, as a browser ends that
         at the cell.

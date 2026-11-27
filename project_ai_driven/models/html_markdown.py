@@ -1,5 +1,6 @@
 import math
 import re
+from html.entities import html5
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 from lxml import etree
@@ -35,7 +36,8 @@ DEFAULT_PORTS = {"http": 80, "https": 443}
 # a colspan pads its row with empty cells: capped, so that a few bytes of HTML cannot make megabytes; a rowspan
 # pads only the rows its row group has
 MAX_TABLE_COLUMNS = 100
-NOT_MOVED_IMAGE = "[image not yet moved to an attachment]"
+# its brackets escaped: a "(" after it would make it a link, and a "!" before it an image
+NOT_MOVED_IMAGE = "\\[image not yet moved to an attachment\\]"
 WHITESPACE = re.compile(r"\s+")
 REPEATED_SPACES = re.compile(r" {2,}")
 LINE_BREAK_RUN = re.compile(r"\n{3,}")
@@ -61,10 +63,10 @@ ITEM_START = ""
 TASK_LIST_BOX = re.compile(r"\[[ xX]\](?:\s|$)")
 # A heading, quote, list item, code fence of three or more, rule, setext underline, table row, table
 # delimiter row or HTML block (a tag, comment or declaration) when a line starts with it. A backtick run with a
-# backtick after it is a code span, not a fence.
+# backtick after it is a code span, not a fence, and an autolink <scheme:...> no tag.
 BLOCK_MARKUP = re.compile(
-    r"#+(?:\s|$)|>|[-+*](?:\s|$)|~{3}|`{3,}[^`]*$|[-=]+\s*$|([*_])\s*(?:\1\s*){2,}$|<[A-Za-z/!?]|\|"
-    r"|[\s:-]*-[\s:-]*\|[\s|:-]*$"
+    r"#+(?:\s|$)|>|[-+*](?:\s|$)|~{3}|`{3,}[^`]*$|[-=]+\s*$|([*_])\s*(?:\1\s*){2,}$"
+    r"|<(?![A-Za-z][A-Za-z0-9+.-]{1,31}:[^\x00-\x20\x7f<>]*>)[A-Za-z/!?]|\||[\s:-]*-[\s:-]*\|[\s|:-]*$"
 )
 ORDERED_LIST_NUMBER = re.compile(r"[0-9]{1,9}(?=[.)](?:\s|$))")
 # The label at the start of a paragraph, which may run over lines: group 1 is "]:" where it opens a link reference
@@ -82,6 +84,21 @@ URL_USERINFO = re.compile(r"((?:(?<![\w+.-])[a-z][a-z0-9+.-]*:)?//)[^/?#\s]*@", 
 HTTP_USERINFO = re.compile(r"((?<![\w+.-])(?:[a-z][a-z0-9.-]*\+)?https?://)[^/?#\s]*@", re.IGNORECASE)
 # what ends a link destination, or escapes the character after it there
 LINK_TARGET_UNSAFE = re.compile(r"[\x00-\x20\x7f()<>\\]")
+# An "&" that CommonMark reads as a character reference, or a browser in the raw href some renderers write (marked):
+# a numeric one, a name and ";", or a name HTML reads without one where no "=" or letter or digit follows it.
+CHARACTER_REFERENCE = re.compile(
+    r"&(?=#|[A-Za-z0-9]+;|(?:%s)(?![=A-Za-z0-9]))" % "|".join(name for name in html5 if not name.endswith(";"))
+)
+AUTOLINK_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]{1,31}:")
+# what ends an autolink <url>: in CommonMark a control character, a space, "<" or ">", in marked any white space too
+AUTOLINK_UNSAFE = re.compile(r"[\s\x00-\x1f\x7f<>]")
+# a backslash, which a url written as a word has encoded, or a bracket, which a renderer may read as markup there
+BARE_URL_MARKUP = re.compile(r"[\\\[\]]")
+# where GFM starts an autolink in text, running on up to a space or a "<"
+GFM_URL_START = re.compile(r"(?:https?|ftp)://|www\.", re.IGNORECASE)
+# a browser reads a backslash as a slash in an http(s) url up to its query, and in a relative one an http(s) page holds
+BACKSLASH_SLASH_SCHEMES = ("", "http", "https")
+URL_BEFORE_QUERY = re.compile(r"[^?#]*")
 ATTACHMENT_PATH = re.compile(r"/web/(?:image|content)/(?:ir\.attachment/)?([0-9]{1,10})(?:[-/].*)?", re.DOTALL)
 ATTACHMENT_ROUTE = re.compile(r"/web/(?:image|content)/?")
 TOKEN_NAME = re.compile(r"token|secret|signature|passw|credential|api_?key|^(?:key|sig|auth)$")
@@ -110,11 +127,13 @@ def html_to_markdown(html_content, attachment_names=None, heading_level=1, base_
     and its user and password, in the text those of an http(s) url only; a token
     written loose in text or code stays as it is written. A link of a scheme
     other than http(s) or mailto keeps only its text; one with no text writes
-    its url as a word of its own. Text that would open a Markdown block at the
-    start of a line is escaped, and so is a "!" that would make the link
-    after it an image; a backslash stays as it is written, the brief being
-    read raw. heading_level is the level an <h1> takes, so that a text sits
-    under the headings around it.
+    its url as a word of its own, as one whose text is its url does, or as an
+    autolink <url> where a word would not show it (_get_bare_link). A link or
+    an image right after a url of the text is set apart from it by a space.
+    Text that would open a Markdown block at the start of a line is escaped,
+    and so is a "!" that would make the link after it an image; a backslash
+    stays as it is written, the brief being read raw. heading_level is the
+    level an <h1> takes, so that a text sits under the headings around it.
     """
     if not html_content or not str(html_content).strip():
         return ""
@@ -127,7 +146,8 @@ def html_to_markdown(html_content, attachment_names=None, heading_level=1, base_
 
 def get_linked_attachment_ids(html_content):
     """The ids of the attachments the images and links of html_content name, in any url form and on any host."""
-    if not html_content or "/web" not in str(html_content):
+    html_text = str(html_content or "")
+    if "/web" not in html_text and "\\web" not in html_text:
         return set()
     root = parse_html(html_content)
     if root is None:
@@ -137,8 +157,10 @@ def get_linked_attachment_ids(html_content):
 
 
 def get_attachment_id(url):
-    """The id of the attachment a /web/image or /web/content url names, relative or absolute on any host, else None."""
-    _scheme, _authority, path, query = URL_PARTS.match(normalise_url(url)).groups()
+    """The id of the attachment a /web/image or /web/content url names, relative or absolute on any host, read as a
+    browser reads it (_get_browser_url), else None.
+    """
+    _scheme, _authority, path, query = URL_PARTS.match(_get_browser_url(normalise_url(url))).groups()
     attachment_path = ATTACHMENT_PATH.fullmatch(path)
     if attachment_path:
         return int(attachment_path.group(1))
@@ -263,6 +285,16 @@ def get_local_url(url, base_host):
 def normalise_url(url):
     """url as a browser reads it: tabs and line breaks dropped, outer spaces and control characters stripped."""
     return URL_TAB_OR_NEWLINE.sub("", url or "").strip(URL_EDGE_CHARACTERS)
+
+
+def _get_browser_url(url):
+    """url, normalised, with a backslash before its query or fragment a slash where it is http(s) or relative, as a
+    browser reads a url of a special scheme (WHATWG URL): /web/content/14\\x opens attachment 14.
+    """
+    if _get_scheme(url) not in BACKSLASH_SLASH_SCHEMES:
+        return url
+    query_start = URL_BEFORE_QUERY.match(url).end()
+    return url[:query_start].replace("\\", "/") + url[query_start:]
 
 
 def _get_scheme(url):
@@ -395,17 +427,61 @@ class _BangLinkMarkup(str):
     __slots__ = ()
 
 
-def _join_inline(parts, is_complete=False):
-    """The inline parts, text and markup, joined, a "!" right before a _LinkMarkup, or opening a _BangLinkMarkup,
-    escaped unless backslashes escape it already. Where nothing but backslashes stands before that "!" in the text,
-    those before the text count too: it is left as written and the text marked a _BangLinkMarkup, as a text opening
-    with a link's markup is a _LinkMarkup, unless is_complete, only markup or a line start coming before the text.
+class _ImageMarkup(str):
+    """Markdown opening with the markup of an image, or with NOT_MOVED_IMAGE."""
+
+    __slots__ = ()
+
+
+def _get_word_start(text, start, end):
+    """Where the word GFM reads up to end in text starts, looking back to start: after the last space, line break or
+    "`", or after the last link destination or autolink, past its opening only where it does not close before end.
     """
+    word_start = max(text.rfind(character, start, end) for character in " \n`") + 1
+    for opening, closing in (("](", ")"), ("<", ">")):
+        opening_start = text.rfind(opening, start, end)
+        if opening_start >= 0:
+            opening_end = opening_start + len(opening)
+            closing_start = text.find(closing, opening_end, end)
+            word_start = max(word_start, closing_start + 1 if closing_start >= 0 else opening_end)
+    return word_start
+
+
+def _set_apart_from_urls(parts):
+    """The non-empty inline parts and their joined text, a space put before each part opening with the markup of a
+    link or an image (_LinkMarkup, _BangLinkMarkup, _ImageMarkup) right after a url of the text: GFM makes an
+    autolink of it up to a space or a "<", which would take the markup in. The text is read back no further than the
+    part of that kind before, whose markup ends a word: a run of such parts costs its length only.
+    """
+    parts = list(filter(None, parts))
     joined_text = "".join(parts)
+    spaced_parts = []
+    word_bound = part_start = 0
+    for part in parts:
+        if part_start and isinstance(part, (_LinkMarkup, _BangLinkMarkup, _ImageMarkup)):
+            word_start = _get_word_start(joined_text, word_bound, part_start)
+            if GFM_URL_START.search(joined_text, word_start, part_start):
+                spaced_parts.append(" ")
+            word_bound = part_start
+        spaced_parts.append(part)
+        part_start += len(part)
+    if len(spaced_parts) == len(parts):
+        return parts, joined_text
+    return spaced_parts, "".join(spaced_parts)
+
+
+def _join_inline(parts, is_complete=False):
+    """The inline parts, text and markup, joined, set apart from a url before them (_set_apart_from_urls), a "!"
+    right before a _LinkMarkup, or opening a _BangLinkMarkup, escaped unless backslashes escape it already. Where
+    nothing but backslashes stands before that "!" in the text, those before the text count too: it is left as
+    written and the text marked a _BangLinkMarkup, as a text opening with a link's markup is a _LinkMarkup, and one
+    opening with an image's an _ImageMarkup, unless is_complete, only markup or a line start coming before the text.
+    """
+    parts, joined_text = _set_apart_from_urls(parts)
     pieces = []
     opening_type = str
     piece_start = part_start = 0
-    for part in filter(None, parts):
+    for part in parts:
         bang = None
         if isinstance(part, _BangLinkMarkup):
             # its own backslashes are not walked again: a run deep in nested elements would be walked at each level
@@ -415,6 +491,8 @@ def _join_inline(parts, is_complete=False):
                 opening_type = _LinkMarkup
             elif joined_text[part_start - 1] == "!":
                 bang = run_end = part_start - 1
+        elif isinstance(part, _ImageMarkup) and not part_start:
+            opening_type = _ImageMarkup
         if bang is not None:
             run_start = _get_backslash_run_start(joined_text, run_end)
             if not (run_start or is_complete):
@@ -472,8 +550,31 @@ def _quote_line(line):
     return quoted_line if line.endswith("\\ ") else quoted_line.rstrip()
 
 
+def _get_percent_code(character):
+    return "".join("%%%02X" % byte for byte in character.group().encode())
+
+
+def _escape_references(text):
+    """text with each "&" a renderer would read as a character reference escaped, so that it stays an "&"."""
+    return CHARACTER_REFERENCE.sub("&amp;", text)
+
+
 def _get_link_target(url):
-    return LINK_TARGET_UNSAFE.sub(lambda character: "%%%02X" % ord(character.group()), url)
+    return _escape_references(LINK_TARGET_UNSAFE.sub(_get_percent_code, url))
+
+
+def _get_bare_link(url):
+    """url written bare: as a word, or as an autolink <url> where it holds a backslash or a bracket. None where a
+    relative url, which makes no autolink, holds one, or where an "&" of url is read as a character reference, which
+    renderers read differently in either form.
+    """
+    if CHARACTER_REFERENCE.search(url):
+        return None
+    if not BARE_URL_MARKUP.search(url):
+        return _get_link_target(url)
+    if AUTOLINK_SCHEME.match(url):
+        return "<%s>" % AUTOLINK_UNSAFE.sub(_get_percent_code, url)
+    return None
 
 
 def _get_fence(text, minimum):
@@ -846,10 +947,13 @@ class _MarkdownWriter:
         return _join_inline(parts, is_complete)
 
     def _get_local_attachment_id(self, url):
-        """The id of the attachment url names in this database: by a relative url or one on the host of base_url."""
-        if get_local_url(url, self.base_host) is None:
+        """The id of the attachment url names in this database: by a relative url or one on the host of base_url, read
+        as a browser reads it (_get_browser_url).
+        """
+        browser_url = _get_browser_url(url)
+        if get_local_url(browser_url, self.base_host) is None:
             return None
-        return get_attachment_id(url)
+        return get_attachment_id(browser_url)
 
     def _get_attachment_pointer(self, kind, attachment_id, element_name):
         name = " ".join((self.attachment_names.get(attachment_id) or element_name or "").split())
@@ -862,14 +966,16 @@ class _MarkdownWriter:
             return ""
         scheme = _get_scheme(source)
         if scheme == "data":
-            return NOT_MOVED_IMAGE
+            return _ImageMarkup(NOT_MOVED_IMAGE)
         alt_text = element.get("alt") or ""
         if scheme not in IMAGE_SCHEMES:
             return _escape_label(alt_text)
         attachment_id = self._get_local_attachment_id(source)
         if attachment_id:
-            return "!" + self._get_attachment_pointer("image", attachment_id, element.get("title") or alt_text)
-        return "![%s](%s)" % (_escape_label(alt_text), _get_link_target(strip_url_tokens(source)))
+            return _ImageMarkup(
+                "!" + self._get_attachment_pointer("image", attachment_id, element.get("title") or alt_text)
+            )
+        return _ImageMarkup("![%s](%s)" % (_escape_label(alt_text), _get_link_target(strip_url_tokens(source))))
 
     def _get_link(self, element):
         url = normalise_url(element.get("href"))
@@ -891,15 +997,17 @@ class _MarkdownWriter:
 
     def _get_link_markup(self, element, url, link_text):
         clean_url = strip_url_tokens(url)
-        is_bare = not link_text or link_text in (url, clean_url)
+        # link_text is escaped: the brackets and backslashes of a url are too where it is its own text
+        is_bare = not link_text or link_text in {url, clean_url, _escape_brackets(url), _escape_brackets(clean_url)}
         attachment_id = self._get_local_attachment_id(url)
         if attachment_id:
             if is_bare:
                 return self._get_attachment_pointer("file", attachment_id, element.get("title"))
             return "[%s](attachment %d)" % (link_text, attachment_id)
-        if is_bare:
-            return _get_link_target(clean_url)
-        return "[%s](%s)" % (link_text, _get_link_target(clean_url))
+        link_target = _get_link_target(clean_url)
+        if not is_bare:
+            return "[%s](%s)" % (link_text, link_target)
+        return _get_bare_link(clean_url) or "[%s](%s)" % (_escape_brackets(_escape_references(clean_url)), link_target)
 
     def _get_stray_list(self, items, previous_block):
         """The run of stray items as the bullet list a browser shows them as."""

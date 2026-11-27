@@ -131,7 +131,7 @@ class ProjectTask(models.Model):
         " website's domain where it applies), is a pointer, whatever the form of its url: ![image: <name>]"
         "(attachment <id>) or ![image](attachment <id>) for an image, [<link text>](attachment <id>),"
         " [file: <name>](attachment <id>) or [file](attachment <id>) for a link. An image not yet moved to an"
-        " attachment shows as [image not yet moved to an attachment], one linked by another url as a"
+        " attachment shows as \\[image not yet moved to an attachment\\], one linked by another url as a"
         " Markdown image. Tokens and credentials are removed from urls only: the url of a link or an image,"
         " and one that stands in the text as a word of its own, loses its query and fragment parameters"
         " named like a token, with the hash and pid that sign a portal link, and its user and password (in"
