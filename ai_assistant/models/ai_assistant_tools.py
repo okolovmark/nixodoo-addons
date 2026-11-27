@@ -2355,32 +2355,43 @@ class AiAssistantTools(models.AbstractModel):
         return changed | self._own_name_links_domain(model_name, name)
 
     @api.model
-    def _check_not_copied_name(self, model_name, name, search_domain, is_sorted_past_access=False):
+    def _check_not_copied_name(self, model_name, name, search_domain, is_message_scan=False):
         """Refuse a copy of a record's display name or a text that may hold it (`_name_copy_fields`) as a sort or
         group key or an aggregate but a count when a row of `search_domain` the call reads (`_reads_a_row`) may show
-        it otherwise than stored (`_changed_rows_domain`): its order or its value would show the name."""
+        it otherwise than stored (`_changed_rows_domain`): its order or its value would show the name. As a sort of
+        `_readable_messages` (`is_message_scan`) cut short (`_is_cut_message_scan`), whatever the rows: there the
+        messages the employee may not read decide which ones the sort lets in."""
         changed = self._changed_rows_domain(model_name, name)
-        if changed is None or not self._reads_a_row(model_name, search_domain, changed, is_sorted_past_access):
+        if changed is None:
             return
         paths = self._name_copy_fields(model_name)[name]
+        copy_text = "%s.%s %s the display name of the record its row names" % (
+            model_name,
+            name,
+            "may hold" if paths[2] else "copies",
+        )
+        if is_message_scan and self._is_cut_message_scan(search_domain):
+            raise AiDenyListError(
+                "%s, which the AI deny list masks on some records. More than %s messages match, and Odoo checks one by"
+                ' one which the employee may read: name their model, as ["model", "=", "res.partner"], narrow the'
+                " domain, or sort by another field." % (copy_text, MAX_SEARCH_LIMIT)
+            )
+        if not self._reads_a_row(model_name, search_domain, changed):
+            return
         raise AiDenyListError(
-            "%s.%s %s the display name of the record its row names, which the AI deny list masks on some of these rows:"
-            " sort, group or aggregate by another field, or leave out the rows of the records whose names it masks, by"
-            " %s and %s." % (model_name, name, "may hold" if paths[2] else "copies", paths[0], paths[1])
+            "%s, which the AI deny list masks on some of these rows: sort, group or aggregate by another field, or"
+            " leave out the rows of the records whose names it masks, by %s and %s." % (copy_text, paths[0], paths[1])
         )
 
     @api.model
-    def _reads_a_row(self, model_name, search_domain, rows_domain, is_sorted_past_access=False):
+    def _reads_a_row(self, model_name, search_domain, rows_domain):
         """Whether the call reads a row of `search_domain` among those of `rows_domain`, matched past the rules,
         which decides a refusal: the employee's own search, whose mail.message and mail.activity overrides check
-        matches until the limit; past the rules only where the call sorts past them (`_readable_messages`). Read
-        access first: without it the answer is the same whatever the terms."""
+        matches until the limit. Read access first: without it the answer is the same whatever the terms."""
         Model = self.env[model_name]
         Model.check_access("read")
         # As ids: those overrides read the models a domain names and check the employee's rights on each.
         rows = self._rows_query(Model.sudo().with_context(active_test=False), rows_domain, active_test=False)
-        if is_sorted_past_access:
-            Model = Model.sudo()
         return bool(Model.search_count(search_domain & Domain("id", "any!", rows), limit=1))
 
     @api.model
@@ -3994,9 +4005,9 @@ class AiAssistantTools(models.AbstractModel):
         return list(dict.fromkeys(["display_name", *field_names]))
 
     @api.model
-    def _tool_order(self, model_name, order, search_domain, is_sorted_past_access=False):
+    def _tool_order(self, model_name, order, search_domain, is_message_scan=False):
         """The order to search the rows of `search_domain` in, checked; None for the model's own.
-        `is_sorted_past_access`: the search sorts rows past the employee's access (`_readable_messages`)."""
+        `is_message_scan`: `_readable_messages` sorts the rows."""
         if not order.strip():
             return None
         for term in order.split(","):
@@ -4010,7 +4021,7 @@ class AiAssistantTools(models.AbstractModel):
             self._check_not_structured(model_name, name)
             if not self.env[model_name]._fields[name]._description_sortable(self.env):
                 raise AiToolError("%s.%s cannot be a sort key: sort by a stored field." % (model_name, name))
-            self._check_not_copied_name(model_name, name, search_domain, is_sorted_past_access)
+            self._check_not_copied_name(model_name, name, search_domain, is_message_scan)
         return order
 
     @api.model
@@ -4194,7 +4205,7 @@ class AiAssistantTools(models.AbstractModel):
         max_rows = self._max_rows()
         limit = min(limit, max_rows) if limit > 0 else max_rows
         is_message_scan = model == "mail.message" and not self._names_few_message_models(search_domain)
-        order = self._tool_order(model, order, search_domain, is_sorted_past_access=is_message_scan)
+        order = self._tool_order(model, order, search_domain, is_message_scan=is_message_scan)
         is_cut_short = False
         if is_message_scan:
             records, is_cut_short = self._readable_messages(search_domain, order or Model._order, limit + 1)
@@ -4247,8 +4258,14 @@ class AiAssistantTools(models.AbstractModel):
                 return readable[:limit], False
             if len(matches) < IN_MAX:
                 return readable, False
-        match_past_limit = Message._search(domain, offset=MAX_SEARCH_LIMIT, limit=1, order=order, bypass_access=True)
-        return readable, bool(Message.browse(match_past_limit))
+        return readable, self._is_cut_message_scan(domain)
+
+    @api.model
+    def _is_cut_message_scan(self, domain):
+        """Whether more messages match `domain` past access than `_readable_messages` looks at, in any order: what
+        its cut-short note and read_group's refusal tell the caller."""
+        Message = self.env["mail.message"]
+        return bool(Message.browse(Message._search(domain, offset=MAX_SEARCH_LIMIT, limit=1, bypass_access=True)))
 
     @api.model
     def _tool_read(self, model, ids, fields):

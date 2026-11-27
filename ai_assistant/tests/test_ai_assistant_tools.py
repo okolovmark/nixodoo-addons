@@ -7938,7 +7938,7 @@ class TestAiDenyListNameCopies(AssistantCase):
         self.assertFalse(notice.with_user(self.reader).search([("id", "=", notice.id)]), "Odoo's own hides it")
         return notice
 
-    def test_an_invisible_row_refuses_a_sort_by_a_copy_only_where_the_search_sorts_past_access(self):
+    def test_an_invisible_row_never_refuses_a_sort_by_a_copy(self):
         older = self.partner.message_post(
             subject="AI Hidden Orchard plan", body="AI plan", message_type="comment", subtype_xmlid="mail.mt_note"
         )
@@ -7947,20 +7947,56 @@ class TestAiDenyListNameCopies(AssistantCase):
         self._deny_project_names()
         payload, is_error = self._search_read(self.reader, "mail.message", [["id", "=", older.id]], order="subject")
         self.assertFalse(is_error, payload)
-        # Without a few models named, the tool sorts the matches past the employee's access, the invisible one too.
-        content, is_error = self._search_read(
-            self.reader, "mail.message", [["id", "in", messages.ids]], ["id"], order="subject"
-        )
-        self.assertTrue(is_error, content)
-        self.assertIn("mail.message.subject may hold the display name of the record its row names", content)
         models = ["model", "in", ["project.project", "res.partner"]]
-        payload, is_error = self._search_read(
-            self.reader, "mail.message", [["id", "in", messages.ids], models], ["id"], order="subject"
-        )
-        self.assertEqual(([row["id"] for row in payload["records"]], is_error), (older.ids, False))
+        for terms in ([], [models]):
+            with_invisible, without_invisible = (
+                self._search_read(
+                    self.reader, "mail.message", [["id", "in", rows.ids], *terms], ["id"], order="subject"
+                )
+                for rows in (messages, older)
+            )
+            self.assertEqual(with_invisible, without_invisible, terms)
+            self.assertEqual(
+                ([row["id"] for row in with_invisible[0]["records"]], with_invisible[1]), (older.ids, False), terms
+            )
         for terms in ([], [models]):
             payload, is_error = self._grouped("mail.message", messages, ["subject"], terms)
             self.assertEqual(([row["subject"] for row in payload["groups"]], is_error), ([older.subject], False))
+
+    def test_a_message_scan_cut_at_its_limit_refuses_a_sort_by_a_copy_whatever_the_rows(self):
+        plain, other = (
+            self.partner.message_post(
+                subject=subject, body="AI plan", message_type="comment", subtype_xmlid="mail.mt_note"
+            )
+            for subject in ("AI Plain plan", "AI Other plan")
+        )
+        notice = self._invisible_notice(self.hidden, "AI Hidden Orchard notice")
+        gone = self.partner.message_post(body="AI gone", message_type="comment", subtype_xmlid="mail.mt_note")
+        gone_id = gone.id
+        gone.unlink()
+        self._deny_project_names()
+        answers = [
+            self._search_read(self.reader, "mail.message", [["id", "=", message_id]], ["id"], order="subject")
+            for message_id in (notice.id, gone_id)
+        ]
+        self.assertEqual(answers, [({"model": "mail.message", "records": []}, False)] * 2)
+        readable_ids = (plain | other).ids
+        with patch(f"{TOOLS_MODULE}.IN_MAX", 1), patch(f"{TOOLS_MODULE}.MAX_SEARCH_LIMIT", 1):
+            answers = [
+                self._search_read(
+                    self.reader, "mail.message", [["id", "in", readable_ids + extra_ids]], ["id"], order="subject"
+                )
+                for extra_ids in ([], [notice.id], [gone_id])
+            ]
+            self.assertEqual(answers[1:], answers[:1] * 2)
+            content, is_error = answers[0]
+            self.assertTrue(is_error, content)
+            self.assertIn("mail.message.subject may hold the display name of the record its row names", content)
+            self.assertIn("More than 1 messages match", content)
+            payload, is_error = self._search_read(
+                self.reader, "mail.message", [["id", "in", readable_ids]], ["id"], order="date desc"
+            )
+            self.assertEqual((payload["truncated"], is_error), (True, False), "a sort by another field is cut short")
 
     def test_a_sort_by_a_copy_is_refused_by_the_activities_the_employee_reads_only(self):
         colleague = new_test_user(self.env, login="test_assistant_name_copies_colleague", groups="base.group_user")
