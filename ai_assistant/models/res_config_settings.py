@@ -1,15 +1,6 @@
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
 
-from .ai_assistant_exchange import PENDING_STALE_SECONDS
-from .ai_assistant_tools import (
-    ASSISTANT_CLAUDE_MAX_TOKENS,
-    ASSISTANT_PREFIX,
-    MAX_ROWS,
-    REPORT_MAX_TOKENS,
-    TOOL_SECONDS,
-    positive_number,
-)
 from odoo.addons.ai_claude.models.ai_claude_gateway import (
     CIRCUIT_COOLDOWN_SECONDS,
     CIRCUIT_THRESHOLD,
@@ -19,6 +10,16 @@ from odoo.addons.ai_claude.models.ai_claude_gateway import (
     CLAUDE_TIMEOUT_SECONDS,
     CLAUDE_TOOL_BUDGET_SECONDS,
     positive_int,
+)
+
+from .ai_assistant_exchange import PENDING_STALE_SECONDS
+from .ai_assistant_tools import (
+    ASSISTANT_CLAUDE_MAX_TOKENS,
+    ASSISTANT_PREFIX,
+    MAX_ROWS,
+    REPORT_MAX_TOKENS,
+    TOOL_SECONDS,
+    positive_number,
 )
 
 CLAUDE_EFFORT_SELECTION = [(effort, effort) for effort in CLAUDE_EFFORT_VALUES]

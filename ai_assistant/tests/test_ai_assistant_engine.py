@@ -13,7 +13,6 @@ from odoo.exceptions import AccessError
 from odoo.modules.module import get_manifest
 from odoo.tests import new_test_user, tagged
 
-from .test_ai_assistant_tools import ASSISTANT_KEY_ENV, AssistantCase
 from odoo.addons.ai_assistant.models.ai_assistant_engine import (
     ASSISTANT_SYSTEM_PROMPT,
     CLAUDE_KEY_ENV,
@@ -27,6 +26,8 @@ from odoo.addons.ai_assistant.models.ai_assistant_tools import (
     TOOL_NAMES,
 )
 from odoo.addons.ai_claude.models.ai_claude_gateway import NOT_COVERED, turn_chars
+
+from .test_ai_assistant_tools import ASSISTANT_KEY_ENV, AssistantCase
 
 
 def api_timeout():

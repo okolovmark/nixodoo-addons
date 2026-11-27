@@ -9,8 +9,6 @@ from odoo.exceptions import AccessError, UserError
 from odoo.tests import tagged
 from odoo.tools import plaintext2html
 
-from .test_ai_assistant_engine import api_timeout, claude_turn, text, tool_use
-from .test_ask_ai import ANSWER, QUESTION, AskAiCase
 from odoo.addons.ai_assistant.models.ai_assistant_engine import MODE_PROMPTS
 from odoo.addons.ai_assistant.models.ai_assistant_exchange import (
     APP_ANSWER_NOTIFICATION,
@@ -22,6 +20,9 @@ from odoo.addons.ai_assistant.models.ai_assistant_exchange import (
 from odoo.addons.ai_assistant.models.ai_conversation import APP_TITLE_CHARS
 from odoo.addons.ai_claude.models.ai_claude_gateway import ClaudeOutcome, answer_to_html
 from odoo.addons.queue_job.tests.common import trap_jobs
+
+from .test_ai_assistant_engine import api_timeout, claude_turn, text, tool_use
+from .test_ask_ai import ANSWER, QUESTION, AskAiCase
 
 AI_CONVERSATION_MODULE = "odoo.addons.ai_assistant.models.ai_conversation"
 UNAVAILABLE = "The AI Assistant is not available right now"

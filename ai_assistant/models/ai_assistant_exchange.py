@@ -10,7 +10,6 @@ from odoo import Command, _, api, fields, models
 from odoo.exceptions import AccessError, MissingError, UserError
 from odoo.tools import format_datetime, plaintext2html
 
-from .ai_assistant_tools import ASSISTANT_PREFIX
 from odoo.addons.ai_claude.models.ai_claude_gateway import (
     CLAUDE_KIND_LABELS,
     REACTION_FEEDBACK,
@@ -20,6 +19,8 @@ from odoo.addons.ai_claude.models.ai_claude_gateway import (
 )
 from odoo.addons.ai_claude.models.ai_exchange_mixin import CLAUDE_INCIDENT_WINDOW_MINUTES
 from odoo.addons.queue_job.job import STARTED
+
+from .ai_assistant_tools import ASSISTANT_PREFIX
 
 _logger = logging.getLogger(__name__)
 

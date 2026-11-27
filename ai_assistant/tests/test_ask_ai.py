@@ -17,8 +17,6 @@ from odoo.tests import new_test_user, tagged
 from odoo.tools import mute_logger
 from odoo.tools.sql import index_exists
 
-from .test_ai_assistant_engine import api_timeout, claude_turn, text
-from .test_ai_assistant_tools import ASSISTANT_KEY_ENV, AssistantCase
 from odoo.addons.ai_assistant.models.ai_assistant_engine import MODE_PROMPTS
 from odoo.addons.ai_assistant.models.ai_assistant_exchange import (
     ANSWER_NOTIFICATION,
@@ -37,6 +35,9 @@ from odoo.addons.ai_assistant.models.ai_assistant_tools import ASSISTANT_PREFIX
 from odoo.addons.ai_assistant.models.ai_conversation import ASK_AI_RECORD_INDEX
 from odoo.addons.ai_claude.models.ai_claude_gateway import NOT_COVERED, ClaudeOutcome, answer_to_html, claude_cost
 from odoo.addons.queue_job.tests.common import trap_jobs
+
+from .test_ai_assistant_engine import api_timeout, claude_turn, text
+from .test_ai_assistant_tools import ASSISTANT_KEY_ENV, AssistantCase
 
 THUMBS_UP = "\U0001f44d"
 THUMBS_DOWN = "\U0001f44e"

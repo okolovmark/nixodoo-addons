@@ -5,6 +5,8 @@ from psycopg2 import sql
 from odoo.tests.common import TransactionCase, tagged
 from odoo.tools.convert import convert_file
 
+from odoo.addons.ai_claude.hooks import OWNERSHIP_TABLES, declared_fields, declared_selections
+
 from .. import hooks
 from ..hooks import (
     ADOPTED_FOREIGN_KEYS,
@@ -20,7 +22,6 @@ from ..hooks import (
     post_init_hook,
     pre_init_hook,
 )
-from odoo.addons.ai_claude.hooks import OWNERSHIP_TABLES, declared_fields, declared_selections
 
 HOLDER = "ai_assistant_former_holder"
 EXTENDER = "ai_assistant_extender"

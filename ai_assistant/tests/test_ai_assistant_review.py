@@ -8,9 +8,6 @@ from odoo.tests import tagged
 from odoo.tools import format_datetime
 from odoo.tools.safe_eval import safe_eval
 
-from .test_ai_assistant_app import AppCase
-from .test_ai_assistant_engine import claude_turn, text
-from .test_ask_ai import QUESTION, THUMBS_DOWN
 from odoo.addons.ai_assistant.models.ai_assistant_exchange import (
     APP_ANSWER_NOTIFICATION,
     ASSISTANT_GROUP,
@@ -18,6 +15,10 @@ from odoo.addons.ai_assistant.models.ai_assistant_exchange import (
 )
 from odoo.addons.ai_claude.models.ai_claude_gateway import NOT_COVERED
 from odoo.addons.queue_job.tests.common import trap_jobs
+
+from .test_ai_assistant_app import AppCase
+from .test_ai_assistant_engine import claude_turn, text
+from .test_ask_ai import QUESTION, THUMBS_DOWN
 
 APP = "ai_assistant"
 
