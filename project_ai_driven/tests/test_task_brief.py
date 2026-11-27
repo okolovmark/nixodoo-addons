@@ -1520,22 +1520,42 @@ class TestHtmlToMarkdown(TransactionCase):
             '<p>x<br> <a href="https://e.com/a[1] b">https://e.com/a[1] b</a> y</p>'
             '<p><span><a href="https://e.com/c[2]"></a></span> z</p>'
             '<ul class="o_checklist"><li><a href="https://e.com/d[3]">https://e.com/d[3]</a> w</li>'
-            "<li>&lt;https://e.com/&gt; v</li></ul>",
+            "<li>&lt;https://e.com/&gt; v</li></ul>"
+            '<p>&lt;javascript:alert(1)&gt; <a href="https://e.com/a[1]">https://e.com/a[1]</a></p>',
             "\\<TODO:[spec](https://e.com/b)> then\n\n\\<javascript:alert(1)> x\n\n"
             "x\n<https://e.com/a[1]%20b> y\n\n<https://e.com/c[2]> z\n\n"
-            "- [ ] <https://e.com/d[3]> w\n- [ ] \\<https://e.com/> v",
+            "- [ ] <https://e.com/d[3]> w\n- [ ] \\<https://e.com/> v\n\n"
+            "\\<javascript:alert(1)> <https://e.com/a[1]>",
+        )
+
+    def test_an_autolink_written_here_opening_a_line_inside_an_inline_element_is_not_escaped(self):
+        """After a line break or a space inside a wrapper, as an editor's colour or emphasis puts one, the line still
+        opens with the autolink written here, which an escape would turn into text.
+        """
+        self.assertMarkdown(
+            '<p><font style="color: rgb(255, 0, 0);">Spec:<br>'
+            '<a href="https://e.com/list?filter[state]=open">https://e.com/list?filter[state]=open</a></font></p>'
+            '<p><span> <a href="https://e.com/a[1]">https://e.com/a[1]</a></span> y</p>'
+            '<p><b>See<br><a href="https://e.com/a\\b">https://e.com/a\\b</a></b></p>'
+            '<ul><li><span> <a href="https://e.com/b[2]">https://e.com/b[2]</a></span> w</li></ul>'
+            '<p>x<a href="https://e.com/c[3]"><br>https://e.com/c[3]</a> v</p>'
+            '<h2><span> <a href="https://e.com/d[4]">https://e.com/d[4]</a></span></h2>',
+            "Spec:\n<https://e.com/list?filter[state]=open>\n\n<https://e.com/a[1]> y\n\n**See\n<https://e.com/a\\b>**\n\n"
+            "- <https://e.com/b[2]> w\n\nx\n<https://e.com/c[3]> v\n\n## <https://e.com/d[4]>",
         )
 
     def test_a_bare_link_in_another_link_s_text_is_a_word(self):
         """CommonMark lets no link, an autolink neither, stand in another's text: the outer link would be lost. lxml
-        keeps a link nested in another through an inline element.
+        keeps a link nested in another through an inline element. It reads as a browser shows its text, its url where
+        it has none.
         """
         self.assertMarkdown(
             '<p><a href="https://e.com/o">see <b><a href="https://e.com/?c&amp;amp;d"></a></b> here</a>'
             ' <a href="https://e.com/p">and <b><a href="https://e.com/?a&amp;amp;b">https://e.com/?a&amp;amp;b</a></b></a>'
-            ' <a href="https://e.com/q">or <b><a href="https://e.com/x[1]"></a></b></a></p>',
+            ' <a href="https://e.com/q">or <b><a href="https://e.com/x[1]"></a></b></a>'
+            ' <a href="https://e.com/r">at <b><a href="https://e.com/a\\b(1)">https://e.com/a\\b(1)</a></b></a></p>',
             "[see **https://e.com/?c&amp;amp;d** here](https://e.com/o) [and **https://e.com/?a&amp;amp;b**](https://e.com/p)"
-            " [or **https://e.com/x\\[1\\]**](https://e.com/q)",
+            " [or **https://e.com/x\\[1\\]**](https://e.com/q) [at **https://e.com/a\\\\b(1)**](https://e.com/r)",
         )
 
     def test_each_link_of_a_glued_run_reads_back_for_a_url_up_to_the_link_before_it_only(self):

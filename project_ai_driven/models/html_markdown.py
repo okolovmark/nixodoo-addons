@@ -68,9 +68,12 @@ BLOCK_MARKUP = re.compile(
     r"#+(?:\s|$)|>|[-+*](?:\s|$)|~{3}|`{3,}[^`]*$|[-=]+\s*$|([*_])\s*(?:\1\s*){2,}$|<[A-Za-z/!?]|\|"
     r"|[\s:-]*-[\s:-]*\|[\s|:-]*$"
 )
-# An autolink opening a line, which opens no HTML block: on a finished line one written here (_AutolinkMarkup), as a
+# An autolink opening a line, which opens no HTML block: on a finished line one written here (AUTOLINK_MARK), as a
 # paragraph escapes the text's own.
 LINE_AUTOLINK = re.compile(r"<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\x00-\x20\x7f<>]*>")
+# Put before each autolink written here, through any wrapper, and taken out once its line is escaped (_get_paragraph):
+# lxml's text never holds a NUL, as libxml2's strings end at one.
+AUTOLINK_MARK = "\x00"
 ORDERED_LIST_NUMBER = re.compile(r"[0-9]{1,9}(?=[.)](?:\s|$))")
 # The label at the start of a paragraph, which may run over lines: group 1 is "]:" where it opens a link reference
 # definition, which CommonMark shows nothing of, and "" or "\" where it is still open at the end of the text.
@@ -144,7 +147,8 @@ def html_to_markdown(html_content, attachment_names=None, heading_level=1, base_
     root = parse_html(html_content)
     if root is None:
         return ""
-    return "\n\n".join(_MarkdownWriter(attachment_names or {}, heading_level, base_url).get_blocks(root))
+    blocks = _MarkdownWriter(attachment_names or {}, heading_level, base_url).get_blocks(root)
+    return "\n\n".join(blocks).replace(AUTOLINK_MARK, "")
 
 
 def get_linked_attachment_ids(html_content):
@@ -444,14 +448,6 @@ class _EmphasizedMarkup(str):
     __slots__ = ()
 
 
-class _AutolinkMarkup(str):
-    """Markdown opening, past its spaces, with an autolink <url> written here (_get_bare_link): a line it opens is not
-    escaped, as one the text's own "<" opens is (_get_autolink_lines).
-    """
-
-    __slots__ = ()
-
-
 def _get_word_start(text, start, end):
     """Where the word GFM reads up to end in text starts, looking back to start: after the last space, line break or
     "`", or after the last link destination or autolink, past its opening only where it does not close before end.
@@ -496,7 +492,7 @@ def _join_inline(parts, is_complete=False):
     nothing but backslashes stands before that "!" in the text, those before the text count too: it is left as
     written and the text marked a _BangLinkMarkup, as a text opening with a link's markup is a _LinkMarkup, and one
     opening with an image's an _ImageMarkup, unless is_complete, only markup or a line start coming before the text.
-    A text opening with an _EmphasizedMarkup or an _AutolinkMarkup is one too.
+    A text opening with an _EmphasizedMarkup is one too.
     """
     parts, joined_text = _set_apart_from_urls(parts)
     pieces = []
@@ -512,7 +508,7 @@ def _join_inline(parts, is_complete=False):
                 opening_type = _LinkMarkup
             elif joined_text[part_start - 1] == "!":
                 bang = run_end = part_start - 1
-        elif isinstance(part, (_ImageMarkup, _EmphasizedMarkup, _AutolinkMarkup)) and not part_start:
+        elif isinstance(part, (_ImageMarkup, _EmphasizedMarkup)) and not part_start:
             opening_type = type(part)
         if bang is not None:
             run_start = _get_backslash_run_start(joined_text, run_end)
@@ -530,28 +526,12 @@ def _escape_label(text):
     return _escape_brackets(" ".join(_strip_tokens_in_text(text).split()))
 
 
-def _get_autolink_lines(parts):
-    """The indexes of the lines of the joined inline parts that open, past their spaces, with an autolink written here
-    (_AutolinkMarkup).
-    """
-    autolink_lines = set()
-    line_index = 0
-    is_line_start = True
-    for part in parts:
-        if is_line_start and isinstance(part, _AutolinkMarkup):
-            autolink_lines.add(line_index)
-        line_break_count = part.count("\n")
-        line_index += line_break_count
-        is_line_start = (is_line_start or bool(line_break_count)) and not part.rpartition("\n")[2].strip()
-    return autolink_lines
-
-
 def _escape_line_starts(lines, is_followed_on=False, autolink_lines=()):
     """lines, those of a paragraph, each with what would open a Markdown block at its start escaped, but for those of
-    autolink_lines (_get_autolink_lines): only the text's own "<" opening a line is. A link reference definition
-    opens one only where a CommonMark paragraph starts, on the first line or after an empty one; elsewhere an escaped
-    bracket would be read on in a label left open above it. Where is_followed_on, text joined onto the last line may
-    close a label left open at the end, which is escaped too.
+    autolink_lines, which open with an autolink written here (AUTOLINK_MARK): only the text's own "<" opening a line
+    is. A link reference definition opens one only where a CommonMark paragraph starts, on the first line or after an
+    empty one; elsewhere an escaped bracket would be read on in a label left open above it. Where is_followed_on, text
+    joined onto the last line may close a label left open at the end, which is escaped too.
     """
     text = "\n".join(lines)
     escaped_lines = []
@@ -919,10 +899,12 @@ class _MarkdownWriter:
 
     def _get_paragraph(self, inline_parts):
         inline_text = _join_inline(inline_parts, is_complete=True)
-        lines = [REPEATED_SPACES.sub(" ", line).strip() for line in inline_text.split("\n")]
+        marked_lines = [REPEATED_SPACES.sub(" ", line).strip() for line in inline_text.split("\n")]
+        autolink_lines = {index for index, line in enumerate(marked_lines) if line.startswith(AUTOLINK_MARK)}
+        lines = [line.replace(AUTOLINK_MARK, "") for line in marked_lines]
         # a cell is one line inside its row, where nothing opens a block
         if not self.cell_depth:
-            lines = _escape_line_starts(lines, self.is_followed_on, _get_autolink_lines(inline_parts))
+            lines = _escape_line_starts(lines, self.is_followed_on, autolink_lines)
             lines = [_escape_line_end(line) if next_line else line for line, next_line in zip(lines, lines[1:] + [""])]
         # a run of line breaks shows as one empty line
         paragraph = LINE_BREAK_RUN.sub("\n\n", "\n".join(lines)).strip("\n")
@@ -945,7 +927,9 @@ class _MarkdownWriter:
     def _get_element_blocks(self, element, previous_block=None):
         tag = element.tag
         if tag in HEADING_LEVELS:
-            heading_text = " ".join(self._get_inline_content(element, is_complete=True).split())
+            heading_text = " ".join(
+                self._get_inline_content(element, is_complete=True).replace(AUTOLINK_MARK, "").split()
+            )
             level = min(HEADING_LEVELS[tag] + self.heading_level - 1, 6)
             return ["#" * level + " " + heading_text] if heading_text else []
         if tag in LIST_TAGS:
@@ -1033,17 +1017,16 @@ class _MarkdownWriter:
             return content
         if not content:
             # a browser shows nothing of it: its url, which the reader may want, stands apart from the words around it
-            markup = self._get_link_markup(element, url, content)
-            link = " %s " % markup
+            leading_space = trailing_space = " "
         else:
             # the outer spaces of its text stay outside the link, keeping it apart from the words around it, as that
             # of a part of a table in it does
             leading_space = content[: len(content) - len(content.lstrip())]
             trailing_space = content[len(content.rstrip()) :]
-            markup = self._get_link_markup(element, url, content.strip())
-            link = leading_space + markup + trailing_space
+        markup = self._get_link_markup(element, url, content.strip())
         if markup.startswith("<"):
-            return _AutolinkMarkup(link)
+            markup = AUTOLINK_MARK + markup
+        link = leading_space + markup + trailing_space
         return _LinkMarkup(link) if link.startswith("[") else link
 
     def _get_link_markup(self, element, url, link_text):
@@ -1059,8 +1042,9 @@ class _MarkdownWriter:
         if not is_bare:
             return "[%s](%s)" % (link_text, link_target)
         if self.link_depth:
-            # in another link's text, where CommonMark lets no link stand, an autolink neither: a word
-            return _escape_brackets(link_target)
+            # in another link's text, where CommonMark lets no link stand, an autolink neither: its text as a browser
+            # shows it, its url where it has none
+            return _escape_references(link_text) if link_text else _escape_brackets(link_target)
         return _get_bare_link(clean_url) or "[%s](%s)" % (_escape_brackets(_escape_references(clean_url)), link_target)
 
     def _get_stray_list(self, items, previous_block):

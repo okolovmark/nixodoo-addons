@@ -291,8 +291,8 @@ class ImageMover:
         """url from its path on, None for a link to another host: an absolute
         link is local on the host of task.get_base_url() (website gives a task
         its company's website domain). Unlike the brief, which reads a "\\"
-        before the query as a browser does, a backslash stays as written: such
-        a link is not moved.
+        before the query as a browser does, a backslash stays as written: a
+        link with a backslash in the host or up to the id's end is not moved.
         """
         # not at the top: html_markdown imports project_task_question, whose model must load after this mixin
         from .html_markdown import get_base_host, get_local_url, normalise_url
