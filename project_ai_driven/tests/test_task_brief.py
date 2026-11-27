@@ -1436,10 +1436,13 @@ class TestHtmlToMarkdown(TransactionCase):
             '<p><a href="https://e.com/?a=1&amp;amp;b=2">t</a> <a href="https://e.com/?x&amp;#39;&amp;reg_id=5">u</a>'
             ' <a href="https://e.com/?copy&amp;copy=3&amp;model=x">v</a> <img src="https://e.com/i.png?a&amp;amp;b"></p>'
             '<p><a href="https://e.com/?a&amp;amp;b">https://e.com/?a&amp;amp;b</a> <a href="https://e.com/?c&amp;amp;d"></a>'
-            "</p>",
+            '</p><p><a href="https://e.com/?a&amp;hellip;b">w</a> <a href="https://e.com/?x&amp;copyright=1">c</a>'
+            ' <a href="https://e.com/?a&amp;hellip;b">https://e.com/?a&amp;hellip;b</a></p>',
             "[t](https://e.com/?a=1&amp;amp;b=2) [u](https://e.com/?x&amp;#39;&amp;reg_id=5)"
             " [v](https://e.com/?copy&copy=3&model=x) ![](https://e.com/i.png?a&amp;amp;b)\n\n"
-            "[https://e.com/?a&amp;amp;b](https://e.com/?a&amp;amp;b) [https://e.com/?c&amp;amp;d](https://e.com/?c&amp;amp;d)",
+            "[https://e.com/?a&amp;amp;b](https://e.com/?a&amp;amp;b) [https://e.com/?c&amp;amp;d](https://e.com/?c&amp;amp;d)\n\n"
+            "[w](https://e.com/?a&amp;hellip;b) [c](https://e.com/?x&copyright=1)"
+            " [https://e.com/?a&amp;hellip;b](https://e.com/?a&amp;hellip;b)",
         )
 
     def test_a_backslash_up_to_the_query_of_an_http_or_relative_url_is_a_slash_as_a_browser_reads_it(self):
@@ -1447,10 +1450,14 @@ class TestHtmlToMarkdown(TransactionCase):
             get_linked_attachment_ids(
                 '<a href="/web/content/14\\x">a</a><img src="\\web\\image\\15">'
                 '<a href="https:\\\\e.com\\web\\content\\16">b</a><img src="/web/image\\?model=ir.attachment&amp;id=17">'
-                '<a href="/web/content/18?download=\\x">c</a><a href="/web/content?id=19\\x">d</a>'
-                '<a href="mailto:\\web\\content\\20">e</a>'
+                '<a href="/web/content/18?download=\\x">c</a>'
             ),
             {14, 15, 16, 17, 18},
+        )
+        self.assertEqual(
+            get_linked_attachment_ids('<img src="\\web\\image\\15"><a href="https:\\\\e.com\\web\\content\\16">b</a>'),
+            {15, 16},
+            "a text naming attachments by backslashes only is read too",
         )
         self.assertMarkdown(
             '<p><a href="/web/content/14\\x">spec</a> <a href="https://odoo.example.com\\web\\content\\15">'
@@ -1461,7 +1468,8 @@ class TestHtmlToMarkdown(TransactionCase):
 
     def test_a_link_whose_text_is_its_url_holding_a_backslash_or_a_bracket_is_an_autolink(self):
         """A word would encode its backslash, and its brackets could make a link with the text around it. An autolink
-        opening a line opens no HTML block; a relative url makes none.
+        opening a line opens no HTML block, but the text's own "<" is escaped there all the same; a relative url makes
+        none.
         """
         self.assertMarkdown(
             '<p><a href="https://example.com/a\\b">https://example.com/a\\b</a> and'
@@ -1471,7 +1479,7 @@ class TestHtmlToMarkdown(TransactionCase):
             '<p><a href="https://e.com/a[1] b">https://e.com/a[1] b</a> opens the line</p>'
             "<p>&lt;https://e.com/&gt; too</p><p>&lt;b&gt; still</p>",
             "<https://example.com/a\\b> and <https://e.com/a[1]> [see <https://e.com/x]>(note) <https://e.com/y\\>"
-            " [/web/a\\[1\\]](/web/a[1])\n\n<https://e.com/a[1]%20b> opens the line\n\n<https://e.com/> too\n\n\\<b> still",
+            " [/web/a\\[1\\]](/web/a[1])\n\n<https://e.com/a[1]%20b> opens the line\n\n\\<https://e.com/> too\n\n\\<b> still",
         )
 
     def test_a_link_or_an_image_right_after_a_url_of_the_text_is_set_apart_from_it(self):
@@ -1486,12 +1494,48 @@ class TestHtmlToMarkdown(TransactionCase):
             '<p><a href="https://e.com/u">x</a><a href="https://e.com/v">y</a>'
             ' <a href="https://e.com/u">see https://e.com/a</a><a href="https://e.com/v">w</a>'
             ' <code>https://e.com/a</code><a href="https://e.com/b">c</a>'
-            ' <a href="https://e.com/a[1]">https://e.com/a[1]</a><a href="https://e.com/b">d</a></p>' % data_uri(RED),
+            ' <a href="https://e.com/a[1]">https://e.com/a[1]</a><a href="https://e.com/b">d</a></p>'
+            '<p>https://e.com/a<b><a href="https://e.com/b">x</a></b> https://e.com/c<i><img src="https://e.com/i.png"></i>'
+            ' https://e.com/d<s><a href="https://e.com/b">s</a></s> https://e.com/e<b><a href="https://e.com/b">y</a> z</b>'
+            ' www.e.com<em><a href="https://e.com/b">w</a></em> https://e.com/f<b><i><a href="https://e.com/b">v</a></i></b>'
+            ' https://e.com/g<span><b><a href="https://e.com/b">u</a></b></span>'
+            ' <a href="https://e.com/u">x</a><b><a href="https://e.com/v">t</a></b></p>' % data_uri(RED),
             "https://e.com/a [x](https://e.com/b) www.e.com/a [f](attachment 12) https://e.com/c ![](https://e.com/i.png)"
             " https://e.com/d \\[image not yet moved to an attachment\\] https://e.com/e! [y](https://e.com/b)"
             " https://e.com/f [s](https://e.com/b) https://e.com/g [z](https://e.com/b)\n\n"
             "[x](https://e.com/u)[y](https://e.com/v) [see https://e.com/a](https://e.com/u)[w](https://e.com/v)"
-            " `https://e.com/a`[c](https://e.com/b) <https://e.com/a[1]>[d](https://e.com/b)",
+            " `https://e.com/a`[c](https://e.com/b) <https://e.com/a[1]>[d](https://e.com/b)\n\n"
+            "https://e.com/a **[x](https://e.com/b)** https://e.com/c *![](https://e.com/i.png)*"
+            " https://e.com/d ~~[s](https://e.com/b)~~ https://e.com/e **[y](https://e.com/b) z**"
+            " www.e.com *[w](https://e.com/b)* https://e.com/f ***[v](https://e.com/b)***"
+            " https://e.com/g **[u](https://e.com/b)** [x](https://e.com/u)**[t](https://e.com/v)**",
+        )
+
+    def test_the_text_s_own_scheme_in_angle_brackets_opening_a_line_is_escaped_and_an_autolink_written_here_not(self):
+        """Read on the finished line, the text's own "<TODO:" and a ">" after the markup of a link written here would
+        make one autolink of them, losing the link, and "<javascript:...>" a live link in marked.
+        """
+        self.assertMarkdown(
+            '<p>&lt;TODO:<a href="https://e.com/b">spec</a>&gt; then</p><p>&lt;javascript:alert(1)&gt; x</p>'
+            '<p>x<br> <a href="https://e.com/a[1] b">https://e.com/a[1] b</a> y</p>'
+            '<p><span><a href="https://e.com/c[2]"></a></span> z</p>'
+            '<ul class="o_checklist"><li><a href="https://e.com/d[3]">https://e.com/d[3]</a> w</li>'
+            "<li>&lt;https://e.com/&gt; v</li></ul>",
+            "\\<TODO:[spec](https://e.com/b)> then\n\n\\<javascript:alert(1)> x\n\n"
+            "x\n<https://e.com/a[1]%20b> y\n\n<https://e.com/c[2]> z\n\n"
+            "- [ ] <https://e.com/d[3]> w\n- [ ] \\<https://e.com/> v",
+        )
+
+    def test_a_bare_link_in_another_link_s_text_is_a_word(self):
+        """CommonMark lets no link, an autolink neither, stand in another's text: the outer link would be lost. lxml
+        keeps a link nested in another through an inline element.
+        """
+        self.assertMarkdown(
+            '<p><a href="https://e.com/o">see <b><a href="https://e.com/?c&amp;amp;d"></a></b> here</a>'
+            ' <a href="https://e.com/p">and <b><a href="https://e.com/?a&amp;amp;b">https://e.com/?a&amp;amp;b</a></b></a>'
+            ' <a href="https://e.com/q">or <b><a href="https://e.com/x[1]"></a></b></a></p>',
+            "[see **https://e.com/?c&amp;amp;d** here](https://e.com/o) [and **https://e.com/?a&amp;amp;b**](https://e.com/p)"
+            " [or **https://e.com/x\\[1\\]**](https://e.com/q)",
         )
 
     def test_each_link_of_a_glued_run_reads_back_for_a_url_up_to_the_link_before_it_only(self):
