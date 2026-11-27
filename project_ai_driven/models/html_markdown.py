@@ -72,7 +72,7 @@ BLOCK_MARKUP = re.compile(
 # paragraph escapes the text's own.
 LINE_AUTOLINK = re.compile(r"<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\x00-\x20\x7f<>]*>")
 # Put before each autolink written here, through any wrapper, and taken out once its line is escaped (_get_paragraph):
-# lxml's text never holds a NUL, as libxml2's strings end at one.
+# neither lxml nor PostgreSQL text holds a NUL.
 AUTOLINK_MARK = "\x00"
 ORDERED_LIST_NUMBER = re.compile(r"[0-9]{1,9}(?=[.)](?:\s|$))")
 # The label at the start of a paragraph, which may run over lines: group 1 is "]:" where it opens a link reference
